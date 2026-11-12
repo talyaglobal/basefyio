@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BetaBadge } from '@/components/beta-badge';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import Cookies from 'js-cookie';
@@ -38,16 +37,36 @@ import {
   Users,
   Menu,
   X,
+  Rocket,
+  Sparkles,
+  Workflow,
+  GitBranch,
+  ArchiveRestore,
+  Plug,
 } from 'lucide-react';
 import { FeedbackModal } from '@/components/feedback-modal';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { NotificationsBell } from '@/components/notifications-bell';
 import { ChangelogWidget } from '@/components/changelog-widget';
 import type { UserProfile } from '@/lib/types';
-import { useDashboard, useOrgNoun, orgPath } from '@/app/dashboard/layout';
-import { OrganizationKindIcon } from '@/components/organization-kind';
+import { useDashboard } from '@/app/dashboard/layout';
 import { useProject } from '@/contexts/project-context';
 import { cn } from '@/lib/utils';
+import { handleMenuArrowKeys, useEscapeKey } from '@/lib/use-escape-key';
+
+/**
+ * Where the project switcher goes for `projectId`: the same section of the
+ * other project (e.g. /connect), not always its Overview. Only the section is
+ * kept — deeper segments and query strings name things (a table, a flow) that
+ * belong to the current project.
+ */
+export function projectSwitchHref(pathname: string, projectId: string): string {
+  const match = pathname.match(/^\/dashboard\/projects\/[^/]+\/([^/?#]+)/);
+  const section = match?.[1];
+  return section
+    ? `/dashboard/projects/${projectId}/${section}`
+    : `/dashboard/projects/${projectId}`;
+}
 
 interface HeaderProps {
   user: UserInfo;
@@ -79,8 +98,6 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
   const headerRef = useRef<HTMLElement | null>(null);
 
   const { teams, inviteCount } = useDashboard();
-  // "Organization" once the operator switched the organization pages on; "Team" until then.
-  const { on: orgUi, noun, nouns, lower, lowers } = useOrgNoun();
   // Read the current project from context (populated by ProjectLayout) — no extra fetch needed
   const { project: contextProject } = useProject();
   const [teamProjects, setTeamProjects] = useState<ProjectListItem[]>([]);
@@ -125,6 +142,27 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
       document.removeEventListener('mousedown', onGlobalPointerDown);
     };
   }, []);
+
+  // Esc closes any open header menu (Docs and the user menu used to ignore it)
+  // and hands focus back to the button that opened the team / project menu.
+  const teamTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const projectsTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const teamMenuRef = useRef<HTMLDivElement | null>(null);
+  const projectsMenuRef = useRef<HTMLDivElement | null>(null);
+  useEscapeKey(
+    dropdownOpen || projectsMenuOpen || docsMenuOpen || userMenuOpen || mobileMenuOpen,
+    () => {
+      if (dropdownOpen) teamTriggerRef.current?.focus();
+      if (projectsMenuOpen) projectsTriggerRef.current?.focus();
+      setDropdownOpen(false);
+      setProjectsMenuOpen(false);
+      setDocsMenuOpen(false);
+      setUserMenuOpen(false);
+      setMobileMenuOpen(false);
+      setTeamSearch('');
+      setProjectSearch('');
+    },
+  );
 
   useEffect(() => {
     // When "All Teams" is selected, the project switcher must search across
@@ -201,8 +239,8 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
   const headerTeamLabel = routeTeam
     ? routeTeam.name
     : viewTeamId === 'all'
-      ? `All ${nouns}`
-      : activeTeam?.name || `Select ${lower}`;
+      ? 'All Teams'
+      : activeTeam?.name || 'Select team';
   const headerOwnerTeam = routeTeam ?? (viewTeamId === 'all' ? null : activeTeam);
 
   const currentProjectInTeam = currentProjectIdFromPath
@@ -309,7 +347,6 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
             <Database className="h-4 w-4" />
           </div>
           <span className="hidden text-lg font-bold gradient-text sm:inline">basefyio</span>
-          <BetaBadge className="hidden sm:inline-flex" />
         </Link>
 
         {/* Primary nav links */}
@@ -369,6 +406,9 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
         {/* Team Switcher */}
         <div className="relative hidden md:block" data-nav-dropdown-root="true">
           <button
+            ref={teamTriggerRef}
+            aria-haspopup="menu"
+            aria-expanded={dropdownOpen}
             onClick={() => {
                             setProjectsMenuOpen(false);
               setDocsMenuOpen(false);
@@ -395,15 +435,22 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
           {dropdownOpen && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setDropdownOpen(false)} />
-              <div className="absolute right-0 top-full z-50 mt-1 w-64 rounded-lg border bg-card shadow-lg animate-fade-in">
+              <div
+                ref={teamMenuRef}
+                onKeyDown={(e) => { handleMenuArrowKeys(e, teamMenuRef.current); }}
+                className="absolute right-0 top-full z-50 mt-1 w-64 rounded-lg border bg-card shadow-lg animate-fade-in"
+              >
                 <div className="border-b p-2">
                   <div className="relative">
                     <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                     <input
                       type="text"
+                      autoFocus
+                      data-menu-search
                       value={teamSearch}
                       onChange={(e) => setTeamSearch(e.target.value)}
-                      placeholder={`Search ${lowers}...`}
+                      placeholder="Search teams..."
+                      aria-label="Search teams"
                       className="h-8 w-full rounded-md border bg-background pl-7 pr-2 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
                     />
                   </div>
@@ -411,6 +458,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
                 <div className="p-1">
                   {/* All Teams option */}
                   <button
+                    data-menu-item
                     onClick={() => {
                       setViewTeamId('all');
                       setDropdownOpen(false);
@@ -423,18 +471,19 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
                   >
                     <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted text-muted-foreground text-xs font-bold shrink-0">*</div>
                     <div className="min-w-0 text-left flex-1">
-                      <p className="font-medium">All {nouns}</p>
-                      <p className="text-xs text-muted-foreground">View all projects across {lowers}</p>
+                      <p className="font-medium">All Teams</p>
+                      <p className="text-xs text-muted-foreground">View all projects across teams</p>
                     </div>
                   </button>
                   <div className="mx-2 my-1 border-t border-border" />
                   {filteredTeams.length === 0 ? (
                     <div className="px-3 py-4 text-center text-sm text-muted-foreground">
-                      No {lowers} found.
+                      No teams found.
                     </div>
                   ) : filteredTeams.map((team) => (
                     <button
                       key={team.id}
+                      data-menu-item
                       onClick={() => {
                         setViewTeamId(team.id);
                         switchTeam(team.id);
@@ -446,20 +495,13 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
                       }`}
                     >
                       <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-gradient text-white text-xs font-bold shadow-sm shrink-0">
-                        {orgUi ? (
-                          <OrganizationKindIcon kind={team.kind} className="h-3.5 w-3.5" />
-                        ) : (
-                          team.name.charAt(0).toUpperCase()
-                        )}
+                        {team.name.charAt(0).toUpperCase()}
                       </div>
                       <div className="min-w-0 text-left flex-1">
                         <div className="flex items-center gap-1.5">
                           <p className="truncate font-medium">{team.name}</p>
                           {team.role === 'OWNER' && (
                             <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 shrink-0 bg-amber-50 dark:bg-amber-950/40 px-1 rounded">Owner</span>
-                          )}
-                          {orgUi && team.plan && (
-                            <span className="text-[10px] font-semibold text-primary shrink-0 bg-primary/10 px-1 rounded">{team.plan.displayName}</span>
                           )}
                         </div>
                         <p className="text-xs text-muted-foreground">
@@ -470,40 +512,15 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
                   ))}
                 </div>
                 <div className="border-t p-1 space-y-0.5">
-                  {orgUi ? (
-                    <>
-                      <button
-                        onClick={() => { setDropdownOpen(false); router.push(orgPath(activeTeam)); }}
-                        className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent transition-colors"
-                      >
-                        <Users className="h-3.5 w-3.5" />
-                        Organization overview
-                      </button>
-                      <button
-                        onClick={() => { setDropdownOpen(false); router.push(orgPath(activeTeam, '/settings')); }}
-                        className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent transition-colors"
-                      >
-                        <Settings className="h-3.5 w-3.5" />
-                        Organization settings
-                      </button>
-                      <button
-                        onClick={() => { setDropdownOpen(false); router.push('/dashboard/org/new'); }}
-                        className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent transition-colors text-muted-foreground"
-                      >
-                        <Plus className="h-3.5 w-3.5" />
-                        Create organization
-                      </button>
-                    </>
-                  ) : (
                   <button
+                    data-menu-item
                     onClick={() => { setDropdownOpen(false); router.push('/dashboard/team'); }}
                     className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent transition-colors"
                   >
                     <Settings className="h-3.5 w-3.5" />
                     Team Settings
                   </button>
-                  )}
-                  {orgUi ? null : newTeamOpen ? (
+                  {newTeamOpen ? (
                     <div className="px-2 pb-1 pt-0.5 space-y-1.5">
                       <input
                         autoFocus
@@ -513,7 +530,8 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
                         onChange={(e) => setNewTeamName(e.target.value)}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') handleCreateTeam();
-                          if (e.key === 'Escape') { setNewTeamOpen(false); setNewTeamName(''); }
+                          // Handled here: Esc closes just this form, not the whole menu.
+                          if (e.key === 'Escape') { e.preventDefault(); setNewTeamOpen(false); setNewTeamName(''); }
                         }}
                         className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                       />
@@ -535,6 +553,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
                     </div>
                   ) : (
                     <button
+                      data-menu-item
                       onClick={() => setNewTeamOpen(true)}
                       className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent transition-colors text-muted-foreground"
                     >
@@ -552,6 +571,9 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
         <div className="relative hidden md:block" data-nav-dropdown-root="true">
           <button
             type="button"
+            ref={projectsTriggerRef}
+            aria-haspopup="menu"
+            aria-expanded={projectsMenuOpen}
             onClick={() => {
                             setDropdownOpen(false);
               setDocsMenuOpen(false);
@@ -577,20 +599,36 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
                 className="fixed inset-0 z-40"
                 onClick={() => setProjectsMenuOpen(false)}
               />
-              <div className="absolute right-0 top-full z-50 mt-1 w-72 max-h-[min(24rem,calc(100vh-5rem))] overflow-hidden rounded-lg border bg-card shadow-lg animate-fade-in flex flex-col">
+              <div
+                ref={projectsMenuRef}
+                onKeyDown={(e) => { handleMenuArrowKeys(e, projectsMenuRef.current); }}
+                className="absolute right-0 top-full z-50 mt-1 w-72 max-h-[min(24rem,calc(100vh-5rem))] overflow-hidden rounded-lg border bg-card shadow-lg animate-fade-in flex flex-col"
+              >
                 <div className="border-b px-3 py-2">
                   <p className="text-xs font-medium text-muted-foreground">
                     {viewTeamId === 'all'
-                      ? `Projects across all ${lowers}`
-                      : `Projects in ${activeTeam?.name ?? lower}`}
+                      ? 'Projects across all teams'
+                      : `Projects in ${activeTeam?.name ?? 'team'}`}
                   </p>
                   <div className="relative mt-2">
                     <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                     <input
                       type="text"
+                      autoFocus
+                      data-menu-search
                       value={projectSearch}
                       onChange={(e) => setProjectSearch(e.target.value)}
+                      onKeyDown={(e) => {
+                        // Enter opens the first match.
+                        if (e.key === 'Enter' && filteredProjects.length > 0) {
+                          e.preventDefault();
+                          setProjectsMenuOpen(false);
+                          setProjectSearch('');
+                          router.push(projectSwitchHref(pathname, filteredProjects[0].id));
+                        }
+                      }}
                       placeholder="Search projects..."
+                      aria-label="Search projects"
                       className="h-8 w-full rounded-md border bg-background pl-7 pr-2 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
                     />
                   </div>
@@ -609,9 +647,11 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
                       <button
                         key={project.id}
                         type="button"
+                        data-menu-item
                         onClick={() => {
                           setProjectsMenuOpen(false);
-                          router.push(`/dashboard/projects/${project.id}`);
+                          setProjectSearch('');
+                          router.push(projectSwitchHref(pathname, project.id));
                         }}
                         className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-left transition-colors ${
                           project.id === currentProjectIdFromPath
@@ -637,6 +677,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
                 <div className="border-t p-1">
                   <button
                     type="button"
+                    data-menu-item
                     onClick={() => {
                       setProjectsMenuOpen(false);
                       router.push('/dashboard/projects');
@@ -657,7 +698,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
             variant="outline"
             size="sm"
             className="relative hidden h-9 md:inline-flex"
-            onClick={() => router.push(orgUi ? orgPath(activeTeam, '/members') : '/dashboard/team')}
+            onClick={() => router.push('/dashboard/team')}
           >
             <Bell className="mr-1.5 h-3.5 w-3.5" />
             {inviteCount} invite{inviteCount > 1 ? 's' : ''}
@@ -712,11 +753,11 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
               Projects
             </button>
             <button
-              onClick={() => { setMobileMenuOpen(false); router.push(orgUi ? orgPath(activeTeam, '/members') : '/dashboard/team'); }}
+              onClick={() => { setMobileMenuOpen(false); router.push('/dashboard/team'); }}
               className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
             >
               <Users className="h-4 w-4" />
-              {noun}
+              Team
             </button>
             <button
               onClick={() => { setMobileMenuOpen(false); router.push('/dashboard/account'); }}
@@ -734,7 +775,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
             </button>
             <div className="my-1 border-t" />
             <div className="px-3 py-1 text-xs text-muted-foreground">
-              {noun}: {activeTeam?.name || 'Not selected'}
+              Team: {activeTeam?.name || 'Not selected'}
             </div>
             <div className="px-3 py-1 text-xs text-muted-foreground truncate">
               User:{' '}
@@ -754,14 +795,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
   );
 }
 
-// The docs live on their own host; its /api/docs-nav lists the pages with absolute addresses.
-const docsBaseUrl = process.env.NEXT_PUBLIC_DOCS_URL || 'https://docs.basefyio.com';
-/** A docs page's address: the one the nav feed gives, else the path under the docs host (the feed's href keeps the /docs prefix as an id). */
-function docsHref(item: DocsLink): string {
-  if (item.url) return item.url;
-  const path = item.href === '/docs' ? '/' : item.href.replace(/^\/docs/, '');
-  return `${docsBaseUrl}${path}`;
-}
+const docsBaseUrl = process.env.NEXT_PUBLIC_DOCS_URL || 'https://basefyio.com';
 
 // Map the docs nav's stable icon keys (from the website's /api/docs-nav) to icons.
 const DOC_ICONS: Record<string, typeof Book> = {
@@ -776,20 +810,32 @@ const DOC_ICONS: Record<string, typeof Book> = {
   terminal: Terminal,
   shield: Shield,
   cloud: Cloud,
+  rocket: Rocket,
+  sparkles: Sparkles,
+  workflow: Workflow,
+  branch: GitBranch,
+  archive: ArchiveRestore,
+  plug: Plug,
 };
 
-interface DocsLink { label: string; href: string; icon: string; url?: string }
+interface DocsLink { label: string; href: string; icon: string }
 
 // Fallback list — used only if the live docs nav can't be fetched. The live
 // list comes from the website's /api/docs-nav so the menu mirrors the docs
 // sidebar automatically (add a page there → it appears here).
 const FALLBACK_DOCS_LINKS: DocsLink[] = [
   { label: 'Overview', href: '/docs', icon: 'book' },
+  { label: 'Quickstart', href: '/docs/quickstart', icon: 'rocket' },
   { label: 'Data Engine', href: '/docs/data-engine', icon: 'database' },
   { label: 'Connect', href: '/docs/connect', icon: 'link' },
   { label: 'Realtime', href: '/docs/realtime', icon: 'radio' },
   { label: 'Authentication', href: '/docs/auth', icon: 'key' },
   { label: 'Storage', href: '/docs/storage', icon: 'harddrive' },
+  { label: 'AI & Embeddings', href: '/docs/embeddings', icon: 'sparkles' },
+  { label: 'Flows', href: '/docs/flows', icon: 'workflow' },
+  { label: 'Branches', href: '/docs/branches', icon: 'branch' },
+  { label: 'Backups & PITR', href: '/docs/backups', icon: 'archive' },
+  { label: 'Integrations', href: '/docs/integrations', icon: 'plug' },
   { label: 'API Reference', href: '/docs/api', icon: 'server' },
   { label: 'SDK', href: '/docs/sdk', icon: 'code' },
   { label: 'CLI', href: '/docs/cli', icon: 'terminal' },
@@ -821,11 +867,17 @@ function DocsMenu({ open, onOpenChange }: { open: boolean; onOpenChange: (open: 
   }, []);
 
   return (
-    <div className="relative" data-nav-dropdown-root="true">
+    <div
+      className="relative"
+      data-nav-dropdown-root="true"
+      onKeyDown={(e) => { if (open) handleMenuArrowKeys(e, e.currentTarget); }}
+    >
       <Button
         variant="ghost"
         size="sm"
         className="h-8 gap-1.5 text-muted-foreground hover:text-foreground"
+        aria-haspopup="menu"
+        aria-expanded={open}
         onClick={() => onOpenChange(!open)}
       >
         <Book className="h-3.5 w-3.5" />
@@ -843,7 +895,8 @@ function DocsMenu({ open, onOpenChange }: { open: boolean; onOpenChange: (open: 
                 return (
                   <a
                     key={item.href}
-                    href={docsHref(item)}
+                    data-menu-item
+                    href={`${docsBaseUrl}${item.href}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={() => onOpenChange(false)}
@@ -893,9 +946,15 @@ function UserMenu({
   const avatarUrl = profile?.avatarUrl;
 
   return (
-    <div className="relative" data-nav-dropdown-root="true">
+    <div
+      className="relative"
+      data-nav-dropdown-root="true"
+      onKeyDown={(e) => { if (open) handleMenuArrowKeys(e, e.currentTarget); }}
+    >
       <button
         onClick={() => onOpenChange(!open)}
+        aria-haspopup="menu"
+        aria-expanded={open}
         className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-accent"
       >
         {/* Avatar */}
@@ -935,6 +994,7 @@ function UserMenu({
             </div>
             <div className="p-1">
               <button
+                data-menu-item
                 onClick={() => { onOpenChange(false); router.push('/dashboard/account'); }}
                 className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent transition-colors"
               >
@@ -944,6 +1004,7 @@ function UserMenu({
             </div>
             <div className="border-t p-1">
               <button
+                data-menu-item
                 onClick={() => { onOpenChange(false); onLogout(); }}
                 className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-destructive hover:bg-destructive/10 transition-colors"
               >

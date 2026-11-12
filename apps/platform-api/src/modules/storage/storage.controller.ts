@@ -26,8 +26,17 @@ import { Request, Response } from 'express';
 import { createReadStream } from 'fs';
 import { StorageService } from './storage.service';
 import { ImageTransformService } from './image-transform.service';
-import { StorageAccessService } from './storage-access.service';
+import { BucketIntent, StorageAccessService } from './storage-access.service';
 import { isPrivileged, ownerMeta, storageCaller } from './storage-caller';
+import {
+  assertBucketName,
+  cleanKey,
+  limitViolation,
+  pageListing,
+  parseBucketLimits,
+  parseListOptions,
+  stringList,
+} from './storage-objects';
 import {
   ContentLengthGuard,
   Semaphore,
@@ -61,6 +70,11 @@ const maxUploadBytes = resolveMaxUploadBytes(MAX_FILE_SIZE);
 /** Uploads streaming to the store at once on this instance; beyond it the route answers 503. */
 const uploadSlots = new Semaphore(resolveMaxConcurrentUploads());
 
+/** Signed URL lifetime, in seconds. */
+export const MIN_SIGNED_EXPIRY = 60;
+export const MAX_SIGNED_EXPIRY = 7 * 24 * 60 * 60;
+export const DEFAULT_SIGNED_EXPIRY = 3600;
+
 /**
  * Buckets and objects.
  *
@@ -68,13 +82,16 @@ const uploadSlots = new Semaphore(resolveMaxConcurrentUploads());
  * closed until someone states otherwise. Carved out of that default: object
  * reads and writes need a signed-in end user, and the two routes a browser
  * reaches with no headers at all — a public file's URL and the download behind
- * it — stay public, because an <img src> cannot send an apikey header.
+ * it — stay open to the public key, because an <img src> cannot send an apikey
+ * header.
  *
- * By default a private bucket is still readable by anyone holding the public
- * key through the download route. A project closes that per bucket or prefix
- * with an access rule (StoragePolicy, administered by StoragePolicyController)
- * which this controller enforces on download, render, list, delete and
- * overwrite. With no rule, nothing here changes.
+ * A private bucket is closed to the bare public key on every route, reads
+ * included: it is reached with a signed-in user's token, a signed URL or the
+ * service key (StorageAccessService.assertBucketReachable). A project can open
+ * reads of a private bucket or prefix to the public key on purpose with a
+ * `public-read` access rule, and narrow access further with the other rules
+ * (StoragePolicy, administered by StoragePolicyController), which this
+ * controller enforces on download, render, list, delete and overwrite.
  */
 @Controller('projects/:projectId/storage')
 @UseGuards(JwtOrApiKeyGuard)
@@ -96,63 +113,141 @@ export class StorageController {
     };
   }
 
+  /** Refuses the bare public key on a private bucket (see the class comment). */
+  private reachable(
+    req: Request,
+    projectId: string,
+    bucketName: string,
+    key: string,
+    intent: BucketIntent,
+    verb: string,
+  ): Promise<void> {
+    return this.access.assertBucketReachable(storageCaller(req), projectId, bucketName, key, intent, verb, () =>
+      this.storage.isPublicBucket(projectId, bucketName),
+    );
+  }
+
   // ── Buckets ────────────────────────────────────────────
 
+  /**
+   * Every bucket of the project. The bare public key sees only the public ones:
+   * a private bucket's name, size and contents are none of its business.
+   */
   @Get('buckets')
   @AuthenticatedKeyOnly()
   async listBuckets(
     @Param('projectId') projectId: string,
+    @Req() req: Request,
     @CurrentUser() user?: JwtPayload,
   ) {
-    return this.storage.listBuckets(projectId, user?.sub);
+    const buckets = await this.storage.listBuckets(projectId, user?.sub);
+    return storageCaller(req).kind === 'anon' ? buckets.filter((b) => b.public) : buckets;
+  }
+
+  /** The ceilings that apply to every upload, so a client can check before sending. */
+  @Get('limits')
+  @AnonKeyAllowed()
+  async limits(@Param('projectId') projectId: string, @CurrentUser() user?: JwtPayload) {
+    await this.storage.resolveProject(projectId, user?.sub);
+    return {
+      // Larger files go through upload sessions (resumable, chunked).
+      maxUploadBytes,
+      signedUrlExpiry: { min: MIN_SIGNED_EXPIRY, max: MAX_SIGNED_EXPIRY, default: DEFAULT_SIGNED_EXPIRY },
+    };
   }
 
   @Post('buckets')
   async createBucket(
     @Param('projectId') projectId: string,
-    @Body() body: { name: string; public?: boolean },
+    @Body() body: { name: string; public?: boolean; fileSizeLimit?: number | null; allowedMimeTypes?: string[] | null },
     @CurrentUser() user?: JwtPayload,
   ) {
-    const result = await this.storage.createBucket(projectId, user?.sub, body.name, body.public);
+    const input = (body ?? {}) as Record<string, unknown>;
+    // The store would lower-case and rewrite a name it cannot hold, and then
+    // the bucket would answer to a name the caller never chose. Refuse instead.
+    const name = assertBucketName(input.name);
+    if (input.public !== undefined && typeof input.public !== 'boolean') {
+      throw new BadRequestException('public must be true or false');
+    }
+    const limits = parseBucketLimits(input);
+    const result = await this.storage.createBucket(projectId, user?.sub, name, input.public === true, limits);
     await this.activity.append(projectId, {
       userId: user?.sub,
       kind: ProjectActivityKind.STORAGE_BUCKET_CREATED,
-      title: `Storage bucket created: ${body.name}`,
-      detail: body.public ? 'Public bucket' : 'Private bucket',
+      title: `Storage bucket created: ${name}`,
+      detail: input.public === true ? 'Public bucket' : 'Private bucket',
     });
     return result;
   }
 
+  /**
+   * Delete a bucket. One that still holds files answers 409 unless
+   * `?force=true` is given, so a script cannot wipe a bucket's contents by
+   * accident.
+   */
   @Delete('buckets/:bucketName')
   async deleteBucket(
     @Param('projectId') projectId: string,
     @Param('bucketName') bucketName: string,
+    @Query('force') force: string | undefined,
     @CurrentUser() user?: JwtPayload,
   ) {
-    const result = await this.storage.deleteBucket(projectId, user?.sub, bucketName);
+    const forced = force === 'true' || force === '1';
+    if (force !== undefined && !forced && force !== 'false' && force !== '0') {
+      throw new BadRequestException('force must be true or false');
+    }
+    const result = await this.storage.deleteBucket(projectId, user?.sub, bucketName, { force: forced });
     await this.activity.append(projectId, {
       userId: user?.sub,
       kind: ProjectActivityKind.STORAGE_BUCKET_DELETED,
       title: `Storage bucket deleted: ${bucketName}`,
+      ...(result.deletedObjects ? { detail: `${result.deletedObjects} file(s) deleted with it` } : {}),
     });
     return result;
   }
 
+  /**
+   * Change a bucket's visibility and/or its upload limits. Every field is
+   * optional, but the body must change something and each field must have its
+   * type: `public` is a boolean, never a string that happens to be truthy.
+   */
   @Patch('buckets/:bucketName')
   async updateBucket(
     @Param('projectId') projectId: string,
     @Param('bucketName') bucketName: string,
-    @Body() body: { public: boolean },
+    @Body() body: { public?: boolean; fileSizeLimit?: number | null; allowedMimeTypes?: string[] | null },
     @CurrentUser() user?: JwtPayload,
   ) {
-    const result = await this.storage.toggleBucketPublic(projectId, user?.sub, bucketName, body.public);
-    await this.activity.append(projectId, {
-      userId: user?.sub,
-      kind: ProjectActivityKind.STORAGE_BUCKET_UPDATED,
-      title: `Storage bucket visibility updated: ${bucketName}`,
-      detail: body.public ? 'Set public' : 'Set private',
-    });
-    return result;
+    const input = (body ?? {}) as Record<string, unknown>;
+    if (input.public !== undefined && typeof input.public !== 'boolean') {
+      throw new BadRequestException('public must be true or false');
+    }
+    const limits = parseBucketLimits(input);
+    if (input.public === undefined && Object.keys(limits).length === 0) {
+      throw new BadRequestException('Nothing to update: send public, fileSizeLimit and/or allowedMimeTypes');
+    }
+
+    const out: Record<string, unknown> = {};
+    if (input.public !== undefined) {
+      const result = await this.storage.toggleBucketPublic(projectId, user?.sub, bucketName, input.public as boolean);
+      Object.assign(out, result);
+      await this.activity.append(projectId, {
+        userId: user?.sub,
+        kind: ProjectActivityKind.STORAGE_BUCKET_UPDATED,
+        title: `Storage bucket visibility updated: ${bucketName}`,
+        detail: input.public ? 'Set public' : 'Set private',
+      });
+    }
+    if (Object.keys(limits).length > 0) {
+      await this.storage.resolveBucket(projectId, user?.sub, bucketName);
+      Object.assign(out, await this.storage.setBucketLimits(projectId, bucketName, limits));
+      await this.activity.append(projectId, {
+        userId: user?.sub,
+        kind: ProjectActivityKind.STORAGE_BUCKET_UPDATED,
+        title: `Storage bucket upload limits updated: ${bucketName}`,
+      });
+    }
+    return out;
   }
 
   @Get('buckets/:bucketName/public-url')
@@ -174,9 +269,11 @@ export class StorageController {
     @Param('projectId') projectId: string,
     @Param('bucketName') bucketName: string,
     @Body() body: { path: string },
+    @Req() req: Request,
     @CurrentUser() user?: JwtPayload,
   ) {
-    const result = await this.storage.createFolder(projectId, user?.sub, bucketName, body.path);
+    await this.reachable(req, projectId, bucketName, String(body?.path ?? ''), 'write', 'create folders in');
+    const result = await this.storage.createFolder(projectId, user?.sub, bucketName, body?.path);
     await this.activity.append(projectId, {
       userId: user?.sub,
       kind: ProjectActivityKind.STORAGE_OBJECT_UPLOADED,
@@ -192,14 +289,12 @@ export class StorageController {
     @Param('projectId') projectId: string,
     @Param('bucketName') bucketName: string,
     @Body() body: { paths: string[] },
+    @Req() req: Request,
     @CurrentUser() user?: JwtPayload,
   ) {
-    const existing = await this.storage.findExistingObjects(
-      projectId,
-      user?.sub,
-      bucketName,
-      body.paths || [],
-    );
+    const paths = stringList(body?.paths, 'paths');
+    await this.reachable(req, projectId, bucketName, '', 'read', 'look into');
+    const existing = await this.storage.findExistingObjects(projectId, user?.sub, bucketName, paths);
     return { existing };
   }
 
@@ -208,25 +303,26 @@ export class StorageController {
   async moveObjects(
     @Param('projectId') projectId: string,
     @Param('bucketName') bucketName: string,
-    @Body() body: { sources: string[]; destFolder: string },
+    @Body() body: { sources: string[]; destFolder?: string },
     @Req() req: Request,
     @CurrentUser() user?: JwtPayload,
   ) {
+    // An empty or malformed body used to answer 201 { moved: 0 }, which reads
+    // as success. Say what is wrong instead.
+    const sources = stringList(body?.sources, 'sources');
+    if (body?.destFolder !== undefined && body.destFolder !== null && typeof body.destFolder !== 'string') {
+      throw new BadRequestException('destFolder must be a string (blank = the bucket root)');
+    }
+    await this.reachable(req, projectId, bucketName, '', 'write', 'move files in');
     await this.access.assertCanModifyAll(
       storageCaller(req),
       projectId,
       bucketName,
-      body.sources || [],
+      sources,
       this.statFn(projectId, user?.sub, bucketName),
       'move',
     );
-    const result = await this.storage.moveObjects(
-      projectId,
-      user?.sub,
-      bucketName,
-      body.sources || [],
-      body.destFolder || '',
-    );
+    const result = await this.storage.moveObjects(projectId, user?.sub, bucketName, sources, body.destFolder || '');
     await this.activity.append(projectId, {
       userId: user?.sub,
       kind: ProjectActivityKind.STORAGE_OBJECT_UPLOADED,
@@ -236,23 +332,119 @@ export class StorageController {
     return result;
   }
 
+  /**
+   * Copy a file or a folder (a path ending in '/') to a new path in the same
+   * bucket. `{ from, to, overwrite? }` → `{ from, to, count }`; 409 when the
+   * destination exists and `overwrite` is not set.
+   */
+  @Post('buckets/:bucketName/objects/copy')
+  @AuthenticatedKeyOnly()
+  async copyObject(
+    @Param('projectId') projectId: string,
+    @Param('bucketName') bucketName: string,
+    @Body() body: { from: string; to: string; overwrite?: boolean },
+    @Req() req: Request,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    return this.copyOrRename(projectId, bucketName, body, req, user, false);
+  }
+
+  /**
+   * Rename (move) a file or a folder to a new path in the same bucket. Same
+   * body and answer as copy; the source is gone afterwards.
+   */
+  @Post('buckets/:bucketName/objects/rename')
+  @AuthenticatedKeyOnly()
+  async renameObject(
+    @Param('projectId') projectId: string,
+    @Param('bucketName') bucketName: string,
+    @Body() body: { from: string; to: string; overwrite?: boolean },
+    @Req() req: Request,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    return this.copyOrRename(projectId, bucketName, body, req, user, true);
+  }
+
+  private async copyOrRename(
+    projectId: string,
+    bucketName: string,
+    body: { from: string; to: string; overwrite?: boolean } | undefined,
+    req: Request,
+    user: JwtPayload | undefined,
+    move: boolean,
+  ) {
+    const from = cleanKey(body?.from, 'from');
+    const to = cleanKey(body?.to, 'to');
+    if (body?.overwrite !== undefined && typeof body.overwrite !== 'boolean') {
+      throw new BadRequestException('overwrite must be true or false');
+    }
+    await this.reachable(req, projectId, bucketName, from, 'write', move ? 'rename files in' : 'copy files in');
+
+    const caller = storageCaller(req);
+    const statFn = this.statFn(projectId, user?.sub, bucketName);
+    if (move) {
+      await this.access.assertCanModifyAll(caller, projectId, bucketName, [from], statFn, 'move');
+    } else {
+      const mode = await this.access.resolveMode(projectId, bucketName, from);
+      if (mode && !isPrivileged(caller)) {
+        if (from.endsWith('/') && mode === 'owner-only') {
+          throw new BadRequestException(`"${from}" is a folder in an owner-only location; copy its files individually.`);
+        }
+        this.access.assertCanRead(caller, mode, mode === 'owner-only' ? await statFn(from) : null, from);
+      }
+    }
+    // Writing over an object counts as touching it, as on upload.
+    const destMode = await this.access.resolveMode(projectId, bucketName, to);
+    if (destMode === 'owner-only' && !isPrivileged(caller) && body?.overwrite) {
+      this.access.assertCanOverwrite(caller, destMode, await statFn(to), to);
+    }
+
+    const result = await this.storage.copyObjects(projectId, user?.sub, bucketName, from, to, {
+      overwrite: body?.overwrite === true,
+      move,
+    });
+    await this.activity.append(projectId, {
+      userId: user?.sub,
+      kind: ProjectActivityKind.STORAGE_OBJECT_UPLOADED,
+      title: `Storage ${move ? 'item renamed' : 'item copied'}: ${bucketName}`,
+      detail: `${from} → ${to}`,
+    });
+    return move ? { from: result.from, to: result.to, moved: result.count } : { ...result, copied: result.count };
+  }
+
+  /**
+   * One level of a bucket (`prefix`), or everything under it with
+   * `recursive=true`. Optional `search` (substring of the entry's own name),
+   * `sortBy` (name | size | lastModified), `order` (asc | desc), `limit`
+   * (≤ 1000) and `offset`; folders come before files whenever a sort is asked
+   * for. The answer is the same array as always, sliced to the page; the
+   * number of matching entries travels in `X-Total-Count`.
+   */
   @Get('buckets/:bucketName/objects')
   @AuthenticatedKeyOnly()
   async listObjects(
     @Param('projectId') projectId: string,
     @Param('bucketName') bucketName: string,
-    @Query('prefix') prefix: string,
+    @Query() query: Record<string, unknown>,
     @Req() req: Request,
+    @Res({ passthrough: true }) res?: Response,
     @CurrentUser() user?: JwtPayload,
   ) {
-    const objects = await this.storage.listObjects(projectId, user?.sub, bucketName, prefix || '');
-    const mode = await this.access.resolveMode(projectId, bucketName, prefix || '');
-    return this.access.filterListing(
+    const prefix = typeof query?.prefix === 'string' ? query.prefix : '';
+    const recursive = query?.recursive === 'true' || query?.recursive === '1';
+    const opts = parseListOptions(query ?? {});
+    await this.reachable(req, projectId, bucketName, prefix, 'read', 'list');
+    const objects = await this.storage.listObjects(projectId, user?.sub, bucketName, prefix, recursive);
+    const mode = await this.access.resolveMode(projectId, bucketName, prefix);
+    const visible = await this.access.filterListing(
       storageCaller(req),
       mode,
       objects,
       this.statFn(projectId, user?.sub, bucketName),
     );
+    const { items, total } = pageListing(visible, opts);
+    res?.setHeader?.('X-Total-Count', String(total));
+    return items;
   }
 
   // The body lands in a disk spool (multer stops reading at the limit, which
@@ -286,8 +478,25 @@ export class StorageController {
       throw new ServiceUnavailableException('Too many uploads in progress, retry shortly');
     }
     try {
-      // Writing over someone else's object counts as touching it.
       const key = objectPath.replace(/^\/+/, '');
+      if (!key || key.endsWith('/') || key.split('/').some((seg) => seg === '..') || key.includes('\0')) {
+        throw new BadRequestException('path must name a file inside the bucket');
+      }
+      await this.reachable(req, projectId, bucketName, key, 'write', 'upload to');
+
+      const violation = limitViolation(
+        await this.storage.getBucketLimits(projectId, bucketName),
+        bucketName,
+        file.size,
+        file.mimetype,
+      );
+      if (violation) {
+        throw violation.status === 413
+          ? new PayloadTooLargeException(violation.message)
+          : new UnsupportedMediaTypeException(violation.message);
+      }
+
+      // Writing over someone else's object counts as touching it.
       const mode = await this.access.resolveMode(projectId, bucketName, key);
       if (mode === 'owner-only' && !isPrivileged(caller)) {
         const existing = await this.statFn(projectId, user?.sub, bucketName)(key);
@@ -331,6 +540,8 @@ export class StorageController {
     @CurrentUser() user: JwtPayload | undefined,
     @Res() res: Response,
   ) {
+    // Before the object is opened: a refused caller must not learn whether it exists.
+    await this.reachable(req, projectId, bucketName, objectPath || '', 'read', 'download from');
     const { stream, stat } = await this.storage.getObject(
       projectId,
       user?.sub,
@@ -371,6 +582,7 @@ export class StorageController {
       throw new NotImplementedException('Image transforms are not available on this build');
     }
     const opts = this.transforms.parseTransformQuery(query || {});
+    await this.reachable(req, projectId, bucketName, objectPath || '', 'read', 'read images from');
     const { stream, stat } = await this.storage.getObject(
       projectId,
       user?.sub,
@@ -467,14 +679,14 @@ export class StorageController {
     @Req() req: Request,
     @CurrentUser() user?: JwtPayload,
   ) {
-    const MAX_EXPIRY = 7 * 24 * 60 * 60; // 7 days
-    const MIN_EXPIRY = 60; // 1 minute
-    let expirySeconds = expiry ? parseInt(expiry, 10) : 3600;
-    if (isNaN(expirySeconds) || expirySeconds < MIN_EXPIRY || expirySeconds > MAX_EXPIRY) {
+    const expirySeconds = expiry ? Number(expiry) : DEFAULT_SIGNED_EXPIRY;
+    if (!Number.isInteger(expirySeconds) || expirySeconds < MIN_SIGNED_EXPIRY || expirySeconds > MAX_SIGNED_EXPIRY) {
       throw new BadRequestException(
-        `Expiry must be between ${MIN_EXPIRY} and ${MAX_EXPIRY} seconds`,
+        `Expiry must be a whole number of seconds between ${MIN_SIGNED_EXPIRY} and ${MAX_SIGNED_EXPIRY}`,
       );
     }
+    // Minting a URL is a read: whoever may not read the object may not hand it out.
+    await this.reachable(req, projectId, bucketName, objectPath || '', 'read', 'create signed URLs for');
     // A signed URL bypasses every later check, so the rule is applied when it is minted.
     const caller = storageCaller(req);
     const mode = await this.access.resolveMode(projectId, bucketName, objectPath);
@@ -500,21 +712,23 @@ export class StorageController {
     @Req() req: Request,
     @CurrentUser() user?: JwtPayload,
   ) {
+    const paths = stringList(body?.paths, 'paths');
+    await this.reachable(req, projectId, bucketName, '', 'write', 'delete files in');
     await this.access.assertCanModifyAll(
       storageCaller(req),
       projectId,
       bucketName,
-      body.paths || [],
+      paths,
       this.statFn(projectId, user?.sub, bucketName),
       'delete',
     );
-    const result = await this.storage.deleteObjects(projectId, user?.sub, bucketName, body.paths);
+    const result = await this.storage.deleteObjects(projectId, user?.sub, bucketName, paths);
     await this.activity.append(projectId, {
       userId: user?.sub,
       kind: ProjectActivityKind.STORAGE_OBJECT_DELETED,
       title: `Storage object(s) deleted: ${bucketName}`,
-      detail: `${body.paths.length} path(s)`,
-      metadata: { paths: body.paths.slice(0, 20) },
+      detail: `${result.deleted.length} object(s)`,
+      metadata: { paths: paths.slice(0, 20) },
     });
     return result;
   }

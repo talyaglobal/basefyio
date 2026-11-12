@@ -1,5 +1,7 @@
 import type { BasefyioFetchClient } from '../lib/fetch.js';
+import { BasefyioClientError, toBasefyioError, toJson } from '../lib/errors.js';
 import type {
+  BasefyioError,
   BasefyioResponse,
   SqlResult,
   TableInfo,
@@ -136,26 +138,140 @@ export class OrConditionBuilder {
   }
 }
 
+// ── Select list ─────────────────────────────────────────
+
+const PLAIN_IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
+/** A type name for a cast: words and an optional `[]`, never quotes or parentheses. */
+const CAST_TYPE = /^[A-Za-z_][A-Za-z0-9_]*(?: [A-Za-z_][A-Za-z0-9_]*)*(?:\[\])?$/;
+const AGGREGATE = /^(count|sum|avg|min|max)\(\s*(\*|[A-Za-z_][A-Za-z0-9_]*)?\s*\)$/i;
+
+interface SelectTerm {
+  sql: string;
+  aggregate: boolean;
+}
+
+/**
+ * One entry of `select('…')` as SQL.
+ *
+ * Understood: a column, `col::type`, `count(*)` / `sum(col)` / `avg` / `min` /
+ * `max`, and an alias written `col as label` or `label:col`. Anything else is
+ * quoted whole as one column name, which is what every entry used to be — so a
+ * column whose name holds a space or a capital still selects as it always did.
+ */
+function selectTerm(raw: string): SelectTerm {
+  let expr = raw;
+  let alias: string | undefined;
+
+  const asMatch = raw.match(/^(.+?)\s+as\s+([A-Za-z_][A-Za-z0-9_]*)$/i);
+  const colonMatch = raw.match(/^([A-Za-z_][A-Za-z0-9_]*):(?!:)(.+)$/);
+  if (asMatch) {
+    expr = asMatch[1].trim();
+    alias = asMatch[2];
+  } else if (colonMatch) {
+    alias = colonMatch[1];
+    expr = colonMatch[2].trim();
+  }
+
+  let sql: string | undefined;
+  let aggregate = false;
+  const agg = expr.match(AGGREGATE);
+  if (agg) {
+    const fn = agg[1].toLowerCase();
+    const arg = agg[2];
+    if (fn === 'count' && (!arg || arg === '*')) sql = 'count(*)';
+    else if (arg && arg !== '*') sql = `${fn}(${quoteIdent(arg)})`;
+    aggregate = sql !== undefined;
+  } else if (PLAIN_IDENT.test(expr)) {
+    sql = quoteIdent(expr);
+  } else {
+    const cast = expr.indexOf('::');
+    if (cast > 0) {
+      const col = expr.slice(0, cast).trim();
+      const type = expr.slice(cast + 2).trim();
+      if (PLAIN_IDENT.test(col) && CAST_TYPE.test(type)) sql = `${quoteIdent(col)}::${type}`;
+    }
+  }
+
+  if (sql === undefined) return { sql: quoteIdent(raw), aggregate: false };
+  return { sql: alias ? `${sql} AS ${quoteIdent(alias)}` : sql, aggregate };
+}
+
+/**
+ * The select list, and the GROUP BY an aggregate next to plain columns needs:
+ * `select('status, count(*)')` counts per status.
+ */
+function selectList(columns: string): { list: string; groupBy: string } {
+  const raw = columns.trim();
+  if (raw === '' || raw === '*') return { list: '*', groupBy: '' };
+  const entries = raw.split(',').map((c) => c.trim()).filter(Boolean);
+  const terms = entries.map((entry) => (entry === '*' ? { sql: '*', aggregate: false } : selectTerm(entry)));
+  const list = terms.map((t) => t.sql).join(', ');
+  const plain = terms.filter((t) => !t.aggregate && t.sql !== '*');
+  const groupBy =
+    terms.some((t) => t.aggregate) && plain.length
+      ? ` GROUP BY ${plain.map((t) => t.sql.replace(/ AS "[^"]*(?:""[^"]*)*"$/, '')).join(', ')}`
+      : '';
+  return { list, groupBy };
+}
+
 // ── Query Builder ───────────────────────────────────────
 
 type Operation = 'select' | 'insert' | 'update' | 'delete' | 'upsert';
 
-export class QueryBuilder<T = Record<string, unknown>> implements PromiseLike<BasefyioResponse<T[]>> {
+/** `single()` asks for exactly one row; `maybeSingle()` for at most one. */
+type SingleMode = 'single' | 'maybe' | null;
+
+/** Options for a write that would otherwise be refused without a filter. */
+export interface FullTableOptions {
+  /**
+   * Run an `update()` or `delete()` that has no filter, changing every row of
+   * the table. Without it such a call is refused: it is almost always a
+   * forgotten `.eq(…)`, and it cannot be taken back.
+   */
+  allowFullTable?: boolean;
+}
+
+export interface UpsertOptions {
+  /** The unique column(s) a duplicate is detected on. Default: the primary key. */
+  onConflict?: string | string[];
+  /** Keep the existing row instead of updating it. */
+  ignoreDuplicates?: boolean;
+}
+
+/**
+ * Raised inside the database by a `single()` / `maybeSingle()` write that
+ * would touch more than one row. The statement fails, so nothing is changed;
+ * the SDK turns the message into a readable error.
+ */
+const SINGLE_GUARD_MARKER = 'single() refused:';
+
+/** PostgREST's code for "a single row was requested, and zero or several matched". */
+const SINGLE_ROW_CODE = 'PGRST116';
+
+function unionKeys(rows: Record<string, unknown>[]): string[] {
+  return [...new Set(rows.flatMap((row) => Object.keys(row)))];
+}
+
+export class QueryBuilder<T = Record<string, unknown>, R = T[]> implements PromiseLike<BasefyioResponse<R>> {
   private http: BasefyioFetchClient;
   private projectId: string;
   private _table: string;
   private _op: Operation = 'select';
   private _selectCols = '*';
+  /** Columns a write returns, from `.select()` after `insert()`/`update()`/… */
+  private _returning: string | null = null;
   private _insertRows: Record<string, unknown>[] = [];
   private _updateData: Record<string, unknown> = {};
   private _upsertConflict: string[] = [];
+  private _upsertIgnore = false;
+  private _allowFullTable = false;
   private _filters: Filter[] = [];
   private _or: OrFilter[][] = [];
   private _orRaw: string[] = [];
   private _orders: OrderClause[] = [];
   private _limit?: number;
   private _offset?: number;
-  private _single = false;
+  private _single: SingleMode = null;
   private _count: 'exact' | null = null;
 
   constructor(http: BasefyioFetchClient, projectId: string, table: string) {
@@ -166,36 +282,72 @@ export class QueryBuilder<T = Record<string, unknown>> implements PromiseLike<Ba
 
   // ── Operations ───────────────────────────────────────
 
+  /**
+   * Choose the columns to read — or, after `insert()`, `update()`, `upsert()`
+   * or `delete()`, the columns the written rows come back with. (It used to
+   * turn the write into a read, so `insert(row).select()` silently inserted
+   * nothing.)
+   *
+   * Accepts column names, `col::type`, `count(*)` and `sum/avg/min/max(col)`,
+   * with an alias as `col as label` or `label:col`.
+   */
   select(columns = '*'): this {
-    this._op = 'select';
-    this._selectCols = columns;
+    if (this._op === 'select') {
+      this._selectCols = columns;
+    } else {
+      this._returning = columns;
+    }
     return this;
   }
 
   insert(data: Partial<T> | Partial<T>[]): this {
     this._op = 'insert';
-    this._insertRows = Array.isArray(data) ? data : [data];
+    this._insertRows = (Array.isArray(data) ? data : [data]) as Record<string, unknown>[];
     return this;
   }
 
-  update(data: Partial<T>): this {
+  /**
+   * Update the rows the filters match.
+   *
+   * Without a filter this is refused — it would update every row. Pass
+   * `{ allowFullTable: true }` when that is the intent.
+   */
+  update(data: Partial<T>, options?: FullTableOptions): this {
     this._op = 'update';
     this._updateData = data as Record<string, unknown>;
+    this._allowFullTable = options?.allowFullTable === true;
     return this;
   }
 
-  delete(): this {
+  /**
+   * Delete the rows the filters match.
+   *
+   * Without a filter this is refused — it would empty the table. Pass
+   * `{ allowFullTable: true }` when that is the intent.
+   */
+  delete(options?: FullTableOptions): this {
     this._op = 'delete';
+    this._allowFullTable = options?.allowFullTable === true;
     return this;
   }
 
-  upsert(data: Partial<T> | Partial<T>[], options?: { onConflict?: string | string[] }): this {
+  /**
+   * Insert, or update the row that already has the same key.
+   *
+   * The key is `onConflict` (a unique column or columns) or, by default, the
+   * table's primary key. A row that carries only its key has nothing to
+   * update and is left as it is; so is every duplicate with
+   * `{ ignoreDuplicates: true }`. Runs through the REST endpoint, under the
+   * same role and row-level policies as `insert()`.
+   */
+  upsert(data: Partial<T> | Partial<T>[], options?: UpsertOptions): this {
     this._op = 'upsert';
-    this._insertRows = Array.isArray(data) ? data : [data];
+    this._insertRows = (Array.isArray(data) ? data : [data]) as Record<string, unknown>[];
     const conflict = options?.onConflict;
     this._upsertConflict = conflict
-      ? (Array.isArray(conflict) ? conflict : conflict.split(',').map((s) => s.trim()))
+      ? (Array.isArray(conflict) ? conflict : conflict.split(',')).map((s) => s.trim()).filter(Boolean)
       : [];
+    this._upsertIgnore = options?.ignoreDuplicates === true;
     return this;
   }
 
@@ -320,16 +472,24 @@ export class QueryBuilder<T = Record<string, unknown>> implements PromiseLike<Ba
     return this;
   }
 
-  single(): QueryBuilder<T> {
-    this._single = true;
-    this._limit = 1;
-    return this;
+  /**
+   * Resolve to one row instead of an array — and to an error unless exactly
+   * one row matched (code `PGRST116`). On `update()` / `delete()` a filter
+   * matching several rows is refused inside the database, so nothing is
+   * changed. To take the first of several rows, add `.limit(1)`.
+   */
+  single(): QueryBuilder<T, T> {
+    this._single = 'single';
+    return this as unknown as QueryBuilder<T, T>;
   }
 
-  maybeSingle(): QueryBuilder<T> {
-    this._single = true;
-    this._limit = 1;
-    return this;
+  /**
+   * Like `single()`, but no row is not an error: `data` is null. Several rows
+   * still are.
+   */
+  maybeSingle(): QueryBuilder<T, T> {
+    this._single = 'maybe';
+    return this as unknown as QueryBuilder<T, T>;
   }
 
   // ── SQL generation ───────────────────────────────────
@@ -377,7 +537,8 @@ export class QueryBuilder<T = Record<string, unknown>> implements PromiseLike<Ba
     return `${col} = ANY(${bind(Array.isArray(value) ? value : [value])})`;
   }
 
-  private buildWhereClause(bind: Binder): string {
+  /** The filters as one condition (no `WHERE`), or '' when there are none. */
+  private buildConditions(bind: Binder): string {
     const parts: string[] = [];
 
     for (const f of this._filters) {
@@ -393,7 +554,39 @@ export class QueryBuilder<T = Record<string, unknown>> implements PromiseLike<Ba
       parts.push(`(${raw})`);
     }
 
-    return parts.length ? ` WHERE ${parts.join(' AND ')}` : '';
+    return parts.join(' AND ');
+  }
+
+  private buildWhereClause(bind: Binder): string {
+    const conditions = this.buildConditions(bind);
+    return conditions ? ` WHERE ${conditions}` : '';
+  }
+
+  /**
+   * The WHERE clause of an UPDATE or DELETE.
+   *
+   * No filter means every row, and that is refused unless the caller said so
+   * with `{ allowFullTable: true }`. Under `single()` / `maybeSingle()` the
+   * clause also carries a guard that fails the statement when more than one
+   * row matches: UPDATE and DELETE take no LIMIT, and the statement failing
+   * is what guarantees nothing was changed.
+   */
+  private buildWriteWhere(verb: 'update' | 'delete', bind: Binder): string {
+    const conditions = this.buildConditions(bind);
+    if (!conditions && !this._allowFullTable) {
+      throw new BasefyioClientError(
+        `${verb}() without a filter would ${verb === 'update' ? 'change' : 'delete'} every row of "${this._table}". ` +
+          `Add a filter such as .eq('id', value), or pass { allowFullTable: true } to ${verb} every row on purpose.`,
+      );
+    }
+    if (!this._single) return conditions ? ` WHERE ${conditions}` : '';
+
+    const scope = conditions ? ` WHERE ${conditions}` : '';
+    const guard =
+      `(SELECT CASE WHEN count(*) <= 1 THEN 1 ELSE ` +
+      `('${SINGLE_GUARD_MARKER} ' || count(*) || ' rows matched')::int END ` +
+      `FROM ${quoteIdent(this._table)}${scope}) = 1`;
+    return conditions ? ` WHERE (${conditions}) AND ${guard}` : ` WHERE ${guard}`;
   }
 
   private buildOrderClause(): string {
@@ -412,8 +605,16 @@ export class QueryBuilder<T = Record<string, unknown>> implements PromiseLike<Ba
     // so they are checked rather than trusted — a caller reaching this from
     // plain JavaScript can pass anything at all.
     if (this._limit !== undefined) s += ` LIMIT ${countLiteral(this._limit, 'limit')}`;
+    // single() reads two rows when no limit was set, so "more than one" can be
+    // told apart from "exactly one".
+    else if (this._single) s += ' LIMIT 2';
     if (this._offset !== undefined) s += ` OFFSET ${countLiteral(this._offset, 'offset')}`;
     return s;
+  }
+
+  private returningClause(): string {
+    if (this._returning === null) return ' RETURNING *';
+    return ` RETURNING ${selectList(this._returning).list}`;
   }
 
   /** The statement, with every value handed to `bind`. One builder, two modes. */
@@ -422,51 +623,55 @@ export class QueryBuilder<T = Record<string, unknown>> implements PromiseLike<Ba
 
     switch (this._op) {
       case 'select': {
-        const cols = this._selectCols === '*'
-          ? '*'
-          : this._selectCols.split(',').map((c) => quoteIdent(c.trim())).join(', ');
-        return `SELECT ${cols} FROM ${table}${this.buildWhereClause(bind)}${this.buildOrderClause()}${this.buildLimitOffset()}`;
+        const { list, groupBy } = selectList(this._selectCols);
+        return `SELECT ${list} FROM ${table}${this.buildWhereClause(bind)}${groupBy}${this.buildOrderClause()}${this.buildLimitOffset()}`;
       }
 
       case 'insert': {
-        if (!this._insertRows.length) throw new Error('No data to insert');
-        const allKeys = [...new Set(this._insertRows.flatMap(Object.keys))];
+        if (!this._insertRows.length) throw new BasefyioClientError('No data to insert');
+        const allKeys = unionKeys(this._insertRows);
         const cols = allKeys.map(quoteIdent).join(', ');
         const rows = this._insertRows.map((row) => {
           const vals = allKeys.map((k) => bind(row[k] ?? null));
           return `(${vals.join(', ')})`;
         });
-        return `INSERT INTO ${table} (${cols}) VALUES ${rows.join(', ')} RETURNING *`;
+        return `INSERT INTO ${table} (${cols}) VALUES ${rows.join(', ')}${this.returningClause()}`;
       }
 
       case 'update': {
         const sets = Object.entries(this._updateData)
           .map(([k, v]) => `${quoteIdent(k)} = ${bind(v)}`)
           .join(', ');
-        if (!sets) throw new Error('No data to update');
-        return `UPDATE ${table} SET ${sets}${this.buildWhereClause(bind)} RETURNING *`;
+        if (!sets) throw new BasefyioClientError('No data to update');
+        return `UPDATE ${table} SET ${sets}${this.buildWriteWhere('update', bind)}${this.returningClause()}`;
       }
 
       case 'delete': {
-        return `DELETE FROM ${table}${this.buildWhereClause(bind)} RETURNING *`;
+        return `DELETE FROM ${table}${this.buildWriteWhere('delete', bind)}${this.returningClause()}`;
       }
 
       case 'upsert': {
-        if (!this._insertRows.length) throw new Error('No data to upsert');
-        const allKeys = [...new Set(this._insertRows.flatMap(Object.keys))];
+        if (!this._insertRows.length) throw new BasefyioClientError('No data to upsert');
+        const allKeys = unionKeys(this._insertRows);
         const cols = allKeys.map(quoteIdent).join(', ');
         const rows = this._insertRows.map((row) => {
           const vals = allKeys.map((k) => bind(row[k] ?? null));
           return `(${vals.join(', ')})`;
         });
-        const conflict = this._upsertConflict.length
-          ? this._upsertConflict.map(quoteIdent).join(', ')
-          : allKeys[0] ? quoteIdent(allKeys[0]) : 'id';
+        // Without onConflict the key is the primary key; its constraint is
+        // named "<table>_pkey" unless it was named otherwise. (Execution goes
+        // through the REST endpoint, which looks the primary key up.)
+        const target = this._upsertConflict.length
+          ? `(${this._upsertConflict.map(quoteIdent).join(', ')})`
+          : `ON CONSTRAINT ${quoteIdent(`${this._table}_pkey`)}`;
         const updateCols = allKeys
           .filter((k) => !this._upsertConflict.includes(k))
           .map((k) => `${quoteIdent(k)} = EXCLUDED.${quoteIdent(k)}`)
           .join(', ');
-        return `INSERT INTO ${table} (${cols}) VALUES ${rows.join(', ')} ON CONFLICT (${conflict}) DO UPDATE SET ${updateCols} RETURNING *`;
+        // Nothing but the key to write means nothing to update: DO NOTHING,
+        // never the invalid `DO UPDATE SET` with an empty list.
+        const action = this._upsertIgnore || !updateCols ? 'DO NOTHING' : `DO UPDATE SET ${updateCols}`;
+        return `INSERT INTO ${table} (${cols}) VALUES ${rows.join(', ')} ON CONFLICT ${target} ${action}${this.returningClause()}`;
       }
     }
   }
@@ -478,6 +683,9 @@ export class QueryBuilder<T = Record<string, unknown>> implements PromiseLike<Ba
    * value is refused by the API when it happens to name a forbidden operation
    * ("page load", "grant access"), because the guard reads string literals too.
    * `toQuery()` is what actually runs.
+   *
+   * For `upsert()` this is the equivalent statement; the upsert itself is sent
+   * to the REST endpoint, which resolves the primary key on the server.
    */
   toSQL(): string {
     return this.build(inlineBinder);
@@ -492,38 +700,116 @@ export class QueryBuilder<T = Record<string, unknown>> implements PromiseLike<Ba
 
   // ── Execution ────────────────────────────────────────
 
-  private async execute(): Promise<BasefyioResponse<T[]>> {
+  private async execute(): Promise<BasefyioResponse<R>> {
     try {
+      if ((this._op === 'insert' || this._op === 'upsert') && this._single && this._insertRows.length > 1) {
+        return this.singleError(
+          `${this._single === 'single' ? 'single' : 'maybeSingle'}() was given ${this._insertRows.length} rows to write; it returns one`,
+        );
+      }
+
+      if (this._op === 'upsert' && this.upsertGoesToRest()) {
+        return this.finish(await this.upsertViaRest());
+      }
+
       const { text, params } = this.toQuery();
       const result = await this.http.json<SqlResult>('/sql/execute', {
         method: 'POST',
         // `params` rides along only when there are any, so a query carrying no
         // values sends byte-for-byte the request it always did — and still
-        // works against an API that has never heard of parameters.
-        body: JSON.stringify({
+        // works against an API that has never heard of parameters. `limit`
+        // likewise: only a read asking for more than the API's default page
+        // of 100 rows sends it, so `.limit(500)` returns 500 rows, not 100.
+        body: toJson({
           projectId: this.projectId,
           query: text,
           ...(params.length ? { params } : {}),
+          ...this.pageSize(),
         }),
       });
 
-      const rows = (result.rows ?? []) as T[];
-
-      if (this._single) {
-        if (rows.length === 0) {
-          return { data: null, error: null } as BasefyioResponse<T[]>;
-        }
-        return { data: rows[0] as any, error: null };
-      }
-
-      return { data: rows, error: null };
-    } catch (err: any) {
-      return { data: null, error: { message: err.message, status: err.status } };
+      return this.finish((result.rows ?? []) as T[]);
+    } catch (err: unknown) {
+      return { data: null, error: this.describeError(toBasefyioError(err)) };
     }
   }
 
-  then<TResult1 = BasefyioResponse<T[]>, TResult2 = never>(
-    onfulfilled?: ((value: BasefyioResponse<T[]>) => TResult1 | PromiseLike<TResult1>) | null,
+  /** The API pages a SELECT at 100 rows unless told otherwise; tell it the caller's limit (at most 1000). */
+  private pageSize(): { limit?: number } {
+    if (this._op !== 'select' || this._limit === undefined || this._limit <= 100) return {};
+    return { limit: Math.min(this._limit, 1000) };
+  }
+
+  /**
+   * Upserts go to `POST /rest/v1/:table` with `Prefer: resolution=…`, which
+   * finds the primary key itself and runs under the caller's role and
+   * policies. A table or column name the REST endpoint cannot address (a
+   * space, a dash) keeps the SQL path.
+   */
+  private upsertGoesToRest(): boolean {
+    if (!PLAIN_IDENT.test(this._table)) return false;
+    if (!unionKeys(this._insertRows).every((k) => PLAIN_IDENT.test(k))) return false;
+    return this._upsertConflict.every((c) => PLAIN_IDENT.test(c));
+  }
+
+  private async upsertViaRest(): Promise<T[]> {
+    if (!this._insertRows.length) throw new BasefyioClientError('No data to upsert');
+    // Every row carries every column — missing ones as null — exactly as the
+    // SQL form of the statement wrote them.
+    const keys = unionKeys(this._insertRows);
+    const rows = this._insertRows.map((row) =>
+      Object.fromEntries(keys.map((k) => [k, row[k] === undefined ? null : row[k]])),
+    );
+    const query = new URLSearchParams();
+    if (this._upsertConflict.length) query.set('on_conflict', this._upsertConflict.join(','));
+    if (this._returning !== null && this._returning.trim() !== '' && this._returning.trim() !== '*') {
+      query.set('select', this._returning.split(',').map((c) => c.trim()).filter(Boolean).join(','));
+    }
+    const qs = query.toString();
+    const data = await this.http.json<T[]>(`/rest/v1/${encodeURIComponent(this._table)}${qs ? `?${qs}` : ''}`, {
+      method: 'POST',
+      headers: {
+        Prefer: `return=representation,resolution=${this._upsertIgnore ? 'ignore-duplicates' : 'merge-duplicates'}`,
+      },
+      body: toJson(rows),
+    });
+    return Array.isArray(data) ? data : [];
+  }
+
+  /** Shape the rows into the response, applying single() / maybeSingle(). */
+  private finish(rows: T[]): BasefyioResponse<R> {
+    if (!this._single) return { data: rows as unknown as R, error: null };
+    const name = this._single === 'single' ? 'single' : 'maybeSingle';
+    if (rows.length > 1) {
+      return this.singleError(
+        `${name}() expected one row, but more than one matched. Narrow the filter, or add .limit(1) to take the first`,
+      );
+    }
+    if (rows.length === 0) {
+      if (this._single === 'maybe') return { data: null, error: null };
+      return this.singleError('single() expected one row, but none matched');
+    }
+    return { data: rows[0] as unknown as R, error: null };
+  }
+
+  private singleError(message: string): BasefyioResponse<R> {
+    return { data: null, error: { message, code: SINGLE_ROW_CODE, status: 406 } };
+  }
+
+  /** Turn the single() write guard's database error into what it means. */
+  private describeError(error: BasefyioError): BasefyioError {
+    const m = error.message.match(/single\(\) refused: (\d+) rows matched/);
+    if (!m) return error;
+    const name = this._single === 'maybe' ? 'maybeSingle' : 'single';
+    return {
+      message: `${name}() refused this ${this._op}: the filter matched ${m[1]} rows, and nothing was changed. Narrow the filter to one row`,
+      code: SINGLE_ROW_CODE,
+      status: 406,
+    };
+  }
+
+  then<TResult1 = BasefyioResponse<R>, TResult2 = never>(
+    onfulfilled?: ((value: BasefyioResponse<R>) => TResult1 | PromiseLike<TResult1>) | null,
     onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
   ): Promise<TResult1 | TResult2> {
     return this.execute().then(onfulfilled, onrejected);
@@ -566,15 +852,15 @@ export class DatabaseClient {
     try {
       const result = await this.http.json<SqlResult>('/sql/execute', {
         method: 'POST',
-        body: JSON.stringify({
+        body: toJson({
           projectId: this.projectId,
           query,
           ...(params?.length ? { params } : {}),
         }),
       });
       return { data: (result.rows ?? []) as T[], error: null };
-    } catch (err: any) {
-      return { data: null, error: { message: err.message, status: err.status } };
+    } catch (err: unknown) {
+      return { data: null, error: toBasefyioError(err) };
     }
   }
 
@@ -582,8 +868,8 @@ export class DatabaseClient {
     try {
       const data = await this.http.json<TableInfo[]>(`/projects/${this.projectId}/tables`);
       return { data, error: null };
-    } catch (err: any) {
-      return { data: null, error: { message: err.message, status: err.status } };
+    } catch (err: unknown) {
+      return { data: null, error: toBasefyioError(err) };
     }
   }
 
@@ -591,8 +877,8 @@ export class DatabaseClient {
     try {
       const data = await this.http.json<ColumnInfo[]>(`/projects/${this.projectId}/tables/${encodeURIComponent(table)}/columns`);
       return { data, error: null };
-    } catch (err: any) {
-      return { data: null, error: { message: err.message, status: err.status } };
+    } catch (err: unknown) {
+      return { data: null, error: toBasefyioError(err) };
     }
   }
 }

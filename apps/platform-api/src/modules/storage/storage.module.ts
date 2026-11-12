@@ -7,24 +7,21 @@ import { StorageAccessService } from './storage-access.service';
 import { StoragePolicyController } from './storage-policy.controller';
 import { UploadSessionService } from './upload-session.service';
 import { UploadSessionController } from './upload-session.controller';
-import { StorageCatalogService } from './storage-catalog.service';
+import { StoragePublicController } from './storage-public.controller';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { BillingModule } from '../billing/billing.module';
 import { ProjectActivityModule } from '../projects/project-activity.module';
-import { ProjectDbModule } from '../project-db/project-db.module';
 
 @Module({
-  imports: [PrismaModule, BillingModule, ProjectActivityModule, ProjectDbModule],
-  controllers: [StorageController, StoragePolicyController, UploadSessionController],
+  imports: [PrismaModule, BillingModule, ProjectActivityModule],
+  controllers: [StorageController, StoragePolicyController, UploadSessionController, StoragePublicController],
   providers: [
     StorageService,
     ImageTransformService,
     UploadSpoolSweeper,
     StorageAccessService,
-    StorageCatalogService,
     UploadSessionService,
   ],
-  // The Supabase-compatible facade (storage-facade) builds on these.
-  exports: [StorageService, StorageAccessService, ImageTransformService, StorageCatalogService],
+  exports: [StorageService],
 })
 export class StorageModule {}

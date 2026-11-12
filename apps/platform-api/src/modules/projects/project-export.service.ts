@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -7,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { Readable } from 'stream';
 import { InjectQueue } from '@nestjs/bullmq';
-import { Queue } from 'bullmq';
+import { Job, Queue } from 'bullmq';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
@@ -28,13 +29,18 @@ import {
   createDecryptStream,
   getBackupKey,
 } from './backups/backup-crypto';
+import {
+  MANUAL_EXPORT_TTL_HOURS,
+  MAX_ON_DEMAND_BACKUPS,
+  autoBackupRetentionDays,
+  backupTrigger,
+} from './backups/retention';
 
 const EXPORT_BUCKET = 'bf-platform-exports';
-const EXPORT_TTL_MS = 24 * 60 * 60 * 1000;
+const EXPORT_TTL_MS = MANUAL_EXPORT_TTL_HOURS * 60 * 60 * 1000;
 
-/** Daily auto-backups live in their own bucket with a longer retention. */
+/** Daily auto-backups live in their own bucket with a longer retention (AUTO_BACKUP_RETENTION_DAYS). */
 const AUTO_BACKUP_BUCKET = 'bf-platform-auto-backups';
-const AUTO_BACKUP_RETENTION_DAYS = 7;
 
 @Injectable()
 export class ProjectExportService {
@@ -188,15 +194,27 @@ export class ProjectExportService {
       this.storage.listPlatformObjects(AUTO_BACKUP_BUCKET, `${projectId}/`),
     ]);
 
-    const toEntry = (o: { name: string; size: number; lastModified: Date }, kind: 'manual' | 'auto') => ({
-      objectKey: o.name,
-      filename: o.name.split('/').pop() || o.name,
-      size: o.size,
-      lastModified: o.lastModified.toISOString(),
-      kind,
-      /** Stored encrypted at rest (BACKUP_ENCRYPT_LOCAL); restore decrypts transparently. */
-      encrypted: o.name.endsWith(ENCRYPTED_SUFFIX),
-    });
+    const autoDays = autoBackupRetentionDays();
+    const toEntry = (o: { name: string; size: number; lastModified: Date }, kind: 'manual' | 'auto') => {
+      const trigger = kind === 'manual' ? 'export' : backupTrigger(o.name);
+      const keepMs = kind === 'manual' ? EXPORT_TTL_MS : autoDays * 24 * 60 * 60 * 1000;
+      return {
+        objectKey: o.name,
+        filename: o.name.split('/').pop() || o.name,
+        size: o.size,
+        lastModified: o.lastModified.toISOString(),
+        kind,
+        /** Stored encrypted at rest (BACKUP_ENCRYPT_LOCAL); restore decrypts transparently. */
+        encrypted: o.name.endsWith(ENCRYPTED_SUFFIX),
+        /** export = manual download package, scheduled = nightly, on-demand = "Back up now". */
+        trigger,
+        /** When the retention sweep removes it. */
+        expiresAt: new Date(o.lastModified.getTime() + keepMs).toISOString(),
+        retentionDays: kind === 'manual' ? MANUAL_EXPORT_TTL_HOURS / 24 : autoDays,
+        /** Nightly backups are the safety net and cannot be deleted by hand. */
+        deletable: trigger !== 'scheduled',
+      };
+    };
 
     return [
       ...manual.map((o) => toEntry(o, 'manual' as const)),
@@ -215,6 +233,8 @@ export class ProjectExportService {
       existingProjectId?: string;
       /** Which backup store the objectKey lives in. Default: manual exports. */
       kind?: 'manual' | 'auto';
+      /** Optional typed confirmation for an overwrite; must equal the target project's name. */
+      confirmProjectName?: string;
     },
   ) {
     await this.projectsService.findOne(projectId, userId);
@@ -223,7 +243,7 @@ export class ProjectExportService {
       throw new ForbiddenException('Backup does not belong to this project');
     }
     const bucket = body.kind === 'auto' ? AUTO_BACKUP_BUCKET : EXPORT_BUCKET;
-    const { stream } = await this.storage.getPlatformObject(bucket, objectKey);
+    const { stream } = await this.openBackupObject(bucket, objectKey);
     // Archives stored with BACKUP_ENCRYPT_LOCAL carry the .enc suffix; decrypt on the way in.
     let source: Readable = stream;
     if (objectKey.endsWith(ENCRYPTED_SUFFIX)) {
@@ -254,7 +274,145 @@ export class ProjectExportService {
       nameMode: body.nameMode || 'existing',
       newProjectName: body.newProjectName,
       existingProjectId: body.existingProjectId,
+      confirmProjectName: body.confirmProjectName,
     });
+  }
+
+  /** Stat + stream a backup object, turning "no such key" into a 404. */
+  private async openBackupObject(bucket: string, objectKey: string) {
+    try {
+      return await this.storage.getPlatformObject(bucket, objectKey);
+    } catch (err: any) {
+      if (err?.code === 'NoSuchKey' || err?.code === 'NotFound') {
+        throw new NotFoundException('This backup no longer exists; it may have expired.');
+      }
+      throw err;
+    }
+  }
+
+  private assertOwnKey(projectId: string, objectKey: string | undefined): string {
+    const key = objectKey?.trim();
+    if (!key?.startsWith(`${projectId}/`) || key.includes('..')) {
+      throw new ForbiddenException('Backup does not belong to this project');
+    }
+    return key;
+  }
+
+  /**
+   * Download one backup archive. Archives encrypted at rest are decrypted on
+   * the way out, so the file is always a plain ZIP that Import from ZIP takes.
+   */
+  async downloadCloudBackup(
+    projectId: string,
+    userId: string,
+    objectKeyRaw: string,
+    kind: 'manual' | 'auto' = 'manual',
+  ): Promise<{ stream: Readable; filename: string; size?: number }> {
+    await this.projectsService.findOne(projectId, userId);
+    const objectKey = this.assertOwnKey(projectId, objectKeyRaw);
+    const bucket = kind === 'auto' ? AUTO_BACKUP_BUCKET : EXPORT_BUCKET;
+    const { stream, stat } = await this.openBackupObject(bucket, objectKey);
+    const leaf = objectKey.split('/').pop() || 'backup.zip';
+    if (!objectKey.endsWith(ENCRYPTED_SUFFIX)) {
+      return { stream, filename: leaf, size: stat.size };
+    }
+    const key = getBackupKey();
+    if (!key) {
+      stream.destroy();
+      // The operator-side cause (BACKUP_ENC_KEY unset) is not the customer's to fix.
+      this.logger.warn(`Encrypted backup ${objectKey} requested but BACKUP_ENC_KEY is not set`);
+      throw new BadRequestException(
+        'This backup is encrypted and this server cannot decrypt it right now. Contact the platform operator.',
+      );
+    }
+    const decrypt = createDecryptStream(key);
+    stream.on('error', (err) => decrypt.destroy(err));
+    return { stream: stream.pipe(decrypt), filename: leaf.slice(0, -ENCRYPTED_SUFFIX.length) };
+  }
+
+  /**
+   * Delete a manual export or an on-demand backup. Nightly backups are the
+   * safety net and expire on their own schedule, so they cannot be deleted here.
+   */
+  async deleteCloudBackup(
+    projectId: string,
+    userId: string,
+    objectKeyRaw: string,
+    kind: 'manual' | 'auto' = 'manual',
+  ): Promise<{ deleted: string }> {
+    await this.projectsService.findOne(projectId, userId);
+    const objectKey = this.assertOwnKey(projectId, objectKeyRaw);
+    if (kind === 'auto' && backupTrigger(objectKey) === 'scheduled') {
+      throw new BadRequestException(
+        `Nightly backups cannot be deleted; they are removed automatically after ${autoBackupRetentionDays()} days.`,
+      );
+    }
+    const bucket = kind === 'auto' ? AUTO_BACKUP_BUCKET : EXPORT_BUCKET;
+    await this.openBackupObject(bucket, objectKey).then(({ stream }) => stream.destroy());
+    await this.storage.removePlatformObject(bucket, objectKey);
+    await this.activity
+      .append(projectId, {
+        userId,
+        kind: ProjectActivityKind.PROJECT_UPDATED,
+        title: kind === 'auto' ? 'On-demand backup deleted' : 'Export archive deleted',
+        detail: objectKey.split('/').pop(),
+      })
+      .catch(() => undefined);
+    return { deleted: objectKey };
+  }
+
+  /**
+   * "Back up now": the same archive the nightly run makes (database, auth and
+   * config; storage objects already live in object storage), kept for the
+   * nightly retention. One may run at a time per project, and a project holds
+   * at most MAX_ON_DEMAND_BACKUPS of them, so repeated clicks cannot fill the disk.
+   */
+  async startOnDemandBackup(projectId: string, userId: string): Promise<{ jobId: string }> {
+    await this.projectsService.findOne(projectId, userId);
+
+    const pending: Job[] = await this.exportQueue.getJobs(['waiting', 'active', 'delayed']).catch(() => []);
+    if (pending.some((j) => (j?.data as ExportJobData | undefined)?.projectId === projectId && (j?.data as ExportJobData).autoBackup)) {
+      throw new ConflictException('A backup of this project is already running. Wait for it to finish.');
+    }
+
+    await this.storage.ensurePlatformBucket(AUTO_BACKUP_BUCKET);
+    const existing = await this.storage.listPlatformObjects(AUTO_BACKUP_BUCKET, `${projectId}/`);
+    const onDemand = existing.filter((o) => backupTrigger(o.name) === 'on-demand');
+    if (onDemand.length >= MAX_ON_DEMAND_BACKUPS) {
+      throw new BadRequestException(
+        `This project already has ${onDemand.length} on-demand backups. Delete one before taking another; ` +
+          `they are also removed automatically after ${autoBackupRetentionDays()} days.`,
+      );
+    }
+
+    try {
+      if (await this.exportQueue.isPaused()) await this.exportQueue.resume();
+    } catch {
+      // add() below surfaces real queue errors.
+    }
+    const data: ExportJobData = {
+      projectId,
+      userId,
+      includeDatabase: true,
+      includeAuth: true,
+      includeStorage: false,
+      includeConfig: true,
+      autoBackup: true,
+      onDemand: true,
+    };
+    const job = await this.exportQueue.add('project-export', data, {
+      removeOnComplete: { age: 24 * 60 * 60, count: 500 },
+      removeOnFail: { age: 48 * 60 * 60, count: 500 },
+      attempts: 1,
+    });
+    await this.activity.append(projectId, {
+      userId,
+      kind: ProjectActivityKind.PROJECT_EXPORT_STARTED,
+      title: 'On-demand backup started',
+      detail: 'Database, auth and config',
+      metadata: { jobId: String(job.id), onDemand: true },
+    });
+    return { jobId: String(job.id) };
   }
 
   getExportBucketName(): string {
@@ -328,7 +486,8 @@ export class ProjectExportService {
   async cleanupOldAutoBackups() {
     await this.storage.ensurePlatformBucket(AUTO_BACKUP_BUCKET);
     const objects = await this.storage.listPlatformObjects(AUTO_BACKUP_BUCKET);
-    const cutoff = Date.now() - AUTO_BACKUP_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+    const retentionDays = autoBackupRetentionDays();
+    const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
 
     let removed = 0;
     for (const object of objects) {
@@ -342,7 +501,7 @@ export class ProjectExportService {
       }
     }
     if (removed > 0) {
-      this.logger.log(`Auto-backup retention: removed ${removed} object(s) older than ${AUTO_BACKUP_RETENTION_DAYS} days`);
+      this.logger.log(`Auto-backup retention: removed ${removed} object(s) older than ${retentionDays} days`);
     }
   }
 }

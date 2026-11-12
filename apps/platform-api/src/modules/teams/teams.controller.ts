@@ -18,7 +18,6 @@ import {
 } from '../../common/decorators/current-user.decorator';
 import { ObservabilityService } from '../observability/observability.service';
 import { RequestWithTraceId } from '../../common/middleware/trace-id.middleware';
-import { UpdateTeamSecurityDto } from './dto/update-team-security.dto';
 
 @Controller('teams')
 @UseGuards(JwtAuthGuard)
@@ -132,12 +131,12 @@ export class TeamsController {
   async sendInvite(
     @Req() req: RequestWithTraceId,
     @Param('id') id: string,
-    @Body() body: { usernameOrEmail: string },
+    @Body() body: { usernameOrEmail: string; role?: 'ADMIN' | 'MEMBER' },
     @CurrentUser() user: JwtPayload,
   ) {
     const startedAt = Date.now();
     try {
-      const result = await this.teamsService.sendInvite(id, user.sub, body.usernameOrEmail);
+      const result = await this.teamsService.sendInvite(id, user.sub, body.usernameOrEmail, body.role);
       await this.observability.captureRootAction({
         traceId: req.traceId || 'unknown',
         actorUserId: user.sub,
@@ -147,7 +146,7 @@ export class TeamsController {
         severity: 'MEDIUM',
         success: true,
         latencyMs: Date.now() - startedAt,
-        metadataJson: { usernameOrEmail: body.usernameOrEmail },
+        metadataJson: { usernameOrEmail: body.usernameOrEmail, role: body.role ?? 'MEMBER' },
       });
       return result;
     } catch (err) {
@@ -289,6 +288,41 @@ export class TeamsController {
     }
   }
 
+  @Post(':id/leave')
+  async leaveTeam(
+    @Req() req: RequestWithTraceId,
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    const startedAt = Date.now();
+    try {
+      const result = await this.teamsService.leaveTeam(id, user.sub);
+      await this.observability.captureRootAction({
+        traceId: req.traceId || 'unknown',
+        actorUserId: user.sub,
+        action: 'TEAM_MEMBER_LEFT',
+        resourceType: 'team',
+        resourceId: id,
+        severity: 'MEDIUM',
+        success: true,
+        latencyMs: Date.now() - startedAt,
+      });
+      return result;
+    } catch (err) {
+      await this.observability.captureRootAction({
+        traceId: req.traceId || 'unknown',
+        actorUserId: user.sub,
+        action: 'TEAM_MEMBER_LEFT',
+        resourceType: 'team',
+        resourceId: id,
+        severity: 'MEDIUM',
+        success: false,
+        latencyMs: Date.now() - startedAt,
+      });
+      throw err;
+    }
+  }
+
   @Post(':id/transfer-ownership')
   async transferOwnership(
     @Req() req: RequestWithTraceId,
@@ -383,22 +417,5 @@ export class TeamsController {
       });
       throw err;
     }
-  }
-
-  // The dashboard's security page has called these two since the two-factor
-  // policy shipped; the service existed, the routes did not, and the page
-  // showed a 404 as "could not load".
-  @Get(':id/security')
-  async getSecurity(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
-    return this.teamsService.getSecurity(id, user.sub);
-  }
-
-  @Patch(':id/security')
-  async updateSecurity(
-    @Param('id') id: string,
-    @Body() body: UpdateTeamSecurityDto,
-    @CurrentUser() user: JwtPayload,
-  ) {
-    return this.teamsService.setRequireMfa(id, user.sub, body.requireMfa);
   }
 }

@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { BetaBadge } from '@/components/beta-badge';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -37,10 +36,7 @@ export default function ForgotPasswordPage() {
           <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary text-primary-foreground">
             <Database className="h-6 w-6" />
           </div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
-            basefyio
-            <BetaBadge />
-          </h1>
+          <h1 className="text-2xl font-bold tracking-tight">basefyio</h1>
           <p className="text-sm text-muted-foreground">
             Reset your password
           </p>
@@ -86,7 +82,9 @@ export default function ForgotPasswordPage() {
               <Label htmlFor="email">Email</Label>
               <Input
                 id="email"
+                name="email"
                 type="email"
+                autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@example.com"

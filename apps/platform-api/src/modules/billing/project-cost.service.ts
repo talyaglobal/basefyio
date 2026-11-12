@@ -1,7 +1,16 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { UsageService } from './usage.service';
+import { DB_SIZE_FRESH_MS, UsageService, usageMonthKey } from './usage.service';
+import {
+  CustomerUsageRow,
+  aggregateUsageRecords,
+  parseUsagePeriod,
+  priceOtherUsage,
+  reconcileTeamUsage,
+  sumCustomerRows,
+  toCustomerProjectView,
+} from './team-cost-report';
 import {
   BillingPeriod,
   CostLine,
@@ -17,6 +26,14 @@ import {
   sumProjectCosts,
   tierHourlyRawUsd,
 } from './project-cost.pricing';
+import {
+  RecurringRevenueSummary,
+  RevenueState,
+  classifyRevenue,
+  monthlyRevenueUsd,
+  summarizeRecurringRevenue,
+  type RevenueSubscriptionInput,
+} from './recurring-revenue';
 
 /** Projects that still occupy infrastructure. Deleted/deactivated ones are frozen or gone. */
 const BILLABLE_STATUSES = ['ACTIVE', 'PAUSED'] as const;
@@ -37,11 +54,15 @@ const projectSelect = {
       apiRequestsMonth: true,
       bandwidthMonth: true,
       storageCalculatedAt: true,
+      dbSizeCalculatedAt: true,
       lastCalculatedAt: true,
     },
   },
   infrastructure: { select: { pgMemoryMb: true, pgCpuMillis: true, status: true } },
 } satisfies Prisma.ProjectSelect;
+
+/** Closed months offered in the period picker. */
+const HISTORY_MONTHS = 12;
 
 type ProjectRow = Prisma.ProjectGetPayload<{ select: typeof projectSelect }>;
 
@@ -75,26 +96,59 @@ export interface CustomerRates {
   apiRequestsUsdPerMillion: number;
 }
 
+export type { CustomerUsageRow } from './team-cost-report';
+
 export interface TeamCostReport {
   currency: 'usd';
   generatedAt: string;
+  /** The UTC calendar month — the same window the monthly usage counters cover. */
   period: PeriodProgress;
+  /** `YYYY-MM` of the period shown. */
+  periodKey: string;
+  /** False for a closed month rebuilt from its month-end snapshot. */
+  isCurrentPeriod: boolean;
+  /** Months that can be shown, newest first; the current month is always first. */
+  availablePeriods: string[];
   plan: { name: string; displayName: string; priceMonthlyUsd: number } | null;
   projects: CustomerProjectCost[];
+  /**
+   * Usage the team's counters hold that no project row shows — trashed or
+   * deactivated projects, and traffic no current project carries. With these
+   * rows the breakdown adds up to the Usage card.
+   */
+  otherUsage: CustomerUsageRow[];
+  /** Sum of every row above, in cents. */
   totals: { amountUsd: number; projectedUsd: number };
+  /** API requests and egress across all rows — equal to the team's usage counters. */
+  usageTotals: { apiRequests: number; bandwidthBytes: number };
   rates: CustomerRates;
   /** True when at least one project has never had its file storage measured. */
   storagePending: boolean;
+  /** When the database sizes shown were measured; null when none were. */
+  dbSizeMeasuredAt: string | null;
+  /** When file storage was last measured (a 6-hourly pass); null when never. */
+  storageMeasuredAt: string | null;
 }
 
 export interface PlatformTeamCost {
   teamId: string;
   teamName: string;
   teamSlug: string;
-  plan: { name: string; displayName: string; priceMonthlyUsd: number; status: string } | null;
+  plan: {
+    name: string;
+    displayName: string;
+    priceMonthlyUsd: number;
+    status: string;
+    /** Where the team stands for recurring revenue (see recurring-revenue.ts). */
+    revenueState?: RevenueState;
+    /** What the team adds to recurring revenue: 0 unless it is paying. */
+    monthlyRevenueUsd?: number;
+  } | null;
   projects: ProjectCostReport[];
   totals: CostTotals;
-  /** Plan revenue for the period minus the projected raw infrastructure cost. */
+  /** The team's slice of the actual monthly bill, in proportion to its modeled cost. */
+  billShareUsd?: number;
+  /** Recurring revenue from the team minus its share of the actual bill. */
   marginUsd: number;
 }
 
@@ -108,19 +162,34 @@ export interface PlatformCostReport {
     projects: number;
     /** What the host + block storage actually costs per month, from config. */
     actualMonthlyBillUsd: number;
-    /** Projected raw cost allocated to projects for the whole period. */
+    /**
+     * Projected modeled cost of the projects for the whole period: every
+     * project priced as if it reserved its tier. Shared hosting overcommits,
+     * so this can be several times the actual bill.
+     */
     allocatedRawUsd: number;
     /** The same allocation at customer prices. */
     allocatedPricedUsd: number;
-    /** Sum of plan prices across the teams in the report. */
+    /** Recurring revenue across every team (one definition, see recurring-revenue.ts). */
     planRevenueUsd: number;
+    /** Recurring revenue minus the modeled cost. */
     marginVsAllocatedUsd: number;
+    /** Recurring revenue minus the actual bill. */
     marginVsBillUsd: number;
     /** allocatedRaw / actualBill — above 1 means the model over-recovers. */
     recoveryRatio: number;
+    payingTeams?: number;
+    paidPlanTeams?: number;
+    revenueByState?: RecurringRevenueSummary['byState'];
+    revenueDefinition?: string;
   };
   teams: PlatformTeamCost[];
   storagePending: boolean;
+}
+
+/** Recurring revenue for every team, plus each team's own state and amount. */
+export interface PlatformRecurringRevenue extends RecurringRevenueSummary {
+  byTeam: Map<string, { state: RevenueState; monthlyRevenueUsd: number }>;
 }
 
 @Injectable()
@@ -178,44 +247,282 @@ export class ProjectCostService {
 
   // ── Reports ──────────────────────────────────────────────
 
-  async getTeamReport(teamId: string): Promise<TeamCostReport> {
+  /**
+   * The team's cost breakdown for the current UTC calendar month, or — with
+   * `period: 'YYYY-MM'` — for a closed month rebuilt from its month-end
+   * snapshot.
+   *
+   * Always the calendar month, never the Stripe billing period: the API and
+   * egress counters behind the breakdown reset on the 1st (UTC), so a
+   * subscription period starting mid-month mixed two counter windows and the
+   * breakdown could not agree with the Usage card.
+   */
+  async getTeamReport(teamId: string, opts: { period?: string } = {}): Promise<TeamCostReport> {
     const now = new Date();
-    const [cfg, sub] = await Promise.all([
+    const currentKey = usageMonthKey(now);
+    const requested = opts.period?.trim();
+    if (requested && requested !== currentKey) {
+      const past = parseUsagePeriod(requested);
+      if (!past || past.start >= new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))) {
+        throw new BadRequestException('period must be a past month as YYYY-MM');
+      }
+      return this.getPastTeamReport(teamId, requested, now);
+    }
+
+    const [cfg, sub, availablePeriods] = await Promise.all([
       this.getConfig(),
       this.prisma.subscription.findUnique({ where: { teamId }, include: { plan: true } }),
+      this.listReportPeriods(teamId, currentKey),
     ]);
-    await this.ensureFreshDbSizes(teamId);
+    await this.usage.ensureFreshDbSizes(teamId, DB_SIZE_FRESH_MS);
 
     const rows = await this.prisma.project.findMany({
       where: { teamId, status: { in: [...BILLABLE_STATUSES] } },
       orderBy: { createdAt: 'asc' },
       select: projectSelect,
     });
-    const period = this.resolvePeriod(sub, now);
+    const period = this.resolvePeriod(null, now);
     const inputs = await this.toInputs(rows);
     const reports = inputs
       .map((i) => priceProject(cfg, period, i, now))
       .sort((a, b) => b.pricedUsd - a.pricedUsd);
-    const totals = sumProjectCosts(reports);
+    const projects = reports.map(toCustomerView);
 
+    // Reconcile with the team counters the Usage card shows.
+    const [teamUsage, inactive] = await Promise.all([
+      this.usage.getTeamUsage(teamId),
+      this.inactiveProjectUsage(teamId),
+    ]);
+    const shown = {
+      apiRequests: inputs.reduce((s, i) => s + i.apiRequests, 0),
+      bandwidthBytes: inputs.reduce((s, i) => s + i.bandwidthBytes, 0),
+    };
+    const otherUsage = this.otherUsageRows(cfg, period, {
+      team: { apiRequests: teamUsage.apiRequestsMonth, bandwidthBytes: Number(teamUsage.bandwidthMonth) },
+      projects: shown,
+      inactive,
+    });
+
+    const lastDbSize = maxDate(rows.map((r) => r.usage?.dbSizeCalculatedAt));
+    const lastStorage = maxDate(rows.map((r) => r.usage?.storageCalculatedAt));
     return {
       currency: 'usd',
       generatedAt: now.toISOString(),
       period: describePeriod(period, now),
+      periodKey: currentKey,
+      isCurrentPeriod: true,
+      availablePeriods,
       plan: sub
         ? { name: sub.plan.name, displayName: sub.plan.displayName, priceMonthlyUsd: sub.plan.priceMonthly / 100 }
         : null,
-      projects: reports.map(toCustomerView),
-      totals: { amountUsd: totals.pricedUsd, projectedUsd: totals.projectedPricedUsd },
+      projects,
+      otherUsage,
+      totals: sumCustomerRows(projects, otherUsage),
+      usageTotals: {
+        apiRequests: shown.apiRequests + otherUsage.reduce((s, r) => s + r.apiRequests, 0),
+        bandwidthBytes: shown.bandwidthBytes + otherUsage.reduce((s, r) => s + r.bandwidthBytes, 0),
+      },
       rates: customerRates(cfg),
       storagePending: rows.some((r) => !r.usage?.storageCalculatedAt),
+      dbSizeMeasuredAt: lastDbSize?.toISOString() ?? null,
+      storageMeasuredAt: lastStorage?.toISOString() ?? null,
     };
+  }
+
+  /**
+   * A closed month, rebuilt from the UsageRecord rows written when it closed
+   * and priced at today's rates. Projects that are trashed or deactivated now
+   * contribute their traffic only, to the "deleted and deactivated" row: their
+   * stored sizes stopped being measured and would be stale.
+   */
+  private async getPastTeamReport(teamId: string, key: string, now: Date): Promise<TeamCostReport> {
+    const period = parseUsagePeriod(key)!;
+    const currentKey = usageMonthKey(now);
+    // Rows written by a reset that ran on local time can sit a few hours off midnight UTC.
+    const slack = 24 * 60 * 60 * 1000;
+    const [cfg, sub, availablePeriods, records] = await Promise.all([
+      this.getConfig(),
+      this.prisma.subscription.findUnique({ where: { teamId }, include: { plan: true } }),
+      this.listReportPeriods(teamId, currentKey),
+      this.prisma.usageRecord.findMany({
+        where: {
+          teamId,
+          periodStart: {
+            gte: new Date(period.start.getTime() - slack),
+            lt: new Date(period.start.getTime() + slack),
+          },
+        },
+        select: { projectId: true, metric: true, value: true },
+      }),
+    ]);
+    const snapshot = aggregateUsageRecords(records);
+    const ids = [...snapshot.projects.keys()];
+    const projectRows = ids.length
+      ? await this.prisma.project.findMany({
+          where: { id: { in: ids } },
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            status: true,
+            createdAt: true,
+            infrastructure: { select: { pgMemoryMb: true, pgCpuMillis: true, status: true } },
+          },
+        })
+      : [];
+
+    const reports: ProjectCostReport[] = [];
+    const inactive = { apiRequests: 0, bandwidthBytes: 0 };
+    const shown = { apiRequests: 0, bandwidthBytes: 0 };
+    for (const p of projectRows) {
+      const m = snapshot.projects.get(p.id)!;
+      if (!(BILLABLE_STATUSES as readonly string[]).includes(p.status)) {
+        inactive.apiRequests += m.apiRequests;
+        inactive.bandwidthBytes += m.bandwidthBytes;
+        continue;
+      }
+      if (p.createdAt >= period.end) continue;
+      const infra = p.infrastructure && p.infrastructure.status === 'ACTIVE' ? p.infrastructure : null;
+      shown.apiRequests += m.apiRequests;
+      shown.bandwidthBytes += m.bandwidthBytes;
+      reports.push(
+        priceProject(
+          cfg,
+          period,
+          {
+            id: p.id,
+            name: p.name,
+            slug: p.slug,
+            // Its status during that month is not on record; it was metered, so it ran.
+            status: 'ACTIVE',
+            createdAt: p.createdAt,
+            dbSizeBytes: m.dbSizeBytes,
+            storageBytes: m.storageBytes,
+            apiRequests: m.apiRequests,
+            bandwidthBytes: m.bandwidthBytes,
+            dedicatedMemoryMb: infra?.pgMemoryMb ?? null,
+            dedicatedCpuMillis: infra?.pgCpuMillis ?? null,
+          },
+          period.end,
+        ),
+      );
+    }
+    reports.sort((a, b) => b.pricedUsd - a.pricedUsd);
+    const projects = reports.map(toCustomerView);
+    const otherUsage = this.otherUsageRows(cfg, period, {
+      team: { apiRequests: snapshot.team.apiRequests, bandwidthBytes: snapshot.team.bandwidthBytes },
+      projects: shown,
+      inactive,
+    });
+
+    return {
+      currency: 'usd',
+      generatedAt: now.toISOString(),
+      period: describePeriod(period, period.end),
+      periodKey: key,
+      isCurrentPeriod: false,
+      availablePeriods,
+      plan: sub
+        ? { name: sub.plan.name, displayName: sub.plan.displayName, priceMonthlyUsd: sub.plan.priceMonthly / 100 }
+        : null,
+      projects,
+      otherUsage,
+      totals: sumCustomerRows(projects, otherUsage),
+      usageTotals: {
+        apiRequests: shown.apiRequests + otherUsage.reduce((s, r) => s + r.apiRequests, 0),
+        bandwidthBytes: shown.bandwidthBytes + otherUsage.reduce((s, r) => s + r.bandwidthBytes, 0),
+      },
+      rates: customerRates(cfg),
+      storagePending: false,
+      dbSizeMeasuredAt: null,
+      storageMeasuredAt: null,
+    };
+  }
+
+  private otherUsageRows(
+    cfg: InfraCostConfig,
+    period: BillingPeriod,
+    usage: Parameters<typeof reconcileTeamUsage>[0],
+  ): CustomerUsageRow[] {
+    const split = reconcileTeamUsage(usage);
+    return [
+      priceOtherUsage(cfg, period, 'inactive_projects', split.inactive),
+      priceOtherUsage(cfg, period, 'unattributed', split.unattributed),
+    ].filter((r): r is CustomerUsageRow => r !== null);
+  }
+
+  /** This month's traffic from the team's trashed and deactivated projects. */
+  private async inactiveProjectUsage(teamId: string): Promise<{ apiRequests: number; bandwidthBytes: number }> {
+    const rows = await this.prisma.project.findMany({
+      where: { teamId, status: { notIn: [...BILLABLE_STATUSES] } },
+      select: { id: true, usage: { select: { apiRequestsMonth: true, bandwidthMonth: true } } },
+    });
+    const live = await this.usage.getLiveProjectCounters(rows.map((r) => r.id));
+    return rows.reduce(
+      (acc, r) => {
+        const l = live.get(r.id);
+        acc.apiRequests += (r.usage?.apiRequestsMonth ?? 0) + (l?.apiRequests ?? 0);
+        acc.bandwidthBytes += Number(r.usage?.bandwidthMonth ?? 0) + (l?.bandwidthBytes ?? 0);
+        return acc;
+      },
+      { apiRequests: 0, bandwidthBytes: 0 },
+    );
+  }
+
+  /** The current month first, then closed months that have a per-project snapshot. */
+  private async listReportPeriods(teamId: string, currentKey: string): Promise<string[]> {
+    try {
+      const rows = await this.prisma.usageRecord.findMany({
+        where: { teamId, projectId: { not: null } },
+        distinct: ['periodStart'],
+        select: { periodStart: true },
+        orderBy: { periodStart: 'desc' },
+        take: HISTORY_MONTHS + 1,
+      });
+      const keys = rows
+        // A reset on local time may sit a few hours before midnight UTC; the
+        // month it closed is the one its start falls nearest to.
+        .map((r) => usageMonthKey(new Date(r.periodStart.getTime() + 12 * 60 * 60 * 1000)))
+        .filter((k) => k < currentKey);
+      return [currentKey, ...Array.from(new Set(keys)).slice(0, HISTORY_MONTHS)];
+    } catch {
+      return [currentKey];
+    }
+  }
+
+  /**
+   * Recurring revenue across every team — with or without projects — under
+   * the one definition the whole root console uses.
+   */
+  async getRecurringRevenue(now = new Date()): Promise<PlatformRecurringRevenue> {
+    const subs = await this.prisma.subscription.findMany({
+      select: {
+        teamId: true,
+        status: true,
+        stripeCustomerId: true,
+        stripeSubscriptionId: true,
+        billingDayOfMonth: true,
+        currentPeriodEnd: true,
+        studentDiscountPercent: true,
+        plan: { select: { priceMonthly: true } },
+        team: { select: { accountStatus: true } },
+      },
+    });
+    const inputs = subs.map((s) => ({ teamId: s.teamId, input: toRevenueInput(s) }));
+    const byTeam = new Map(
+      inputs.map(({ teamId, input }) => [
+        teamId,
+        { state: classifyRevenue(input, now), monthlyRevenueUsd: monthlyRevenueUsd(input, now) },
+      ]),
+    );
+    return { ...summarizeRecurringRevenue(inputs.map((i) => i.input), now), byTeam };
   }
 
   async getPlatformReport(): Promise<PlatformCostReport> {
     const now = new Date();
     const cfg = await this.getConfig();
     await this.ensureFreshDbSizes();
+    const revenue = await this.getRecurringRevenue(now);
 
     const teams = await this.prisma.team.findMany({
       where: { projects: { some: { status: { in: [...BILLABLE_STATUSES] } } } },
@@ -245,20 +552,34 @@ export class ProjectCostService {
     const inputs = await this.toInputs(allRows);
     const inputById = new Map(inputs.map((i) => [i.id, i]));
 
-    const teamReports: PlatformTeamCost[] = teams
-      .map((t) => {
-        const projects = t.projects
-          .map((p) => priceProject(cfg, period, inputById.get(p.id)!, now))
-          .sort((a, b) => b.rawUsd - a.rawUsd);
-        const totals = sumProjectCosts(projects);
+    const actualMonthlyBillUsd = round2(
+      cfg.server.monthlyCostUsd + cfg.server.volumeGb * cfg.diskUsdPerGbMonth,
+    );
+    const priced = teams.map((t) => {
+      const projects = t.projects
+        .map((p) => priceProject(cfg, period, inputById.get(p.id)!, now))
+        .sort((a, b) => b.rawUsd - a.rawUsd);
+      return { team: t, projects, totals: sumProjectCosts(projects) };
+    });
+    const modeledTotal = priced.reduce((s, t) => s + t.totals.projectedRawUsd, 0);
+
+    const teamReports: PlatformTeamCost[] = priced
+      .map(({ team: t, projects, totals }) => {
+        const teamRevenue = revenue.byTeam.get(t.id);
         const plan = t.subscription
           ? {
               name: t.subscription.plan.name,
               displayName: t.subscription.plan.displayName,
               priceMonthlyUsd: t.subscription.plan.priceMonthly / 100,
               status: t.subscription.status,
+              revenueState: teamRevenue?.state,
+              monthlyRevenueUsd: teamRevenue?.monthlyRevenueUsd ?? 0,
             }
           : null;
+        // The modeled cost overcommits the shared host, so a team's real cost
+        // is its proportional slice of the actual bill.
+        const billShareUsd =
+          modeledTotal > 0 ? round2((actualMonthlyBillUsd * totals.projectedRawUsd) / modeledTotal) : 0;
         return {
           teamId: t.id,
           teamName: t.name,
@@ -266,16 +587,14 @@ export class ProjectCostService {
           plan,
           projects,
           totals,
-          marginUsd: round2((plan?.priceMonthlyUsd ?? 0) - totals.projectedRawUsd),
+          billShareUsd,
+          marginUsd: round2((teamRevenue?.monthlyRevenueUsd ?? 0) - billShareUsd),
         };
       })
       .sort((a, b) => b.totals.projectedRawUsd - a.totals.projectedRawUsd);
 
     const allocated = sumProjectCosts(teamReports.flatMap((t) => t.projects));
-    const planRevenueUsd = round2(teamReports.reduce((s, t) => s + (t.plan?.priceMonthlyUsd ?? 0), 0));
-    const actualMonthlyBillUsd = round2(
-      cfg.server.monthlyCostUsd + cfg.server.volumeGb * cfg.diskUsdPerGbMonth,
-    );
+    const planRevenueUsd = revenue.mrrUsd;
 
     return {
       currency: 'usd',
@@ -292,6 +611,10 @@ export class ProjectCostService {
         marginVsAllocatedUsd: round2(planRevenueUsd - allocated.projectedRawUsd),
         marginVsBillUsd: round2(planRevenueUsd - actualMonthlyBillUsd),
         recoveryRatio: actualMonthlyBillUsd > 0 ? round2(allocated.projectedRawUsd / actualMonthlyBillUsd) : 0,
+        payingTeams: revenue.payingTeams,
+        paidPlanTeams: revenue.paidPlanTeams,
+        revenueByState: revenue.byState,
+        revenueDefinition: revenue.definition,
       },
       teams: teamReports,
       storagePending: allRows.some((r) => !r.usage?.storageCalculatedAt),
@@ -327,27 +650,9 @@ export class ProjectCostService {
 
   // ── Helpers ──────────────────────────────────────────────
 
+  /** Platform-wide and single-project reports keep the 6-hour freshness. */
   private async ensureFreshDbSizes(teamId?: string): Promise<void> {
-    const staleBefore = new Date(Date.now() - DB_SIZE_STALE_MS);
-    try {
-      const stale = await this.prisma.project.count({
-        where: {
-          status: { in: [...BILLABLE_STATUSES] },
-          ...(teamId ? { teamId } : {}),
-          // Not lastCalculatedAt: the storage pass and counter flushes bump it
-          // too, which made never-measured databases look fresh.
-          OR: [
-            { usage: null },
-            { usage: { dbSizeCalculatedAt: null } },
-            { usage: { dbSizeCalculatedAt: { lt: staleBefore } } },
-          ],
-        },
-      });
-      if (stale > 0) await this.usage.refreshProjectDbSizes(teamId ? { teamId } : undefined);
-    } catch (err: any) {
-      // The report must still render from whatever snapshot exists.
-      this.logger.warn(`Could not refresh project DB sizes: ${err.message}`);
-    }
+    await this.usage.ensureFreshDbSizes(teamId, DB_SIZE_STALE_MS);
   }
 
   private async toInputs(rows: ProjectRow[]): Promise<ProjectUsageInput[]> {
@@ -377,27 +682,36 @@ export class ProjectCostService {
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
-function toCustomerView(r: ProjectCostReport): CustomerProjectCost {
+/** Map a subscription row onto the recurring-revenue inputs. */
+export function toRevenueInput(s: {
+  status: string;
+  stripeCustomerId: string | null;
+  stripeSubscriptionId: string | null;
+  billingDayOfMonth: number | null;
+  currentPeriodEnd: Date | null;
+  studentDiscountPercent: number | null;
+  plan: { priceMonthly: number };
+  team?: { accountStatus: string } | null;
+}): RevenueSubscriptionInput {
   return {
-    projectId: r.projectId,
-    name: r.name,
-    slug: r.slug,
-    status: r.status,
-    computeTier: r.computeTier,
-    activeHours: r.activeHours,
-    lines: r.lines.map((l) => ({
-      key: l.key,
-      label: l.label,
-      quantity: l.quantity,
-      unit: l.unit,
-      detail: l.detail,
-      amountUsd: l.pricedUsd,
-      projectedUsd: l.projectedPricedUsd,
-    })),
-    amountUsd: r.pricedUsd,
-    projectedUsd: r.projectedPricedUsd,
+    status: s.status,
+    priceMonthlyCents: s.plan.priceMonthly,
+    studentDiscountPercent: s.studentDiscountPercent,
+    stripeCustomerId: s.stripeCustomerId,
+    stripeSubscriptionId: s.stripeSubscriptionId,
+    billingDayOfMonth: s.billingDayOfMonth,
+    currentPeriodEnd: s.currentPeriodEnd,
+    accountStatus: s.team?.accountStatus ?? null,
   };
 }
+
+/** Customer figures in whole cents, each total the sum of the rows it sits over. */
+function toCustomerView(r: ProjectCostReport): CustomerProjectCost {
+  return toCustomerProjectView(r);
+}
+
+const maxDate = (dates: Array<Date | null | undefined>): Date | null =>
+  dates.reduce<Date | null>((latest, d) => (d && (!latest || d > latest) ? d : latest), null);
 
 function customerRates(cfg: InfraCostConfig): CustomerRates {
   const m = cfg.markup;

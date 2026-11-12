@@ -30,10 +30,8 @@ import { toast } from 'sonner';
 import { confirmDialog } from '@/components/ui/confirm-dialog';
 import { useDashboard } from '@/app/dashboard/layout';
 import { api } from '@/lib/api';
+import { localZoneLabel } from '@/lib/time-zone';
 import { getDisplayName } from '@/lib/display-name';
-import { OrganizationKindBadge, SELECTABLE_ORGANIZATION_KINDS } from '@/components/organization-kind';
-import { Switch } from '@/components/ui/switch';
-import type { FeatureFlags, FeatureFlagManagement } from '@/lib/types';
 import type {
   AuditLogEntry,
   GscSearchPerformance,
@@ -134,10 +132,6 @@ export default function ManagementPage() {
   const [usersSearchInput, setUsersSearchInput] = useState('');
   const [usersSearchQ, setUsersSearchQ] = useState('');
   const [teams, setTeams] = useState<ManagementTeam[]>([]);
-  const [teamKindFilter, setTeamKindFilter] = useState<string>('all');
-  const [featureFlags, setFeatureFlags] = useState<FeatureFlags | null>(null);
-  const [savingFlag, setSavingFlag] = useState(false);
-  const [flagUsers, setFlagUsers] = useState<FeatureFlagManagement['users'] | null>(null);
   const [plans, setPlans] = useState<ManagementPlan[]>([]);
   const [userPackages, setUserPackages] = useState<ManagementUserPackage[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
@@ -316,8 +310,6 @@ export default function ManagementPage() {
       } else if (tab === 'teams' && (managementPermissions?.canManageTeams || isRoot)) {
         const teamsData = await api.auth.managementTeams();
         setTeams(teamsData);
-        api.features.all().then(setFeatureFlags).catch(() => setFeatureFlags(null));
-        api.features.management().then((m) => setFlagUsers(m.users)).catch(() => setFlagUsers(null));
       } else if (tab === 'audit' && (managementPermissions?.canViewAuditLogs || isRoot)) {
         // Initial load handled by the fetchAuditLogs effect
       } else if (tab === 'rootAlerts' && (managementPermissions?.canViewRootAlerts || isRoot)) {
@@ -674,7 +666,7 @@ export default function ManagementPage() {
           }`}
           onClick={() => setActiveTab('teams')}
         >
-          Organizations
+          Teams
         </button>
         )}
         {(managementPermissions?.canViewAuditLogs || isRoot) && (
@@ -1841,15 +1833,16 @@ export default function ManagementPage() {
                 <th className="px-2 py-2">Deleted By</th>
                 <th className="px-2 py-2">Team</th>
                 <th className="px-2 py-2">Project</th>
+                <th className="px-2 py-2">Type</th>
                 <th className="px-2 py-2">Reason</th>
                 <th className="px-2 py-2">Details</th>
-                <th className="px-2 py-2">Time</th>
+                <th className="px-2 py-2">Time ({localZoneLabel()})</th>
               </tr>
             </thead>
             <tbody>
               {projectDeletionReasons.length === 0 ? (
                 <tr>
-                  <td className="px-2 py-5 text-center text-muted-foreground" colSpan={6}>
+                  <td className="px-2 py-5 text-center text-muted-foreground" colSpan={7}>
                     No project deletion reason records yet.
                   </td>
                 </tr>
@@ -1871,8 +1864,22 @@ export default function ManagementPage() {
                       >
                         {row.projectName || row.projectId}
                       </p>
+                      {row.isBranch && (
+                        <span className="text-xs text-muted-foreground">Preview branch</span>
+                      )}
                     </td>
-                    <td className="px-2 py-2">{row.reasonLabel || 'None of the above'}</td>
+                    <td className="whitespace-nowrap px-2 py-2">
+                      {row.kind === 'permanent'
+                        ? 'Deleted permanently'
+                        : row.kind === 'purged'
+                          ? 'Removed after retention'
+                          : 'Moved to trash'}
+                    </td>
+                    <td className="px-2 py-2">
+                      {row.reasonLabel || (
+                        <span className="text-muted-foreground">Not specified</span>
+                      )}
+                    </td>
                     <td
                       className="max-w-[360px] truncate px-2 py-2 text-muted-foreground"
                       title={row.details || ''}
@@ -2377,141 +2384,30 @@ export default function ManagementPage() {
 
       {activeTab === 'teams' && (managementPermissions?.canManageTeams || isRoot) && (
       <section className="space-y-3 rounded-xl border bg-card p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-base font-semibold">Organizations</h2>
-          <div className="flex flex-wrap items-center gap-3">
-            <label className="flex items-center gap-2 text-xs text-muted-foreground">
-              Kind
-              <select
-                value={teamKindFilter}
-                onChange={(e) => setTeamKindFilter(e.target.value)}
-                className="h-8 rounded-md border bg-background px-2 text-xs text-foreground"
-              >
-                <option value="all">All</option>
-                <option value="PERSONAL">Personal</option>
-                {SELECTABLE_ORGANIZATION_KINDS.map((k) => (
-                  <option key={k.value} value={k.value}>{k.label}</option>
-                ))}
-              </select>
-            </label>
-            {isRoot && (
-              <label
-                className="flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs"
-                title="Switches the organization pages, the creation wizard and the header switcher on for every dashboard user within 30 seconds. The API routes are always on."
-              >
-                <Switch
-                  checked={!!featureFlags?.organizations_ui}
-                  disabled={featureFlags === null || savingFlag}
-                  onCheckedChange={async (next) => {
-                    setSavingFlag(true);
-                    try {
-                      const flags = await api.features.set('organizations_ui', next);
-                      setFeatureFlags(flags);
-                      toast.success(next ? 'Organization pages switched on' : 'Organization pages switched off');
-                    } catch (err: any) {
-                      toast.error(err?.message || 'Could not change the flag');
-                    } finally {
-                      setSavingFlag(false);
-                    }
-                  }}
-                />
-                Organization pages in the dashboard
-              </label>
-            )}
-            {isRoot && (
-              <label
-                className="flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs"
-                title="Phase 1 of the simplification: one sidebar, grouped project menu, Connect button, ⌘K. On for everyone within 30 seconds; off brings the current navigation back."
-              >
-                <Switch
-                  checked={!!featureFlags?.nav_v2}
-                  disabled={featureFlags === null || savingFlag}
-                  onCheckedChange={async (next) => {
-                    setSavingFlag(true);
-                    try {
-                      const flags = await api.features.set('nav_v2', next);
-                      setFeatureFlags(flags);
-                      toast.success(next ? 'New navigation switched on for everyone' : 'New navigation switched off');
-                    } catch (err: any) {
-                      toast.error(err?.message || 'Could not change the flag');
-                    } finally {
-                      setSavingFlag(false);
-                    }
-                  }}
-                />
-                New navigation (nav_v2) for everyone
-              </label>
-            )}
-            {isRoot && profile?.id && (
-              <button
-                type="button"
-                className="rounded-md border px-2.5 py-1.5 text-xs hover:bg-accent disabled:opacity-50"
-                disabled={flagUsers === null || savingFlag}
-                title="Try the new navigation on this account only, ahead of everyone. Reload the dashboard afterwards."
-                onClick={async () => {
-                  if (!flagUsers) return;
-                  const mine = flagUsers.nav_v2.includes(profile.id);
-                  const next = mine ? flagUsers.nav_v2.filter((id) => id !== profile.id) : [...flagUsers.nav_v2, profile.id];
-                  setSavingFlag(true);
-                  try {
-                    const users = await api.features.setUsers('nav_v2', next);
-                    setFlagUsers(users);
-                    toast.success(mine ? 'New navigation off for your account' : 'New navigation on for your account (reload the dashboard)');
-                  } catch (err: any) {
-                    toast.error(err?.message || 'Could not change the flag');
-                  } finally {
-                    setSavingFlag(false);
-                  }
-                }}
-              >
-                {flagUsers?.nav_v2.includes(profile.id) ? 'New navigation: on for me' : 'New navigation: try it on my account'}
-                {flagUsers && flagUsers.nav_v2.length > 0 && <> ({flagUsers.nav_v2.length} enrolled)</>}
-              </button>
-            )}
-          </div>
-        </div>
+        <h2 className="text-base font-semibold">Teams</h2>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[960px] text-left text-sm">
+          <table className="w-full min-w-[720px] text-left text-sm">
             <thead>
               <tr className="border-b text-xs text-muted-foreground">
-                <th className="px-2 py-2">Organization</th>
-                <th className="px-2 py-2">Kind</th>
-                <th className="px-2 py-2">Plan</th>
+                <th className="px-2 py-2">Team</th>
+                <th className="px-2 py-2">Slug</th>
                 <th className="px-2 py-2">Owner</th>
                 <th className="px-2 py-2">Members</th>
                 <th className="px-2 py-2">Projects</th>
-                <th className="px-2 py-2">Public id</th>
                 <th className="px-2 py-2">Created</th>
                 <th className="px-2 py-2">Action</th>
               </tr>
             </thead>
             <tbody>
-              {teams
-                .filter((t) => teamKindFilter === 'all' || (t.kind ?? (t.isPersonal ? 'PERSONAL' : 'COMPANY')) === teamKindFilter)
-                .map((t) => (
+              {teams.map((t) => (
                 <tr key={t.id} className="border-b last:border-0">
-                  <td className="px-2 py-2">
-                    <div className="font-medium">{t.name}</div>
-                    <div className="text-xs text-muted-foreground">{t.slug}</div>
-                  </td>
-                  <td className="px-2 py-2"><OrganizationKindBadge kind={t.kind ?? (t.isPersonal ? 'PERSONAL' : 'COMPANY')} /></td>
-                  <td className="px-2 py-2">{t.plan?.displayName ?? <span className="text-muted-foreground">—</span>}</td>
+                  <td className="px-2 py-2 font-medium">{t.name}</td>
+                  <td className="px-2 py-2 text-muted-foreground">{t.slug}</td>
                   <td className="px-2 py-2">
                     {t.owner ? `${getDisplayName({ firstName: t.owner.firstName, lastName: t.owner.lastName, email: t.owner.email })} (${t.owner.email})` : 'N/A'}
                   </td>
                   <td className="px-2 py-2">{t.memberCount}</td>
-                  <td className="px-2 py-2">
-                    {t.projectCount}
-                    {(t.projectsDeactivated ?? 0) > 0 && (
-                      <span className="ml-1 text-xs text-muted-foreground" title="Active · Deactivated">
-                        ({t.projectsAwake ?? 0} · {t.projectsDeactivated} deactivated)
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-2 py-2 font-mono text-xs text-muted-foreground" title={t.organizationMigratedAt ? `Migrated ${new Date(t.organizationMigratedAt).toLocaleDateString()}` : 'Not migrated yet'}>
-                    {t.publicId ?? '—'}
-                    {!t.organizationMigratedAt && <span className="ml-1 text-amber-600">·</span>}
-                  </td>
+                  <td className="px-2 py-2">{t.projectCount}</td>
                   <td className="px-2 py-2 text-muted-foreground">
                     {new Date(t.createdAt).toLocaleDateString()}
                   </td>
@@ -2523,14 +2419,14 @@ export default function ManagementPage() {
                       disabled={deletingTeamId === t.id || t.projectCount > 0}
                       title={
                         t.projectCount > 0
-                          ? 'Delete projects first to remove this organization'
+                          ? 'Delete projects first to remove this team'
                           : undefined
                       }
                       onClick={async () => {
                         const ok = await confirmDialog({
-                          title: 'Delete organization',
-                          description: `Delete "${t.name}"? This action cannot be undone.`,
-                          confirmText: 'Delete organization',
+                          title: 'Delete team',
+                          description: `Delete "${t.name}" team? This action cannot be undone.`,
+                          confirmText: 'Delete team',
                           destructive: true,
                         });
                         if (!ok) return;
@@ -2538,9 +2434,9 @@ export default function ManagementPage() {
                         try {
                           await api.auth.deleteManagementTeam(t.id);
                           setTeams((prev) => prev.filter((x) => x.id !== t.id));
-                          toast.success(`Organization "${t.name}" deleted`);
+                          toast.success(`Team "${t.name}" deleted`);
                         } catch (err: any) {
-                          toast.error(err.message || 'Failed to delete organization');
+                          toast.error(err.message || 'Failed to delete team');
                         } finally {
                           setDeletingTeamId(null);
                         }
@@ -2569,7 +2465,7 @@ export default function ManagementPage() {
           <Input
             value={auditSearch}
             onChange={(e) => setAuditSearch(e.target.value)}
-            placeholder="Search action, actor, resource, trace id..."
+            placeholder="Search action, event, actor (name or email), project, resource, trace id..."
             className="h-9 w-full max-w-sm"
           />
           <div className="flex flex-wrap items-center gap-2">
@@ -2633,7 +2529,7 @@ export default function ManagementPage() {
           <table className="w-full min-w-[1220px] text-left text-sm">
             <thead>
               <tr className="border-b text-xs text-muted-foreground">
-                <th className="px-2 py-2">Time</th>
+                <th className="px-2 py-2">Time ({localZoneLabel()})</th>
                 <th className="px-2 py-2">Severity</th>
                 <th className="px-2 py-2">Result</th>
                 <th className="px-2 py-2">Action</th>
@@ -2688,6 +2584,11 @@ export default function ManagementPage() {
                       >
                         {log.action}
                       </button>
+                      {typeof log.metadataJson?.event === 'string' && (
+                        <div className="truncate font-mono text-[11px] text-muted-foreground">
+                          {log.metadataJson.event}
+                        </div>
+                      )}
                     </td>
                     <td className="max-w-[220px] px-2 py-2">
                       <div className="truncate text-xs" title={log.actorDisplayName || log.actorUserId}>
@@ -2791,13 +2692,27 @@ export default function ManagementPage() {
 
               const fromUrl = extractUrlEntity(url || undefined);
               const teamId =
-                (typeof nested?.teamId === 'string' ? nested.teamId : null) || fromUrl.teamId;
+                log.teamId ||
+                (typeof nested?.teamId === 'string' ? nested.teamId : null) ||
+                fromUrl.teamId;
               const projectId =
-                (typeof nested?.projectId === 'string' ? nested.projectId : null) || fromUrl.projectId;
-              const teamName = teamId ? teamById.get(teamId)?.name : null;
-              const projectName = projectId
-                ? deletionReasonByProjectId.get(projectId)?.projectName || null
-                : null;
+                log.projectId ||
+                (typeof nested?.projectId === 'string' ? nested.projectId : null) ||
+                fromUrl.projectId;
+              const teamName = log.teamDisplayName || (teamId ? teamById.get(teamId)?.name : null);
+              const projectName =
+                log.projectDisplayName ||
+                (projectId ? deletionReasonByProjectId.get(projectId)?.projectName || null : null);
+              const event = typeof metadata.event === 'string' ? metadata.event : null;
+              const ip = typeof metadata.ip === 'string' ? metadata.ip : null;
+              const ua = typeof metadata.userAgent === 'string' ? metadata.userAgent : null;
+              const authMethod = typeof metadata.authMethod === 'string' ? metadata.authMethod : null;
+              const after = (log.afterJson || {}) as Record<string, unknown>;
+              const changedFields = Array.isArray(after.fields) ? (after.fields as string[]) : null;
+              const changes =
+                after.changes && typeof after.changes === 'object'
+                  ? (after.changes as Record<string, unknown>)
+                  : null;
 
               return (
                 <>
@@ -2813,9 +2728,35 @@ export default function ManagementPage() {
                           ? `${getDisplayName({ firstName: actor.firstName, lastName: actor.lastName, email: actor.email })}${actor.email ? ` (${actor.email})` : ''}`
                           : log.actorUserId)}
                     </p>
-                    <p><span className="font-medium">When:</span> {new Date(log.createdAt).toLocaleString()}</p>
+                    <p>
+                      <span className="font-medium">When:</span> {new Date(log.createdAt).toLocaleString()}{' '}
+                      <span className="text-xs text-muted-foreground">({localZoneLabel()})</span>
+                    </p>
+                    {event && (
+                      <p><span className="font-medium">Event:</span> <span className="font-mono text-xs">{event}</span></p>
+                    )}
                     <p><span className="font-medium">Team:</span> {teamName || '-'} {teamId ? `(${teamId})` : ''}</p>
-                    <p><span className="font-medium">Project:</span> {projectName || '-'} {projectId ? `(${projectId})` : ''}</p>
+                    <p>
+                      <span className="font-medium">Project:</span> {projectName || '-'} {projectId ? `(${projectId})` : ''}
+                      {log.projectDeleted ? <span className="text-xs text-muted-foreground"> · deleted</span> : null}
+                    </p>
+                    {(ip || ua || authMethod) && (
+                      <p className="break-all">
+                        <span className="font-medium">Client:</span> {ip || '-'}
+                        {authMethod ? ` · ${authMethod.replace(/_/g, ' ')}` : ''}
+                        {ua ? <span className="block text-xs text-muted-foreground">{ua}</span> : null}
+                      </p>
+                    )}
+                    {changedFields && changedFields.length > 0 && (
+                      <p className="break-all">
+                        <span className="font-medium">Fields:</span> {changedFields.join(', ')}
+                        {changes ? (
+                          <span className="block font-mono text-xs text-muted-foreground">
+                            {JSON.stringify(changes)}
+                          </span>
+                        ) : null}
+                      </p>
+                    )}
                     <p>
                       <span className="font-medium">Resource:</span>{' '}
                       {log.resourceDisplayName ||

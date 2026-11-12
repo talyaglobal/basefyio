@@ -58,4 +58,10 @@ export class ApiTokensController {
   revoke(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
     return this.service.revoke(user.sub, id);
   }
+
+  /** Remove a revoked token from the list for good (an active token is refused). */
+  @Delete(':id/permanent')
+  remove(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    return this.service.remove(user.sub, id);
+  }
 }

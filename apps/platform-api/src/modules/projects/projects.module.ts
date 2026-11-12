@@ -12,18 +12,11 @@ import { ProjectPoliciesController } from './project-policies.controller';
 import { ProjectPoliciesService } from './project-policies.service';
 import { ProjectDataService } from './project-data.service';
 import { ProjectAuthController } from './project-auth.controller';
-import { ProjectApiKeysController } from './project-api-keys.controller';
-import { ProjectApiKeysService } from './project-api-keys.service';
 import { ProjectAuthConfigService } from './project-auth-config.service';
 import { ProjectSdkAuthController } from './project-sdk-auth.controller';
 import { ProjectOAuthCallbackController } from './project-oauth-callback.controller';
 import { ProjectSdkAuthService } from './project-sdk-auth.service';
-import { SupabaseAuthCompatController } from './supabase-auth-compat.controller';
-import { SupabaseAuthOpenController } from './supabase-auth-open.controller';
-import { SupabaseAuthCompatService } from './supabase-auth-compat.service';
-import { ProjectJwtVerifier } from '../../common/auth/project-jwt-verifier';
 import { ProjectMfaService } from './project-mfa.service';
-import { ImportedPasswordService } from './imported-password.service';
 import { ProjectAnonymousAuthService } from './project-anonymous-auth.service';
 import { PublicApiController } from './public-api.controller';
 import { PublicApiService } from './public-api.service';
@@ -70,11 +63,8 @@ import { ProjectBranchesController } from './branches/project-branches.controlle
     ProjectDatabaseController,
     ProjectPoliciesController,
     ProjectAuthController,
-    ProjectApiKeysController,
     ProjectSdkAuthController,
     ProjectOAuthCallbackController,
-    SupabaseAuthCompatController,
-    SupabaseAuthOpenController,
     PublicApiController,
     CollectionController,
     PublicCollectionApiController,
@@ -84,7 +74,6 @@ import { ProjectBranchesController } from './branches/project-branches.controlle
     ProjectBranchesController,
   ],
   providers: [
-    ProjectApiKeysService,
     ProjectDatabaseService,
     ProjectProvisioningService,
     ProjectReadonlyRoleService,
@@ -93,10 +82,7 @@ import { ProjectBranchesController } from './branches/project-branches.controlle
     ProjectDataService,
     ProjectAuthConfigService,
     ProjectSdkAuthService,
-    SupabaseAuthCompatService,
-    ProjectJwtVerifier,
     ProjectMfaService,
-    ImportedPasswordService,
     ProjectAnonymousAuthService,
     PublicApiService,
     CollectionService,

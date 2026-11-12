@@ -88,7 +88,9 @@ export interface Project {
   dbPort: number;
   keycloakRealm: string;
   anonKey: string;
-  serviceKey: string;
+  /** Absent on dashboard loads (`?secrets=omit`); read it from the connection endpoint. */
+  serviceKey?: string;
+  secretsOmitted?: boolean;
   status: 'ACTIVE' | 'PAUSED' | 'DELETED';
   /** Database model chosen in the New Project wizard. */
   databaseType?: 'RELATIONAL' | 'NOSQL';
@@ -175,16 +177,6 @@ export interface ProjectListItem {
   branchSyncStatus?: 'pending' | 'ready' | 'failed' | null;
 }
 
-export type OrganizationKind =
-  | 'PERSONAL'
-  | 'COMPANY'
-  | 'STARTUP'
-  | 'AGENCY'
-  | 'EDUCATION'
-  | 'NONPROFIT'
-  | 'OPEN_SOURCE'
-  | 'OTHER';
-
 export interface Team {
   id: string;
   name: string;
@@ -195,63 +187,6 @@ export interface Team {
   projectCount: number;
   /** Members must sign in with an authenticator. */
   requireMfa?: boolean;
-  /** Organization fields (an organization is a team row); older API builds omit them. */
-  publicId?: string | null;
-  kind?: OrganizationKind;
-  plan?: { name: string; displayName: string } | null;
-}
-
-/** A team as the organization routes present it: addressed by `organizationId` (the public id). */
-export interface Organization extends Team {
-  organizationId: string;
-  projects: { awake: number; deactivated: number };
-}
-
-export interface OrganizationOverview {
-  id: string;
-  organizationId: string;
-  publicId: string | null;
-  name: string;
-  slug: string;
-  kind: OrganizationKind;
-  isPersonal: boolean;
-  description: string | null;
-  websiteUrl: string | null;
-  logoUrl: string | null;
-  requireMfa: boolean;
-  createdAt: string;
-  plan: { name: string; displayName: string } | null;
-  counts: {
-    members: number;
-    projects: number;
-    projectsAwake: number;
-    projectsDeactivated: number;
-    pendingInvites: number;
-  };
-  usage: Record<string, unknown> | null;
-}
-
-export interface OrganizationProject {
-  id: string;
-  name: string;
-  slug: string;
-  status: string;
-  databaseType: string;
-  createdAt: string;
-  pausedAt: string | null;
-}
-
-/** Runtime switches the operator flips in the root console; `GET /api/features`. */
-export interface FeatureFlags {
-  organizations_ui: boolean;
-  /** Phase 1 of the simplification: one sidebar, grouped project menu, Connect button, ⌘K. */
-  nav_v2: boolean;
-}
-
-/** Root console view of the flags: what is on for everyone and who has it ahead of everyone. */
-export interface FeatureFlagManagement {
-  flags: FeatureFlags;
-  users: Record<keyof FeatureFlags, string[]>;
 }
 
 export interface TeamMember {
@@ -282,6 +217,8 @@ export interface PendingInvite {
   id: string;
   invitedEmail?: string | null;
   invitedUser: { id: string | null; email: string | null };
+  /** Role the invitee joins with. */
+  role?: 'ADMIN' | 'MEMBER';
 }
 
 export interface AuthTokens {
@@ -439,13 +376,6 @@ export interface ManagementTeam {
     firstName: string | null;
     lastName: string | null;
   } | null;
-  publicId?: string | null;
-  kind?: OrganizationKind;
-  isPersonal?: boolean;
-  plan?: { name: string; displayName: string } | null;
-  organizationMigratedAt?: string | null;
-  projectsAwake?: number;
-  projectsDeactivated?: number;
 }
 
 export interface ManagementPlan {
@@ -572,6 +502,12 @@ export interface AuditLogEntry {
   actorDisplayName?: string | null;
   /** Resolved label when resource is a user (or other known types later) */
   resourceDisplayName?: string | null;
+  /** The project the request was about, with its owner-given name and team. */
+  projectId?: string | null;
+  projectDisplayName?: string | null;
+  projectDeleted?: boolean;
+  teamId?: string | null;
+  teamDisplayName?: string | null;
 }
 
 export interface ProjectDeletionReasonEntry {
@@ -583,9 +519,14 @@ export interface ProjectDeletionReasonEntry {
   projectName: string | null;
   teamId?: string | null;
   teamName?: string | null;
+  /** null when the user skipped the question. */
   reasonCode: string | null;
   reasonLabel: string | null;
   details: string | null;
+  /** trashed | permanent | purged (older rows: trashed). */
+  kind?: string;
+  /** The deleted project was a preview branch. */
+  isBranch?: boolean;
 }
 
 export interface SqlResult {
@@ -606,7 +547,33 @@ export interface SqlResult {
     fields?: { name: string; dataTypeId: number }[];
     rows?: Record<string, unknown>[];
     rowCount: number | null;
+    /** More rows existed than were returned. */
+    truncated?: boolean;
   }[];
+  /** Some result had more rows than `maxRows`; only the first ones came back. */
+  truncated?: boolean;
+  maxRows?: number | null;
+}
+
+/** One past statement from GET /sql/history. */
+export interface SqlHistoryEntry {
+  id: string;
+  query: string;
+  error: string | null;
+  rowCount: number | null;
+  duration: number | null;
+  createdAt: string;
+}
+
+/** A saved query (shared with the project's team). */
+export interface SqlSnippet {
+  id: string;
+  projectId: string;
+  userId: string;
+  name: string;
+  query: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ApiError {
@@ -627,6 +594,8 @@ export interface ColumnInfo {
   nullable: boolean;
   defaultValue: string | null;
   isPrimary: boolean;
+  /** A single-column UNIQUE constraint or index covers the column. */
+  isUnique?: boolean;
 }
 
 export interface ForeignKeyInfo {
@@ -645,6 +614,11 @@ export interface TableRows {
   page: number;
   limit: number;
   totalPages: number;
+  /** Another page follows — reliable even when `total` is approximate. */
+  hasMore?: boolean;
+  /** Columns that order the page (sort column, then the primary key). */
+  orderedBy?: string[];
+  rlsBypassed?: boolean;
 }
 
 // ── NoSQL / Collections ────────────────────────────────────
@@ -668,6 +642,15 @@ export interface DocumentListResult {
   offset: number;
 }
 
+export interface CollectionIndexInfo {
+  name: string;
+  /** The document field the index covers; null for other expressions. */
+  fieldPath: string | null;
+  definition: string;
+  /** Created with the collection (primary key, GIN) — cannot be dropped. */
+  system: boolean;
+}
+
 // ── Data Engine ──────────────────────────────────────────
 
 export interface EntityDefinitionInfo {
@@ -684,6 +667,8 @@ export interface EntityDefinitionInfo {
   icon?: string;
   createdAt: string;
   updatedAt: string;
+  /** Active documents; present when listed with withCounts, null if the store was unreachable. */
+  documentCount?: number | null;
 }
 
 export interface DataEngineDoc {
@@ -764,6 +749,9 @@ export interface RealmUser {
   /** Created by anonymous sign-in; the email is a placeholder. */
   isAnonymous?: boolean;
   createdTimestamp: number;
+  /** An administrator asked this user to enroll an authenticator. */
+  mfaEnrollmentRequired?: boolean;
+  requiredActions?: string[];
 }
 
 export interface RealmSession {
@@ -795,6 +783,9 @@ export interface RealmUserDetail {
   sessions: RealmSession[];
   sessionCount: number;
   lastSignIn: number | null;
+  requiredActions?: string[];
+  /** Whether MFA enrollment was requested, and whether a factor is enrolled. */
+  mfa?: { enrollmentRequired: boolean; enrolled: boolean };
 }
 
 export interface MfaFactor {
@@ -821,6 +812,8 @@ export interface RealmPolicies {
   waitIncrementSeconds: number;
   maxFailureWaitSeconds: number;
   passwordPolicy: string;
+  /** Access-token lifetime of the project's realm, in seconds. */
+  accessTokenLifespanSeconds?: number;
   password: {
     minLength: number;
     requireUppercase: boolean;
@@ -830,13 +823,6 @@ export interface RealmPolicies {
     historyCount: number;
     expiryDays: number;
   };
-}
-
-export interface ProjectApiKeys {
-  anonKey: string;
-  serviceKey: { masked: string; revealable: boolean; lastUsedAt: string | null };
-  secretKeys: Array<{ id: string; name: string; hint: string; createdAt: string; lastUsedAt: string | null }>;
-  canManage: boolean;
 }
 
 export interface RealmInfo {
@@ -945,6 +931,10 @@ export interface StorageBucket {
   createdAt: string;
   objectCount: number;
   totalSize: number;
+  /** Largest object the bucket accepts, in bytes; null or absent = the platform ceiling. */
+  fileSizeLimit?: number | null;
+  /** MIME types the bucket accepts; empty or absent = any. */
+  allowedMimeTypes?: string[];
 }
 
 export interface StorageObject {
@@ -1083,6 +1073,13 @@ export interface CloudBackupItem {
   kind?: 'manual' | 'auto';
   /** Stored encrypted at rest (BACKUP_ENCRYPT_LOCAL); restore decrypts transparently. */
   encrypted?: boolean;
+  /** export = manual download package, scheduled = nightly, on-demand = "Back up now". */
+  trigger?: 'export' | 'scheduled' | 'on-demand';
+  /** When the retention sweep removes it. */
+  expiresAt?: string;
+  retentionDays?: number;
+  /** Nightly backups cannot be deleted by hand. */
+  deletable?: boolean;
 }
 
 export type BackupVerificationStatus = 'RUNNING' | 'PASSED' | 'FAILED' | 'SKIPPED';
@@ -1176,6 +1173,12 @@ export interface PitrRecoveryWindow {
   baseBackupCount: number;
   walSegmentCount: number;
   retentionDays: number;
+  /** Physical cluster bases held now (exact replay reaches back to the oldest). */
+  clusterBaseCount?: number;
+  /** How many physical bases the server keeps. */
+  clusterBaseRetain?: number;
+  /** A snapshot requested from the dashboard is still being taken. */
+  snapshotRunning?: boolean;
 }
 
 /** How the source's row count was obtained during an import. */
@@ -1202,13 +1205,7 @@ export interface TableReconciliation {
 
 export interface ImportProgressData {
   database: { tables: number; rows: number; failedTables: string[] };
-  auth: {
-    users: number;
-    skipped: number;
-    emailsSent: number;
-    /** Users whose existing password carried over (checked on their first sign-in). */
-    passwords?: number;
-  };
+  auth: { users: number; skipped: number; emailsSent: number };
   storage: {
     buckets: number;
     objects: number;
@@ -1260,7 +1257,6 @@ export function normalizeImportProgressData(
       users: raw?.auth?.users ?? 0,
       skipped: raw?.auth?.skipped ?? 0,
       emailsSent: raw?.auth?.emailsSent ?? 0,
-      passwords: typeof raw?.auth?.passwords === 'number' ? raw.auth.passwords : undefined,
     },
     storage: {
       buckets: raw?.storage?.buckets ?? 0,
@@ -1358,6 +1354,25 @@ export type DataImportColumnType =
   | 'jsonb'
   | 'text';
 
+/** Character sets the importer reads; 'auto' detects (Windows-1254 when not UTF-8). */
+export type DataImportEncoding =
+  | 'utf-8'
+  | 'utf-16le'
+  | 'utf-16be'
+  | 'windows-1254'
+  | 'windows-1252'
+  | 'iso-8859-9';
+
+/** How text values are read: decimal separator, day/month order, empty cells and spaces. */
+export interface DataImportValueFormat {
+  decimalSeparator?: '.' | ',';
+  dateOrder?: 'DMY' | 'MDY';
+  /** Text columns: an empty cell becomes NULL (true, default) or an empty string. */
+  emptyAsNull?: boolean;
+  /** Text columns: strip surrounding spaces (true, default) or keep them. */
+  trimText?: boolean;
+}
+
 export interface DataImportInferredColumn {
   name: string;
   originalName: string;
@@ -1369,8 +1384,18 @@ export interface DataImportInferredColumn {
 export interface DataImportInspectResult {
   sourceKey: string;
   filename: string;
-  format: 'csv' | 'xlsx';
+  format: 'csv' | 'xlsx' | 'json';
   totalRowsApprox: number;
+  /** True when every row was parsed, so totalRowsApprox is exact. */
+  totalRowsExact?: boolean;
+  /** Character set the text was read with (CSV/JSON only). */
+  encoding?: DataImportEncoding;
+  /** True when that character set was detected rather than chosen. */
+  encodingDetected?: boolean;
+  /** Decimal separator and date order detected from the sample. */
+  detectedFormat?: { decimalSeparator: '.' | ','; dateOrder: 'DMY' | 'MDY' };
+  /** Plain-language notes: encoding guesses, files without data rows, … */
+  warnings?: string[];
   headers: string[];
   inferredColumns: DataImportInferredColumn[];
   sampleRows: unknown[][];
@@ -1393,8 +1418,10 @@ export interface DataImportPlan {
    *  wizard session. All files share the schema from `sourceKey`. */
   additionalSourceKeys?: string[];
   filename: string;
-  format: 'csv' | 'xlsx';
+  format: 'csv' | 'xlsx' | 'json';
   firstRowIsHeader?: boolean;
+  encoding?: DataImportEncoding | 'auto';
+  valueFormat?: DataImportValueFormat;
   targetMode: 'existing' | 'new';
   tableName: string;
   schemaName?: string;
@@ -1408,6 +1435,7 @@ export interface DataImportProgress {
   detail: string;
   rowsRead?: number;
   rowsInserted?: number;
+  rowsUpdated?: number;
   rowsSkipped?: number;
   rowsBad?: number;
   percent?: number;
@@ -1416,10 +1444,15 @@ export interface DataImportProgress {
 export interface DataImportResult {
   rowsRead: number;
   rowsInserted: number;
+  /** Existing rows replaced in update mode. */
+  rowsUpdated?: number;
   rowsSkippedConflict: number;
   rowsBad: number;
   errorKey?: string;
   durationMs: number;
+  /** The first failed rows (file index, data-row number, reason). */
+  badRowsSample?: Array<{ file: number; row: number; reason: string }>;
+  warnings?: string[];
 }
 
 export interface DataImportJobStatus {
@@ -1433,22 +1466,45 @@ export interface DataImportJobStatus {
 
 // ── Flows (project automation) ───────────────────────────────────────────────
 export type FlowTriggerType = 'manual' | 'webhook' | 'schedule';
-export type FlowActionType = 'log' | 'http.request';
+export type FlowActionType = 'log' | 'http.request' | 'db.select' | 'db.insert' | 'db.update';
+export type FlowHttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD';
 
 export interface FlowTrigger {
   type: FlowTriggerType;
   webhookPath?: string;
+  /** schedule: 5-field cron expression */
   cron?: string;
+  /** schedule: IANA time zone, default UTC */
+  timezone?: string;
 }
 
 export interface FlowAction {
+  id?: string;
+  name?: string;
   type: FlowActionType;
   message?: string;
-  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  method?: FlowHttpMethod;
   url?: string;
   headers?: Record<string, string>;
   body?: unknown;
+  followRedirects?: boolean;
+  table?: string;
+  filters?: Record<string, string>;
+  select?: string;
+  limit?: number;
+  values?: Record<string, unknown> | Record<string, unknown>[];
+  timeoutMs?: number;
+  retries?: number;
+  retryDelayMs?: number;
   continueOnError?: boolean;
+}
+
+export interface FlowOptions {
+  timeoutMs?: number;
+  retries?: number;
+  retryDelayMs?: number;
+  maxDurationMs?: number;
+  maxConcurrentRuns?: number;
 }
 
 export interface FlowInput {
@@ -1456,6 +1512,7 @@ export interface FlowInput {
   trigger: FlowTrigger;
   actions: FlowAction[];
   enabled?: boolean;
+  options?: FlowOptions | null;
 }
 
 export interface Flow {
@@ -1465,8 +1522,44 @@ export interface Flow {
   enabled: boolean;
   trigger: FlowTrigger;
   actions: FlowAction[];
+  options?: FlowOptions | null;
   createdAt: string;
   updatedAt: string;
+  /** webhook flows: the URL callers POST to (null until one is created) */
+  webhookUrl?: string | null;
+  hasWebhookSecret?: boolean;
+  /** schedule flows */
+  nextRunAt?: string | null;
+  scheduleError?: string | null;
+  /** only in the response that created the webhook secret */
+  webhookSecret?: string;
+}
+
+export interface FlowStepAttempt {
+  attempt: number;
+  ok: boolean;
+  status?: number;
+  detail?: string;
+  durationMs: number;
+}
+
+export interface FlowStepResult {
+  index?: number;
+  name?: string;
+  type: FlowActionType;
+  ok: boolean;
+  status?: number;
+  detail?: string;
+  startedAt?: string;
+  finishedAt?: string;
+  durationMs?: number;
+  attempts?: number;
+  attemptLog?: FlowStepAttempt[];
+  response?: { headers: Record<string, string>; body: unknown; truncated: boolean; redirects: string[] };
+  rows?: unknown[];
+  rowCount?: number;
+  warnings?: string[];
+  continued?: boolean;
 }
 
 export interface FlowRun {
@@ -1474,12 +1567,15 @@ export interface FlowRun {
   flowId: string;
   projectId: string;
   status: 'queued' | 'running' | 'success' | 'failed';
+  source?: 'manual' | 'api' | 'webhook' | 'schedule' | 'rerun' | null;
   input?: unknown;
-  result?: unknown;
+  result?: FlowStepResult[] | null;
   error?: string | null;
   startedAt?: string | null;
   finishedAt?: string | null;
   createdAt: string;
+  retryOfId?: string | null;
+  meta?: Record<string, unknown> | null;
 }
 
 // ── Blueprint (Excel → App) ──────────────────────────────────────────────────

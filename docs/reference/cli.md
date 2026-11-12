@@ -107,9 +107,10 @@ the database, `db seed` when no seed file exists and `db diff` when Prisma canno
 `backup create` and `backup download` print a warning when the downloaded size differs from the
 size the server reported; check the archive in that case, because the exit code is still `0`.
 
-`--json` exists on `backup create`, `backup list`, `backup status` and `restore`. It prints the
-API's result as JSON instead of tables and spinners. The shape is **best effort and may change
-between versions**; do not build long-lived tooling on it without pinning the CLI version.
+`--json` exists on `backup create`, `backup list`, `backup status`, `restore`, `db rotate-password` and
+`pgvector status|enable|disable`. It prints the API's result as JSON instead of tables and
+spinners. The shape is **best effort and may change between versions**; do not build long-lived
+tooling on it without pinning the CLI version.
 
 ## Command reference
 
@@ -158,6 +159,7 @@ basefyio db seed
 basefyio db dump [-o, --output <file>]     default: schema.sql
 basefyio db diff
 basefyio db execute [-f, --file <path>] [-q, --query <sql>]
+basefyio db rotate-password [--readonly] [--write-env] [-p, --project <id>] [-y, --yes] [--json]
 ```
 
 Two different paths reach the database, and it matters which one a command uses:
@@ -177,10 +179,28 @@ Two different paths reach the database, and it matters which one a command uses:
 | `db dump` | Writes a `CREATE TABLE IF NOT EXISTS` script for the base tables in `public` (column types, lengths, nullability, defaults) to `--output`, default `schema.sql`. It is a schema sketch, not a restorable dump — use `backup create` for that. | direct |
 | `db diff` | Runs `npx prisma migrate diff --from-schema-datasource prisma/schema.prisma --to-url <DATABASE_URL>` and prints Prisma's output. Needs Prisma in the project. | direct |
 | `db execute` | Runs `--file` or `--query` (one of them is required) and prints the returned rows as a table, or the affected row count. | API |
+| `db rotate-password` | Has the platform generate a new password for the project's owner database user (`--readonly`: the read-only user), then prints the user, the new password and — for the owner — the pooled and direct connection strings exactly as `GET /api/projects/:id/connect` now returns them. **The old password stops working immediately**, so every app and tool using it must be updated. Asks you to type the project name first; `--yes` skips that and is required without a terminal. `--write-env` also rewrites `.env` in the current directory (owner only; refused when the directory is linked to another project). Needs the team's *reset database password* permission. | API: `PATCH /api/projects/:id/db-password` or `PATCH /api/projects/:id/db-readonly-password`, then `GET /api/projects/:id/connect` |
 
 The CLI sends SQL text as it is, without bound parameters. The SQL guard reads string literals
 too, so a statement is refused when its text names a forbidden operation even inside a quoted
 value.
+
+### pgvector (vector embeddings)
+
+```
+basefyio pgvector status  [-p, --project <id>] [--json]          (alias: basefyio vector …)
+basefyio pgvector enable  [-p, --project <id>] [--json]
+basefyio pgvector disable [--drop-data] [-p, --project <id>] [-y, --yes] [--json]
+```
+
+The project is `--project`, else the linked project, else `BASEFYIO_PROJECT_ID` from `.env`. These are
+the same switches as the dashboard's AI / Embeddings page.
+
+| Command | Does | Uses |
+|---|---|---|
+| `pgvector status` | Whether pgvector is enabled, the number of stored vectors, the embedding provider, model, dimensions, where the API key comes from, the data region and any running re-embed. | `GET /api/projects/:id/embeddings/status` |
+| `pgvector enable` | Installs the `vector` extension and the embedding tables and indexes in the project database. Does nothing when already enabled. The result is read back from the status route before success is printed. | `POST /api/projects/:id/embeddings/enable` |
+| `pgvector disable` | Turns the embedding API off for the project. Stored embeddings are **kept** and become searchable again after `enable`. `--drop-data` also deletes them (type the project name to confirm; `--yes` skips the question and is required without a terminal). The CLI only says the data was deleted when the API confirms it; otherwise it warns and exits with `1`. | `DELETE /api/projects/:id/embeddings/enable` (`--drop-data` adds `?dropData=true`) |
 
 ### Inspect
 
@@ -322,8 +342,8 @@ command prints.
 | `Not linked to a project` / `Not in a basefyio project` | Run the command inside a directory that holds `.basefyio/`, or run `basefyio link` (or pass `--project` to `backup` and `restore`). |
 | `DATABASE_URL not found in .env` | Run `basefyio link` to rewrite the credentials. |
 | An `db execute` / `migration up` statement is refused | The API's SQL guard refused it; see the list of refused operations in [sql-api.md](./sql-api.md). |
-| `Refusing to restore without --yes in a non-interactive session` | Add `--yes` in scripts. |
+| `Refusing to restore without --yes in a non-interactive session` | Add `--yes` in scripts. The same applies to `db rotate-password` and `pgvector disable`. |
 
 Source: `packages/cli/src/index.ts`, `packages/cli/src/commands/*.ts`,
-`packages/cli/src/lib/{api,config,browser-login,backups,update-check}.ts`;
+`packages/cli/src/lib/{api,config,browser-login,backups,update-check,pgvector,db-password,target-project}.ts`;
 `apps/platform-api/src/modules/auth/auth.controller.ts` (CLI sign-in routes).

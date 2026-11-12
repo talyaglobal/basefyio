@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -25,6 +26,12 @@ import {
 } from './project-activity.service';
 import { BackupOffsiteService } from './backups/backup-offsite.service';
 import { PlatformAlertsService } from '../platform-alerts/platform-alerts.service';
+import {
+  countClusterBases,
+  pitrClusterBaseRetain,
+  pitrRetentionDays,
+  snapshotTooRecent,
+} from './backups/retention';
 
 const execFileAsync = promisify(execFile);
 
@@ -32,11 +39,11 @@ const execFileAsync = promisify(execFile);
 const PITR_BUCKET = 'bf-platform-pitr';
 
 /**
- * How far back a restore can target. Base backups are taken daily, so keeping
- * `RECOVERY_WINDOW_DAYS` of bases plus every WAL segment written since the
- * oldest base means any timestamp inside the window is reachable.
+ * How far back a restore can target: PITR_RETENTION_DAYS (default 7). Base
+ * backups are taken daily, so keeping that many days of bases plus every WAL
+ * segment written since the oldest base means any timestamp inside the window
+ * is reachable. See backups/retention.ts.
  */
-const RECOVERY_WINDOW_DAYS = 7;
 
 /**
  * Physical cluster base backups. WAL can only be replayed onto a physical copy
@@ -49,11 +56,13 @@ const CLUSTER_BASE_PREFIX = '_cluster/base/';
 const CLUSTER_WAL_PREFIX = '_cluster/wal/';
 
 /**
- * How many physical bases to keep. Each is a full copy of the cluster, so this
- * is bounded by disk rather than by the recovery window, and it sets how far
- * back a real replay can reach.
+ * How many physical bases to keep: PITR_CLUSTER_BASE_RETAIN (default 3). Each
+ * is a full copy of the cluster, so this is bounded by disk rather than by the
+ * recovery window, and it sets how far back a real replay can reach.
  */
-const CLUSTER_BASE_RETAIN = 3;
+
+/** Cluster-wide listings change every few minutes; reading them on every page load took seconds. */
+const CLUSTER_LISTING_TTL_MS = 60_000;
 
 /**
  * Shared workspace for restores. platform-api unpacks a base here and the
@@ -110,6 +119,12 @@ export interface RecoveryWindow {
   baseBackupCount: number;
   walSegmentCount: number;
   retentionDays: number;
+  /** Physical cluster bases currently held (exact replay reaches back to the oldest). */
+  clusterBaseCount: number;
+  /** How many physical bases are kept (PITR_CLUSTER_BASE_RETAIN). */
+  clusterBaseRetain: number;
+  /** A snapshot of this project requested from the dashboard is still being taken. */
+  snapshotRunning: boolean;
 }
 
 /**
@@ -129,6 +144,18 @@ export class ProjectPitrService {
   private readonly scratchLeases = new Map<string, NodeJS.Timeout>();
   /** Off-site uploads can make one WAL run outlast its interval; two must never overlap. */
   private shippingWal = false;
+  /** Projects with a dashboard-requested snapshot in progress. */
+  private readonly snapshotting = new Set<string>();
+  private clusterListing: {
+    at: number;
+    wal: { name: string; lastModified: Date }[];
+    bases: { name: string; lastModified: Date }[];
+  } | null = null;
+  private clusterListingInFlight: Promise<{
+    at: number;
+    wal: { name: string; lastModified: Date }[];
+    bases: { name: string; lastModified: Date }[];
+  }> | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -170,15 +197,23 @@ export class ProjectPitrService {
   async getRecoveryWindow(projectId: string, userId: string): Promise<RecoveryWindow> {
     await this.assertMember(projectId, userId);
 
-    const [bases, wal, clusterBases] = await Promise.all([
+    const [bases, cluster] = await Promise.all([
       this.storage
         .listPlatformObjects(PITR_BUCKET, `${projectId}/base/`)
         .catch(() => []),
-      // WAL is archived per cluster, not per project — the old per-project
-      // prefix never matched anything, so this always reported zero segments.
-      this.storage.listPlatformObjects(PITR_BUCKET, CLUSTER_WAL_PREFIX).catch(() => []),
-      this.storage.listPlatformObjects(PITR_BUCKET, CLUSTER_BASE_PREFIX).catch(() => []),
+      this.getClusterListing(),
     ]);
+    // WAL is archived per cluster, not per project — the old per-project
+    // prefix never matched anything, so this always reported zero segments.
+    const wal = cluster.wal;
+    const clusterBases = cluster.bases;
+    const retentionDays = pitrRetentionDays();
+    const clusterBaseRetain = pitrClusterBaseRetain();
+    const clusterBaseCount = countClusterBases(
+      clusterBases.map((b) => b.name),
+      CLUSTER_BASE_PREFIX,
+    );
+    const snapshotRunning = this.snapshotting.has(projectId);
 
     // Exact replay can only reach back to the oldest physical base.
     const continuousFrom = clusterBases.length
@@ -192,7 +227,10 @@ export class ProjectPitrService {
         continuousFrom,
         baseBackupCount: 0,
         walSegmentCount: wal.length,
-        retentionDays: RECOVERY_WINDOW_DAYS,
+        retentionDays,
+        clusterBaseCount,
+        clusterBaseRetain,
+        snapshotRunning,
       };
     }
 
@@ -209,7 +247,88 @@ export class ProjectPitrService {
       continuousFrom,
       baseBackupCount: bases.length,
       walSegmentCount: wal.length,
-      retentionDays: RECOVERY_WINDOW_DAYS,
+      retentionDays,
+      clusterBaseCount,
+      clusterBaseRetain,
+      snapshotRunning,
+    };
+  }
+
+  /**
+   * WAL and physical-base listings are the same for every project and can hold
+   * thousands of objects, so they are cached briefly instead of listed on each
+   * dashboard load.
+   */
+  private async getClusterListing() {
+    const cached = this.clusterListing;
+    if (cached && Date.now() - cached.at < CLUSTER_LISTING_TTL_MS) return cached;
+    // Stale: answer from it and refresh in the background. Only the very
+    // first load after a restart waits for the listing.
+    if (cached) {
+      void this.refreshClusterListing().catch(() => undefined);
+      return cached;
+    }
+    return this.refreshClusterListing();
+  }
+
+  private refreshClusterListing() {
+    this.clusterListingInFlight ??= (async () => {
+      try {
+        const [wal, bases] = await Promise.all([
+          this.storage.listPlatformObjects(PITR_BUCKET, CLUSTER_WAL_PREFIX).catch(() => []),
+          this.storage.listPlatformObjects(PITR_BUCKET, CLUSTER_BASE_PREFIX).catch(() => []),
+        ]);
+        this.clusterListing = { at: Date.now(), wal, bases };
+        return this.clusterListing;
+      } finally {
+        this.clusterListingInFlight = null;
+      }
+    })();
+    return this.clusterListingInFlight;
+  }
+
+  /**
+   * Take this project's snapshot now rather than at the nightly run, so a new
+   * project can be recovered without waiting a day. Runs in the background
+   * (a dump can take minutes); the window shows it once it lands. Rate-limited
+   * so repeated clicks cannot fill the disk.
+   */
+  async takeProjectSnapshotNow(projectId: string, userId: string) {
+    const project = await this.assertMember(projectId, userId);
+    if (this.snapshotting.has(projectId)) {
+      throw new ConflictException('A snapshot of this project is already being taken.');
+    }
+    const bases = await this.storage
+      .listPlatformObjects(PITR_BUCKET, `${projectId}/base/`)
+      .catch(() => [] as { name: string; lastModified: Date }[]);
+    const newest = Math.max(0, ...bases.map((b) => b.lastModified.getTime()));
+    const minutes = snapshotTooRecent(newest, Date.now());
+    if (minutes !== null) {
+      throw new BadRequestException(
+        `A snapshot was taken ${minutes} minute${minutes === 1 ? '' : 's'} ago. Try again in a few minutes.`,
+      );
+    }
+
+    this.snapshotting.add(projectId);
+    void this.captureBaseBackup(project)
+      .then(() =>
+        this.activity
+          .append(projectId, {
+            userId,
+            kind: ProjectActivityKind.PROJECT_UPDATED,
+            title: 'Point-in-time snapshot taken',
+            detail: 'Requested from the dashboard',
+          })
+          .catch(() => undefined),
+      )
+      .catch((err: any) =>
+        this.logger.error(`On-demand PITR snapshot failed for ${projectId}: ${err?.message}`),
+      )
+      .finally(() => this.snapshotting.delete(projectId));
+
+    return {
+      started: true,
+      message: 'Snapshot started. Recovery becomes available as soon as it finishes.',
     };
   }
 
@@ -287,7 +406,7 @@ export class ProjectPitrService {
       ),
     ].sort();
 
-    for (const stamp of stamps.slice(0, Math.max(0, stamps.length - CLUSTER_BASE_RETAIN))) {
+    for (const stamp of stamps.slice(0, Math.max(0, stamps.length - pitrClusterBaseRetain()))) {
       for (const obj of objects.filter((o) =>
         o.name.startsWith(`${CLUSTER_BASE_PREFIX}${stamp}/`),
       )) {
@@ -426,6 +545,8 @@ export class ProjectPitrService {
     this.shippingWal = true;
     try {
       await this.shipWalSegmentsOnce();
+      // Keep the recovery window current (and warm) for the dashboard.
+      void this.refreshClusterListing().catch(() => undefined);
     } finally {
       this.shippingWal = false;
     }
@@ -487,7 +608,7 @@ export class ProjectPitrService {
 
   /** Drop base backups and WAL that have aged out of the recovery window. */
   private async pruneExpired() {
-    const cutoff = Date.now() - RECOVERY_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+    const cutoff = Date.now() - pitrRetentionDays() * 24 * 60 * 60 * 1000;
     // Annotated because the empty fallback would otherwise infer as never[].
     const objects: { name: string; lastModified: Date }[] = await this.storage
       .listPlatformObjects(PITR_BUCKET, '')
@@ -922,7 +1043,7 @@ export class ProjectPitrService {
     }
     if (target.getTime() < new Date(window.earliest).getTime()) {
       throw new BadRequestException(
-        `targetTime is outside the ${RECOVERY_WINDOW_DAYS}-day recovery window (earliest ${window.earliest}).`,
+        `targetTime is outside the ${window.retentionDays}-day recovery window (earliest ${window.earliest}).`,
       );
     }
 

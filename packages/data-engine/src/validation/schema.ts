@@ -134,7 +134,7 @@ function compileField(field: EntityField, depth: number, maxDepth: number): Json
   }
 
   // Apply validation rules as JSON Schema constraints
-  for (const rule of field.validationRules) {
+  for (const rule of field.validationRules ?? []) {
     applyValidationRule(schema, rule);
   }
 

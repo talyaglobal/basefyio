@@ -30,6 +30,7 @@ import {
   thRight,
 } from '@/components/console/ui';
 import { cn } from '@/lib/utils';
+import { localZoneLabel } from '@/lib/time-zone';
 
 export default function ConsoleProjectPage() {
   const { id } = useParams<{ id: string }>();
@@ -75,7 +76,7 @@ export default function ConsoleProjectPage() {
       <PageHeader
         title={
           <span className="flex items-center gap-2">
-            {project.name}
+            {project.displayName || project.name}
             <StatusBadge status={project.status} />
           </span>
         }
@@ -326,6 +327,42 @@ export default function ConsoleProjectPage() {
             </table>
           )}
         </Panel>
+
+        {data.activity && (
+          <Panel
+            title="Activity"
+            description={`Latest ${data.activity.length} project events · times in your local time zone (${localZoneLabel()})`}
+            flush
+          >
+            {data.activity.length === 0 ? (
+              <p className="p-4 text-sm text-muted-foreground">No activity recorded.</p>
+            ) : (
+              <div className="max-h-96 overflow-y-auto">
+                <table className="w-full text-sm">
+                  <thead className="border-b bg-muted/40">
+                    <tr>
+                      <th className={th}>When</th>
+                      <th className={th}>Who</th>
+                      <th className={th}>What</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.activity.map((a) => (
+                      <tr key={a.id} className="border-b last:border-0">
+                        <td className={cn(td, 'whitespace-nowrap')}>{new Date(a.createdAt).toLocaleString()}</td>
+                        <td className={td}>{a.actorName}</td>
+                        <td className={td}>
+                          <div>{a.title}</div>
+                          {a.detail && <div className="truncate text-xs text-muted-foreground">{a.detail}</div>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Panel>
+        )}
       </div>
     </>
   );

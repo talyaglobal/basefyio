@@ -3,12 +3,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { ArrowLeft, Download, Loader2, Minimize2, PackageCheck, Play } from 'lucide-react';
+import { ArrowLeft, DatabaseBackup, Download, Loader2, Minimize2, PackageCheck, Play, Trash2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useLiveProjectRefresh } from '@/lib/use-live-refresh';
 import type { BackupHealth, CloudBackupItem, ExportJobProgressEvent, ExportJobResult } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { confirmDialog } from '@/components/ui/confirm-dialog';
 import { useExportProgress } from '@/lib/export-progress-context';
 import { ProjectPitrPanel } from '@/components/project-pitr-panel';
 import { ProjectBackupHealthPanel } from '@/components/project-backup-health-panel';
@@ -44,9 +45,15 @@ export default function ProjectExportPage() {
   const [restoringKey, setRestoringKey] = useState<string | null>(null);
   const [restoreDialogOpen, setRestoreDialogOpen] = useState(false);
   const [restoreTarget, setRestoreTarget] = useState<CloudBackupItem | null>(null);
-  const [restoreMode, setRestoreMode] = useState<'existing' | 'new'>('existing');
+  // Restoring into a new project is the safe default; overwriting needs the
+  // project's name typed out, like the other destructive recoveries.
+  const [restoreMode, setRestoreMode] = useState<'existing' | 'new'>('new');
   const [newRestoreName, setNewRestoreName] = useState('');
-  const [confirmOverwrite, setConfirmOverwrite] = useState(false);
+  const [overwriteConfirmText, setOverwriteConfirmText] = useState('');
+  const [projectName, setProjectName] = useState('');
+  const [restoreElapsed, setRestoreElapsed] = useState(0);
+  const [backingUp, setBackingUp] = useState(false);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
   const [options, setOptions] = useState({
     includeDatabase: true,
     includeAuth: true,
@@ -78,6 +85,44 @@ export default function ProjectExportPage() {
     () => Math.max(0, Math.min(100, progress?.percent ?? 0)),
     [progress?.percent],
   );
+
+  function closeExportModal() {
+    setExportModalOpen(false);
+    setModalShowingExport(false);
+  }
+
+  /** Remove a finished job from the tracker; close the modal when nothing is left in it. */
+  function dismissExport(jobId: string) {
+    dismiss(jobId);
+    const remaining = currentProjectExports.filter((x) => x.jobId !== jobId);
+    if (remaining.length === 0) {
+      closeExportModal();
+      setSelectedJobId(null);
+    } else {
+      setSelectedJobId(remaining[0].jobId);
+    }
+  }
+
+  const overwriteConfirmed =
+    !!projectName && overwriteConfirmText.trim() === projectName.trim();
+
+  useEffect(() => {
+    api.projects
+      .get(id)
+      .then((p) => setProjectName(p?.name ?? ''))
+      .catch(() => setProjectName(''));
+  }, [id]);
+
+  // Restores run as one request; show how long it has been going.
+  useEffect(() => {
+    if (!restoringKey) {
+      setRestoreElapsed(0);
+      return;
+    }
+    const started = Date.now();
+    const timer = setInterval(() => setRestoreElapsed(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => clearInterval(timer);
+  }, [restoringKey]);
 
   async function handleStartExport() {
     if (!options.includeDatabase && !options.includeAuth && !options.includeStorage && !options.includeConfig) {
@@ -156,6 +201,7 @@ export default function ProjectExportPage() {
         newProjectName,
         existingProjectId: mode === 'existing' ? id : undefined,
         kind,
+        confirmProjectName: mode === 'existing' ? overwriteConfirmText.trim() : undefined,
       });
       toast.success(`Backup restored: ${result.project.name}`);
       router.push(`/dashboard/projects/${result.project.id}`);
@@ -183,7 +229,70 @@ export default function ProjectExportPage() {
     void loadHealth();
   }
 
-  useLiveProjectRefresh(id, ['project_export.', 'project.', 'project_backup.'], refreshBackups);
+  /** "Back up now": the nightly archive, on demand. Tracked like an export. */
+  async function handleBackupNow() {
+    setBackingUp(true);
+    try {
+      const { jobId } = await api.projects.runBackupNow(id);
+      startTracking(jobId, id, projectName || `Project ${id.slice(0, 8)}`, () => {
+        void loadCloudBackups();
+        toast.success('Backup finished and added to the list');
+      });
+      toast.success('Backup started. It appears in the list when it finishes.');
+    } catch (err: any) {
+      toast.error(err.message || 'Could not start the backup');
+    } finally {
+      setBackingUp(false);
+    }
+  }
+
+  async function handleDownloadBackup(b: CloudBackupItem) {
+    setBusyKey(b.objectKey);
+    try {
+      const { blob, filename } = await api.projects.downloadCloudBackup(id, b.objectKey, b.kind ?? 'manual');
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      toast.error(err.message || 'Download failed');
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function handleDeleteBackup(b: CloudBackupItem) {
+    const ok = await confirmDialog({
+      title: 'Delete backup',
+      description: `Delete "${b.filename}"? It can no longer be restored or downloaded.`,
+      confirmText: 'Delete',
+      destructive: true,
+    });
+    if (!ok) return;
+    setBusyKey(b.objectKey);
+    try {
+      await api.projects.deleteCloudBackup(id, b.objectKey, b.kind ?? 'manual');
+      setCloudBackups((prev) => prev.filter((x) => x.objectKey !== b.objectKey));
+      toast.success('Backup deleted');
+    } catch (err: any) {
+      toast.error(err.message || 'Could not delete the backup');
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  // Refresh only on events that change what this page shows: the archive list
+  // on export/backup/restore activity, the health card on backup events.
+  useLiveProjectRefresh(
+    id,
+    ['project_export.', 'project_backup_restore.', 'project.updated', 'project.pitr_restored'],
+    loadCloudBackups,
+  );
+  useLiveProjectRefresh(id, ['project_backup.'], loadHealth);
 
   useEffect(() => {
     refreshBackups();
@@ -192,16 +301,17 @@ export default function ProjectExportPage() {
 
   function openRestoreDialog(backup: CloudBackupItem) {
     setRestoreTarget(backup);
-    setRestoreMode('existing');
-    setNewRestoreName('');
-    setConfirmOverwrite(false);
+    setRestoreMode('new');
+    const stamp = new Date(backup.lastModified).toISOString().slice(0, 10);
+    setNewRestoreName(projectName ? `${projectName} restored ${stamp}`.slice(0, 64) : '');
+    setOverwriteConfirmText('');
     setRestoreDialogOpen(true);
   }
 
   async function submitRestore() {
     if (!restoreTarget) return;
-    if (restoreMode === 'existing' && !confirmOverwrite) {
-      toast.error('Please confirm overwrite to continue');
+    if (restoreMode === 'existing' && !overwriteConfirmed) {
+      toast.error('Type the project name to confirm the overwrite');
       return;
     }
     if (restoreMode === 'new' && !newRestoreName.trim()) {
@@ -258,7 +368,13 @@ export default function ProjectExportPage() {
 
       <ProjectPitrPanel projectId={id} />
 
-      <ProjectBackupHealthPanel projectId={id} health={health} loading={loadingHealth} onRefresh={loadHealth} />
+      <ProjectBackupHealthPanel
+        projectId={id}
+        health={health}
+        loading={loadingHealth}
+        onRefresh={loadHealth}
+        hasBackup={cloudBackups.some((b) => b.kind === 'auto')}
+      />
 
       <section className="rounded-xl border bg-card p-6 space-y-4">
         <h2 className="text-base font-semibold">Export options</h2>
@@ -338,15 +454,38 @@ export default function ProjectExportPage() {
       )}
 
       <section className="rounded-xl border bg-card p-6 space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold">Cloud Backups & Restore</h2>
-          <Button variant="outline" size="sm" onClick={loadCloudBackups} disabled={loadingBackups}>
-            {loadingBackups ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Refresh'}
-          </Button>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-base font-semibold">Cloud Backups & Restore</h2>
+            <p className="text-xs text-muted-foreground">
+              Nightly backups and backups taken here keep the database, auth users and project settings.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button size="sm" onClick={() => void handleBackupNow()} disabled={backingUp}>
+              {backingUp ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <DatabaseBackup className="mr-2 h-4 w-4" />
+              )}
+              Back up now
+            </Button>
+            <Button variant="outline" size="sm" onClick={loadCloudBackups} disabled={loadingBackups}>
+              {loadingBackups ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Refresh'}
+            </Button>
+          </div>
         </div>
+        {restoringKey && (
+          <div className="flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-300">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            Restoring the backup… {restoreElapsed}s elapsed. Large projects take a few minutes; keep this page open.
+          </div>
+        )}
         <div className="space-y-2">
           {cloudBackups.length === 0 && (
-            <p className="text-sm text-muted-foreground">No cloud backups found for this project.</p>
+            <p className="text-sm text-muted-foreground">
+              No backups yet. The first nightly backup runs at 03:00 UTC, or use Back up now.
+            </p>
           )}
           {cloudBackups.map((b) => {
             const copy = health?.offsite.copies[b.objectKey];
@@ -360,7 +499,12 @@ export default function ProjectExportPage() {
                   <span className="truncate">{b.filename}</span>
                   {b.kind === 'auto' && (
                     <span className="shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
-                      Auto
+                      {b.trigger === 'on-demand' ? 'On demand' : 'Nightly'}
+                    </span>
+                  )}
+                  {b.kind !== 'auto' && (
+                    <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      Export
                     </span>
                   )}
                   {b.encrypted && (
@@ -398,23 +542,53 @@ export default function ProjectExportPage() {
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {fmtBytes(b.size)} • {new Date(b.lastModified).toLocaleString()}
-                  {b.kind === 'auto' && ' • daily backup, kept 7 days'}
+                  {b.expiresAt
+                    ? ` • removed automatically ${new Date(b.expiresAt).toLocaleString()}`
+                    : b.kind === 'auto'
+                      ? ' • daily backup'
+                      : ''}
                 </p>
               </div>
-              <Button
-                size="sm"
-                onClick={() => openRestoreDialog(b)}
-                disabled={restoringKey === b.objectKey}
-              >
-                {restoringKey === b.objectKey ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Restoring...
-                  </>
-                ) : (
-                  'Restore'
+              <div className="flex shrink-0 items-center gap-1.5">
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-8 w-8"
+                  onClick={() => void handleDownloadBackup(b)}
+                  disabled={busyKey === b.objectKey}
+                  title="Download ZIP"
+                  aria-label={`Download ${b.filename}`}
+                >
+                  {busyKey === b.objectKey ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                </Button>
+                {b.deletable !== false && (
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                    onClick={() => void handleDeleteBackup(b)}
+                    disabled={busyKey === b.objectKey || restoringKey === b.objectKey}
+                    title="Delete"
+                    aria-label={`Delete ${b.filename}`}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
                 )}
-              </Button>
+                <Button
+                  size="sm"
+                  onClick={() => openRestoreDialog(b)}
+                  disabled={!!restoringKey}
+                >
+                  {restoringKey === b.objectKey ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Restoring...
+                    </>
+                  ) : (
+                    'Restore'
+                  )}
+                </Button>
+              </div>
             </div>
             );
           })}
@@ -441,11 +615,9 @@ export default function ProjectExportPage() {
                 type="button"
                 variant="ghost"
                 size="icon"
-                onClick={() => {
-                  setExportModalOpen(false);
-                  setModalShowingExport(false);
-                }}
+                onClick={closeExportModal}
                 title="Minimize"
+                aria-label="Minimize"
               >
                 <Minimize2 className="h-4 w-4" />
               </Button>
@@ -476,6 +648,15 @@ export default function ProjectExportPage() {
               </div>
             )}
 
+            {!selectedExport && queuedExports.length === 0 && (
+              <div className="flex items-center justify-between rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
+                <span>No exports in progress.</span>
+                <Button variant="outline" size="sm" onClick={closeExportModal}>
+                  Close
+                </Button>
+              </div>
+            )}
+
             {selectedExport && (
               <div className="space-y-3 rounded-lg border p-3">
                 <div className="flex items-center justify-between">
@@ -489,8 +670,11 @@ export default function ProjectExportPage() {
                   </div>
                 )}
                 {failed && (
-                  <div className="rounded-md border border-red-300 bg-red-50 p-3 text-xs text-red-800">
-                    Export failed: {failed}
+                  <div className="flex items-start justify-between gap-2 rounded-md border border-red-300 bg-red-50 p-3 text-xs text-red-800">
+                    <span>Export failed: {failed}</span>
+                    <Button variant="outline" size="sm" onClick={() => dismissExport(selectedExport.jobId)}>
+                      Dismiss
+                    </Button>
                   </div>
                 )}
 
@@ -526,7 +710,7 @@ export default function ProjectExportPage() {
                       </Button>
                       <Button
                         variant="outline"
-                        onClick={() => dismiss(selectedExport.jobId)}
+                        onClick={() => dismissExport(selectedExport.jobId)}
                       >
                         Dismiss
                       </Button>
@@ -554,22 +738,6 @@ export default function ProjectExportPage() {
                 type="radio"
                 name="restore-mode"
                 className="mt-1 h-4 w-4 accent-primary"
-                checked={restoreMode === 'existing'}
-                onChange={() => setRestoreMode('existing')}
-              />
-              <div>
-                <p className="text-sm font-medium">Overwrite current project</p>
-                <p className="text-xs text-muted-foreground">
-                  Restores into this project and replaces existing data.
-                </p>
-              </div>
-            </label>
-
-            <label className="flex cursor-pointer items-start gap-3 rounded-lg border p-3">
-              <input
-                type="radio"
-                name="restore-mode"
-                className="mt-1 h-4 w-4 accent-primary"
                 checked={restoreMode === 'new'}
                 onChange={() => setRestoreMode('new')}
               />
@@ -583,22 +751,47 @@ export default function ProjectExportPage() {
                     className="mt-2 w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30"
                     placeholder="New project name"
                     value={newRestoreName}
+                    maxLength={64}
                     onChange={(e) => setNewRestoreName(e.target.value)}
                   />
                 )}
               </div>
             </label>
 
+            <label className="flex cursor-pointer items-start gap-3 rounded-lg border p-3">
+              <input
+                type="radio"
+                name="restore-mode"
+                className="mt-1 h-4 w-4 accent-primary"
+                checked={restoreMode === 'existing'}
+                onChange={() => setRestoreMode('existing')}
+              />
+              <div>
+                <p className="text-sm font-medium">Overwrite current project</p>
+                <p className="text-xs text-muted-foreground">
+                  Restores into this project and replaces its database, users and settings.
+                </p>
+              </div>
+            </label>
+
             {restoreMode === 'existing' && (
-              <label className="flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
+              <div className="space-y-2 rounded-md border border-red-300 bg-red-50 p-3 text-xs text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-200">
+                <p>
+                  Everything written since this backup is lost. Restoring as a new project instead keeps this one
+                  untouched.
+                </p>
+                <label htmlFor="restore-confirm" className="block font-medium">
+                  Type <span className="font-semibold">{projectName || 'the project name'}</span> to confirm
+                </label>
                 <input
-                  type="checkbox"
-                  className="h-4 w-4 accent-primary"
-                  checked={confirmOverwrite}
-                  onChange={(e) => setConfirmOverwrite(e.target.checked)}
+                  id="restore-confirm"
+                  className="w-full rounded-md border bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-primary/30"
+                  placeholder={projectName}
+                  value={overwriteConfirmText}
+                  autoComplete="off"
+                  onChange={(e) => setOverwriteConfirmText(e.target.value)}
                 />
-                I confirm that existing project data will be overwritten.
-              </label>
+              </div>
             )}
 
             <div className="flex justify-end gap-2">
@@ -612,14 +805,15 @@ export default function ProjectExportPage() {
                 Cancel
               </Button>
               <Button
+                variant={restoreMode === 'existing' ? 'destructive' : 'default'}
                 onClick={() => void submitRestore()}
                 disabled={
                   !!restoringKey ||
-                  (restoreMode === 'existing' && !confirmOverwrite) ||
+                  (restoreMode === 'existing' && !overwriteConfirmed) ||
                   (restoreMode === 'new' && !newRestoreName.trim())
                 }
               >
-                {restoringKey ? 'Restoring...' : 'Restore'}
+                {restoringKey ? 'Restoring...' : restoreMode === 'existing' ? 'Overwrite project' : 'Restore as new project'}
               </Button>
             </div>
           </div>

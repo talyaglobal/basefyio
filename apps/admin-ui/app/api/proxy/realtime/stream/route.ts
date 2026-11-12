@@ -15,12 +15,16 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   const channels = request.nextUrl.searchParams.get('channels') || '';
+  // A single-use stream ticket (spent on first use) replaces the access token
+  // in the URL; `access_token` is still accepted from dashboards loaded before.
+  const ticket = request.nextUrl.searchParams.get('ticket');
   const token =
     request.headers.get('Authorization') ||
-    request.nextUrl.searchParams.get('access_token');
+    (ticket ? null : request.nextUrl.searchParams.get('access_token'));
 
   const target = new URL(`${BACKEND_URL}/api/realtime/stream`);
   if (channels) target.searchParams.set('channels', channels);
+  if (ticket) target.searchParams.set('ticket', ticket);
 
   const upstream = await fetch(target.toString(), {
     headers: {

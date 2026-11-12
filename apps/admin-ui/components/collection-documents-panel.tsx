@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { confirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
 import { subscribebasefyioRealtime } from '@/lib/basefyio-realtime';
-import type { DocumentRecord, DocumentListResult } from '@/lib/types';
+import type { DocumentRecord, DocumentListResult, CollectionIndexInfo } from '@/lib/types';
+import { chunk, downloadJson, readJsonDocuments } from '@/lib/json-transfer';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -22,13 +23,55 @@ import {
   ChevronLeft,
   ChevronRight,
   Copy,
+  Download,
+  KeyRound,
   Layers,
   Pencil,
   Plus,
   RefreshCw,
   Search,
   Trash2,
+  Upload,
 } from 'lucide-react';
+
+/**
+ * Parse what the user typed. A document must be a JSON object (inserts may
+ * also be an array of objects) — a bare string or number is valid JSON but
+ * not a document, so say that instead of letting the server call it invalid.
+ */
+function parseDocumentInput(
+  text: string,
+  allowArray: boolean,
+): { value?: Record<string, unknown> | Record<string, unknown>[]; error?: string } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (err: any) {
+    return { error: `Invalid JSON: ${err?.message ?? 'cannot parse'}` };
+  }
+  const isObject = (v: unknown) => typeof v === 'object' && v !== null && !Array.isArray(v);
+  if (isObject(parsed)) return { value: parsed as Record<string, unknown> };
+  if (allowArray && Array.isArray(parsed)) {
+    if (parsed.length === 0) return { error: 'The array is empty — add at least one document' };
+    const bad = parsed.findIndex((d) => !isObject(d));
+    if (bad === -1) return { value: parsed as Record<string, unknown>[] };
+    return { error: `Item ${bad + 1} of the array is not a JSON object` };
+  }
+  return {
+    error: allowArray
+      ? 'A document must be a JSON object such as {"name": "value"}, or an array of objects'
+      : 'A document must be a JSON object such as {"name": "value"}',
+  };
+}
+
+function pasteAsPrettyJson(e: React.ClipboardEvent<HTMLTextAreaElement>, set: (v: string) => void) {
+  const pasted = e.clipboardData.getData('text');
+  try {
+    const pretty = JSON.stringify(JSON.parse(pasted), null, 2);
+    e.preventDefault();
+    set(pretty);
+  } catch { /* not JSON — let the default paste happen */ }
+}
 
 // ── Insert Document Dialog ──────────────────────────────────
 
@@ -54,11 +97,9 @@ function InsertDocumentDialog({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    let parsed: Record<string, unknown> | Record<string, unknown>[];
-    try {
-      parsed = JSON.parse(json);
-    } catch {
-      toast.error('Invalid JSON');
+    const { value: parsed, error } = parseDocumentInput(json, true);
+    if (!parsed) {
+      toast.error(error);
       return;
     }
     setSaving(true);
@@ -88,13 +129,11 @@ function InsertDocumentDialog({
         <form onSubmit={handleSubmit} className="space-y-4">
           <textarea
             className="w-full h-64 rounded-md border bg-background px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+            aria-label="Document JSON"
             value={json}
             onChange={(e) => setJson(e.target.value)}
             onBlur={prettifyJson}
-            onPaste={(e) => {
-              const pasted = e.clipboardData.getData('text');
-              try { e.preventDefault(); setJson(JSON.stringify(JSON.parse(pasted), null, 2)); } catch { /* let default paste */ }
-            }}
+            onPaste={(e) => pasteAsPrettyJson(e, setJson)}
             spellCheck={false}
           />
           <DialogFooter>
@@ -142,13 +181,12 @@ function EditDocumentDialog({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!doc) return;
-    let parsed: Record<string, unknown>;
-    try {
-      parsed = JSON.parse(json);
-    } catch {
-      toast.error('Invalid JSON');
+    const { value, error } = parseDocumentInput(json, false);
+    if (!value) {
+      toast.error(error);
       return;
     }
+    const parsed = value as Record<string, unknown>;
     setSaving(true);
     try {
       await api.projects.replaceDocument(projectId, collectionName, doc.id, parsed);
@@ -174,13 +212,11 @@ function EditDocumentDialog({
         <form onSubmit={handleSubmit} className="space-y-4">
           <textarea
             className="w-full h-72 rounded-md border bg-background px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+            aria-label="Document JSON"
             value={json}
             onChange={(e) => setJson(e.target.value)}
             onBlur={prettifyJson}
-            onPaste={(e) => {
-              const pasted = e.clipboardData.getData('text');
-              try { e.preventDefault(); setJson(JSON.stringify(JSON.parse(pasted), null, 2)); } catch { /* let default paste */ }
-            }}
+            onPaste={(e) => pasteAsPrettyJson(e, setJson)}
             spellCheck={false}
           />
           <DialogFooter>
@@ -197,9 +233,124 @@ function EditDocumentDialog({
   );
 }
 
+// ── Indexes Dialog ─────────────────────────────────────────
+
+function IndexesDialog({
+  open,
+  onOpenChange,
+  projectId,
+  collectionName,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  projectId: string;
+  collectionName: string;
+}) {
+  const [indexes, setIndexes] = useState<CollectionIndexInfo[] | null>(null);
+  const [fieldPath, setFieldPath] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function load() {
+    try {
+      setIndexes(await api.projects.listCollectionIndexes(projectId, collectionName));
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+  }
+
+  useEffect(() => {
+    if (open) void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, projectId, collectionName]);
+
+  async function handleCreate(e: React.FormEvent) {
+    e.preventDefault();
+    const path = fieldPath.trim();
+    if (!path) return;
+    setBusy(true);
+    try {
+      await api.projects.createCollectionIndex(projectId, collectionName, path);
+      toast.success(`Index created on "${path}"`);
+      setFieldPath('');
+      await load();
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDrop(name: string) {
+    if (!(await confirmDialog({ title: 'Drop index', description: `Drop index "${name}"? Queries on that field may become slower.`, confirmText: 'Drop index', destructive: true }))) return;
+    try {
+      await api.projects.dropCollectionIndex(projectId, collectionName, name);
+      toast.success(`Index "${name}" dropped`);
+      await load();
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-xl">
+        <DialogHeader>
+          <DialogTitle>Indexes</DialogTitle>
+          <DialogDescription>
+            Index a field of <strong>{collectionName}</strong> to speed up filters and sorts on it. Nested paths such as
+            <code className="mx-1 text-xs">address.city</code> are supported.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-1">
+          {indexes === null ? (
+            <p className="text-xs text-muted-foreground">Loading…</p>
+          ) : (
+            indexes.map((idx) => (
+              <div key={idx.name} className="flex items-center gap-2 rounded border px-2 py-1.5">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-mono text-xs">{idx.fieldPath ?? idx.name}</p>
+                  <p className="truncate text-[10px] text-muted-foreground">
+                    {idx.system ? 'Built in — created with the collection' : idx.name}
+                  </p>
+                </div>
+                {!idx.system && (
+                  <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" aria-label={`Drop index ${idx.name}`} onClick={() => handleDrop(idx.name)}>
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+        <form onSubmit={handleCreate} className="flex items-center gap-2">
+          <Input
+            className="h-8 text-xs font-mono"
+            placeholder="Field path, e.g. status or address.city"
+            aria-label="Field path to index"
+            value={fieldPath}
+            onChange={(e) => setFieldPath(e.target.value)}
+          />
+          <Button type="submit" size="sm" className="h-8 text-xs" disabled={busy || !fieldPath.trim()}>
+            <Plus className="mr-1 h-3.5 w-3.5" /> Add index
+          </Button>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ── Collection Documents Panel ──────────────────────────────
 
-export function CollectionDocumentsPanel({ projectId, collectionName }: { projectId: string; collectionName: string }) {
+export function CollectionDocumentsPanel({
+  projectId,
+  collectionName,
+  onChanged,
+}: {
+  projectId: string;
+  collectionName: string;
+  /** Called after documents were inserted or deleted (the sidebar refreshes its counts). */
+  onChanged?: () => void;
+}) {
   const [docs, setDocs] = useState<DocumentListResult | null>(null);
   const [dataLoading, setDataLoading] = useState(true);
   const [page, setPage] = useState(0); // offset-based
@@ -211,6 +362,10 @@ export function CollectionDocumentsPanel({ projectId, collectionName }: { projec
 
   const [filterText, setFilterText] = useState('');
   const [appliedFilter, setAppliedFilter] = useState('');
+  const [filterError, setFilterError] = useState<string | null>(null);
+  const [indexesOpen, setIndexesOpen] = useState(false);
+  const [transferBusy, setTransferBusy] = useState<string | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
 
   const LIMIT = 50;
 
@@ -227,6 +382,7 @@ export function CollectionDocumentsPanel({ projectId, collectionName }: { projec
     setAppliedFilter('');
     setSelectedDocs(new Set());
     setExpandedDoc(null);
+    setFilterError(null);
   }
 
   // Debounce filter
@@ -266,38 +422,93 @@ export function CollectionDocumentsPanel({ projectId, collectionName }: { projec
     try {
       let filter: Record<string, unknown> | undefined;
       if (appliedFilter) {
-        try {
-          filter = JSON.parse(appliedFilter);
-        } catch {
-          // treat as text search across data field
-          // simple containment search not possible without knowing fields
-          // Just try as raw JSON filter
-          toast.error('Filter must be valid JSON, e.g. {"status": "active"}');
+        const parsed = parseDocumentInput(appliedFilter, false);
+        if (!parsed.value) {
+          setFilterError(
+            `Filter: ${parsed.error?.replace('A document', 'A filter')}. Examples: {"status":"active"}, {"meta.city":"Ankara"}, {"tags":{"$in":["x"]}}`,
+          );
           setDataLoading(false);
           return;
         }
+        filter = parsed.value as Record<string, unknown>;
       }
       const result = await api.projects.collectionDocuments(projectId, collectionName, {
         filter,
         limit: LIMIT,
         offset: page * LIMIT,
       });
+      setFilterError(null);
       setDocs(result);
       setSelectedDocs(new Set());
     } catch (err: any) {
-      toast.error(err.message);
+      if (err?.status === 400 && appliedFilter) setFilterError(err.message);
+      else toast.error(err.message);
     } finally {
       setDataLoading(false);
     }
   }
 
+  function changed() {
+    void loadDocuments();
+    onChanged?.();
+  }
+
   async function handleDeleteDoc(docId: string) {
+    if (!(await confirmDialog({
+      title: 'Delete document',
+      description: 'Delete this document permanently? Collection documents cannot be restored.',
+      confirmText: 'Delete',
+      destructive: true,
+    }))) return;
     try {
       await api.projects.deleteDocument(projectId, collectionName, docId);
       toast.success('Document deleted');
-      loadDocuments();
+      changed();
     } catch (err: any) {
       toast.error(err.message);
+    }
+  }
+
+  async function handleExport() {
+    setTransferBusy('Exporting…');
+    try {
+      const all: Record<string, unknown>[] = [];
+      for (let offset = 0; ; offset += 1000) {
+        const result = await api.projects.collectionDocuments(projectId, collectionName, { limit: 1000, offset });
+        all.push(...result.data.map((d) => d.data));
+        if (result.data.length < 1000 || offset + result.data.length >= result.total) break;
+      }
+      downloadJson(`${collectionName}.json`, all);
+      toast.success(`Exported ${all.length} document(s)`);
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setTransferBusy(null);
+    }
+  }
+
+  async function handleImport(file: File) {
+    let documents: Record<string, unknown>[];
+    try {
+      documents = await readJsonDocuments(file);
+    } catch (err: any) {
+      toast.error(err.message);
+      return;
+    }
+    if (documents.length === 0) { toast.error(`${file.name} contains no documents`); return; }
+    setTransferBusy('Importing…');
+    let imported = 0;
+    try {
+      for (const batch of chunk(documents, 500)) {
+        await api.projects.insertDocument(projectId, collectionName, batch);
+        imported += batch.length;
+      }
+      toast.success(`Imported ${imported} document(s)`);
+    } catch (err: any) {
+      toast.error(`${imported} of ${documents.length} imported; stopped at the next batch: ${err.message}`);
+    } finally {
+      setTransferBusy(null);
+      changed();
     }
   }
 
@@ -311,7 +522,7 @@ export function CollectionDocumentsPanel({ projectId, collectionName }: { projec
       }
       toast.success(`${selectedDocs.size} document(s) deleted`);
       setSelectedDocs(new Set());
-      loadDocuments();
+      changed();
     } catch (err: any) {
       toast.error(err.message);
     }
@@ -354,8 +565,10 @@ export function CollectionDocumentsPanel({ projectId, collectionName }: { projec
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
-            className="h-8 pl-8 text-xs font-mono"
-            placeholder='Filter JSON, e.g. {"status":"active"}'
+            className={cn('h-8 pl-8 text-xs font-mono', filterError && 'border-destructive')}
+            placeholder='Filter, e.g. {"status":"active"} or {"meta.city":"Ankara"}'
+            aria-label="Filter documents (JSON)"
+            aria-invalid={!!filterError}
             value={filterText}
             onChange={(e) => {
               setFilterText(e.target.value);
@@ -370,14 +583,38 @@ export function CollectionDocumentsPanel({ projectId, collectionName }: { projec
           </Button>
         )}
 
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={loadDocuments} title="Refresh">
+        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={loadDocuments} title="Refresh" aria-label="Refresh">
           <RefreshCw className={cn('h-3.5 w-3.5', dataLoading && 'animate-spin')} />
         </Button>
 
         <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setInsertOpen(true)}>
           <Plus className="mr-1 h-3.5 w-3.5" /> Insert
         </Button>
+        <Button variant="outline" size="sm" className="h-8 text-xs" disabled={!!transferBusy} onClick={() => fileInput.current?.click()} title="Import a JSON file">
+          <Upload className="mr-1 h-3.5 w-3.5" /> Import
+        </Button>
+        <Button variant="outline" size="sm" className="h-8 text-xs" disabled={!!transferBusy} onClick={handleExport} title="Export all documents as JSON">
+          <Download className="mr-1 h-3.5 w-3.5" /> Export
+        </Button>
+        <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setIndexesOpen(true)}>
+          <KeyRound className="mr-1 h-3.5 w-3.5" /> Indexes
+        </Button>
+        <input
+          ref={fileInput}
+          type="file"
+          accept=".json,.ndjson,application/json"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = '';
+            if (file) void handleImport(file);
+          }}
+        />
+        {transferBusy && <span className="text-xs text-muted-foreground">{transferBusy}</span>}
       </div>
+      {filterError && (
+        <p role="alert" className="border-b bg-destructive/5 px-4 py-1.5 text-xs text-destructive">{filterError}</p>
+      )}
 
       {/* Header */}
       <div className="flex items-center justify-between border-b bg-muted/20 px-4 py-1.5">
@@ -530,7 +767,7 @@ export function CollectionDocumentsPanel({ projectId, collectionName }: { projec
         onOpenChange={setInsertOpen}
         projectId={projectId}
         collectionName={collectionName}
-        onInserted={loadDocuments}
+        onInserted={changed}
       />
       <EditDocumentDialog
         open={editOpen}
@@ -539,6 +776,12 @@ export function CollectionDocumentsPanel({ projectId, collectionName }: { projec
         collectionName={collectionName}
         doc={editDoc}
         onSaved={loadDocuments}
+      />
+      <IndexesDialog
+        open={indexesOpen}
+        onOpenChange={setIndexesOpen}
+        projectId={projectId}
+        collectionName={collectionName}
       />
     </div>
   );

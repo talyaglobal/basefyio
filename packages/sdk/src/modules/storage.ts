@@ -27,6 +27,54 @@ export interface PublicUrlOptions {
 
 const TRANSFORM_KEYS = ['width', 'height', 'format', 'quality', 'fit'] as const;
 
+// ── Listing, copying, deleting ───────────────────────────
+
+/** Options of `list()`; without any the listing is exactly what the store returns. */
+export interface StorageListOptions {
+  /** Everything below the prefix instead of one level. */
+  recursive?: boolean;
+  /** Keep entries whose own name contains this text (case-insensitive). */
+  search?: string;
+  sortBy?: 'name' | 'size' | 'lastModified';
+  order?: 'asc' | 'desc';
+  /** 1–1000 */
+  limit?: number;
+  offset?: number;
+}
+
+export interface CopyOptions {
+  /** Replace an object already at the destination (otherwise 409). */
+  overwrite?: boolean;
+}
+
+/** What `remove()` reports: the keys that went, and the requested files that were not there. */
+export interface RemoveResult {
+  message: string;
+  deleted?: string[];
+  notFound?: string[];
+}
+
+// ── Buckets ──────────────────────────────────────────────
+
+/** Upload limits a bucket enforces; `null` = the platform ceiling / any type. */
+export interface BucketLimits {
+  fileSizeLimit?: number | null;
+  allowedMimeTypes?: string[] | null;
+}
+
+export interface CreateBucketOptions extends BucketLimits {
+  public?: boolean;
+}
+
+export interface UpdateBucketOptions extends BucketLimits {
+  public?: boolean;
+}
+
+export interface DeleteBucketOptions {
+  /** Delete the bucket even when it holds files, together with all of them. */
+  force?: boolean;
+}
+
 // ── Access rules (bf.storage.setBucketPolicy) ────────────
 
 /**
@@ -116,10 +164,22 @@ export class StorageBucketApi {
     return `/projects/${this.projectId}/storage/buckets/${encodeURIComponent(this.bucket)}`;
   }
 
-  async list(prefix = ''): Promise<BasefyioResponse<StorageObject[]>> {
+  /**
+   * One level of the bucket under `prefix`. A file entry's `name` is its full
+   * key; a folder entry has `prefix` (ending in "/") and an empty `name`.
+   */
+  async list(prefix = '', options: StorageListOptions = {}): Promise<BasefyioResponse<StorageObject[]>> {
     try {
-      const q = prefix ? `?prefix=${encodeURIComponent(prefix)}` : '';
-      const data = await this.http.json<StorageObject[]>(`${this.basePath()}/objects${q}`);
+      const q = new URLSearchParams();
+      if (prefix) q.set('prefix', prefix);
+      if (options.recursive) q.set('recursive', 'true');
+      if (options.search) q.set('search', options.search);
+      if (options.sortBy) q.set('sortBy', options.sortBy);
+      if (options.order) q.set('order', options.order);
+      if (options.limit !== undefined) q.set('limit', String(options.limit));
+      if (options.offset !== undefined) q.set('offset', String(options.offset));
+      const qs = q.toString();
+      const data = await this.http.json<StorageObject[]>(`${this.basePath()}/objects${qs ? `?${qs}` : ''}`);
       return { data, error: null };
     } catch (err: any) {
       return { data: null, error: { message: err.message, status: err.status } };
@@ -137,7 +197,13 @@ export class StorageBucketApi {
       const ct = options?.contentType || 'application/octet-stream';
 
       if (file instanceof Blob) {
-        formData.append('file', file, fileName);
+        // The multipart part carries the Blob's own type; a contentType given
+        // here wins over it (a Blob of a Blob shares the bytes, it is not a copy).
+        const typed =
+          options?.contentType && file.type !== options.contentType
+            ? new Blob([file], { type: options.contentType })
+            : file;
+        formData.append('file', typed, fileName);
       } else {
         const blob = new Blob([file as BlobPart], { type: ct });
         formData.append('file', blob, fileName);
@@ -164,11 +230,19 @@ export class StorageBucketApi {
     }
   }
 
-  async createSignedUrl(path: string, options?: SignedUrlOptions): Promise<BasefyioResponse<{ url: string; expiresIn: number }>> {
+  /**
+   * A time-limited URL for one object: `{ url, expiresIn }`. The lifetime is in
+   * seconds (60 to 604800, default 3600) and may be given as a number or as
+   * `{ expiresIn }`. A missing object answers 404 rather than a dead URL.
+   */
+  async createSignedUrl(
+    path: string,
+    options?: SignedUrlOptions | number,
+  ): Promise<BasefyioResponse<{ url: string; expiresIn: number }>> {
     try {
-      const expiry = options?.expiresIn ?? 3600;
+      const expiry = typeof options === 'number' ? options : (options?.expiresIn ?? 3600);
       const data = await this.http.json<{ url: string; expiresIn: number }>(
-        `${this.basePath()}/objects/url?path=${encodeURIComponent(path)}&expiry=${expiry}`,
+        `${this.basePath()}/objects/url?path=${encodeURIComponent(path)}&expiry=${encodeURIComponent(String(expiry))}`,
       );
       return { data, error: null };
     } catch (err: any) {
@@ -176,12 +250,50 @@ export class StorageBucketApi {
     }
   }
 
-  async remove(paths: string[]): Promise<BasefyioResponse<{ message: string }>> {
+  /**
+   * Delete files, or whole folders with a path ending in "/". `deleted` lists
+   * what went and `notFound` the files that were not there.
+   */
+  async remove(paths: string[]): Promise<BasefyioResponse<RemoveResult>> {
     try {
-      const data = await this.http.json<{ message: string }>(`${this.basePath()}/objects`, {
+      const data = await this.http.json<RemoveResult>(`${this.basePath()}/objects`, {
         method: 'DELETE',
         body: JSON.stringify({ paths }),
       });
+      return { data, error: null };
+    } catch (err: any) {
+      return { data: null, error: { message: err.message, status: err.status } };
+    }
+  }
+
+  /** Copy a file, or a folder (both paths ending in "/") with everything in it. */
+  async copy(
+    from: string,
+    to: string,
+    options: CopyOptions = {},
+  ): Promise<BasefyioResponse<{ from: string; to: string; copied: number }>> {
+    try {
+      const data = await this.http.json<{ from: string; to: string; copied: number }>(
+        `${this.basePath()}/objects/copy`,
+        { method: 'POST', body: JSON.stringify({ from, to, overwrite: options.overwrite === true }) },
+      );
+      return { data, error: null };
+    } catch (err: any) {
+      return { data: null, error: { message: err.message, status: err.status } };
+    }
+  }
+
+  /** Rename (move) a file, or a folder with everything in it, to a new path. */
+  async move(
+    from: string,
+    to: string,
+    options: CopyOptions = {},
+  ): Promise<BasefyioResponse<{ from: string; to: string; moved: number }>> {
+    try {
+      const data = await this.http.json<{ from: string; to: string; moved: number }>(
+        `${this.basePath()}/objects/rename`,
+        { method: 'POST', body: JSON.stringify({ from, to, overwrite: options.overwrite === true }) },
+      );
       return { data, error: null };
     } catch (err: any) {
       return { data: null, error: { message: err.message, status: err.status } };
@@ -330,11 +442,20 @@ export class StorageBucketApi {
     return { ...result, sessionId: session.id };
   }
 
+  /**
+   * A URL for an object of a **public** bucket that works without any key —
+   * in `<img src>`, `<video src>` or a plain link. Built locally, no request.
+   * For a private bucket the URL answers 404; use `createSignedUrl()` there.
+   *
+   * With a `transform` the URL points at the render route instead, which
+   * resizes and re-encodes on read and carries the client's key.
+   */
   getPublicUrl(path: string, options?: PublicUrlOptions): string {
-    const objects = `${this.http.getBaseUrl()}/projects/${this.projectId}/storage/buckets/${encodeURIComponent(this.bucket)}/objects`;
+    const base = `${this.http.getBaseUrl()}/projects/${this.projectId}/storage`;
+    const objects = `${base}/buckets/${encodeURIComponent(this.bucket)}/objects`;
     const transform = options?.transform;
-    if (!transform) {
-      return `${objects}/download?path=${encodeURIComponent(path)}`;
+    if (!transform || TRANSFORM_KEYS.every((k) => transform[k] === undefined || transform[k] === null)) {
+      return `${base}/public/${encodeURIComponent(this.bucket)}?path=${encodeURIComponent(path)}`;
     }
     // A browser loads this through <img src>, which cannot send headers, so the
     // public key travels in the query string (the API accepts only the anon key there).
@@ -347,6 +468,23 @@ export class StorageBucketApi {
       url += `&${key}=${encodeURIComponent(text)}`;
     }
     return `${url}&apikey=${encodeURIComponent(this.http.getApiKey())}`;
+  }
+
+  /**
+   * The object's permanent address on the storage host, asked from the API:
+   * `{ public, publicUrl }`, with `publicUrl` null for a private bucket. Use it
+   * where a URL must point straight at the store (a CDN origin, for instance);
+   * `getPublicUrl()` needs no request.
+   */
+  async fetchPublicUrl(path: string): Promise<BasefyioResponse<{ public: boolean; publicUrl: string | null }>> {
+    try {
+      const res = await this.http.json<{ public: boolean; url: string | null }>(
+        `${this.basePath()}/public-url?path=${encodeURIComponent(path)}`,
+      );
+      return { data: { public: !!res?.public, publicUrl: res?.url ?? null }, error: null };
+    } catch (err: any) {
+      return { data: null, error: { message: err.message, status: err.status } };
+    }
   }
 }
 
@@ -378,11 +516,15 @@ export class StorageClient {
     }
   }
 
-  async createBucket(name: string, options?: { public?: boolean }): Promise<BasefyioResponse<StorageBucket>> {
+  /** Names: 3–63 lowercase letters, digits and hyphens. Optional upload limits apply to every upload. */
+  async createBucket(name: string, options?: CreateBucketOptions): Promise<BasefyioResponse<StorageBucket>> {
     try {
+      const body: Record<string, unknown> = { name, public: options?.public ?? false };
+      if (options?.fileSizeLimit !== undefined) body.fileSizeLimit = options.fileSizeLimit;
+      if (options?.allowedMimeTypes !== undefined) body.allowedMimeTypes = options.allowedMimeTypes;
       const data = await this.http.json<StorageBucket>(`${this.basePath()}/buckets`, {
         method: 'POST',
-        body: JSON.stringify({ name, public: options?.public ?? false }),
+        body: JSON.stringify(body),
       });
       return { data, error: null };
     } catch (err: any) {
@@ -390,10 +532,17 @@ export class StorageClient {
     }
   }
 
-  async deleteBucket(name: string): Promise<BasefyioResponse<{ message: string }>> {
+  /**
+   * Delete a bucket. One that still holds files is refused (409) unless
+   * `{ force: true }` is passed, which deletes it with everything in it.
+   */
+  async deleteBucket(
+    name: string,
+    options: DeleteBucketOptions = {},
+  ): Promise<BasefyioResponse<{ message: string; deletedObjects?: number }>> {
     try {
-      const data = await this.http.json<{ message: string }>(
-        `${this.basePath()}/buckets/${encodeURIComponent(name)}`,
+      const data = await this.http.json<{ message: string; deletedObjects?: number }>(
+        `${this.basePath()}/buckets/${encodeURIComponent(name)}${options.force ? '?force=true' : ''}`,
         { method: 'DELETE' },
       );
       return { data, error: null };
@@ -402,7 +551,8 @@ export class StorageClient {
     }
   }
 
-  async updateBucket(name: string, options: { public: boolean }): Promise<BasefyioResponse<StorageBucket>> {
+  /** Change visibility and/or upload limits; send only what changes. */
+  async updateBucket(name: string, options: UpdateBucketOptions): Promise<BasefyioResponse<StorageBucket>> {
     try {
       const data = await this.http.json<StorageBucket>(
         `${this.basePath()}/buckets/${encodeURIComponent(name)}`,

@@ -15,7 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { KeyRound, Plus, Copy, Loader2, RefreshCw, Trash2, Check, Pencil, Search } from 'lucide-react';
+import { KeyRound, Plus, Copy, Loader2, RefreshCw, Trash2, Check, Pencil, Search, Ban } from 'lucide-react';
 
 function fmtDate(ts?: string | null) {
   return ts ? new Date(ts).toLocaleDateString() : '—';
@@ -39,6 +39,13 @@ function ago(ts?: string | null) {
 }
 
 type StatusFilter = 'all' | 'active' | 'revoked';
+
+/** What the row shows: revoked is final; an active token past its expiry is expired. */
+function displayStatus(t: ApiToken): 'active' | 'expired' | 'revoked' {
+  if (t.status !== 'active') return 'revoked';
+  if (t.expiresAt && new Date(t.expiresAt).getTime() <= Date.now()) return 'expired';
+  return 'active';
+}
 
 export function ApiTokens() {
   const router = useRouter();
@@ -80,29 +87,36 @@ export function ApiTokens() {
   }, [tokens, search, statusFilter]);
 
   const revoke = async (t: ApiToken) => {
-    const isActive = t.status === 'active';
-    const ok = await confirmDialog(
-      isActive
-        ? {
-            title: 'Revoke token',
-            description: `Revoke "${t.name}"? Any agent using it will immediately stop working. Revocation is permanent.`,
-            confirmText: 'Revoke',
-            destructive: true,
-          }
-        : {
-            title: 'Remove token',
-            description: `Remove the revoked token "${t.name}" from the list?`,
-            confirmText: 'Remove',
-            destructive: true,
-          },
-    );
+    const ok = await confirmDialog({
+      title: 'Revoke token',
+      description: `Revoke "${t.name}"? Any agent using it will immediately stop working.`,
+      confirmText: 'Revoke',
+      destructive: true,
+    });
     if (!ok) return;
     try {
       await api.apiTokens.revoke(t.id);
-      toast.success(isActive ? 'Token revoked' : 'Token removed');
+      toast.success('Token revoked');
       load();
     } catch (e: any) {
       toast.error(e?.message || 'Revoke failed');
+    }
+  };
+
+  const remove = async (t: ApiToken) => {
+    const ok = await confirmDialog({
+      title: 'Delete token',
+      description: `Remove the revoked token "${t.name}" from this list? This cannot be undone.`,
+      confirmText: 'Delete',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await api.apiTokens.remove(t.id);
+      toast.success('Token deleted');
+      load();
+    } catch (e: any) {
+      toast.error(e?.message || 'Delete failed');
     }
   };
 
@@ -206,6 +220,8 @@ export function ApiTokens() {
                 filtered.map((t) => {
                   const shown = t.scopes.slice(0, 3);
                   const extra = t.scopes.length - shown.length;
+                  const state = displayStatus(t);
+                  const isActive = t.status === 'active';
                   return (
                     <tr key={t.id} className="border-b last:border-0 hover:bg-accent/40">
                       <td className="px-4 py-3 align-top">
@@ -232,26 +248,48 @@ export function ApiTokens() {
                       <td className="px-4 py-3 align-top whitespace-nowrap text-muted-foreground" title={fmtDate(t.createdAt)}>
                         {ago(t.createdAt)}
                       </td>
-                      <td
-                        className={`px-4 py-3 align-top whitespace-nowrap ${t.expiresAt && new Date(t.expiresAt).getTime() <= Date.now() ? 'text-red-600' : 'text-muted-foreground'}`}
-                        title={t.expiresAt ? fmtDate(t.expiresAt) : undefined}
-                      >
-                        {t.expiresAt ? (new Date(t.expiresAt).getTime() <= Date.now() ? 'Expired' : fmtDate(t.expiresAt)) : 'Never'}
+                      <td className="px-4 py-3 align-top whitespace-nowrap text-muted-foreground">
+                        {t.expiresAt ? fmtDate(t.expiresAt) : 'Never'}
                       </td>
                       <td className="px-4 py-3 align-top">
-                        <StatusBadge status={t.status} />
+                        <StatusBadge state={state} />
                       </td>
                       <td className="px-4 py-3 align-top">
                         <div className="flex items-center justify-end gap-0.5">
-                          <Button size="sm" variant="ghost" onClick={() => router.push(`/dashboard/account/api-tokens/${t.id}/edit`)} title="Edit" disabled={t.status !== 'active'}>
+                          {/* A revoked token is final: no edit, no roll — only delete. */}
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => router.push(`/dashboard/account/api-tokens/${t.id}/edit`)}
+                            title={isActive ? 'Edit' : 'A revoked token cannot be edited'}
+                            disabled={!isActive}
+                          >
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>
-                          <Button size="sm" variant="ghost" onClick={() => roll(t)} title="Roll secret" disabled={t.status !== 'active'}>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => roll(t)}
+                            title={
+                              state === 'active'
+                                ? 'Roll secret'
+                                : state === 'expired'
+                                  ? 'Set a new expiry date before rolling this token'
+                                  : 'A revoked token cannot be rolled'
+                            }
+                            disabled={state !== 'active'}
+                          >
                             <RefreshCw className="h-3.5 w-3.5" />
                           </Button>
-                          <Button size="sm" variant="ghost" onClick={() => revoke(t)} title={t.status === 'active' ? 'Revoke' : 'Remove from list'}>
-                            <Trash2 className={`h-3.5 w-3.5 ${t.status === 'active' ? 'text-red-500' : 'text-muted-foreground'}`} />
-                          </Button>
+                          {isActive ? (
+                            <Button size="sm" variant="ghost" onClick={() => revoke(t)} title="Revoke">
+                              <Ban className="h-3.5 w-3.5 text-red-500" />
+                            </Button>
+                          ) : (
+                            <Button size="sm" variant="ghost" onClick={() => remove(t)} title="Delete token">
+                              <Trash2 className="h-3.5 w-3.5 text-red-500" />
+                            </Button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -268,18 +306,16 @@ export function ApiTokens() {
   );
 }
 
-function StatusBadge({ status }: { status: string }) {
-  const active = status === 'active';
+function StatusBadge({ state }: { state: 'active' | 'expired' | 'revoked' }) {
+  const style = {
+    active: { pill: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300', dot: 'bg-teal-500', label: 'Active' },
+    expired: { pill: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300', dot: 'bg-amber-500', label: 'Expired' },
+    revoked: { pill: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400', dot: 'bg-red-500', label: 'Revoked' },
+  }[state];
   return (
-    <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ${
-        active
-          ? 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300'
-          : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-      }`}
-    >
-      <span className={`h-1.5 w-1.5 rounded-full ${active ? 'bg-teal-500' : 'bg-red-500'}`} />
-      {active ? 'Active' : 'Revoked'}
+    <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ${style.pill}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${style.dot}`} />
+      {style.label}
     </span>
   );
 }

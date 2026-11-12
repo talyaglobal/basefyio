@@ -40,7 +40,7 @@ often left orphaned database resources behind.
 
 **What we did:**
 
-- **Retry with exponential backoff.** the auth service calls (`ensureAuth`,
+- **Retry with exponential backoff.** The auth service calls (`ensureAuth`,
   `createRealm`, `createClients`) now retry up to 3 times with 1 s → 2 s → 4 s
   delays. Only transient failures (network errors, 5xx) are retried — 4xx
   errors fail immediately since retrying won't help.
@@ -56,7 +56,7 @@ often left orphaned database resources behind.
   ```
 
   Operators can immediately see whether the issue is a network problem, wrong
-  credentials, or a the auth service outage.
+  credentials, or an auth service outage.
 
 ## Upgrade
 
@@ -76,5 +76,5 @@ npm install -g basefyio-cli@latest
 ---
 
 Questions or feedback? Open an issue on
-[GitHub](https://github.com/fsipka/basefyio-new/issues) or reach out at
-support@basefyio.com.
+[GitHub](https://github.com/talyaglobal/basefyio/issues) or reach out at
+[support@talyasmart.com](mailto:support@talyasmart.com).

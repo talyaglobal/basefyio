@@ -15,10 +15,11 @@ import { v4 as uuid } from 'uuid';
 import type { Pool, PoolClient } from 'pg';
 import type { DataEngine, EntityCollection } from '../../interfaces/data-engine';
 import {
+  DocumentNotDeletedError,
   DocumentNotFoundError,
   ConcurrencyError,
-  TenantNotProvisionedError,
   DocumentTooLargeError,
+  QueryValidationError,
 } from '../../interfaces/data-engine';
 import type {
   DataEngineConfig,
@@ -30,6 +31,7 @@ import type {
   ProviderCapabilities,
   TenantDataPlane,
   WriteOpts,
+  ReadOpts,
   DocumentStatus,
 } from '../../interfaces/types';
 import type {
@@ -37,14 +39,12 @@ import type {
   EntityQuery,
   Filter,
   FieldFilter,
-  LogicalFilter,
-  NotFilter,
   IndexDef,
   QueryExplainResult,
-  SortClause,
 } from '../../interfaces/query';
 
 const SCHEMA = 'data_engine';
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const RECORDS_TABLE = 'records';
 
 export class PostgresDataEngine implements DataEngine {
@@ -191,6 +191,148 @@ export class PostgresDataEngine implements DataEngine {
 
 // ── PostgreSQL Entity Collection ───────────────────────────
 
+/** Public envelope paths → real columns of data_engine.records. */
+const ENVELOPE_COLUMNS: Record<string, string> = {
+  _id: 'id',
+  _entity: 'entity',
+  _projectId: 'project_id',
+  _schemaVersion: 'schema_version',
+  _version: 'version',
+  _lastEventId: 'last_event_id',
+  _eventSequence: 'event_sequence',
+  _status: 'status',
+  _createdAt: 'created_at',
+  _updatedAt: 'updated_at',
+  _createdBy: 'created_by',
+  _deletedAt: 'deleted_at',
+};
+
+const TIMESTAMP_COLUMNS = new Set(['created_at', 'updated_at', 'deleted_at']);
+
+/** Path segments for a validated AST path ("a.b[].c" → ["a","b","c"]). */
+function pathSegments(path: string): string[] {
+  return path.replace(/\[\]/g, '').split('.');
+}
+
+/**
+ * Compiles the Filter AST to a parameterised WHERE fragment. Every value and
+ * every path goes through a bind parameter; nothing user-supplied is spliced
+ * into the SQL text. Semantics follow the document-store providers: equality
+ * on an array field matches when any element is equal, comparisons only match
+ * values of the same JSON type, and a missing field never equals anything.
+ */
+/** @internal — exported for unit tests. */
+export class PgFilterCompiler {
+  constructor(private readonly params: unknown[]) {}
+
+  private bind(value: unknown): string {
+    this.params.push(value);
+    return `$${this.params.length}`;
+  }
+
+  /** jsonb expression for a path (envelope fields map to their columns). */
+  private jsonbExpr(path: string): string {
+    const column = ENVELOPE_COLUMNS[path];
+    if (column) {
+      if (TIMESTAMP_COLUMNS.has(column)) {
+        return `to_jsonb(to_char(${column} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))`;
+      }
+      return `to_jsonb(${column})`;
+    }
+    return `(data #> ${this.bind(pathSegments(path))}::text[])`;
+  }
+
+  private textExpr(path: string): string {
+    return `(${this.jsonbExpr(path)} #>> '{}')`;
+  }
+
+  compile(filter: Filter): string {
+    switch (filter.type) {
+      case 'field':
+        return this.field(filter);
+      case 'and':
+      case 'or': {
+        if (filter.conditions.length === 0) return filter.type === 'and' ? 'TRUE' : 'FALSE';
+        const op = filter.type === 'and' ? ' AND ' : ' OR ';
+        return `(${filter.conditions.map((c) => this.compile(c)).join(op)})`;
+      }
+      case 'not':
+        return `NOT COALESCE((${this.compile(filter.condition)}), FALSE)`;
+      default:
+        return 'FALSE';
+    }
+  }
+
+  private eq(path: string, value: JsonValue): string {
+    const expr = this.jsonbExpr(path);
+    const v = this.bind(JSON.stringify(value));
+    return `(${expr} = ${v}::jsonb OR (jsonb_typeof(${expr}) = 'array' AND ${expr} @> jsonb_build_array(${v}::jsonb)))`;
+  }
+
+  private anyOf(path: string, values: JsonValue[]): string {
+    if (values.length === 0) return 'FALSE';
+    const expr = this.jsonbExpr(path);
+    const list = this.bind(values.map((v) => JSON.stringify(v)));
+    return `(${expr} = ANY(${list}::jsonb[]) OR (jsonb_typeof(${expr}) = 'array' AND EXISTS (SELECT 1 FROM jsonb_array_elements(${expr}) AS el(v) WHERE el.v = ANY(${list}::jsonb[]))))`;
+  }
+
+  private field(f: FieldFilter): string {
+    const path = f.path.path;
+    const value = f.value;
+    switch (f.operator) {
+      case 'eq':
+        return value === null ? `(${this.jsonbExpr(path)} IS NULL OR ${this.jsonbExpr(path)} = 'null'::jsonb)` : this.eq(path, value);
+      case 'neq':
+        return value === null
+          ? `(${this.jsonbExpr(path)} IS NOT NULL AND ${this.jsonbExpr(path)} <> 'null'::jsonb)`
+          : `NOT COALESCE(${this.eq(path, value)}, FALSE)`;
+      case 'gt':
+      case 'gte':
+      case 'lt':
+      case 'lte': {
+        const op = { gt: '>', gte: '>=', lt: '<', lte: '<=' }[f.operator];
+        const expr = this.jsonbExpr(path);
+        const v = this.bind(JSON.stringify(value));
+        return `(jsonb_typeof(${expr}) = jsonb_typeof(${v}::jsonb) AND ${expr} ${op} ${v}::jsonb)`;
+      }
+      case 'in':
+      case 'containsAny':
+        return this.anyOf(path, Array.isArray(value) ? value : [value]);
+      case 'nin':
+        return `NOT COALESCE(${this.anyOf(path, Array.isArray(value) ? value : [value])}, FALSE)`;
+      case 'contains': {
+        const expr = this.jsonbExpr(path);
+        const v = this.bind(JSON.stringify(value));
+        return `(${expr} @> jsonb_build_array(${v}::jsonb) OR ${expr} = ${v}::jsonb)`;
+      }
+      case 'exists':
+        return value === false ? `${this.jsonbExpr(path)} IS NULL` : `${this.jsonbExpr(path)} IS NOT NULL`;
+      case 'regex':
+        return `${this.textExpr(path)} ~ ${this.bind(String(value))}`;
+      case 'iregex':
+        return `${this.textExpr(path)} ~* ${this.bind(String(value))}`;
+      case 'like':
+        return `${this.textExpr(path)} LIKE ${this.bind(String(value))}`;
+      case 'ilike':
+        return `${this.textExpr(path)} ILIKE ${this.bind(String(value))}`;
+      default:
+        throw new QueryValidationError(`Unsupported filter operator "${String(f.operator)}"`);
+    }
+  }
+}
+
+/** ORDER BY expression for a sort path. Paths are validated (safe charset) upstream. */
+/** @internal — exported for unit tests. */
+export function sortExpr(path: string): string {
+  const column = ENVELOPE_COLUMNS[path];
+  if (column) return column;
+  const segments = pathSegments(path);
+  if (!segments.every((s) => /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(s))) {
+    throw new QueryValidationError(`invalid sort path "${path}"`);
+  }
+  return `(data #> '{${segments.join(',')}}')`;
+}
+
 class PgEntityCollection implements EntityCollection {
   constructor(
     private readonly engine: PostgresDataEngine,
@@ -223,149 +365,148 @@ class PgEntityCollection implements EntityCollection {
   }
 
   async insert(doc: JsonObject, opts?: WriteOpts): Promise<DocResult> {
-    this.checkDocSize(doc);
+    const [created] = await this.insertMany([doc], opts);
+    return created;
+  }
+
+  async insertMany(docs: JsonObject[], opts?: WriteOpts): Promise<DocResult[]> {
+    if (docs.length === 0) return [];
+    for (const doc of docs) this.checkDocSize(doc);
     const pool = await this.pool();
-    const id = uuid();
     const status = opts?.status ?? 'active';
     const userId = opts?.userId ?? '';
 
+    const params: unknown[] = [this.entity, this.projectId, status, userId];
+    const rows = docs.map((doc) => {
+      params.push(uuid(), JSON.stringify(doc));
+      const idIdx = params.length - 1;
+      return `($${idIdx}, $1, $2, 1, 1, 1, $3, $${idIdx + 1}::jsonb, $4)`;
+    });
     const result = await pool.query(
       `INSERT INTO ${SCHEMA}.${RECORDS_TABLE}
        (id, entity, project_id, version, event_sequence, schema_version, status, data, created_by)
-       VALUES ($1, $2, $3, 1, 1, 1, $4, $5::jsonb, $6)
+       VALUES ${rows.join(', ')}
        RETURNING *`,
-      [id, this.entity, this.projectId, status, JSON.stringify(doc), userId],
+      params,
     );
-    return this.toDocResult(result.rows[0]);
+    // RETURNING order follows VALUES order for a single INSERT.
+    return result.rows.map((r: Record<string, unknown>) => this.toDocResult(r));
   }
 
-  async get(id: string): Promise<DocResult | null> {
+  async get(id: string, opts?: ReadOpts): Promise<DocResult | null> {
+    if (!UUID_RE.test(id)) return null;
     const pool = await this.pool();
     const result = await pool.query(
       `SELECT * FROM ${SCHEMA}.${RECORDS_TABLE}
-       WHERE id = $1 AND project_id = $2 AND entity = $3 AND status != 'deleted'`,
+       WHERE id = $1 AND project_id = $2 AND entity = $3
+       ${opts?.includeSoftDeleted ? '' : `AND status != 'deleted'`}`,
       [id, this.projectId, this.entity],
     );
     if (result.rowCount === 0) return null;
     return this.toDocResult(result.rows[0]);
   }
 
-  async update(id: string, patch: JsonObject, opts?: WriteOpts): Promise<DocResult> {
-    this.checkDocSize(patch);
+  /**
+   * One atomic conditional UPDATE: the expected version (If-Match) is part of
+   * the WHERE clause. When no row matched, a second read tells "not found"
+   * apart from "version conflict" / "not deleted".
+   */
+  private async writeOne(
+    id: string,
+    setSql: string,
+    setParams: unknown[],
+    opts: WriteOpts | undefined,
+    match: { deleted: boolean } = { deleted: false },
+  ): Promise<DocResult> {
+    if (!UUID_RE.test(id)) throw new DocumentNotFoundError(this.entity, id);
     const pool = await this.pool();
-
+    const params: unknown[] = [id, this.projectId, this.entity, ...setParams];
+    let where = `id = $1 AND project_id = $2 AND entity = $3 AND status ${match.deleted ? `= 'deleted'` : `!= 'deleted'`}`;
     if (opts?.ifMatch !== undefined) {
-      const current = await pool.query(
-        `SELECT version FROM ${SCHEMA}.${RECORDS_TABLE} WHERE id = $1 AND project_id = $2 AND entity = $3`,
-        [id, this.projectId, this.entity],
-      );
-      if (current.rowCount === 0) throw new DocumentNotFoundError(this.entity, id);
-      const actualVersion = current.rows[0].version as number;
-      if (actualVersion !== opts.ifMatch) {
-        throw new ConcurrencyError(this.entity, id, opts.ifMatch, actualVersion);
-      }
+      params.push(opts.ifMatch);
+      where += ` AND version = $${params.length}`;
     }
-
     const result = await pool.query(
       `UPDATE ${SCHEMA}.${RECORDS_TABLE}
-       SET data = data || $1::jsonb,
+       SET ${setSql},
            version = version + 1,
            event_sequence = event_sequence + 1,
            updated_at = now()
-       WHERE id = $2 AND project_id = $3 AND entity = $4 AND status != 'deleted'
+       WHERE ${where}
        RETURNING *`,
-      [JSON.stringify(patch), id, this.projectId, this.entity],
+      params,
     );
-    if (result.rowCount === 0) throw new DocumentNotFoundError(this.entity, id);
-    return this.toDocResult(result.rows[0]);
+    if (result.rowCount && result.rowCount > 0) return this.toDocResult(result.rows[0]);
+
+    const current = await pool.query(
+      `SELECT version, status FROM ${SCHEMA}.${RECORDS_TABLE} WHERE id = $1 AND project_id = $2 AND entity = $3`,
+      [id, this.projectId, this.entity],
+    );
+    if (current.rowCount === 0) throw new DocumentNotFoundError(this.entity, id);
+    const row = current.rows[0] as { version: number; status: string };
+    const isDeleted = row.status === 'deleted';
+    if (match.deleted && !isDeleted) throw new DocumentNotDeletedError(this.entity, id);
+    if (!match.deleted && isDeleted) throw new DocumentNotFoundError(this.entity, id);
+    if (opts?.ifMatch !== undefined && row.version !== opts.ifMatch) {
+      throw new ConcurrencyError(this.entity, id, opts.ifMatch, row.version);
+    }
+    throw new DocumentNotFoundError(this.entity, id);
+  }
+
+  async update(id: string, patch: JsonObject, opts?: WriteOpts): Promise<DocResult> {
+    this.checkDocSize(patch);
+    return this.writeOne(id, `data = data || $4::jsonb`, [JSON.stringify(patch)], opts);
   }
 
   async replace(id: string, doc: JsonObject, opts?: WriteOpts): Promise<DocResult> {
     this.checkDocSize(doc);
-    const pool = await this.pool();
-
-    if (opts?.ifMatch !== undefined) {
-      const current = await pool.query(
-        `SELECT version FROM ${SCHEMA}.${RECORDS_TABLE} WHERE id = $1 AND project_id = $2 AND entity = $3`,
-        [id, this.projectId, this.entity],
-      );
-      if (current.rowCount === 0) throw new DocumentNotFoundError(this.entity, id);
-      const actualVersion = current.rows[0].version as number;
-      if (actualVersion !== opts.ifMatch) {
-        throw new ConcurrencyError(this.entity, id, opts.ifMatch, actualVersion);
-      }
-    }
-
-    const result = await pool.query(
-      `UPDATE ${SCHEMA}.${RECORDS_TABLE}
-       SET data = $1::jsonb,
-           version = version + 1,
-           event_sequence = event_sequence + 1,
-           updated_at = now()
-       WHERE id = $2 AND project_id = $3 AND entity = $4 AND status != 'deleted'
-       RETURNING *`,
-      [JSON.stringify(doc), id, this.projectId, this.entity],
-    );
-    if (result.rowCount === 0) throw new DocumentNotFoundError(this.entity, id);
-    return this.toDocResult(result.rows[0]);
+    return this.writeOne(id, `data = $4::jsonb`, [JSON.stringify(doc)], opts);
   }
 
   async delete(id: string, opts?: WriteOpts): Promise<void> {
+    await this.writeOne(id, `status = 'deleted', deleted_at = now()`, [], opts);
+  }
+
+  async restore(id: string, opts?: WriteOpts): Promise<DocResult> {
+    return this.writeOne(id, `status = 'active', deleted_at = NULL`, [], opts, { deleted: true });
+  }
+
+  async purge(): Promise<number> {
     const pool = await this.pool();
     const result = await pool.query(
-      `UPDATE ${SCHEMA}.${RECORDS_TABLE}
-       SET status = 'deleted', deleted_at = now(), version = version + 1, event_sequence = event_sequence + 1, updated_at = now()
-       WHERE id = $1 AND project_id = $2 AND entity = $3 AND status != 'deleted'`,
-      [id, this.projectId, this.entity],
+      `DELETE FROM ${SCHEMA}.${RECORDS_TABLE} WHERE project_id = $1 AND entity = $2`,
+      [this.projectId, this.entity],
     );
-    if (result.rowCount === 0) throw new DocumentNotFoundError(this.entity, id);
+    return result.rowCount ?? 0;
+  }
+
+  private whereClause(filter: Filter | undefined, includeSoftDeleted: boolean, params: unknown[]): string {
+    params.push(this.projectId, this.entity);
+    let where = `project_id = $${params.length - 1} AND entity = $${params.length}`;
+    if (!includeSoftDeleted) where += ` AND status != 'deleted'`;
+    if (filter) where += ` AND (${new PgFilterCompiler(params).compile(filter)})`;
+    return where;
   }
 
   async query(q: EntityQuery): Promise<Page<DocResult>> {
     const pool = await this.pool();
-    const params: unknown[] = [this.projectId, this.entity];
-    let paramIdx = 3;
+    const params: unknown[] = [];
+    const where = this.whereClause(q.filter, q.includeSoftDeleted === true, params);
 
-    // Base WHERE: mandatory _projectId + _entity
-    let where = `project_id = $1 AND entity = $2`;
+    // id is the final tiebreaker so equal sort keys still page deterministically.
+    const order = q.sort && q.sort.length > 0
+      ? q.sort.map((s) => `${sortExpr(s.path.path)} ${s.direction === 'desc' ? 'DESC' : 'ASC'} NULLS LAST`)
+      : ['created_at DESC'];
+    order.push('id ASC');
 
-    // Soft-delete exclusion (default)
-    if (!q.includeSoftDeleted) {
-      where += ` AND status != 'deleted'`;
-    }
-
-    // User filters
-    if (q.filter) {
-      const { clause, filterParams } = this.compileFilter(q.filter, paramIdx);
-      where += ` AND (${clause})`;
-      params.push(...filterParams);
-      paramIdx += filterParams.length;
-    }
-
-    // Sort
-    let orderBy = 'ORDER BY created_at DESC';
-    if (q.sort && q.sort.length > 0) {
-      const sortClauses = q.sort.map((s) => {
-        const col = this.sortPathToSql(s);
-        return `${col} ${s.direction === 'desc' ? 'DESC' : 'ASC'} NULLS LAST`;
-      });
-      orderBy = `ORDER BY ${sortClauses.join(', ')}`;
-    }
-
-    // Pagination
     const limit = Math.min(Math.max(q.limit ?? 50, 1), 1000);
     const offset = Math.max(q.offset ?? 0, 0);
-
-    // Snapshot filter-only params for the COUNT query BEFORE adding limit/offset
     const countParams = params.slice();
-
     params.push(limit, offset);
-    const limitIdx = paramIdx;
-    const offsetIdx = paramIdx + 1;
 
     const [dataResult, countResult] = await Promise.all([
       pool.query(
-        `SELECT * FROM ${SCHEMA}.${RECORDS_TABLE} WHERE ${where} ${orderBy} LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
+        `SELECT * FROM ${SCHEMA}.${RECORDS_TABLE} WHERE ${where} ORDER BY ${order.join(', ')} LIMIT $${params.length - 1} OFFSET $${params.length}`,
         params,
       ),
       pool.query(
@@ -375,26 +516,20 @@ class PgEntityCollection implements EntityCollection {
     ]);
 
     const total = countResult.rows[0]?.total ?? 0;
+    const returned = dataResult.rows.length;
 
     return {
       data: dataResult.rows.map((r: Record<string, unknown>) => this.toDocResult(r)),
       total,
-      hasMore: offset + limit < total,
-      nextCursor: offset + limit < total ? String(offset + limit) : undefined,
+      hasMore: offset + returned < total,
+      nextCursor: offset + returned < total ? String(offset + returned) : undefined,
     };
   }
 
-  async count(filter?: Filter): Promise<number> {
+  async count(filter?: Filter, opts?: ReadOpts): Promise<number> {
     const pool = await this.pool();
-    const params: unknown[] = [this.projectId, this.entity];
-    let where = `project_id = $1 AND entity = $2 AND status != 'deleted'`;
-
-    if (filter) {
-      const { clause, filterParams } = this.compileFilter(filter, 3);
-      where += ` AND (${clause})`;
-      params.push(...filterParams);
-    }
-
+    const params: unknown[] = [];
+    const where = this.whereClause(filter, opts?.includeSoftDeleted === true, params);
     const result = await pool.query(
       `SELECT COUNT(*)::int AS total FROM ${SCHEMA}.${RECORDS_TABLE} WHERE ${where}`,
       params,
@@ -418,105 +553,6 @@ class PgEntityCollection implements EntityCollection {
         }
       }
     }
-  }
-
-  // ── Filter Compiler ──────────────────────────────────
-
-  private compileFilter(
-    filter: Filter,
-    startIdx: number,
-  ): { clause: string; filterParams: unknown[] } {
-    const params: unknown[] = [];
-    const clause = this.filterToSql(filter, startIdx, params);
-    return { clause, filterParams: params };
-  }
-
-  private filterToSql(filter: Filter, idx: number, params: unknown[]): string {
-    switch (filter.type) {
-      case 'field':
-        return this.fieldFilterToSql(filter, idx, params);
-      case 'and':
-        return this.logicalFilterToSql(filter, 'AND', idx, params);
-      case 'or':
-        return this.logicalFilterToSql(filter, 'OR', idx, params);
-      case 'not': {
-        const inner = this.filterToSql(filter.condition, idx, params);
-        return `NOT (${inner})`;
-      }
-      default:
-        return 'TRUE';
-    }
-  }
-
-  private fieldFilterToSql(filter: FieldFilter, startIdx: number, params: unknown[]): string {
-    const path = filter.path.path;
-    // Map to JSONB operator
-    const jsonPath = `data->>'${path.replace(/\./g, "'->'")}'`;
-    const currentIdx = startIdx + params.length;
-
-    switch (filter.operator) {
-      case 'eq':
-        params.push(String(filter.value));
-        return `${jsonPath} = $${currentIdx + 1}`;
-      case 'neq':
-        params.push(String(filter.value));
-        return `${jsonPath} != $${currentIdx + 1}`;
-      case 'gt':
-        params.push(filter.value);
-        return `(${jsonPath})::numeric > $${currentIdx + 1}`;
-      case 'gte':
-        params.push(filter.value);
-        return `(${jsonPath})::numeric >= $${currentIdx + 1}`;
-      case 'lt':
-        params.push(filter.value);
-        return `(${jsonPath})::numeric < $${currentIdx + 1}`;
-      case 'lte':
-        params.push(filter.value);
-        return `(${jsonPath})::numeric <= $${currentIdx + 1}`;
-      case 'contains':
-        params.push(JSON.stringify([filter.value]));
-        return `data->'${path}' @> $${currentIdx + 1}::jsonb`;
-      case 'exists':
-        return filter.value ? `data ? '${path}'` : `NOT (data ? '${path}')`;
-      case 'in': {
-        const arr = filter.value as unknown[];
-        const placeholders = arr.map((_, i) => {
-          params.push(String(arr[i]));
-          return `$${currentIdx + 1 + i}`;
-        });
-        return `${jsonPath} IN (${placeholders.join(', ')})`;
-      }
-      default:
-        params.push(String(filter.value));
-        return `${jsonPath} = $${currentIdx + 1}`;
-    }
-  }
-
-  private logicalFilterToSql(
-    filter: LogicalFilter,
-    op: 'AND' | 'OR',
-    startIdx: number,
-    params: unknown[],
-  ): string {
-    const clauses = filter.conditions.map((c) =>
-      this.filterToSql(c, startIdx + params.length, params),
-    );
-    return `(${clauses.join(` ${op} `)})`;
-  }
-
-  private sortPathToSql(sort: SortClause): string {
-    const path = sort.path.path;
-    if (path.startsWith('_')) {
-      // Envelope fields are real columns
-      const colMap: Record<string, string> = {
-        _createdAt: 'created_at',
-        _updatedAt: 'updated_at',
-        _version: 'version',
-        _status: 'status',
-      };
-      return colMap[path] ?? 'created_at';
-    }
-    return `data->>'${path}'`;
   }
 
   private checkDocSize(doc: JsonObject): void {

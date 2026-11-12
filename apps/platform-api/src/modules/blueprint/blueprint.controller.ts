@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -14,7 +15,7 @@ import {
   CurrentUser,
   JwtPayload,
 } from '../../common/decorators/current-user.decorator';
-import { BlueprintService } from './blueprint.service';
+import { BlueprintService, GenerateOptions } from './blueprint.service';
 import { AnalyzeBlueprintInput, ApplicationModel } from './blueprint.types';
 
 @Controller('blueprints')
@@ -34,7 +35,37 @@ export class BlueprintController {
 
   @Get(':id')
   get(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
-    return this.blueprint.get(id, user?.sub);
+    return this.blueprint.getDetail(id, user?.sub);
+  }
+
+  /** Edit the draft: { name?, dataModel? }. */
+  @Patch(':id')
+  update(
+    @Param('id') id: string,
+    @Body() body: { name?: unknown; dataModel?: unknown },
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.blueprint.update(id, body ?? {}, user?.sub);
+  }
+
+  /** Same as PATCH; both fields stay optional. */
+  @Put(':id')
+  replace(
+    @Param('id') id: string,
+    @Body() body: { name?: unknown; dataModel?: unknown },
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.blueprint.update(id, body ?? {}, user?.sub);
+  }
+
+  /** The SQL "Generate tables" would run (?access=service_role|authenticated_read|authenticated_write). */
+  @Get(':id/schema')
+  schema(
+    @Param('id') id: string,
+    @Query('access') access: string | undefined,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.blueprint.schemaPreview(id, access, user?.sub);
   }
 
   @Patch(':id/approve')
@@ -49,10 +80,10 @@ export class BlueprintController {
   @Post(':id/generate')
   generate(
     @Param('id') id: string,
-    @Body() body: { projectId?: string },
+    @Body() body: GenerateOptions,
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.blueprint.generate(id, body?.projectId, user?.sub);
+    return this.blueprint.generate(id, body ?? {}, user?.sub);
   }
 
   @Post(':id/resync')

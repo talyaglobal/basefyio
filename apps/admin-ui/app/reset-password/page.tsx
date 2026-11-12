@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, Suspense, useEffect } from 'react';
-import { BetaBadge } from '@/components/beta-badge';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
@@ -11,10 +10,8 @@ import { Button } from '@/components/ui/button';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
 import { Database, ArrowLeft, CheckCircle2, Loader2 } from 'lucide-react';
-import {
-  PLATFORM_PASSWORD_RULES,
-  validatePlatformPassword,
-} from '@/lib/password-policy';
+import { validatePlatformPassword } from '@/lib/password-policy';
+import { PasswordChecklist } from '@/components/password-checklist';
 
 function ResetPasswordForm() {
   const router = useRouter();
@@ -158,26 +155,32 @@ function ResetPasswordForm() {
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        Choose a new password for your account. {PLATFORM_PASSWORD_RULES}
+        Choose a new password for your account.
       </p>
 
       <div className="space-y-2">
         <Label htmlFor="password">New Password</Label>
         <PasswordInput
           id="password"
+          name="new-password"
+          autoComplete="new-password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           placeholder="Strong password"
+          aria-describedby="password-rules"
           required
           minLength={8}
           autoFocus
         />
+        <PasswordChecklist id="password-rules" password={password} />
       </div>
 
       <div className="space-y-2">
         <Label htmlFor="confirmPassword">Confirm Password</Label>
         <PasswordInput
           id="confirmPassword"
+          name="confirm-new-password"
+          autoComplete="new-password"
           value={confirmPassword}
           onChange={(e) => setConfirmPassword(e.target.value)}
           placeholder="Repeat your password"
@@ -201,10 +204,7 @@ export default function ResetPasswordPage() {
           <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary text-primary-foreground">
             <Database className="h-6 w-6" />
           </div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
-            basefyio
-            <BetaBadge />
-          </h1>
+          <h1 className="text-2xl font-bold tracking-tight">basefyio</h1>
           <p className="text-sm text-muted-foreground">
             Set your new password
           </p>

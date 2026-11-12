@@ -14,14 +14,10 @@ import { AuthNav } from "@/components/auth-nav";
 import { AdminFooterLink } from "@/components/admin-footer-link";
 import { MarketingFeedback } from "@/components/marketing-feedback";
 import { HeroIllustration } from "@/components/hero-illustration";
-import { ScrollReveal } from "@/components/scroll-reveal";
 import { withAbsoluteSiteUrls } from "@/lib/absolute-site-metadata";
-import { docsUrl } from "@/lib/public-hosts";
-import {
-  getAppPortalUrl,
-  getAppSignupUrl,
-  getBillingPlansFetchEndpoints,
-} from "@/lib/site-url";
+import { getAppPortalUrl, getAppSignupUrl } from "@/lib/site-url";
+import { getPublicPlans } from "@/lib/pricing";
+import { PricingSection } from "@/components/pricing-section";
 
 const ogTitle =
   "basefyio — The Open Source Database Platform";
@@ -35,84 +31,6 @@ export async function generateMetadata(): Promise<Metadata> {
       description: ogDescription,
     },
   });
-}
-
-type PublicPlan = {
-  id: string;
-  name: string;
-  displayName: string;
-  priceMonthly: number;
-  maxProjects: number | null;
-  maxStorageBytes: number | string | null;
-  maxDbSizeBytes: number | string | null;
-  maxTeamMembers: number | null;
-  maxApiRequests: number | null;
-  maxBandwidthBytes: number | string | null;
-  dedicatedDb: boolean;
-  dedicatedStorage: boolean;
-  isPublic: boolean;
-};
-
-function numOrNull(v: number | string | null | undefined): number | null {
-  if (v === null || v === undefined) return null;
-  const n = typeof v === "number" ? v : Number(v);
-  return Number.isFinite(n) ? n : null;
-}
-
-function formatBytes(v: number | string | null | undefined): string {
-  const n = numOrNull(v);
-  if (n === null || n <= 0) return "Unlimited";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let size = n;
-  let i = 0;
-  while (size >= 1024 && i < units.length - 1) {
-    size /= 1024;
-    i += 1;
-  }
-  const fixed = size >= 10 ? size.toFixed(0) : size.toFixed(1);
-  return `${fixed} ${units[i]}`;
-}
-
-function formatReq(v: number | null | undefined): string {
-  if (v === null || v === undefined || v <= 0) return "Unlimited";
-  if (v >= 1_000_000)
-    return `${(v / 1_000_000).toFixed(v % 1_000_000 === 0 ? 0 : 1)}M`;
-  if (v >= 1_000) return `${(v / 1_000).toFixed(v % 1_000 === 0 ? 0 : 1)}K`;
-  return String(v);
-}
-
-function planFeatures(plan: PublicPlan): string[] {
-  return [
-    `${plan.maxProjects ?? "Unlimited"} projects`,
-    `${formatBytes(plan.maxStorageBytes)} storage`,
-    `${formatBytes(plan.maxDbSizeBytes)} database`,
-    `${plan.maxTeamMembers ?? "Unlimited"} team members`,
-    `${formatReq(plan.maxApiRequests)} API requests/mo`,
-    `${formatBytes(plan.maxBandwidthBytes)} bandwidth/mo`,
-    plan.dedicatedDb || plan.dedicatedStorage
-      ? "Dedicated infrastructure"
-      : "Shared infrastructure",
-  ];
-}
-
-async function getPublicPlans(): Promise<PublicPlan[]> {
-  const endpoints = getBillingPlansFetchEndpoints();
-  for (const url of endpoints) {
-    try {
-      const res = await fetch(url, { cache: "no-store" });
-      if (!res.ok) continue;
-      const data = (await res.json()) as PublicPlan[];
-      if (Array.isArray(data) && data.length > 0) {
-        return data
-          .filter((p) => p.isPublic)
-          .sort((a, b) => a.priceMonthly - b.priceMonthly);
-      }
-    } catch {
-      // Try next endpoint
-    }
-  }
-
-  return [];
 }
 
 export default async function Home() {
@@ -158,7 +76,7 @@ export default async function Home() {
               Use cases
             </Link>
             <Link
-              href={docsUrl()}
+              href="/docs"
               className="hidden text-sm text-muted-foreground transition-colors hover:text-foreground sm:inline"
             >
               Docs
@@ -176,7 +94,7 @@ export default async function Home() {
           <div className="text-left lg:col-span-6">
             <div className="landing-pill mb-7 animate-fade-in motion-reduce:animate-none">
               <span className="pulse-dot" />
-              30 days free trial
+              Free plan &middot; no credit card
             </div>
             <h1 className="animate-fade-in text-4xl font-bold uppercase leading-[1.06] tracking-tight [animation-delay:80ms] motion-reduce:animate-none sm:text-5xl md:text-[56px]">
               NEXT-GEN DATABASE.{" "}
@@ -191,7 +109,7 @@ export default async function Home() {
                 &middot; PITR &middot; ai assistant
               </p>
               <p className="mt-2 text-base text-muted-foreground">
-                &mdash; create a project and get a dedicated PostgreSQL database
+                &mdash; create a project and get a dedicated database
                 &mdash; relational tables with full SQL, plus an optional document
                 store &mdash; with an instant REST API, auth, and storage. Fully
                 under your control.
@@ -212,14 +130,14 @@ export default async function Home() {
                 </span>
               </Link>
               <Link
-                href={docsUrl()}
+                href="/docs"
                 className="inline-flex h-12 items-center rounded-lg border border-border px-6 text-base font-medium text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground"
               >
                 Read the docs ↗
               </Link>
             </div>
             <div className="animate-fade-in mt-5 flex flex-wrap gap-5 text-sm text-muted-foreground [animation-delay:300ms] motion-reduce:animate-none">
-              {["30-day free trial", "No credit card", "Cancel anytime"].map(
+              {["Free plan", "No credit card", "Cancel anytime"].map(
                 (t) => (
                   <span key={t} className="flex items-center gap-2">
                     <Check className="h-3 w-3 text-primary" />
@@ -257,90 +175,7 @@ export default async function Home() {
       <HomeMarketing />
 
       {/* ============ PRICING ============ */}
-      <section
-        id="pricing"
-        className="relative overflow-hidden px-6 py-24"
-      >
-        <div className="absolute inset-0 bg-brand-gradient-subtle" />
-        <div className="noise-overlay z-[1] opacity-50" aria-hidden />
-        <div className="relative z-10 mx-auto max-w-6xl">
-          <ScrollReveal>
-            <span className="section-label text-center block">Pricing</span>
-            <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">
-              Start free. Scale when you ship.
-            </h2>
-            <p className="mx-auto mt-4 max-w-xl text-center text-muted-foreground">
-              Simple, transparent pricing. No hidden fees.
-            </p>
-          </ScrollReveal>
-
-          <div className="mt-14 grid gap-5 lg:grid-cols-3">
-            {plans.map((plan, i) => {
-              const featured = plan.name.toLowerCase() === "pro";
-              const features = planFeatures(plan);
-              return (
-                <ScrollReveal key={plan.id} delay={i as 0 | 1 | 2}>
-                  <div
-                    className={`relative flex h-full flex-col rounded-xl bg-card p-7 shadow-subtle ${
-                      featured
-                        ? "border-2 border-primary shadow-medium"
-                        : "border border-border"
-                    }`}
-                  >
-                    {featured && (
-                      <div className="absolute -top-3 left-6 rounded-full bg-primary px-3 py-0.5 text-xs font-bold text-primary-foreground">
-                        &#9733; Most Popular
-                      </div>
-                    )}
-                    <h3 className="text-sm font-semibold">{plan.displayName}</h3>
-                    <div className="mt-4">
-                      <span className="text-4xl font-bold tracking-tight">
-                        ${(plan.priceMonthly / 100).toFixed(0)}
-                      </span>
-                      <span className="text-sm text-muted-foreground">
-                        {" "}
-                        /mo
-                      </span>
-                    </div>
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      {plan.priceMonthly === 0
-                        ? "Free to try"
-                        : "14-day trial"}
-                    </p>
-                    <ul className="mt-6 flex-1 space-y-3 text-sm">
-                      {features.map((f) => (
-                        <li key={f} className="flex items-start gap-2">
-                          <span className="font-mono text-xs text-muted-foreground">
-                            +
-                          </span>
-                          <span className="text-muted-foreground">{f}</span>
-                        </li>
-                      ))}
-                    </ul>
-                    <Link
-                      href={`${appSignup}?plan=${encodeURIComponent(plan.name)}`}
-                      className={`mt-8 inline-flex w-full items-center justify-center rounded-lg px-6 py-3 text-sm font-medium transition-all ${
-                        featured
-                          ? "bg-primary font-bold text-primary-foreground shadow-subtle hover:opacity-90"
-                          : "border border-border text-foreground hover:bg-accent"
-                      }`}
-                    >
-                      {plan.priceMonthly === 0
-                        ? "Get started"
-                        : `Start trial`}
-                    </Link>
-                  </div>
-                </ScrollReveal>
-              );
-            })}
-            {plans.length === 0 && (
-              <div className="rounded-xl border border-border bg-card p-8 text-sm text-muted-foreground lg:col-span-3">
-                Pricing plans are temporarily unavailable.
-              </div>
-            )}
-          </div>
-        </div>
-      </section>
+      <PricingSection plans={plans} signupUrl={appSignup} />
 
       {/* ============ FAQ ============ */}
       <HomeFaq />
@@ -387,7 +222,6 @@ export default async function Home() {
                 { href: "/use-cases", label: "Use cases" },
                 { href: "/integrations", label: "Integrations" },
                 { href: "/learn", label: "Learn" },
-                { href: "/status", label: "Status" },
                 { href: "#faq", label: "FAQ" },
               ].map((l) => (
                 <li key={l.label}>

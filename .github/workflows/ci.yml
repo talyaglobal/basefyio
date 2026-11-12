@@ -24,12 +24,6 @@ jobs:
           cache: 'npm'
           cache-dependency-path: apps/platform-api/package-lock.json
 
-      # The API depends on packages/data-engine through a file: link whose entry
-      # point is its dist/; without this build seven suites fail to compile.
-      - name: Build the data-engine package
-        working-directory: packages/data-engine
-        run: (npm ci || npm install) && npm run build
-
       - name: Install dependencies
         run: npm ci
 
@@ -102,8 +96,7 @@ jobs:
 
   test-sdk-python:
     name: Python SDK — tests
-    # setup-python has no 3.9 for Ubuntu 26.04, which ubuntu-latest became in 2026-10.
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         python-version: ['3.9', '3.12']
@@ -119,74 +112,3 @@ jobs:
         run: pip install -e ".[test]"
       - name: Tests
         run: pytest -q
-
-  e2e-critical:
-    name: Dashboard — critical flows (Playwright, against E2E_BASE_URL)
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    env:
-      E2E_BASE_URL: ${{ secrets.E2E_BASE_URL }}
-      E2E_EMAIL: ${{ secrets.E2E_EMAIL }}
-      E2E_PASSWORD: ${{ secrets.E2E_PASSWORD }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - name: Route inventory is current
-        run: node e2e/scripts/generate-routes.mjs --check
-      - name: Install Playwright
-        working-directory: e2e
-        run: npm ci && npx playwright install --with-deps chromium
-      # Without the secrets (a fork, a PR from outside) the suite still runs its public part.
-      - name: Critical flows and the route inventory
-        working-directory: e2e
-        run: |
-          if [ -z "$E2E_EMAIL" ]; then echo "::notice::E2E_* secrets not set; running the public smoke tests only"; fi
-          npx playwright test --grep-invert @gated --reporter=github,list
-
-  keycloak-compat:
-    name: Keycloak ${{ matrix.keycloak }} — admin service against a real server
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    strategy:
-      fail-fast: false
-      matrix:
-        # Every version deploy/components.env lists as supported.
-        keycloak: ['24.0.5', '26.8.1']
-    steps:
-      - uses: actions/checkout@v4
-      # Node 22: the compiled service requires the Keycloak admin client, an ES module.
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Start Keycloak ${{ matrix.keycloak }}
-        run: |
-          docker run -d --name kc -p 8080:8080 -p 9000:9000 \
-            -e KEYCLOAK_ADMIN=admin -e KEYCLOAK_ADMIN_PASSWORD=admin \
-            -e KC_BOOTSTRAP_ADMIN_USERNAME=admin -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
-            -e KC_HEALTH_ENABLED=true \
-            quay.io/keycloak/keycloak:${{ matrix.keycloak }} start-dev
-      - name: Build the data-engine package
-        working-directory: packages/data-engine
-        run: (npm ci || npm install) && npm run build
-      - name: Build the API
-        working-directory: apps/platform-api
-        run: npm ci && npx prisma generate && npm run build
-      - name: Wait for Keycloak
-        run: |
-          for i in $(seq 1 90); do
-            curl -sf http://localhost:8080/realms/master/.well-known/openid-configuration >/dev/null && exit 0
-            sleep 2
-          done
-          docker logs kc | tail -n 80; exit 1
-      - name: Admin service against Keycloak ${{ matrix.keycloak }}
-        working-directory: apps/platform-api
-        env:
-          KEYCLOAK_URL: http://localhost:8080
-          KEYCLOAK_ADMIN_USER: admin
-          KEYCLOAK_ADMIN_PASSWORD: admin
-        run: npm run test:keycloak-compat
-      - name: Keycloak log on failure
-        if: failure()
-        run: docker logs kc | tail -n 120

@@ -47,11 +47,13 @@ function deps() {
     uploadObjectStream: jest.fn(),
     getObject: jest.fn(),
     listObjects: jest.fn(),
-    deleteObjects: jest.fn().mockResolvedValue({ message: 'ok' }),
+    deleteObjects: jest.fn().mockResolvedValue({ message: 'ok', deleted: [], notFound: [] }),
     moveObjects: jest.fn().mockResolvedValue({ moved: 1 }),
     getPresignedUrl: jest.fn().mockResolvedValue({ url: 'signed', expiresIn: 3600 }),
     resolveBucket: jest.fn().mockResolvedValue({ project: { id: 'p1' }, minioBucket: 'bf-p-docs' }),
     statObjectIn: jest.fn().mockResolvedValue(null),
+    isPublicBucket: jest.fn().mockResolvedValue(false),
+    getBucketLimits: jest.fn().mockResolvedValue({ fileSizeLimit: null, allowedMimeTypes: [] }),
   };
   const activity = { append: jest.fn().mockResolvedValue(undefined) };
   const transforms = {
@@ -69,6 +71,7 @@ function deps() {
     assertCanOverwrite: jest.fn(),
     assertCanModifyAll: jest.fn().mockResolvedValue(undefined),
     filterListing: jest.fn(async (_c: unknown, _m: unknown, objects: unknown[]) => objects),
+    assertBucketReachable: jest.fn().mockResolvedValue(undefined),
   };
   const controller = new StorageController(storage as any, activity as any, transforms as any, access as any);
   return { storage, activity, transforms, access, controller };
@@ -285,9 +288,9 @@ describe('listObjects / deleteObjects / moveObjects / getPresignedUrl under rule
     access.resolveMode.mockResolvedValue('owner-only');
     access.filterListing.mockResolvedValue([objects[0]]);
 
-    const out = await controller.listObjects('p1', 'b', 'dir/', aliceReq, undefined);
+    const out = await controller.listObjects('p1', 'b', { prefix: 'dir/' }, aliceReq, undefined, undefined);
 
-    expect(storage.listObjects).toHaveBeenCalledWith('p1', undefined, 'b', 'dir/');
+    expect(storage.listObjects).toHaveBeenCalledWith('p1', undefined, 'b', 'dir/', false);
     expect(access.resolveMode).toHaveBeenCalledWith('p1', 'b', 'dir/');
     expect(access.filterListing).toHaveBeenCalledWith(
       { kind: 'authenticated', sub: 'alice' },
@@ -507,5 +510,162 @@ describe('renderObject', () => {
 
     expect(res.destroy).toHaveBeenCalled();
     expect(res.send).not.toHaveBeenCalled();
+  });
+});
+
+describe('private buckets and the bare public key', () => {
+  const stat = { etag: 'abc', size: 10, metaData: { 'content-type': 'text/plain' } };
+
+  it('checks the bucket before the object is opened, so a refusal reveals nothing', async () => {
+    const { storage, access, controller } = deps();
+    access.assertBucketReachable.mockRejectedValue(new ForbiddenException('private'));
+
+    await expect(controller.downloadObject('p1', 'b', 'a.txt', anonReq, undefined, fakeRes())).rejects.toThrow(
+      ForbiddenException,
+    );
+    expect(access.assertBucketReachable).toHaveBeenCalledWith(
+      { kind: 'anon' },
+      'p1',
+      'b',
+      'a.txt',
+      'read',
+      'download from',
+      expect.any(Function),
+    );
+    expect(storage.getObject).not.toHaveBeenCalled();
+  });
+
+  it('asks the store whether this project bucket is public', async () => {
+    const { storage, access, controller } = deps();
+    storage.getObject.mockResolvedValue({ stream: sourceStream(), stat });
+    await controller.downloadObject('p1', 'b', 'a.txt', anonReq, undefined, fakeRes());
+    const isPublic = access.assertBucketReachable.mock.calls[0][6] as () => Promise<boolean>;
+    storage.isPublicBucket.mockResolvedValue(true);
+    await expect(isPublic()).resolves.toBe(true);
+    expect(storage.isPublicBucket).toHaveBeenCalledWith('p1', 'b');
+  });
+
+  it('treats uploads, deletes, moves and folders as writes and listings and signed URLs as reads', async () => {
+    const { access, controller } = deps();
+    const file = { path: '/spool/x.part', size: 1, mimetype: 'text/plain', originalname: 'x' } as any;
+    access.assertBucketReachable.mockRejectedValue(new ForbiddenException('private'));
+
+    await expect(controller.uploadObject('p1', 'b', 'x.txt', file, anonReq, undefined)).rejects.toThrow(
+      ForbiddenException,
+    );
+    await expect(controller.deleteObjects('p1', 'b', { paths: ['x'] }, anonReq, undefined)).rejects.toThrow(
+      ForbiddenException,
+    );
+    await expect(controller.moveObjects('p1', 'b', { sources: ['x'] }, anonReq, undefined)).rejects.toThrow(
+      ForbiddenException,
+    );
+    await expect(controller.createFolder('p1', 'b', { path: 'f' }, anonReq, undefined)).rejects.toThrow(
+      ForbiddenException,
+    );
+    await expect(controller.listObjects('p1', 'b', {}, anonReq, undefined, undefined)).rejects.toThrow(
+      ForbiddenException,
+    );
+    await expect(controller.getPresignedUrl('p1', 'b', 'x', '600', anonReq, undefined)).rejects.toThrow(
+      ForbiddenException,
+    );
+
+    expect(access.assertBucketReachable.mock.calls.map((c) => [c[4], c[5]])).toEqual([
+      ['write', 'upload to'],
+      ['write', 'delete files in'],
+      ['write', 'move files in'],
+      ['write', 'create folders in'],
+      ['read', 'list'],
+      ['read', 'create signed URLs for'],
+    ]);
+    expect(removeSpooled).toHaveBeenCalledWith('/spool/x.part');
+  });
+});
+
+describe('upload limits and paths', () => {
+  const file = {
+    path: '/spool/big.part',
+    size: 53_477_376,
+    mimetype: 'application/pdf',
+    originalname: 'big.pdf',
+  } as any;
+
+  it('refuses a file over the bucket size limit with 413 and a type it does not accept with 415', async () => {
+    const { storage, controller } = deps();
+    storage.getBucketLimits.mockResolvedValue({ fileSizeLimit: 50 * 1024 * 1024, allowedMimeTypes: [] });
+    await expect(controller.uploadObject('p1', 'docs', 'big.pdf', file, serviceReq, undefined)).rejects.toBeInstanceOf(
+      PayloadTooLargeException,
+    );
+    storage.getBucketLimits.mockResolvedValue({ fileSizeLimit: null, allowedMimeTypes: ['image/*'] });
+    await expect(controller.uploadObject('p1', 'docs', 'big.pdf', file, serviceReq, undefined)).rejects.toBeInstanceOf(
+      UnsupportedMediaTypeException,
+    );
+    expect(storage.uploadObjectStream).not.toHaveBeenCalled();
+    expect(removeSpooled).toHaveBeenCalledTimes(2);
+  });
+
+  it('refuses a path that leaves the bucket or names a folder', async () => {
+    const { storage, controller } = deps();
+    for (const p of ['../x.txt', 'a/../../x', 'dir/']) {
+      await expect(controller.uploadObject('p1', 'docs', p, file, serviceReq, undefined)).rejects.toThrow(
+        'path must name a file inside the bucket',
+      );
+    }
+    expect(storage.uploadObjectStream).not.toHaveBeenCalled();
+  });
+});
+
+describe('listObjects paging', () => {
+  const objects = [
+    { name: '', prefix: 'docs/z/', size: 0, lastModified: new Date(0) },
+    { name: 'docs/b.txt', size: 5, lastModified: new Date(2000) },
+    { name: 'docs/a.txt', size: 9, lastModified: new Date(1000) },
+    { name: 'docs/c.png', size: 1, lastModified: new Date(3000) },
+  ];
+
+  it('returns the listing untouched without options, and reports the total', async () => {
+    const { storage, controller } = deps();
+    storage.listObjects.mockResolvedValue(objects);
+    const res = { setHeader: jest.fn() } as any;
+    expect(await controller.listObjects('p1', 'b', { prefix: 'docs/' }, serviceReq, res, undefined)).toEqual(objects);
+    expect(res.setHeader).toHaveBeenCalledWith('X-Total-Count', '4');
+  });
+
+  it('searches, sorts with folders first, and pages', async () => {
+    const { storage, controller } = deps();
+    storage.listObjects.mockResolvedValue(objects);
+    const res = { setHeader: jest.fn() } as any;
+    const out = await controller.listObjects(
+      'p1',
+      'b',
+      { prefix: 'docs/', sortBy: 'size', order: 'desc', limit: '2', offset: '1' },
+      serviceReq,
+      res,
+      undefined,
+    );
+    expect(out.map((o: any) => o.name || o.prefix)).toEqual(['docs/a.txt', 'docs/b.txt']);
+    expect(res.setHeader).toHaveBeenCalledWith('X-Total-Count', '4');
+
+    const found = await controller.listObjects(
+      'p1',
+      'b',
+      { prefix: 'docs/', search: 'TXT' },
+      serviceReq,
+      res,
+      undefined,
+    );
+    expect(found.map((o: any) => o.name)).toEqual(['docs/b.txt', 'docs/a.txt']);
+  });
+
+  it('lists everything below the prefix with recursive=true and refuses bad options', async () => {
+    const { storage, controller } = deps();
+    storage.listObjects.mockResolvedValue([]);
+    await controller.listObjects('p1', 'b', { prefix: 'docs/', recursive: 'true' }, serviceReq, undefined, undefined);
+    expect(storage.listObjects).toHaveBeenCalledWith('p1', undefined, 'b', 'docs/', true);
+    await expect(controller.listObjects('p1', 'b', { limit: '0' }, serviceReq, undefined, undefined)).rejects.toThrow(
+      'limit must be an integer between 1 and 1000',
+    );
+    await expect(
+      controller.listObjects('p1', 'b', { sortBy: 'owner' }, serviceReq, undefined, undefined),
+    ).rejects.toThrow(/sortBy must be one of/);
   });
 });

@@ -27,12 +27,32 @@ export interface ConsoleStorageSummary {
   byCategory: Record<StorageCategory, number>;
 }
 
+/**
+ * Where a team stands for recurring revenue. One definition is shared by the
+ * Overview, Infrastructure costs and Stripe screens (billing/recurring-revenue.ts).
+ */
+export type RevenueState =
+  | 'paying'
+  | 'free'
+  | 'trialing'
+  | 'past_due'
+  | 'canceled'
+  | 'incomplete'
+  | 'frozen'
+  | 'unbilled'
+  | 'lapsed';
+
+export type RevenueByState = Record<RevenueState, { teams: number; listPriceUsd: number }>;
+
 export interface ConsolePlanTeam {
   id: string;
   name: string;
   slug: string;
   ownerEmail: string | null;
   status: string;
+  revenueState?: RevenueState;
+  /** What the team adds to recurring revenue: 0 unless it is paying. */
+  monthlyRevenueUsd?: number;
   projects: number;
   members: number;
   createdAt: string;
@@ -48,7 +68,10 @@ export interface ConsolePlanMix {
   displayName: string;
   priceMonthlyUsd: number;
   teams: number;
+  /** Teams counted in recurring revenue. */
   paying: number;
+  /** Their recurring revenue, after student discounts. */
+  revenueUsd?: number;
   teamList: ConsolePlanTeam[];
 }
 
@@ -61,7 +84,15 @@ export interface ConsoleOverview {
     activeUsersLast30d: number;
     teams: number;
     payingTeams: number;
-    projects: { active: number; paused: number; deactivated: number; deleted: number };
+    projects: {
+      active: number;
+      paused: number;
+      deactivated: number;
+      /** Projects in the trash (preview branches excluded). */
+      deleted: number;
+      previewBranches?: number;
+      permanentlyDeletedLast30d?: number;
+    };
   };
   money: {
     mrrUsd: number;
@@ -71,6 +102,9 @@ export interface ConsoleOverview {
     marginVsBillUsd: number;
     recoveryRatio: number;
     markup: number;
+    paidPlanTeams?: number;
+    revenueByState?: RevenueByState;
+    revenueDefinition?: string;
   };
   footprint: {
     dbBytes: number;
@@ -172,6 +206,8 @@ export interface ConsoleProjectDetail {
   project: {
     id: string;
     name: string;
+    /** The owner-given name (without the internal suffix a trashed project carries). */
+    displayName?: string;
     slug: string;
     description: string | null;
     status: string;
@@ -242,6 +278,16 @@ export interface ConsoleProjectDetail {
     bandwidthBytes: number;
     storageBytes: number;
     dbSizeBytes: number;
+  }>;
+  /** Latest project activity (newest first), also for a project in the trash. */
+  activity?: Array<{
+    id: string;
+    kind: string;
+    title: string;
+    detail: string | null;
+    actorUserId: string | null;
+    actorName: string;
+    createdAt: string;
   }>;
 }
 

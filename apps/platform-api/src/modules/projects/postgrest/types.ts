@@ -117,7 +117,33 @@ export interface ParsedQuery {
   order: Map<string, OrderTerm[]>;
   limit: Map<string, number>;
   offset: Map<string, number>;
+  /**
+   * `?count=exact` and friends. The `Prefer: count=…` header is the usual way
+   * to ask; the query form is accepted because it is what people try first,
+   * and a bare word there can never be a filter (a filter needs `op.value`).
+   */
+  count?: CountMode;
 }
+
+/**
+ * How the `count` of a read is worked out.
+ *
+ * - `exact`: a full COUNT of every matching row, however many there are.
+ * - `planned`: the planner's estimate; costs nothing, may be off.
+ * - `estimated`: exact up to a threshold, the planner's estimate beyond it.
+ * - `none`: no count; the response carries `count: null`.
+ */
+export type CountMode = 'exact' | 'planned' | 'estimated' | 'none';
+
+export const COUNT_MODES: ReadonlySet<string> = new Set<CountMode>([
+  'exact',
+  'planned',
+  'estimated',
+  'none',
+]);
+
+/** The most rows one read returns; a larger `limit` is capped to it. */
+export const MAX_ROWS = 1000;
 
 /** Parse failures carry PostgREST's error code so clients can branch on it. */
 export class PostgrestParseError extends Error {

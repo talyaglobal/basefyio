@@ -29,6 +29,7 @@ export const ProjectActivityKind = {
   AUTH_CONFIG_UPDATED: 'auth.config_updated',
   TABLE_CREATED: 'table.created',
   TABLE_DROPPED: 'table.dropped',
+  TABLE_RENAMED: 'table.renamed',
   TABLE_ROW_INSERTED: 'table.row_inserted',
   TABLE_ROW_UPDATED: 'table.row_updated',
   TABLE_ROW_DELETED: 'table.row_deleted',
@@ -95,6 +96,11 @@ export class ProjectActivityService {
       title: string;
       detail?: string | null;
       metadata?: Prisma.InputJsonValue;
+      /**
+       * Extra fields for the realtime event only (not stored), for listeners
+       * that need more than the kind — e.g. whether a SQL run changed data.
+       */
+      broadcast?: Record<string, string | number | boolean | null>;
     },
   ): Promise<void> {
     try {
@@ -139,6 +145,7 @@ export class ProjectActivityService {
           projectId,
           teamId: project?.teamId,
           payload: {
+            ...(params.broadcast ?? {}),
             kind: params.kind,
             title: params.title,
             detail: params.detail ?? null,
@@ -166,8 +173,11 @@ export class ProjectActivityService {
     userId: string,
     opts: { page?: number; limit?: number } = {},
   ) {
+    // A project in the trash keeps its history readable to its team: who did
+    // what before the deletion is exactly what someone reviewing it needs, and
+    // the restore window is when that review happens.
     const project = await this.prisma.project.findFirst({
-      where: { id: projectId, status: { not: 'DELETED' } },
+      where: { id: projectId },
     });
     if (!project) throw new NotFoundException('Project not found');
 

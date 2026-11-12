@@ -10,23 +10,11 @@ import { isAuthenticated } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
-
-const RULES = [
-  'At least 8 characters',
-  'At least one uppercase letter',
-  'At least one lowercase letter',
-  'At least one number',
-  'At least one punctuation character',
-] as const;
+import { PasswordChecklist } from '@/components/password-checklist';
+import { validatePlatformPassword } from '@/lib/password-policy';
 
 function isPasswordPolicyValid(password: string): boolean {
-  return (
-    password.length >= 8 &&
-    /[A-Z]/.test(password) &&
-    /[a-z]/.test(password) &&
-    /[0-9]/.test(password) &&
-    /[!-/:-@[-`{-~]/.test(password)
-  );
+  return validatePlatformPassword(password) === null;
 }
 
 export default function SetNewPasswordPage() {
@@ -106,9 +94,12 @@ export default function SetNewPasswordPage() {
             <Label htmlFor="new-password">New password</Label>
             <PasswordInput
               id="new-password"
+              name="new-password"
+              autoComplete="new-password"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               placeholder="Enter your new password"
+              aria-describedby="password-rules"
               required
               autoFocus
             />
@@ -118,6 +109,8 @@ export default function SetNewPasswordPage() {
             <Label htmlFor="confirm-password">Confirm new password</Label>
             <PasswordInput
               id="confirm-password"
+              name="confirm-new-password"
+              autoComplete="new-password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               placeholder="Re-enter your new password"
@@ -127,11 +120,7 @@ export default function SetNewPasswordPage() {
 
           <div className="rounded-lg border bg-muted/30 p-3">
             <p className="mb-2 text-xs font-medium text-foreground">Password rules</p>
-            <ul className="space-y-1 text-xs text-muted-foreground">
-              {RULES.map((rule) => (
-                <li key={rule}>- {rule}</li>
-              ))}
-            </ul>
+            <PasswordChecklist id="password-rules" password={newPassword} />
           </div>
 
           {confirmPassword.length > 0 && !passwordsMatch && (

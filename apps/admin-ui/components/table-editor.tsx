@@ -3,8 +3,19 @@
 import { useEffect, useState, useRef } from 'react';
 import { toast } from 'sonner';
 import { confirmDialog } from '@/components/ui/confirm-dialog';
-import { api } from '@/lib/api';
+import { api, isNetworkError } from '@/lib/api';
 import { useLiveProjectRefresh } from '@/lib/use-live-refresh';
+import { csvField, formatCellTitle, formatCellValue } from '@/lib/cell-format';
+import {
+  describeRow,
+  editorText,
+  identifierProblem,
+  isRequiredColumn,
+  MAX_IDENTIFIER_LENGTH,
+  parseCellInput,
+  usesJsonEditor,
+} from '@/lib/table-cell-input';
+import { Textarea } from '@/components/ui/textarea';
 import type {
   TableInfo,
   ColumnInfo,
@@ -37,7 +48,12 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
   Columns3,
+  FileDown,
+  Loader2,
+  WifiOff,
   Key,
   Link2,
   MoreVertical,
@@ -121,8 +137,9 @@ function AddColumnDialog({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!name.trim()) {
-      toast.error('Column name is required');
+    const problem = identifierProblem(name.trim(), 'Column');
+    if (problem) {
+      toast.error(problem);
       return;
     }
     setSaving(true);
@@ -151,19 +168,22 @@ function AddColumnDialog({
         <DialogHeader>
           <DialogTitle>Add Column</DialogTitle>
           <DialogDescription>
-            Add a new column to <span className="font-mono font-semibold">{tableName}</span>
+            Add a new column to <span className="font-mono font-semibold [overflow-wrap:anywhere]">{tableName}</span>
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        {/* noValidate: our own English messages instead of the browser's, which follow its language. */}
+        <form onSubmit={handleSubmit} className="space-y-4" noValidate>
           <div className="space-y-1.5">
             <Label>Name</Label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="column_name"
-              pattern="^[a-zA-Z_][a-zA-Z0-9_]*$"
-              required
+              maxLength={MAX_IDENTIFIER_LENGTH}
             />
+            {name.trim() && identifierProblem(name.trim(), 'Column') && (
+              <p className="text-xs text-destructive">{identifierProblem(name.trim(), 'Column')}</p>
+            )}
           </div>
           <div className="space-y-1.5">
             <Label>Type</Label>
@@ -229,6 +249,8 @@ function ColumnSidePanel({
   onClose,
   onUpdated,
   onAddColumn,
+  schema,
+  onRenamed,
 }: {
   columns: ColumnInfo[];
   tables: TableInfo[];
@@ -237,14 +259,48 @@ function ColumnSidePanel({
   onClose: () => void;
   onUpdated: () => void;
   onAddColumn: () => void;
+  schema?: string;
+  /** The table was renamed to `newName`. */
+  onRenamed: (newName: string) => void;
 }) {
   const [editingCol, setEditingCol] = useState<ColumnInfo | null>(null);
   const [name, setName] = useState('');
   const [type, setType] = useState('');
   const [nullable, setNullable] = useState(true);
+  const [unique, setUnique] = useState(false);
   const [defaultValue, setDefaultValue] = useState('');
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [tableNameDraft, setTableNameDraft] = useState(tableName);
+  const [renaming, setRenaming] = useState(false);
+
+  useEffect(() => {
+    setTableNameDraft(tableName);
+  }, [tableName]);
+
+  async function renameTable() {
+    const next = tableNameDraft.trim();
+    if (next === tableName) return;
+    const problem = identifierProblem(next, 'Table');
+    if (problem) {
+      toast.error(problem);
+      return;
+    }
+    if (tables.some((t) => t.name === next)) {
+      toast.error(`A table named "${next}" already exists`);
+      return;
+    }
+    setRenaming(true);
+    try {
+      const res = await api.projects.renameTable(projectId, tableName, next, schema);
+      toast.success(`Table renamed to "${res.name}"`);
+      onRenamed(res.name);
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setRenaming(false);
+    }
+  }
 
   const [foreignKeys, setForeignKeys] = useState<ForeignKeyInfo[]>([]);
   const [fkLoading, setFkLoading] = useState(false);
@@ -768,7 +824,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
       kind: 'nosql' as const, name: c.name, label: c.name, count: c.documentCount as number | null,
     })),
     ...entities.map((e) => ({
-      kind: 'entity' as const, name: e.logicalName, label: e.logicalName, count: null,
+      kind: 'entity' as const, name: e.logicalName, label: e.logicalName, count: (e.documentCount ?? null) as number | null,
     })),
   ].sort((a, b) => a.label.localeCompare(b.label));
   const filteredItems = sidebarItems.filter(
@@ -834,7 +890,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
       const [result, colls, ents] = await Promise.all([
         api.projects.tables(projectId),
         api.projects.listCollections(projectId).catch(() => [] as CollectionInfo[]),
-        api.projects.listEntityDefinitions(projectId).catch(() => [] as EntityDefinitionInfo[]),
+        api.projects.listEntityDefinitions(projectId, { withCounts: true }).catch(() => [] as EntityDefinitionInfo[]),
       ]);
       setTables(result);
       setCollections(colls);
@@ -1090,6 +1146,16 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
     }
   }
 
+  /** Re-read the collection and entity lists so sidebar document counts follow writes. */
+  async function refreshDocumentStores() {
+    const [colls, ents] = await Promise.all([
+      api.projects.listCollections(projectId).catch(() => null),
+      api.projects.listEntityDefinitions(projectId, { withCounts: true }).catch(() => null),
+    ]);
+    if (colls) setCollections(colls);
+    if (ents) setEntities(ents);
+  }
+
   async function handleDropCollection(name: string) {
     if (!(await confirmDialog({ title: 'Drop collection', description: `Drop collection "${name}"? This will delete all documents permanently.`, confirmText: 'Drop collection', destructive: true }))) return;
     try {
@@ -1297,8 +1363,26 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
 
   function downloadCsvTemplate() {
     if (!columns.length || !selected) return;
+    // Header row plus one example row showing the format each column expects.
+    // Columns the database fills itself (serial ids, defaults) stay empty.
+    const example = (c: (typeof columns)[number]): string => {
+      if (c.defaultValue && /nextval\(|gen_random_uuid|uuid_generate|now\(\)|current_timestamp/i.test(c.defaultValue)) {
+        return '';
+      }
+      const t = c.type.toLowerCase();
+      if (/bool/.test(t)) return 'true';
+      if (/^(smallint|integer|int|int2|int4|bigint|int8)$/.test(t)) return '1';
+      if (/numeric|decimal|real|double|float/.test(t)) return '12.5';
+      if (/timestamp/.test(t)) return '2026-01-31 14:30:00+03';
+      if (/^date$/.test(t)) return '2026-01-31';
+      if (/uuid/.test(t)) return '00000000-0000-4000-8000-000000000000';
+      if (/json/.test(t)) return '"{""key"": ""value""}"';
+      return 'example';
+    };
     const headers = columns.map((c) => c.name).join(',');
-    const blob = new Blob([headers + '\n'], { type: 'text/csv' });
+    const sample = columns.map(example).join(',');
+    // The BOM lets Excel open non-ASCII headers (e.g. Turkish letters) correctly.
+    const blob = new Blob(['\ufeff' + headers + '\n' + sample + '\n'], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -1426,8 +1510,8 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
                             t.kind === 'sql'
                               ? 'SQL table'
                               : t.kind === 'nosql'
-                                ? 'NoSQL collection'
-                                : 'Data Engine entity'
+                                ? 'JSON collection — schema-free documents in the project database (collections API)'
+                                : 'Data Engine entity — documents validated against the entity fields (Data Engine API)'
                           }
                         >
                           {t.kind === 'sql' ? 'SQL' : t.kind === 'nosql' ? 'JSON' : 'ENTITY'}
@@ -1583,9 +1667,19 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
                 </div>
 
                 {selKind === 'nosql' && selName ? (
-                  <CollectionDocumentsPanel projectId={projectId} collectionName={selName} />
+                  <CollectionDocumentsPanel projectId={projectId} collectionName={selName} onChanged={refreshDocumentStores} />
                 ) : selKind === 'entity' && selName ? (
-                  <EntityDocumentsPanel projectId={projectId} entityName={selName} />
+                  <EntityDocumentsPanel
+                    projectId={projectId}
+                    entityName={selName}
+                    onEntityChanged={refreshDocumentStores}
+                    onEntityDeleted={() => {
+                      const key = keyOf('entity', selName);
+                      setOpenTabs((prev) => prev.filter((t) => t !== key));
+                      if (selectedKey === key) setSelectedKey(null);
+                      loadTables();
+                    }}
+                  />
                 ) : !selected ? (
                   <div className="flex flex-1 items-center justify-center text-muted-foreground">
                     Select an item from the sidebar

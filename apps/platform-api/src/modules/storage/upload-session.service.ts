@@ -7,9 +7,9 @@ import {
   InternalServerErrorException,
   Logger,
   NotFoundException,
-  Optional,
   PayloadTooLargeException,
   ServiceUnavailableException,
+  UnsupportedMediaTypeException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
@@ -21,8 +21,7 @@ import { RedisService } from '../redis/redis.service';
 import { StorageService } from './storage.service';
 import { StorageAccessService } from './storage-access.service';
 import { StorageCaller, isPrivileged, ownerMeta, ownerTag } from './storage-caller';
-import { StorageCatalogService } from './storage-catalog.service';
-import { downloadOnlyHeaders } from './storage-public-safety';
+import { activeContentHeaders, limitViolation } from './storage-objects';
 
 /** S3 and compatible stores require every part but the last to be at least this large. */
 export const MIN_CHUNK_BYTES = 5 * 1024 * 1024;
@@ -138,7 +137,6 @@ export class UploadSessionService {
     private readonly quota: QuotaService,
     private readonly storage: StorageService,
     private readonly access: StorageAccessService,
-    @Optional() private readonly catalog?: StorageCatalogService,
   ) {
     const chunkMb = positive(this.config.get('storage.resumable.chunkMb'), 8);
     this.defaultChunkBytes = Math.min(MAX_CHUNK_BYTES, Math.max(MIN_CHUNK_BYTES, Math.floor(chunkMb * 1024 * 1024)));
@@ -172,6 +170,15 @@ export class UploadSessionService {
     const contentType = (input?.contentType || 'application/octet-stream').slice(0, 255);
 
     const { project, minioBucket } = await this.storage.resolveBucket(projectId, dashboardUserId, bucket);
+    await this.access.assertBucketReachable(caller, projectId, bucket, path, 'write', 'upload to', () =>
+      this.storage.bucketIsPublic(minioBucket),
+    );
+    const violation = limitViolation(await this.storage.getBucketLimits(projectId, bucket), bucket, size, contentType);
+    if (violation) {
+      throw violation.status === 413
+        ? new PayloadTooLargeException(violation.message)
+        : new UnsupportedMediaTypeException(violation.message);
+    }
     await this.quota.assertCanUploadStorage(project.teamId, size);
 
     const mode = await this.access.resolveMode(projectId, bucket, path);
@@ -182,8 +189,8 @@ export class UploadSessionService {
 
     const uploadId = await this.storage.beginMultipart(minioBucket, path, {
       'Content-Type': contentType,
+      ...activeContentHeaders(contentType, path),
       ...ownerMeta(caller),
-      ...downloadOnlyHeaders(contentType),
     });
 
     const row = await this.prisma.storageUploadSession.create({
@@ -311,15 +318,6 @@ export class UploadSessionService {
 
     await this.prisma.storageUploadSession.update({ where: { id: row.id }, data: { status: 'completed' } });
     this.logger.log(`Upload session ${row.id} completed: "${row.objectKey}" (${stat.size} bytes)`);
-    // The assembled object reaches the catalog like a single-request upload does.
-    await this.catalog?.recordUpload(
-      projectId,
-      bucket,
-      row.objectKey,
-      stat,
-      stat.metaData?.['content-type'] || row.contentType,
-      row.ownerSub ? { 'x-amz-meta-owner': row.ownerSub } : undefined,
-    );
     return {
       name: row.objectKey,
       size: stat.size,

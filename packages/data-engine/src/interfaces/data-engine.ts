@@ -11,6 +11,7 @@ import type {
   JsonObject,
   Page,
   ProviderCapabilities,
+  ReadOpts,
   TenantDataPlane,
   WriteOpts,
 } from './types';
@@ -33,8 +34,11 @@ export interface EntityCollection {
   /** Insert a new document. Returns the created document with envelope. */
   insert(doc: JsonObject, opts?: WriteOpts): Promise<DocResult>;
 
-  /** Get a document by _id. Returns null if not found (or soft-deleted). */
-  get(id: string): Promise<DocResult | null>;
+  /**
+   * Get a document by _id. Returns null if not found, or if soft-deleted
+   * unless opts.includeSoftDeleted is set.
+   */
+  get(id: string, opts?: ReadOpts): Promise<DocResult | null>;
 
   /**
    * Partial update — merge fields into existing document.
@@ -48,14 +52,38 @@ export interface EntityCollection {
    */
   replace(id: string, doc: JsonObject, opts?: WriteOpts): Promise<DocResult>;
 
-  /** Soft-delete a document (sets _deletedAt, _status='deleted'). */
+  /**
+   * Soft-delete a document (sets _deletedAt, _status='deleted').
+   * If opts.ifMatch is set, fails with ConcurrencyError if _version doesn't match.
+   */
   delete(id: string, opts?: WriteOpts): Promise<void>;
+
+  /**
+   * Undo a soft delete (status back to 'active', _deletedAt cleared).
+   * Throws DocumentNotFoundError when the document does not exist and
+   * DocumentNotDeletedError when it is not deleted.
+   * Optional: providers without it answer 501 at the API layer.
+   */
+  restore?(id: string, opts?: WriteOpts): Promise<DocResult>;
+
+  /**
+   * Insert several documents in one round trip. Optional: callers fall back
+   * to sequential insert() calls.
+   */
+  insertMany?(docs: JsonObject[], opts?: WriteOpts): Promise<DocResult[]>;
+
+  /**
+   * Permanently remove every document of this entity, soft-deleted ones
+   * included. Used when an entity definition is deleted. Returns the number
+   * of documents removed. Optional.
+   */
+  purge?(): Promise<number>;
 
   /** Query documents with filter, sort, pagination, projection. */
   query(q: EntityQuery): Promise<Page<DocResult>>;
 
   /** Count documents matching an optional filter. */
-  count(filter?: Filter): Promise<number>;
+  count(filter?: Filter, opts?: ReadOpts): Promise<number>;
 
   /** Ensure indexes exist for this entity's collection. Idempotent. */
   ensureIndexes(defs: IndexDef[]): Promise<void>;
@@ -141,6 +169,13 @@ export class ConcurrencyError extends DataEngineError {
       409,
     );
     this.name = 'ConcurrencyError';
+  }
+}
+
+export class DocumentNotDeletedError extends DataEngineError {
+  constructor(entity: string, id: string) {
+    super(`Document "${id}" in entity "${entity}" is not deleted`, 'DOCUMENT_NOT_DELETED', 409);
+    this.name = 'DocumentNotDeletedError';
   }
 }
 

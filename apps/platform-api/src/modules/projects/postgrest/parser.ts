@@ -1,11 +1,14 @@
 import {
   Condition,
+  COUNT_MODES,
+  CountMode,
   FieldRef,
   FilterNode,
   FilterOp,
   FILTER_OPS,
   JsonPathStep,
   LogicTree,
+  MAX_ROWS,
   OrderTerm,
   ParsedQuery,
   PostgrestParseError,
@@ -25,7 +28,7 @@ import {
 
 const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-export function assertIdent(name: string, what: string): string {
+function assertIdent(name: string, what: string): string {
   if (!IDENT.test(name)) {
     throw new PostgrestParseError(`Invalid ${what}: "${name}"`);
   }
@@ -241,6 +244,23 @@ function splitEmbeddedKey(key: string): { path: string; leaf: string } {
 export function parseQuery(
   query: Record<string, string | string[] | undefined>,
 ): ParsedQuery {
+  // Express hands over whatever the query string parser made of the URL:
+  // `?a[b]=1` arrives as an object, `?select=a&select=b` as an array. Only a
+  // plain string (or a list of them, for a repeated filter) means anything
+  // here; the rest is a malformed request, not a server error.
+  for (const [key, raw] of Object.entries(query)) {
+    if (raw === undefined) continue;
+    const list = Array.isArray(raw) ? raw : [raw];
+    if (list.some((v) => typeof v !== 'string')) {
+      throw new PostgrestParseError(`Malformed query parameter "${key}"`);
+    }
+  }
+  if (Array.isArray(query.select)) {
+    throw new PostgrestParseError(
+      '"select" was given more than once; list every column in one select=… parameter',
+    );
+  }
+
   const result: ParsedQuery = {
     select: parseSelect(query.select as string | undefined),
     filters: new Map(),
@@ -259,12 +279,8 @@ export function parseQuery(
     if (rawVal === undefined) continue;
     const values = Array.isArray(rawVal) ? rawVal : [rawVal];
 
-    // `select` is already consumed; `columns` and `on_conflict` are write-only
-    // hints the write path reads itself; `apikey` is the key arriving in the
-    // query string (the guard accepts it there), never a column.
-    if (rawKey === 'select' || rawKey === 'columns' || rawKey === 'on_conflict' || rawKey === 'apikey') {
-      continue;
-    }
+    // `select` is already consumed; `columns` is an insert-only hint we ignore.
+    if (rawKey === 'select' || rawKey === 'columns') continue;
 
     const { path, leaf } = splitEmbeddedKey(rawKey);
 
@@ -280,13 +296,18 @@ export function parseQuery(
       continue;
     }
     if (leaf === 'limit') {
-      const n = parseInt(values[0], 10);
-      if (!Number.isNaN(n) && n >= 0) result.limit.set(path, Math.min(n, 1000));
+      // A larger limit is capped rather than refused — the response's
+      // Content-Range shows how many rows came back — but a limit that is not
+      // a whole number is a mistake worth saying, not something to ignore.
+      result.limit.set(path, Math.min(parseCount(values[0], 'limit'), MAX_ROWS));
       continue;
     }
     if (leaf === 'offset') {
-      const n = parseInt(values[0], 10);
-      if (!Number.isNaN(n) && n >= 0) result.offset.set(path, n);
+      result.offset.set(path, parseCount(values[0], 'offset'));
+      continue;
+    }
+    if (path === '' && leaf === 'count' && values.length === 1 && COUNT_MODES.has(values[0])) {
+      result.count = values[0] as CountMode;
       continue;
     }
 
@@ -303,6 +324,23 @@ export function parseQuery(
   }
 
   return result;
+}
+
+/** A non-negative whole number for limit/offset, or a clear 400. */
+function parseCount(raw: string, what: 'limit' | 'offset'): number {
+  const value = String(raw ?? '').trim();
+  if (!/^\d+$/.test(value)) {
+    throw new PostgrestParseError(
+      `"${what}" must be a non-negative whole number, got "${raw}"`,
+      undefined,
+      'PGRST103',
+    );
+  }
+  const n = Number(value);
+  if (!Number.isSafeInteger(n)) {
+    throw new PostgrestParseError(`"${what}" is too large: "${raw}"`, undefined, 'PGRST103');
+  }
+  return n;
 }
 
 /* ──────────────────────────── scanning helpers ────────────────────────────── */

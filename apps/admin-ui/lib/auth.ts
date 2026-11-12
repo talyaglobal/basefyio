@@ -13,9 +13,24 @@ function getRootDomain(): string | undefined {
   if (typeof window === 'undefined') return undefined;
   const hostname = window.location.hostname;
   if (hostname === 'localhost' || hostname === '127.0.0.1') return undefined;
+  // An IP address has no parent domain to share a cookie with.
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname) || hostname.includes(':')) return undefined;
   const parts = hostname.split('.');
   if (parts.length < 2) return undefined;
   return `.${parts.slice(-2).join('.')}`;
+}
+
+/**
+ * Write the session marker. It goes on the root domain so the marketing site
+ * can see it; when the browser refuses that domain (a public suffix such as a
+ * preview host), it is written host-only instead. The middleware gates the
+ * signed-in pages on this marker, so it must never be missing while a
+ * session exists.
+ */
+function writeSessionMarker(rootDomain: string | undefined, secure: boolean) {
+  const base = { expires: 30, sameSite: 'lax' as const, path: '/', ...(secure ? { secure: true } : {}) };
+  if (rootDomain) Cookies.set(AUTH_MARKER_KEY, '1', { ...base, domain: rootDomain });
+  if (Cookies.get(AUTH_MARKER_KEY) !== '1') Cookies.set(AUTH_MARKER_KEY, '1', base);
 }
 
 function getStorage() {
@@ -25,6 +40,7 @@ function getStorage() {
 
 export function getAccessToken(): string | undefined {
   const storage = getStorage();
+  // Cookie fallback: a session saved by an earlier version, until its next refresh.
   return storage?.getItem(TOKEN_KEY) || Cookies.get(TOKEN_KEY);
 }
 
@@ -38,28 +54,17 @@ export function setTokens(tokens: AuthTokens) {
     storage?.removeItem(ID_TOKEN_KEY);
   }
   const isSecure = typeof window !== 'undefined' && window.location.protocol === 'https:';
-  Cookies.set(TOKEN_KEY, tokens.accessToken, {
-    expires: 30,
-    sameSite: 'lax',
-    path: '/',
-    ...(isSecure ? { secure: true } : {}),
-  });
-  Cookies.set(REFRESH_KEY, tokens.refreshToken, {
-    expires: 30,
-    sameSite: 'lax',
-    path: '/',
-    ...(isSecure ? { secure: true } : {}),
-  });
+  // The tokens are no longer copied into cookies. Nothing server-side reads
+  // them (the middleware and the root page use the small marker below), so a
+  // cookie copy only sent the access and refresh tokens along with every
+  // request to this host, where any proxy logging headers could keep them.
+  // Copies left by earlier versions are removed here, on the next login or
+  // refresh; the getters still fall back to them until then.
+  Cookies.remove(TOKEN_KEY, { path: '/' });
+  Cookies.remove(REFRESH_KEY, { path: '/' });
   // Small marker cookie for middleware checks; avoids JWT cookie size limits.
   // Set on root domain so the marketing site can detect logged-in state.
-  const rootDomain = getRootDomain();
-  Cookies.set(AUTH_MARKER_KEY, '1', {
-    expires: 30,
-    sameSite: 'lax',
-    path: '/',
-    ...(rootDomain ? { domain: rootDomain } : {}),
-    ...(isSecure ? { secure: true } : {}),
-  });
+  writeSessionMarker(getRootDomain(), isSecure);
   if (tokens.forcePasswordChange) {
     Cookies.set(FORCE_PASSWORD_CHANGE_KEY, '1', {
       expires: 7,
@@ -179,17 +184,9 @@ export function isAuthenticated(): boolean {
   // Existing sessions may have the old cookie scoped only to app.basefyio.com;
   // re-setting it on the root domain lets basefyio.com detect the session.
   if (hasToken && typeof document !== 'undefined') {
-    const rootDomain = getRootDomain();
-    // Only re-set if we can detect a root domain (production) and the cookie
-    // might not yet be on the root domain.
-    if (rootDomain) {
-      Cookies.set(AUTH_MARKER_KEY, '1', {
-        expires: 30,
-        sameSite: 'lax',
-        path: '/',
-        domain: rootDomain,
-      });
-    }
+    // The middleware gates /dashboard and /console on this marker, so it must
+    // exist wherever a session does (see writeSessionMarker).
+    writeSessionMarker(getRootDomain(), window.location.protocol === 'https:');
   }
   return hasToken;
 }

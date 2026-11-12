@@ -4,8 +4,8 @@ import { hostname } from 'os';
  * One audit record as it leaves the platform.
  *
  * It carries exactly what the `audit_logs` row carries — actor, action,
- * resource, outcome, timing — and nothing the row does not: no request body,
- * no headers, no token. The DB row stays the durable record; this is the copy
+ * resource, outcome, timing, caller address — and nothing the row does not:
+ * no request body, no token. The DB row stays the durable record; this is the copy
  * that goes to the operator's log pipeline.
  */
 export interface AuditEvent {
@@ -26,6 +26,13 @@ export interface AuditEvent {
   method?: string;
   path?: string;
   statusCode?: number | null;
+  /** Domain event such as `project.deleted.permanent`, when the request was one. */
+  event?: string | null;
+  /** The project the request was about, when there was one. */
+  projectId?: string | null;
+  /** Caller address and user agent, as the edge proxy saw them. */
+  ip?: string | null;
+  userAgent?: string | null;
   /** Container hostname — tells replicas apart. */
   host: string;
   env: string;
@@ -48,6 +55,10 @@ export interface AuditEventInput {
   method?: string;
   path?: string;
   statusCode?: number | null;
+  event?: string | null;
+  projectId?: string | null;
+  ip?: string | null;
+  userAgent?: string | null;
 }
 
 const HOST = hostname();
@@ -79,5 +90,9 @@ export function toAuditEvent(input: AuditEventInput): AuditEvent {
   if (input.method) event.method = input.method;
   if (input.path) event.path = input.path;
   if (input.statusCode !== undefined) event.statusCode = input.statusCode;
+  if (input.event) event.event = input.event;
+  if (input.projectId) event.projectId = input.projectId;
+  if (input.ip) event.ip = input.ip;
+  if (input.userAgent) event.userAgent = input.userAgent;
   return event;
 }

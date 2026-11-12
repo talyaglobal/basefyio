@@ -2,7 +2,6 @@
 
 > **The open-source, self-hosted backend platform you fully own.**
 
-[![Status: beta](https://img.shields.io/badge/status-beta-f59e0b.svg)](#)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](./LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](./CONTRIBUTING.md)
 [![Built with TypeScript](https://img.shields.io/badge/built%20with-TypeScript-3178c6.svg)](https://www.typescriptlang.org/)
@@ -150,7 +149,7 @@ cp .env.example .env
 ### 2. Start the infrastructure only
 
 ```bash
-docker compose up -d postgres keycloak redis redis-queue minio pgbouncer
+docker compose up -d postgres keycloak redis minio pgbouncer
 ```
 
 Postgres is published on `localhost:5433`, Keycloak on `8080`, MinIO on `9000`/`9001`, Redis on `6379`.

@@ -9,7 +9,27 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { ArrowLeft, KeyRound, Loader2, Copy, Check, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, KeyRound, Loader2, Copy, Check, ShieldCheck, AlertCircle } from 'lucide-react';
+
+/** Today as YYYY-MM-DD in the viewer's local time (the earliest pickable expiry). */
+function todayLocal() {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** A picked expiry day lasts until the end of that day in the viewer's local time. */
+function endOfDayIso(day: string) {
+  const d = new Date(`${day}T23:59:59`);
+  return isNaN(d.getTime()) ? day : d.toISOString();
+}
+
+/** YYYY-MM-DD of an ISO timestamp in the viewer's local time. */
+function localDay(iso: string) {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
 
 export function ApiTokenCreate({ tokenId }: { tokenId?: string } = {}) {
   const router = useRouter();
@@ -21,6 +41,13 @@ export function ApiTokenCreate({ tokenId }: { tokenId?: string } = {}) {
   const [scopes, setScopes] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [created, setCreated] = useState<CreatedApiToken | null>(null);
+  // Form errors render inline next to the buttons. A toast here sat on top of
+  // the sticky Create/Cancel bar (bottom-right) and swallowed the next click.
+  const [formError, setFormError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setFormError(null);
+  }, [name, scopes, expiresAt]);
 
   const load = useCallback(async () => {
     try {
@@ -36,9 +63,14 @@ export function ApiTokenCreate({ tokenId }: { tokenId?: string } = {}) {
           router.push('/dashboard/account/api-tokens');
           return;
         }
+        if (t.status !== 'active') {
+          toast.error('A revoked token can no longer be edited. Create a new token instead.');
+          router.push('/dashboard/account/api-tokens');
+          return;
+        }
         setName(t.name);
         setScopes(new Set(t.scopes));
-        setExpiresAt(t.expiresAt ? new Date(t.expiresAt).toISOString().slice(0, 10) : '');
+        setExpiresAt(t.expiresAt ? localDay(t.expiresAt) : '');
       }
     } catch (e: any) {
       toast.error(e?.message || 'Failed to load token');
@@ -86,15 +118,19 @@ export function ApiTokenCreate({ tokenId }: { tokenId?: string } = {}) {
   const allOn = allScopes.length > 0 && allScopes.every((s) => scopes.has(s));
 
   const save = async () => {
-    if (!name.trim()) return toast.error('Name is required');
-    if (scopes.size === 0) return toast.error('Enable at least one scope');
+    if (!name.trim()) return setFormError('Give the token a name.');
+    if (scopes.size === 0) return setFormError('Enable at least one scope.');
+    if (expiresAt && expiresAt < todayLocal()) {
+      return setFormError('The expiry date must be today or later.');
+    }
+    setFormError(null);
     setSaving(true);
     try {
       if (isEdit && tokenId) {
         await api.apiTokens.update(tokenId, {
           name: name.trim(),
           scopes: [...scopes],
-          expiresAt: expiresAt || null,
+          expiresAt: expiresAt ? endOfDayIso(expiresAt) : null,
         });
         toast.success('Token updated');
         router.push('/dashboard/account/api-tokens');
@@ -102,12 +138,12 @@ export function ApiTokenCreate({ tokenId }: { tokenId?: string } = {}) {
         const res = await api.apiTokens.create({
           name: name.trim(),
           scopes: [...scopes],
-          expiresAt: expiresAt || undefined,
+          expiresAt: expiresAt ? endOfDayIso(expiresAt) : undefined,
         });
         setCreated(res);
       }
     } catch (e: any) {
-      toast.error(e?.message || (isEdit ? 'Update failed' : 'Create failed'));
+      setFormError(e?.message || (isEdit ? 'Update failed' : 'Create failed'));
     } finally {
       setSaving(false);
     }
@@ -240,20 +276,29 @@ export function ApiTokenCreate({ tokenId }: { tokenId?: string } = {}) {
               id="token-exp"
               type="date"
               value={expiresAt}
+              min={todayLocal()}
               onChange={(e) => setExpiresAt(e.target.value)}
               className="max-w-[220px]"
             />
             <p className="text-xs text-muted-foreground">
-              Leave empty for a token that never expires.
+              Leave empty for a token that never expires. The token works until the end of the
+              chosen day.
             </p>
           </div>
         </div>
       )}
 
       <div className="sticky bottom-0 flex items-center justify-between gap-3 border-t bg-background/95 py-3 backdrop-blur">
-        <span className="text-xs text-muted-foreground">
-          {scopes.size} scope{scopes.size === 1 ? '' : 's'} selected
-        </span>
+        {formError ? (
+          <span role="alert" className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-red-600 dark:text-red-400">
+            <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+            <span className="min-w-0">{formError}</span>
+          </span>
+        ) : (
+          <span className="text-xs text-muted-foreground">
+            {scopes.size} scope{scopes.size === 1 ? '' : 's'} selected
+          </span>
+        )}
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => router.push('/dashboard/account/api-tokens')} disabled={saving}>
             Cancel

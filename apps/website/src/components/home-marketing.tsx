@@ -434,31 +434,31 @@ export function HomeMarketing() {
             {[
               {
                 method: "GET",
-                path: "/rest/v1/products",
+                path: "/api/rest/v1/products",
                 color:
                   "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400",
-                code: `curl '/rest/v1/products\n  ?select=id,name,price\n  &category=eq.electronics\n  &price=lt.500\n  &order=price.asc&limit=20' \\\n  -H "apikey: YOUR_ANON_KEY"`,
+                code: `curl 'https://api.basefyio.com/api/rest/v1/products\n  ?select=id,name,price\n  &category=eq.electronics\n  &price=lt.500\n  &order=price.asc&limit=20' \\\n  -H "apikey: YOUR_ANON_KEY"`,
               },
               {
                 method: "POST",
-                path: "/rest/v1/products",
+                path: "/api/rest/v1/products",
                 color:
                   "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400",
-                code: `curl -X POST '/rest/v1/products' \\\n  -H "apikey: YOUR_SERVICE_KEY" \\\n  -H "Content-Type: application/json" \\\n  -H "Prefer: return=representation" \\\n  -d '{"name": "Widget", "price": 29.99}'`,
+                code: `curl -X POST 'https://api.basefyio.com/api/rest/v1/products' \\\n  -H "apikey: YOUR_SERVICE_KEY" \\\n  -H "Content-Type: application/json" \\\n  -H "Prefer: return=representation" \\\n  -d '{"name": "Widget", "price": 29.99}'`,
               },
               {
                 method: "PATCH",
-                path: "/rest/v1/products?id=eq.42",
+                path: "/api/rest/v1/products?id=eq.42",
                 color:
                   "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400",
-                code: `curl -X PATCH '/rest/v1/products?id=eq.42' \\\n  -H "apikey: YOUR_SERVICE_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d '{"price": 24.99}'`,
+                code: `curl -X PATCH 'https://api.basefyio.com/api/rest/v1/products?id=eq.42' \\\n  -H "apikey: YOUR_SERVICE_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d '{"price": 24.99}'`,
               },
               {
                 method: "DELETE",
-                path: "/rest/v1/products?id=eq.42",
+                path: "/api/rest/v1/products?id=eq.42",
                 color:
                   "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400",
-                code: `curl -X DELETE '/rest/v1/products?id=eq.42' \\\n  -H "apikey: YOUR_SERVICE_KEY"`,
+                code: `curl -X DELETE 'https://api.basefyio.com/api/rest/v1/products?id=eq.42' \\\n  -H "apikey: YOUR_SERVICE_KEY"`,
               },
             ].map((ex, i) => (
               <ScrollReveal key={ex.method} delay={i % 2 === 0 ? 0 : 1}>

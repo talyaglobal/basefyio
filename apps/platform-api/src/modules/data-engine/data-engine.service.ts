@@ -1,5 +1,22 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  NotImplementedException,
+  OnModuleInit,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import {
+  assertDocumentBody,
+  checkDocumentLimits,
+  SchemaValidationError,
+  stripEnvelopeFields,
+  validateDocument,
+} from '@basefyio/data-engine';
+import type { EntityField, JsonObject } from '@basefyio/data-engine';
 import { PrismaService } from '../../prisma/prisma.service';
 
 /**
@@ -202,9 +219,10 @@ export class DataEngineService implements OnModuleInit {
   }
 
   /**
-   * Resolve an entity's physical collection and return an EntityCollection handle.
+   * Resolve an entity's definition and its EntityCollection handle.
+   * Throws EntityNotFoundError (404) for an unregistered entity.
    */
-  async getEntityCollection(projectId: string, entityName: string) {
+  async resolveEntity(projectId: string, entityName: string) {
     if (!this.engine) {
       throw new Error('Data Engine not available');
     }
@@ -212,16 +230,54 @@ export class DataEngineService implements OnModuleInit {
     // Ensure schema/table exist (idempotent, cached after first success)
     await this.ensureProvisioned(projectId);
 
-    // Verify entity exists in metadata
-    const entity = await this.prisma.entityDefinition.findUnique({
+    const definition = await this.prisma.entityDefinition.findUnique({
       where: { projectId_logicalName: { projectId, logicalName: entityName } },
     });
-    if (!entity) {
+    if (!definition) {
       const { EntityNotFoundError } = await import('@basefyio/data-engine');
       throw new EntityNotFoundError(entityName);
     }
 
-    return this.engine.collection(projectId, entityName);
+    return { definition, collection: this.engine.collection(projectId, entityName) };
+  }
+
+  /**
+   * Resolve an entity's physical collection and return an EntityCollection handle.
+   */
+  async getEntityCollection(projectId: string, entityName: string) {
+    return (await this.resolveEntity(projectId, entityName)).collection;
+  }
+
+  /** The configured document limits. */
+  documentLimits() {
+    return {
+      maxDocumentKb: this.config.get<number>('dataEngine.maxDocumentKb') || 1024,
+      maxNestingDepth: this.config.get<number>('dataEngine.maxNestingDepth') || 8,
+      maxArrayItems: this.config.get<number>('dataEngine.maxArrayItems') || 1000,
+    };
+  }
+
+  /**
+   * Check a write body before it reaches the store: it must be a JSON object,
+   * envelope fields (_id, _version, …) are dropped, the size/depth/array limits
+   * apply, and — unless DATA_ENGINE_SCHEMA_VALIDATION=off — the document must
+   * satisfy the entity's field definitions. Returns the document to store.
+   */
+  async prepareWrite(
+    definition: { fields: unknown },
+    body: unknown,
+    mode: 'create' | 'replace' | 'patch',
+  ): Promise<JsonObject> {
+    assertDocumentBody(body, mode === 'patch' ? 'Patch' : 'Document');
+    const doc = stripEnvelopeFields(body);
+    checkDocumentLimits(doc, this.documentLimits());
+
+    if (this.config.get<string>('dataEngine.schemaValidation') !== 'off') {
+      const fields = Array.isArray(definition.fields) ? definition.fields : [];
+      const errors = validateDocument(doc, fields as EntityField[], mode);
+      if (errors.length > 0) throw new SchemaValidationError(errors);
+    }
+    return doc;
   }
 
   /**
@@ -234,24 +290,61 @@ export class DataEngineService implements OnModuleInit {
   }
 
   /**
-   * List all entity definitions for a project.
+   * List all entity definitions for a project. With `withCounts`, each entry
+   * carries `documentCount` (active documents; null when the store cannot be
+   * reached), which the dashboard shows next to every entity.
    */
-  async listEntities(projectId: string) {
-    return this.prisma.entityDefinition.findMany({
+  async listEntities(projectId: string, opts?: { withCounts?: boolean }) {
+    const entities = await this.prisma.entityDefinition.findMany({
       where: { projectId },
       orderBy: { logicalName: 'asc' },
     });
+    if (!opts?.withCounts) return entities;
+
+    const engine = this.engine;
+    if (!engine) return entities.map((e) => ({ ...e, documentCount: null as number | null }));
+    await this.ensureProvisioned(projectId);
+    return Promise.all(
+      entities.map(async (e) => {
+        let documentCount: number | null = null;
+        try {
+          documentCount = await engine.collection(projectId, e.logicalName).count();
+        } catch (err: any) {
+          this.logger.warn(`Count for ${projectId}/${e.logicalName} failed: ${err?.message}`);
+        }
+        return { ...e, documentCount };
+      }),
+    );
+  }
+
+  private async normalizeDefinitionInput(data: { fields?: unknown; rules?: unknown }) {
+    const { normalizeEntityFields, compileFieldsToJsonSchema, EntityDefinitionError } =
+      await import('@basefyio/data-engine');
+    const fields = normalizeEntityFields(data.fields, {
+      maxNestingDepth: this.documentLimits().maxNestingDepth,
+    });
+    if (data.rules !== undefined && data.rules !== null && !Array.isArray(data.rules)) {
+      throw new EntityDefinitionError([{ path: 'rules', message: 'must be an array' }]);
+    }
+    const snapshot = compileFieldsToJsonSchema(fields, {
+      maxNestingDepth: this.documentLimits().maxNestingDepth,
+    });
+    return { fields, snapshot };
   }
 
   /**
    * Register a new entity definition.
+   *
+   * The field list is validated before anything is written, and the
+   * definition, its first schema version and the outbox event are created in
+   * one transaction — a failure never leaves a half-created entity behind.
    */
   async createEntityDefinition(
     projectId: string,
     data: {
       logicalName: string;
       displayName: string;
-      fields: unknown[];
+      fields?: unknown;
       rules?: unknown[];
       description?: string;
       generatedByAI?: boolean;
@@ -261,53 +354,207 @@ export class DataEngineService implements OnModuleInit {
       sourceWorkbook?: string;
       sourceSheet?: string;
     },
+    createdBy?: string,
   ) {
-    const { sanitizeEntityName } = await import('@basefyio/data-engine');
-    const physicalName = sanitizeEntityName(data.logicalName);
+    const { sanitizeEntityName, validateEntityName } = await import('@basefyio/data-engine');
+    const logicalName = data.logicalName.trim();
+    const nameCheck = validateEntityName(logicalName);
+    if (!nameCheck.valid) {
+      throw new BadRequestException({ message: nameCheck.error, code: 'INVALID_ENTITY_NAME' });
+    }
+    if (/[/\\?#%\u0000-\u001f]/.test(logicalName)) {
+      throw new BadRequestException({
+        message: 'Entity name must not contain /, \\, ?, #, % or control characters',
+        code: 'INVALID_ENTITY_NAME',
+      });
+    }
+    const physicalName = sanitizeEntityName(logicalName);
+    const { fields, snapshot } = await this.normalizeDefinitionInput(data);
 
-    const entity = await this.prisma.entityDefinition.create({
-      data: {
+    const clash = await this.prisma.entityDefinition.findFirst({
+      where: {
         projectId,
-        logicalName: data.logicalName,
-        displayName: data.displayName,
-        physicalCollection: physicalName,
-        storageStrategy: 'shared-records',
-        provider: this.config.get('dataEngine.provider') || 'postgres',
-        fields: data.fields as any,
-        rules: (data.rules ?? []) as any,
-        description: data.description,
-        generatedByAI: data.generatedByAI ?? false,
-        aiPrompt: data.aiPrompt,
-        aiReasoning: data.aiReasoning as any,
-        confidenceScore: data.confidenceScore,
-        sourceWorkbook: data.sourceWorkbook,
-        sourceSheet: data.sourceSheet,
+        OR: [{ logicalName }, { physicalCollection: physicalName }],
       },
+      select: { logicalName: true },
     });
+    if (clash) {
+      throw new ConflictException({
+        message:
+          clash.logicalName === logicalName
+            ? `An entity named "${logicalName}" already exists in this project`
+            : `The name "${logicalName}" collides with the existing entity "${clash.logicalName}" (entity names are compared without case, spaces and punctuation)`,
+        code: 'ENTITY_EXISTS',
+      });
+    }
 
-    // Create initial schema version
-    const { compileFieldsToJsonSchema } = await import('@basefyio/data-engine');
-    const snapshot = compileFieldsToJsonSchema(data.fields as any);
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const entity = await tx.entityDefinition.create({
+          data: {
+            projectId,
+            logicalName,
+            displayName: data.displayName.trim(),
+            physicalCollection: physicalName,
+            storageStrategy: 'shared-records',
+            provider: this.config.get('dataEngine.provider') || 'postgres',
+            fields: fields as any,
+            rules: (data.rules ?? []) as any,
+            description: data.description,
+            generatedByAI: data.generatedByAI ?? false,
+            aiPrompt: data.aiPrompt,
+            aiReasoning: data.aiReasoning as any,
+            confidenceScore: data.confidenceScore,
+            sourceWorkbook: data.sourceWorkbook,
+            sourceSheet: data.sourceSheet,
+          },
+        });
 
-    await this.prisma.entitySchemaVersion.create({
-      data: {
-        entityDefinitionId: entity.id,
-        version: 1,
-        snapshot: snapshot as any,
-        createdBy: 'system',
-      },
+        await tx.entitySchemaVersion.create({
+          data: {
+            entityDefinitionId: entity.id,
+            version: 1,
+            snapshot: snapshot as any,
+            createdBy: createdBy || 'system',
+          },
+        });
+
+        await tx.dataEngineOutbox.create({
+          data: {
+            type: 'entity.created',
+            projectId,
+            entity: logicalName,
+            schemaVersion: 1,
+          },
+        });
+
+        return entity;
+      });
+    } catch (err: any) {
+      if (err?.code === 'P2002') {
+        throw new ConflictException({
+          message: `An entity named "${logicalName}" already exists in this project`,
+          code: 'ENTITY_EXISTS',
+        });
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Update an entity definition. Changing `fields` (or `rules`) publishes a
+   * new schema version; documents already stored stay readable and are only
+   * checked against the new definition when they are next written.
+   */
+  async updateEntityDefinition(
+    projectId: string,
+    entityName: string,
+    data: { displayName?: string; description?: string | null; fields?: unknown; rules?: unknown },
+    updatedBy?: string,
+  ) {
+    const current = await this.getEntityDefinition(projectId, entityName);
+    if (!current) {
+      throw new NotFoundException({ message: `Entity "${entityName}" not found`, code: 'ENTITY_NOT_FOUND' });
+    }
+    if (data.displayName !== undefined && (typeof data.displayName !== 'string' || !data.displayName.trim())) {
+      throw new BadRequestException({ message: 'displayName must be a non-empty string', code: 'INVALID_ENTITY_DEFINITION' });
+    }
+    if (data.description !== undefined && data.description !== null && typeof data.description !== 'string') {
+      throw new BadRequestException({ message: 'description must be a string', code: 'INVALID_ENTITY_DEFINITION' });
+    }
+
+    const schemaChanged = data.fields !== undefined || data.rules !== undefined;
+    const normalized = schemaChanged
+      ? await this.normalizeDefinitionInput({
+          fields: data.fields !== undefined ? data.fields : current.fields,
+          rules: data.rules,
+        })
+      : null;
+    const nextVersion = schemaChanged ? current.schemaVersion + 1 : current.schemaVersion;
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.entityDefinition.update({
+        where: { id: current.id },
+        data: {
+          ...(data.displayName !== undefined ? { displayName: data.displayName.trim() } : {}),
+          ...(data.description !== undefined ? { description: data.description } : {}),
+          ...(normalized ? { fields: normalized.fields as any, schemaVersion: nextVersion } : {}),
+          ...(data.rules !== undefined ? { rules: (data.rules ?? []) as any } : {}),
+        },
+      });
+      if (normalized) {
+        await tx.entitySchemaVersion.create({
+          data: {
+            entityDefinitionId: current.id,
+            version: nextVersion,
+            snapshot: normalized.snapshot as any,
+            createdBy: updatedBy || 'system',
+          },
+        });
+        await tx.dataEngineOutbox.create({
+          data: {
+            type: 'entity.schema.changed',
+            projectId,
+            entity: current.logicalName,
+            schemaVersion: nextVersion,
+          },
+        });
+      }
+      return updated;
     });
+  }
 
-    // Write outbox event
-    await this.prisma.dataEngineOutbox.create({
-      data: {
-        type: 'entity.created',
-        projectId,
-        entity: data.logicalName,
-        schemaVersion: 1,
-      },
+  /**
+   * Delete an entity definition. An entity that still holds documents
+   * (soft-deleted ones included) is only deleted with `force`, which
+   * permanently removes those documents first.
+   */
+  async deleteEntityDefinition(projectId: string, entityName: string, force: boolean) {
+    const current = await this.getEntityDefinition(projectId, entityName);
+    if (!current) {
+      throw new NotFoundException({ message: `Entity "${entityName}" not found`, code: 'ENTITY_NOT_FOUND' });
+    }
+
+    if (!this.engine) {
+      // Without the store the entity cannot be checked for (or emptied of) documents.
+      throw new ServiceUnavailableException({
+        message: 'Data Engine is temporarily unavailable, so the entity cannot be deleted right now. Please retry in a moment.',
+        code: 'DATA_ENGINE_UNAVAILABLE',
+      });
+    }
+
+    await this.ensureProvisioned(projectId);
+    const collection = this.engine.collection(projectId, entityName);
+    const stored = await collection.count(undefined, { includeSoftDeleted: true });
+    if (stored > 0 && !force) {
+      throw new ConflictException({
+        message: `Entity "${entityName}" still holds ${stored} document(s), including deleted ones. Delete it with ?force=true to remove them permanently.`,
+        code: 'ENTITY_NOT_EMPTY',
+      });
+    }
+    let purged = 0;
+    if (stored > 0) {
+      if (!collection.purge) {
+        throw new NotImplementedException({
+          message: 'The configured Data Engine provider cannot remove documents in bulk; delete the documents first',
+          code: 'NOT_SUPPORTED',
+        });
+      }
+      purged = await collection.purge();
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.entityDefinition.delete({ where: { id: current.id } });
+      await tx.dataEngineOutbox.create({
+        data: {
+          type: 'entity.deleted',
+          projectId,
+          entity: current.logicalName,
+          schemaVersion: current.schemaVersion,
+          payload: { documentsRemoved: purged } as any,
+        },
+      });
     });
-
-    return entity;
+    return { deleted: true, entity: current.logicalName, documentsRemoved: purged };
   }
 }

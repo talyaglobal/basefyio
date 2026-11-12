@@ -1,120 +1,136 @@
+import { PostgrestParseError } from './types';
+
 /**
- * Choosing which function a call means, and what its result looks like.
+ * Turning an RPC request body into a function call.
  *
- * PostgREST resolves `rpc/<fn>` against every overload in `public` by the
- * argument names sent: the overload whose input parameters cover the keys,
- * and whose parameters without defaults are all present. A function's
- * return type then decides the body — a bare value, one object, or an
- * array. The catalogue row this works from is the one `PublicApiService.rpc`
- * queries; everything here is pure so it can be tested without a database.
+ * The body's keys are argument names. Postgres can resolve a named call
+ * itself, but when it cannot it answers "function does not exist", which says
+ * nothing about what to send instead — and a function with the same name can
+ * have several overloads, one of them SECURITY DEFINER. So the overloads are
+ * matched here first, from the catalogue: the call goes out only when some
+ * overload takes the arguments given, and the definer check looks at the
+ * overloads that can actually be reached.
  */
 
-/** One `pg_proc` row joined to its return type. */
-export interface FunctionMeta {
+/** One row of the pg_proc lookup in PublicApiService.rpc. */
+export interface RpcOverloadRow {
   signature: string;
   definer: boolean;
-  /** `proargnames` — includes OUT parameters when `argmodes` is non-empty. */
-  argnames: string[];
-  /** `proargmodes`: i / o / b / v / t per name; empty when every parameter is IN. */
-  argmodes: string[];
-  /** `format_type` of each IN parameter, in order. */
-  argtypes?: string[];
-  pronargs?: number;
-  pronargdefaults?: number;
-  proretset?: boolean;
-  provolatile?: string;
-  /** Return type: typtype (b/c/d/e/p/r/m), its name and, for a table type, the relation. */
-  typtype?: string;
-  typname?: string;
-  typrelid?: number | string;
+  /** pronargdefaults: the last this-many input arguments have defaults. */
+  ndefaults?: number | null;
+  /** proargnames — every argument, OUT ones included when there are any. */
+  argnames?: string[] | null;
+  /** proargmodes — i, o, b (inout), v (variadic), t (table column); empty means all IN. */
+  argmodes?: string[] | null;
+  /** Declared types, aligned with argnames. */
+  argtypes?: string[] | null;
 }
 
-export interface RpcCall {
-  meta: FunctionMeta;
-  /** Input parameter names, in declaration order. */
-  inputs: string[];
-  /** The whole body is passed as the function's single JSON parameter. */
-  singleJson: boolean;
-  jsonType: 'json' | 'jsonb';
+interface InputArg {
+  name: string;
+  type: string;
+  hasDefault: boolean;
+  /** A VARIADIC argument, which named notation has to call out. */
+  variadic: boolean;
 }
 
-const INPUT_MODES = new Set(['i', 'b', 'v']);
-
-/** Names of the input parameters (IN, INOUT, VARIADIC), in order. */
-export function inputNames(meta: FunctionMeta): string[] {
-  const names = meta.argnames ?? [];
-  const modes = meta.argmodes ?? [];
-  if (!modes.length) return names.map((n) => n ?? '');
-  return names.filter((_, i) => INPUT_MODES.has(modes[i] ?? 'i')).map((n) => n ?? '');
+interface Overload {
+  signature: string;
+  definer: boolean;
+  inputs: InputArg[];
 }
 
-/** The single JSON type a one-parameter function takes, if that is what it is. */
-function singleJsonType(meta: FunctionMeta, inputs: string[]): 'json' | 'jsonb' | null {
-  if (inputs.length !== 1) return null;
-  const t = (meta.argtypes ?? [])[0];
-  return t === 'json' || t === 'jsonb' ? t : null;
+export interface RpcCallPlan {
+  /** `"a" := $1, "b" := $2` — empty for a call with no arguments. */
+  named: string;
+  params: unknown[];
+  /** Whether any overload the call can reach is SECURITY DEFINER. */
+  definer: boolean;
 }
+
+function describe(row: RpcOverloadRow): Overload {
+  const names = row.argnames ?? [];
+  const modes = row.argmodes ?? [];
+  const types = row.argtypes ?? [];
+  const positions = Math.max(names.length, types.length);
+  const inputs: InputArg[] = [];
+  for (let i = 0; i < positions; i++) {
+    const mode = modes.length ? modes[i] : 'i';
+    if (mode !== 'i' && mode !== 'b' && mode !== 'v') continue;
+    inputs.push({
+      name: names[i] ?? '',
+      type: (types[i] ?? '').toLowerCase(),
+      hasDefault: false,
+      variadic: mode === 'v',
+    });
+  }
+  const ndefaults = Math.max(0, Number(row.ndefaults ?? 0));
+  for (let i = Math.max(0, inputs.length - ndefaults); i < inputs.length; i++) {
+    inputs[i].hasDefault = true;
+  }
+  return { signature: row.signature, definer: !!row.definer, inputs };
+}
+
+function quoteIdent(name: string): string {
+  return `"${name.replace(/"/g, '""')}"`;
+}
+
+const JSON_TYPES = new Set(['json', 'jsonb']);
 
 /**
- * Pick the overload a set of argument keys addresses.
+ * Work out the call for `args` against the function's overloads.
  *
- * `strict` is PostgREST's rule (a key no overload knows is "not found");
- * without it a key the function does not name is ignored, which is what
- * this API always did for its own SDKs. `singleObject` is
- * `Prefer: params=single-object`: the body as a whole goes to the one JSON
- * parameter. A single unnamed JSON parameter is treated the same way
- * without the header, as PostgREST 12 does.
+ * A key no overload knows is ignored, as it always was — an extra field in a
+ * body does not break a call. An overload is callable when it takes every
+ * known key and every argument it requires (one without a default) was given.
+ * When none is, the error lists what does exist.
+ *
+ * A value for a json/jsonb argument is sent as JSON text, so an array arrives
+ * as a JSON array rather than as a Postgres array literal.
  */
-export function chooseOverload(
-  metas: FunctionMeta[],
-  keys: string[],
-  options: { strict?: boolean; singleObject?: boolean } = {},
-): RpcCall | null {
-  const candidates: RpcCall[] = metas.map((meta) => {
-    const inputs = inputNames(meta);
-    const json = singleJsonType(meta, inputs);
-    const unnamed = inputs.length === 1 && inputs[0] === '';
-    const singleJson = json !== null && (options.singleObject === true || unnamed);
-    return { meta, inputs, singleJson, jsonType: json ?? 'json' };
+export function planRpcCall(
+  fnName: string,
+  rows: RpcOverloadRow[],
+  args: Record<string, unknown>,
+): RpcCallPlan {
+  const overloads = rows.map(describe);
+  const known = new Set(overloads.flatMap((o) => o.inputs.map((a) => a.name).filter(Boolean)));
+  const keys = Object.keys(args);
+  const provided = keys.filter((k) => known.has(k));
+  const ignored = keys.filter((k) => !known.has(k));
+
+  const candidates = overloads.filter((o) => {
+    const names = new Set(o.inputs.map((a) => a.name));
+    if (!provided.every((k) => names.has(k))) return false;
+    return o.inputs.every((a) => a.hasDefault || (a.name !== '' && provided.includes(a.name)));
   });
 
-  if (options.singleObject) {
-    return candidates.find((c) => c.singleJson) ?? null;
+  if (!candidates.length) {
+    const available = overloads.map((o) => o.signature).join(', ');
+    const sent = provided.length ? `(${provided.join(', ')})` : 'no arguments';
+    const extra = ignored.length
+      ? ` Unknown argument name${ignored.length > 1 ? 's' : ''}: ${ignored.join(', ')}.`
+      : '';
+    throw new PostgrestParseError(
+      `Function "${fnName}" cannot be called with ${sent}.${extra} ` +
+        `Send the arguments as a JSON object keyed by argument name. Available: ${available}`,
+      undefined,
+      'PGRST202',
+    );
   }
 
-  const sent = new Set(keys);
-  const matching = candidates.filter((c) => {
-    if (c.singleJson) return true;
-    const defaults = c.meta.pronargdefaults ?? 0;
-    const required = c.inputs.slice(0, Math.max(0, c.inputs.length - defaults));
-    if (!required.every((n) => sent.has(n))) return false;
-    if (options.strict && !keys.every((k) => c.inputs.includes(k))) return false;
-    return true;
-  });
-  if (!matching.length) return null;
-  // Exact coverage first; then the overload that uses most of what was sent.
-  const score = (c: RpcCall) => (c.singleJson ? -1 : c.inputs.filter((n) => sent.has(n)).length);
-  matching.sort((a, b) => {
-    const exactA = !a.singleJson && a.inputs.length === keys.length && keys.every((k) => a.inputs.includes(k));
-    const exactB = !b.singleJson && b.inputs.length === keys.length && keys.every((k) => b.inputs.includes(k));
-    if (exactA !== exactB) return exactA ? -1 : 1;
-    return score(b) - score(a);
-  });
-  return matching[0];
-}
+  const params: unknown[] = [];
+  const named = provided
+    .map((k) => {
+      const declared = candidates.map((o) => o.inputs.find((a) => a.name === k));
+      const isJson = declared.every((a) => !!a && JSON_TYPES.has(a.type));
+      // Passing a VARIADIC argument by name takes the keyword: VARIADIC "xs" := …
+      const variadic = declared.every((a) => !!a?.variadic) ? 'VARIADIC ' : '';
+      const value = args[k];
+      params.push(isJson && value !== null && value !== undefined ? JSON.stringify(value) : value ?? null);
+      return `${variadic}${quoteIdent(k)} := $${params.length}`;
+    })
+    .join(', ');
 
-export type CallShape = 'void' | 'scalar' | 'composite';
-
-/**
- * How to read the result: `void` has none; a composite type (a table, a
- * row type, or `record` with OUT parameters) is read as columns; anything
- * else — base types, enums, domains, ranges, json — is one value.
- */
-export function callShape(meta: FunctionMeta): CallShape {
-  if (meta.typname === 'void') return 'void';
-  if (meta.typtype === 'c') return 'composite';
-  if (meta.typname === 'record') return 'composite';
-  const rel = Number(meta.typrelid ?? 0);
-  if (rel) return 'composite';
-  return 'scalar';
+  return { named, params, definer: candidates.some((o) => o.definer) };
 }

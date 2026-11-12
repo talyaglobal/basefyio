@@ -176,6 +176,54 @@ db.command('execute')
     await dbExecute(options);
   });
 
+db.command('rotate-password')
+  .description('Generate a new database password for the project (the old one stops working at once)')
+  .option('--readonly', 'Rotate the read-only database user instead of the owner')
+  .option('--write-env', 'Also update .env in the current directory with the new credentials (owner only)')
+  .option('-p, --project <id>', 'Project ID (default: the linked project)')
+  .option('-y, --yes', 'Skip the confirmation prompt (required when not running in a terminal)')
+  .option('--json', 'Machine-readable output (best effort: the shape may change between versions)')
+  .action(async (options) => {
+    const { dbRotatePassword } = await import('./commands/db-password.js');
+    await dbRotatePassword(options);
+  });
+
+// ── pgvector / embeddings ───────────────────────────────────
+
+const pgvector = program
+  .command('pgvector')
+  .alias('vector')
+  .description('Enable, disable and inspect pgvector (vector embeddings) on a project');
+
+pgvector.command('status')
+  .description('Show whether pgvector is enabled, the stored vector count and the embedding provider')
+  .option('-p, --project <id>', 'Project ID (default: the linked project)')
+  .option('--json', 'Machine-readable output (best effort: the shape may change between versions)')
+  .action(async (options) => {
+    const { pgvectorStatus } = await import('./commands/pgvector.js');
+    await pgvectorStatus(options);
+  });
+
+pgvector.command('enable')
+  .description('Enable pgvector: installs the extension and the embedding tables in the project database')
+  .option('-p, --project <id>', 'Project ID (default: the linked project)')
+  .option('--json', 'Machine-readable output (best effort: the shape may change between versions)')
+  .action(async (options) => {
+    const { pgvectorEnable } = await import('./commands/pgvector.js');
+    await pgvectorEnable(options);
+  });
+
+pgvector.command('disable')
+  .description('Disable pgvector; stored embeddings are kept unless --drop-data is given')
+  .option('--drop-data', 'Also delete the stored embeddings (cannot be undone)')
+  .option('-p, --project <id>', 'Project ID (default: the linked project)')
+  .option('-y, --yes', 'Skip the confirmation prompt (required when not running in a terminal)')
+  .option('--json', 'Machine-readable output (best effort: the shape may change between versions)')
+  .action(async (options) => {
+    const { pgvectorDisable } = await import('./commands/pgvector.js');
+    await pgvectorDisable(options);
+  });
+
 // ── Inspect ─────────────────────────────────────────────────
 
 program

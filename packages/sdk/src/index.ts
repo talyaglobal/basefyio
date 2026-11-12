@@ -1,5 +1,9 @@
 export { createClient, BasefyioClient } from './BasefyioClient.js';
 export { QueryBuilder, OrConditionBuilder } from './modules/database.js';
+export type { FullTableOptions, UpsertOptions } from './modules/database.js';
+export { VERSION } from './version.js';
+export { BasefyioClientError } from './lib/errors.js';
+export type { ClientErrorCode } from './lib/errors.js';
 export { StorageClient, StorageBucketApi } from './modules/storage.js';
 export { AuthClient } from './modules/auth.js';
 export type {
@@ -17,6 +21,8 @@ export { BASEFYIO_DEFAULT_API_URL } from './lib/types.js';
 
 export type {
   BasefyioClientOptions,
+  AuthOptions,
+  AuthStorage,
   BasefyioResponse,
   BasefyioError,
   AuthTokens,
@@ -54,6 +60,7 @@ export type {
   EntityInfo,
   DataEngineFilter,
   DataEngineSort,
+  DataEngineWriteOptions,
 } from './modules/data-engine.js';
 
 export { RealtimeClient } from './modules/realtime.js';
@@ -84,4 +91,11 @@ export type {
   StoragePolicyMode,
   StoragePolicy,
   SetStoragePolicyInput,
+  StorageListOptions,
+  CopyOptions,
+  RemoveResult,
+  BucketLimits,
+  CreateBucketOptions,
+  UpdateBucketOptions,
+  DeleteBucketOptions,
 } from './modules/storage.js';

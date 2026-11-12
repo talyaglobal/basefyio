@@ -224,6 +224,15 @@ export class ProjectMfaService {
     });
   }
 
+  /** Users an administrator asked to enroll (enrolled or not yet), for the dashboard's user list. */
+  async listEnrollmentRequired(projectId: string): Promise<string[]> {
+    const rows = (await this.prisma.projectUserMfa.findMany({
+      where: { projectId, enrollmentRequiredAt: { not: null } },
+      select: { keycloakUserId: true },
+    })) as { keycloakUserId: string }[];
+    return rows.map((r) => r.keycloakUserId);
+  }
+
   /** Best-effort cleanup when a user is deleted from the realm. */
   async forgetUser(projectId: string, userId: string): Promise<void> {
     await this.prisma.projectUserMfa.deleteMany({

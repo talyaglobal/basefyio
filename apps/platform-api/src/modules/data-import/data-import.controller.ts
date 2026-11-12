@@ -20,9 +20,19 @@ import {
 } from '../../common/decorators/current-user.decorator';
 import { DataImportService } from './data-import.service';
 import { StartImportDto } from './dto/start-import.dto';
+import { isImportEncoding, type ImportEncoding } from './lib/text-decoding';
+
+/** 'auto' unless the caller named a supported character set. */
+function parseEncoding(raw: string | undefined): ImportEncoding | 'auto' {
+  if (!raw || raw === 'auto') return 'auto';
+  if (isImportEncoding(raw)) return raw;
+  throw new BadRequestException(
+    `Unsupported encoding "${raw}". Use auto, utf-8, utf-16le, utf-16be, windows-1254, windows-1252 or iso-8859-9.`,
+  );
+}
 
 /**
- * HTTP surface for the generic CSV/XLSX → table import.
+ * HTTP surface for the generic CSV/XLSX/JSON → table import.
  *
  *   1. POST /:projectId/data-imports/inspect  — upload + preview + infer schema
  *   2. POST /:projectId/data-imports/jobs      — start the worker
@@ -46,6 +56,7 @@ export class DataImportController {
     @Param('projectId') projectId: string,
     @UploadedFile() file: Express.Multer.File | undefined,
     @Query('firstRowIsHeader') firstRowIsHeader: string | undefined,
+    @Query('encoding') encoding: string | undefined,
     @CurrentUser() user: JwtPayload,
   ) {
     if (!file) throw new BadRequestException('Missing file');
@@ -64,6 +75,7 @@ export class DataImportController {
         mimetype: file.mimetype,
       },
       hasHeader,
+      parseEncoding(encoding),
     );
   }
 
@@ -93,7 +105,7 @@ export class DataImportController {
   async inspectStaged(
     @Param('projectId') projectId: string,
     @Body()
-    body: { sourceKey: string; filename: string; firstRowIsHeader?: boolean },
+    body: { sourceKey: string; filename: string; firstRowIsHeader?: boolean; encoding?: string },
     @CurrentUser() user: JwtPayload,
   ) {
     if (!body?.sourceKey || !body?.filename) {
@@ -105,6 +117,7 @@ export class DataImportController {
       body.sourceKey,
       body.filename,
       body.firstRowIsHeader ?? true,
+      parseEncoding(body.encoding),
     );
   }
 
@@ -119,9 +132,11 @@ export class DataImportController {
 
   @Get('jobs/:jobId/status')
   async status(
+    @Param('projectId') projectId: string,
     @Param('jobId') jobId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    return this.service.getJobStatus(jobId);
+    return this.service.getJobStatus(projectId, user.sub, jobId);
   }
 
   /**
@@ -131,9 +146,13 @@ export class DataImportController {
    */
   @Get('jobs/:jobId/events')
   async events(
+    @Param('projectId') projectId: string,
     @Param('jobId') jobId: string,
+    @CurrentUser() user: JwtPayload,
     @Res() res: Response,
   ) {
+    // Authorize before opening the stream so a foreign job id is a plain 404.
+    await this.service.getJobStatus(projectId, user.sub, jobId);
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
@@ -152,7 +171,7 @@ export class DataImportController {
     const poll = async () => {
       if (finished) return;
       try {
-        const status = await this.service.getJobStatus(jobId);
+        const status = await this.service.pollJobStatus(projectId, jobId);
         if (status.state !== lastState) {
           lastState = status.state;
           send('state', { state: status.state });
@@ -191,19 +210,22 @@ export class DataImportController {
 
   @Post('jobs/:jobId/cancel')
   async cancel(
+    @Param('projectId') projectId: string,
     @Param('jobId') jobId: string,
     @CurrentUser() user: JwtPayload,
   ) {
-    await this.service.cancelJob(jobId, user.sub);
+    await this.service.cancelJob(projectId, jobId, user.sub);
     return { ok: true };
   }
 
   @Get('jobs/:jobId/errors')
   async downloadErrors(
+    @Param('projectId') projectId: string,
     @Param('jobId') jobId: string,
+    @CurrentUser() user: JwtPayload,
     @Res() res: Response,
   ) {
-    const stream = await this.service.getErrorReportStream(jobId);
+    const stream = await this.service.getErrorReportStream(projectId, user.sub, jobId);
     if (!stream) {
       res.status(404).json({ message: 'No error report available' });
       return;

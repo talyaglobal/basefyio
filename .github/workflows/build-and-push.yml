@@ -4,45 +4,11 @@ on:
   push:
     branches: [production]
 
-permissions:
-  contents: write
-
 jobs:
   deploy:
     name: Build & Deploy on Server
     runs-on: ubuntu-latest
     steps:
-      # Every release carries a new version (apps/*/package.json move together;
-      # the dashboard shows the newest changelog entry's version and the API
-      # reports it on /api/health). A version that is already tagged on another
-      # commit means nobody bumped it: refuse, so the rule cannot be forgotten.
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Version must be new
-        id: version
-        run: |
-          VER=$(node -p "require('./apps/admin-ui/package.json').version")
-          case "$VER" in
-            [0-9].[0-9].[0-9]|[0-9][0-9].[0-9].[0-9]) ;;
-            *) echo "::error::version $VER: each component is one digit (2.9.9 → 3.0.0); run node scripts/release.mjs"; exit 1 ;;
-          esac
-          for app in platform-api website; do
-            V=$(node -p "require('./apps/$app/package.json').version")
-            if [ "$V" != "$VER" ]; then echo "::error::apps/$app is $V but apps/admin-ui is $VER; run node scripts/release.mjs"; exit 1; fi
-          done
-          if git rev-parse -q --verify "refs/tags/v$VER" >/dev/null; then
-            AT=$(git rev-list -n 1 "v$VER")
-            if [ "$AT" != "$GITHUB_SHA" ]; then
-              echo "::error::v$VER is already tagged at ${AT:0:12}; bump the version with node scripts/release.mjs <patch|minor|major> before pushing to production"
-              exit 1
-            fi
-          fi
-          if ! grep -rqs "version: v$VER" apps/admin-ui/content/changelog/; then
-            echo "::error::no changelog entry carries version: v$VER (apps/admin-ui/content/changelog/)"; exit 1
-          fi
-          echo "version=$VER" >> "$GITHUB_OUTPUT"
-          echo "Releasing v$VER"
       - name: Build & Deploy via SSH
         uses: appleboy/ssh-action@v1
         timeout-minutes: 30
@@ -158,14 +124,9 @@ jobs:
               fi
               echo "Stripe keys: both ${sk_mode}, same account"
             fi
-            # The release stage is inlined into both Next builds, so it comes
-            # from .env.production like the Stripe key; unset means beta.
-            RELEASE_STAGE_VALUE=$(env_value RELEASE_STAGE)
-            echo "Release stage: ${RELEASE_STAGE_VALUE:-beta (default)}"
             docker build \
               -t ghcr.io/$OWNER/basefyio-ui:$SHA \
               --build-arg NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY="$STRIPE_PK" \
-              --build-arg NEXT_PUBLIC_RELEASE_STAGE="${RELEASE_STAGE_VALUE:-beta}" \
               apps/admin-ui
             docker tag ghcr.io/$OWNER/basefyio-ui:$SHA ghcr.io/$OWNER/basefyio-ui:latest
 
@@ -173,7 +134,6 @@ jobs:
             docker build \
               -t ghcr.io/$OWNER/basefyio-website:$SHA \
               --build-arg NEXT_PUBLIC_SITE_URL=https://basefyio.com \
-              --build-arg NEXT_PUBLIC_RELEASE_STAGE="${RELEASE_STAGE_VALUE:-beta}" \
               -f apps/website/Dockerfile .
             docker tag ghcr.io/$OWNER/basefyio-website:$SHA ghcr.io/$OWNER/basefyio-website:latest
 
@@ -197,13 +157,6 @@ jobs:
               printf '\nIMAGE_TAG=%s\n' "$SHA" >> .env.production
             fi
 
-            # ── Restore lost image names ──
-            # A prune can strip the name from an image a running container
-            # still uses; `up -d` then pulls that name, and minio/minio is no
-            # longer served anonymously — the v2.9.6 deploy died on it.
-            # Same name, same image: nothing is recreated.
-            bash scripts/ops/restore-image-names.sh
-
             # ── Deploy ──
             echo "=== Deploying $SHA ==="
             IMAGE_TAG=$SHA docker compose -f docker-compose.prod.yml --env-file .env.production up -d --remove-orphans
@@ -226,35 +179,3 @@ jobs:
             done
             df -h / | tail -1
             echo "=== Deploy complete ($SHA) ==="
-
-      # The deploy succeeded: this commit is v<version>. Tag it and publish the
-      # GitHub Release with the changelog entry as its notes.
-      - name: Tag and release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VER: ${{ steps.version.outputs.version }}
-        run: |
-          if ! git rev-parse -q --verify "refs/tags/v$VER" >/dev/null; then
-            git config user.name "talyaglobal"
-            git config user.email "talyaglobal@talyasmart.com"
-            git tag -a "v$VER" -m "v$VER" "$GITHUB_SHA"
-            git push origin "v$VER"
-          fi
-          ENTRY=$(grep -rls "version: v$VER" apps/admin-ui/content/changelog/ | head -n 1)
-          TITLE=$(sed -n 's/^title: *"\{0,1\}\(.*[^"]\)"\{0,1\}$/\1/p' "$ENTRY" | head -n 1)
-          awk 'f&&/^---$/{exit} f{print} /^---$/{c++; if(c==2)f=1}' "$ENTRY" > /tmp/notes.md || true
-          # The components this release is tested with (deploy/components.env), for self-hosters.
-          if [ -f deploy/components.env ]; then
-            {
-              printf '\n## Components\n\n'
-              printf 'Database changes since the previous release: %s\n\n' "$(sed -n 's/^BASEFYIO_DB_CHANGES=//p' deploy/components.env)"
-              printf '| Component | Pinned / supported |\n|---|---|\n'
-              grep -E '^(KEYCLOAK_SUPPORTED|[A-Z_]+_IMAGE(_PUBLIC)?)=' deploy/components.env | grep -vE '^KEYCLOAK_IMAGE_' \
-                | sed -E 's/^([A-Z_]+)="?([^"]*)"?$/| \1 | `\2` |/'
-              printf '\nInstall or upgrade a self-hosted stack with `scripts/install.sh` (docs/SELF_HOSTING_OFFLINE.md).\n'
-            } >> /tmp/notes.md
-          fi
-          if ! gh release view "v$VER" >/dev/null 2>&1; then
-            gh release create "v$VER" --title "v$VER — ${TITLE:-release}" --notes-file /tmp/notes.md --verify-tag
-          fi
-          echo "Released v$VER"

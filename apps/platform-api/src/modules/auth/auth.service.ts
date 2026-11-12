@@ -19,7 +19,8 @@ import { EmailService } from '../email/email.service';
 import { BillingService } from '../billing/billing.service';
 import { RedisService } from '../redis/redis.service';
 import { getDisplayName } from '../../common/utils/display-name';
-import { OrganizationsCoreService } from '../organizations/organizations-core.service';
+import { escapeLikePattern } from '../../common/utils/like-pattern';
+import { checkAvatarInput, isOwnAvatarLink, publicAvatarUrl } from './avatar-url.util';
 
 type RolePermissionKey =
   | 'canAccessManagement'
@@ -108,7 +109,6 @@ export class AuthService {
     private readonly email: EmailService,
     private readonly billing: BillingService,
     private readonly redis: RedisService,
-    private readonly organizations: OrganizationsCoreService,
   ) {
     const accessKey = this.config.get<string>('minio.accessKey') || 'kolaybase';
     const secretKey = this.config.get<string>('minio.secretKey') || 'kolaybase_secret';
@@ -160,6 +160,29 @@ export class AuthService {
       return typeof json?.sub === 'string' ? json.sub : null;
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * Record that a user's session was used — at most one write an hour, or
+   * always on a fresh sign-in. Fire and forget: only the root console's
+   * "active users" figure reads it, so a failed write must never fail auth.
+   */
+  private touchLastSeen(userId: string | null | undefined, signedIn = false): void {
+    if (!userId) return;
+    const now = new Date();
+    const hourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+    try {
+      void this.prisma.user
+        .updateMany({
+          where: signedIn
+            ? { id: userId }
+            : { id: userId, OR: [{ lastSeenAt: null }, { lastSeenAt: { lt: hourAgo } }] },
+          data: signedIn ? { lastSeenAt: now, lastLoginAt: now } : { lastSeenAt: now },
+        })
+        .catch(() => {});
+    } catch {
+      /* activity tracking is best-effort */
     }
   }
 
@@ -374,21 +397,35 @@ export class AuthService {
     }
 
     const displayName = data.firstName || data.email.split('@')[0];
+    const emailSlug = data.email.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+    const teamSlug = `personal-${emailSlug}-${keycloakId.slice(0, 8)}`;
 
-    // The personal organization: row, OWNER membership, active pointer,
-    // permission rows and the subscription (the chosen plan, or free).
-    await this.organizations.ensurePersonalOrganization({
-      userId: user.id,
-      email: data.email,
-      firstName: data.firstName,
-      lastName: data.lastName,
-      planName: data.planName,
+    const team = await this.prisma.team.create({
+      data: {
+        name: `${displayName}'s Team`,
+        slug: teamSlug,
+        personalForUserId: user.id,
+        members: { create: { userId: user.id, role: 'OWNER' } },
+      },
     });
+
+    await this.prisma.user.update({ where: { id: user.id }, data: { activeTeamId: team.id } });
 
     // Clean up Redis keys
     await this.redis.del(`${this.SIGNUP_OTP_PREFIX}:${email}`);
     await this.redis.del(`${this.SIGNUP_DATA_PREFIX}:${email}`);
     await this.redis.del(`${this.SIGNUP_RATE_PREFIX}:${email}`);
+
+    const teamName = `${displayName}'s Team`;
+    try {
+      if (data.planName && data.planName !== 'free') {
+        await this.billing.createSubscriptionWithPlan(team.id, data.planName, data.email, teamName);
+      } else {
+        await this.billing.createFreeSubscription(team.id, data.email, teamName);
+      }
+    } catch (err) {
+      this.logger.error(`Failed to create subscription for team ${team.id}: ${err}`);
+    }
 
     this.email.sendWelcome(data.email, displayName).catch(() => {});
 
@@ -425,17 +462,31 @@ export class AuthService {
     return { message: 'New verification code sent' };
   }
 
+  /**
+   * Attach email-only team invites to the new account. One invite per team and
+   * user is allowed, so each row is linked on its own: a conflict on one team
+   * must not fail sign-up (it used to abort the whole batch).
+   */
   private async linkEmailInvitesToUser(email: string, userId: string): Promise<number> {
+    if (!email) return 0;
     const pending = await this.prisma.teamInvite.findMany({
-      where: { invitedEmail: email.toLowerCase(), status: 'PENDING', invitedUserId: null },
+      where: {
+        invitedEmail: { equals: email, mode: 'insensitive' },
+        status: 'PENDING',
+        invitedUserId: null,
+      },
+      select: { id: true },
     });
-    if (pending.length === 0) return 0;
-
-    await this.prisma.teamInvite.updateMany({
-      where: { id: { in: pending.map((i) => i.id) } },
-      data: { invitedUserId: userId },
-    });
-    return pending.length;
+    let linked = 0;
+    for (const inv of pending) {
+      try {
+        await this.prisma.teamInvite.update({ where: { id: inv.id }, data: { invitedUserId: userId } });
+        linked += 1;
+      } catch {
+        // Already invited to that team by account — keep the existing invite.
+      }
+    }
+    return linked;
   }
 
   private parseOAuthName(
@@ -496,12 +547,38 @@ export class AuthService {
         },
       });
 
-      await this.organizations.ensurePersonalOrganization({
-        userId: user.id,
-        email: safeEmail,
-        firstName: user.firstName,
-        lastName: user.lastName,
+      const emailSlug = safeEmail.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+      const slug = `personal-${emailSlug}-${sub.slice(0, 8)}`;
+
+      const teamDisplayName = (user.firstName || safeEmail.split('@')[0]);
+      const team = await this.prisma.team.create({
+        data: {
+          name: `${teamDisplayName}'s Team`,
+          slug,
+          personalForUserId: user.id,
+          members: { create: { userId: user.id, role: 'OWNER' } },
+        },
       });
+
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { activeTeamId: team.id },
+      });
+
+      try {
+        await this.billing.createFreeSubscription(team.id, safeEmail, `${teamDisplayName}'s Team`);
+      } catch (err) {
+        this.logger.error(`Failed to create free subscription for team ${team.id}: ${err}`);
+      }
+
+      // Google/GitHub sign-ups arrive here, not through verifySignupOtp, so
+      // invites sent to their address before they joined are linked now —
+      // otherwise they stayed "Not registered" for good.
+      if (email) {
+        await this.linkEmailInvitesToUser(email, user.id).catch((linkErr) =>
+          this.logger.warn(`Could not link pending invites for ${user.id}: ${linkErr}`),
+        );
+      }
 
       return user;
     } catch (err: any) {
@@ -1011,6 +1088,9 @@ export class AuthService {
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         }),
       );
+      // Google / GitHub sign-ins never pass through login(), which is where
+      // lastLoginAt used to be written.
+      this.touchLastSeen(this.decodeJwtSubject(data.access_token), true);
 
       return {
         accessToken: data.access_token,
@@ -1052,6 +1132,7 @@ export class AuthService {
 
     try {
       const data = await tryRefresh(platformClientId);
+      this.touchLastSeen(this.decodeJwtSubject(data.access_token));
       return {
         accessToken: data.access_token,
         refreshToken: data.refresh_token,
@@ -1061,6 +1142,7 @@ export class AuthService {
     } catch {
       try {
         const data = await tryRefresh(adminClientId);
+        this.touchLastSeen(this.decodeJwtSubject(data.access_token));
         return {
           accessToken: data.access_token,
           refreshToken: data.refresh_token,
@@ -1350,6 +1432,7 @@ export class AuthService {
   async getProfile(userId: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new BadRequestException('User not found');
+    this.touchLastSeen(user.id);
     let authProvider: 'local' | 'google' | 'github' = 'local';
     let signOnMethod: 'local' | 'google' | 'github' = 'local';
     let forcePasswordChange = false;
@@ -1372,7 +1455,7 @@ export class AuthService {
       firstName: user.firstName,
       lastName: user.lastName,
       email: user.email,
-      avatarUrl: user.avatarUrl,
+      avatarUrl: this.avatarUrlFor(user.id, user.avatarUrl),
       githubUsername: user.githubUsername,
       notifySignIn: user.notifySignIn,
       notifySignInNewDevice: user.notifySignInNewDevice,
@@ -1428,7 +1511,13 @@ export class AuthService {
     }
 
     if (data.firstName !== undefined) {
-      updateData.firstName = data.firstName || null;
+      // The first name is what the header, member lists and emails greet the
+      // user by; clearing it left only the last name everywhere.
+      const firstName = (data.firstName ?? '').trim();
+      if (!firstName) {
+        throw new BadRequestException('First name is required');
+      }
+      updateData.firstName = firstName;
     }
 
     if (data.lastName !== undefined) {
@@ -1458,7 +1547,13 @@ export class AuthService {
     }
 
     if (data.avatarUrl !== undefined) {
-      updateData.avatarUrl = data.avatarUrl || null;
+      const raw = data.avatarUrl ?? '';
+      // A client echoing back the link we served leaves the photo unchanged.
+      if (!raw || !isOwnAvatarLink(userId, raw, this.avatarApiBase())) {
+        const checked = checkAvatarInput(raw);
+        if (!checked.ok) throw new BadRequestException(checked.message);
+        updateData.avatarUrl = checked.value;
+      }
     }
 
     if (data.notifySignIn !== undefined) {
@@ -1487,7 +1582,7 @@ export class AuthService {
       firstName: user.firstName,
       lastName: user.lastName,
       email: user.email,
-      avatarUrl: user.avatarUrl,
+      avatarUrl: this.avatarUrlFor(user.id, user.avatarUrl),
       githubUsername: user.githubUsername,
       notifySignIn: user.notifySignIn,
       notifySignInNewDevice: user.notifySignInNewDevice,
@@ -1501,6 +1596,15 @@ export class AuthService {
       canChangePassword: signOnMethod === 'local',
       forcePasswordChange,
     };
+  }
+
+  private avatarApiBase(): string {
+    return this.config.get<string>('publicApiUrl') || '';
+  }
+
+  /** Inline photos are answered as a short link to /api/avatars, never as the data itself. */
+  private avatarUrlFor(userId: string, stored: string | null): string | null {
+    return publicAvatarUrl(userId, stored, this.avatarApiBase());
   }
 
   async uploadAvatar(userId: string, file: Express.Multer.File): Promise<{ avatarUrl: string }> {
@@ -1550,13 +1654,15 @@ export class AuthService {
     const pageSize = Math.min(100, Math.max(1, Math.floor(opts.pageSize)));
     const skip = (page - 1) * pageSize;
     const rawQ = opts.q?.trim();
+    // Plain-text search: "%" or "_" must not act as LIKE wildcards.
+    const q = rawQ ? escapeLikePattern(rawQ.slice(0, 200)) : '';
     const where =
-      rawQ && rawQ.length > 0
+      q.length > 0
         ? {
             OR: [
-              { email: { contains: rawQ, mode: 'insensitive' as const } },
-              { firstName: { contains: rawQ, mode: 'insensitive' as const } },
-              { lastName: { contains: rawQ, mode: 'insensitive' as const } },
+              { email: { contains: q, mode: 'insensitive' as const } },
+              { firstName: { contains: q, mode: 'insensitive' as const } },
+              { lastName: { contains: q, mode: 'insensitive' as const } },
             ],
           }
         : {};
@@ -1763,7 +1869,6 @@ export class AuthService {
           },
           take: 1,
         },
-        subscription: { select: { plan: { select: { name: true, displayName: true } } } },
         _count: {
           select: {
             members: true,
@@ -1773,20 +1878,6 @@ export class AuthService {
       },
     });
 
-    // Awake and deactivated counts per team in one grouped query.
-    const grouped = await this.prisma.project.groupBy({
-      by: ['teamId', 'status'],
-      where: { status: { not: 'DELETED' } },
-      _count: { _all: true },
-    });
-    const counts = new Map<string, { awake: number; deactivated: number }>();
-    for (const g of grouped) {
-      const c = counts.get(g.teamId) ?? { awake: 0, deactivated: 0 };
-      if (g.status === 'ACTIVE') c.awake += g._count._all;
-      else c.deactivated += g._count._all;
-      counts.set(g.teamId, c);
-    }
-
     return teams.map((team) => ({
       id: team.id,
       name: team.name,
@@ -1795,15 +1886,6 @@ export class AuthService {
       memberCount: team._count.members,
       projectCount: team._count.projects,
       owner: team.members[0]?.user ?? null,
-      publicId: team.publicId,
-      kind: team.kind,
-      isPersonal: !!team.personalForUserId,
-      plan: team.subscription?.plan
-        ? { name: team.subscription.plan.name, displayName: team.subscription.plan.displayName }
-        : null,
-      organizationMigratedAt: team.organizationMigratedAt,
-      projectsAwake: counts.get(team.id)?.awake ?? 0,
-      projectsDeactivated: counts.get(team.id)?.deactivated ?? 0,
     }));
   }
 

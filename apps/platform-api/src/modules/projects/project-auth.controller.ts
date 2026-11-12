@@ -10,23 +10,26 @@ import {
   Injectable,
   Logger,
   NestInterceptor,
+  NotFoundException,
   Post,
   Put,
-  Query,
   Patch,
   Delete,
   Param,
   Body,
+  Query,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { Observable, throwError } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { ConfigService } from '@nestjs/config';
+import * as nodemailer from 'nodemailer';
 import { ProjectsService } from './projects.service';
 import { ProjectAuthConfigService } from './project-auth-config.service';
 import { KeycloakAdminService } from '../auth/keycloak-admin.service';
 import { ProjectMfaService } from './project-mfa.service';
+import { EmailService } from '../email/email.service';
 import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
 import { ServiceKeyOnly } from '../../common/decorators/api-key-scope.decorator';
 import {
@@ -37,8 +40,34 @@ import {
   ProjectActivityKind,
   ProjectActivityService,
 } from './project-activity.service';
+import {
+  assertPasswordMeetsPolicy,
+  effectiveMinLength,
+  EMAIL_PROVIDER_FIELDS,
+  isValidEmail,
+  mergePasswordPolicy,
+  normalizePersonName,
+  normalizePhoneNumber,
+  parsePasswordPolicy,
+  PasswordRules,
+  prepareAuthConfigUpdate,
+  validatePolicyUpdate,
+} from './project-auth-validation';
+import {
+  describeSmtpFailure,
+  projectFromAddress,
+  resolveProjectSmtp,
+  smtpTransportOptions,
+} from './project-email-transport';
 
 const logger = new Logger('ProjectAuth');
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
+}
+
+/** Largest page of users one request may ask for. */
+const MAX_USER_PAGE = 200;
 
 /**
  * Every route here talks to Keycloak, and a raw client failure surfaces in the
@@ -114,43 +143,13 @@ const OAUTH_PROVIDERS = [
 ] as const;
 type OAuthProvider = (typeof OAUTH_PROVIDERS)[number];
 
-/** Build a Keycloak passwordPolicy string from structured flags. */
-function buildPasswordPolicy(p: {
-  minLength?: number;
-  requireUppercase?: boolean;
-  requireLowercase?: boolean;
-  requireDigits?: boolean;
-  requireSpecial?: boolean;
-  historyCount?: number;
-  expiryDays?: number;
-}): string {
-  const parts: string[] = [];
-  if (p.minLength && p.minLength > 0) parts.push(`length(${p.minLength})`);
-  if (p.requireUppercase) parts.push('upperCase(1)');
-  if (p.requireLowercase) parts.push('lowerCase(1)');
-  if (p.requireDigits) parts.push('digits(1)');
-  if (p.requireSpecial) parts.push('specialChars(1)');
-  if (p.historyCount && p.historyCount > 0) parts.push(`passwordHistory(${p.historyCount})`);
-  if (p.expiryDays && p.expiryDays > 0) parts.push(`forceExpiredPasswordChange(${p.expiryDays})`);
-  return parts.join(' and ');
-}
-
-/** Parse a Keycloak passwordPolicy string back into structured flags. */
-function parsePasswordPolicy(s: string) {
-  const str = s || '';
-  const num = (re: RegExp) => {
-    const m = re.exec(str);
-    return m ? parseInt(m[1], 10) : 0;
-  };
-  return {
-    minLength: num(/length\((\d+)\)/),
-    requireUppercase: /upperCase\(/.test(str),
-    requireLowercase: /lowerCase\(/.test(str),
-    requireDigits: /digits\(/.test(str),
-    requireSpecial: /specialChars\(/.test(str),
-    historyCount: num(/passwordHistory\((\d+)\)/),
-    expiryDays: num(/forceExpiredPasswordChange\((\d+)\)/),
-  };
+function optionalInt(raw: string | undefined, label: string, min: number, max: number): number | undefined {
+  if (raw === undefined || raw === '') return undefined;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < min || n > max) {
+    throw new BadRequestException(`${label} must be a whole number between ${min} and ${max}`);
+  }
+  return n;
 }
 
 /**
@@ -177,7 +176,23 @@ export class ProjectAuthController {
     private readonly configService: ConfigService,
     private readonly activity: ProjectActivityService,
     private readonly mfa: ProjectMfaService,
+    private readonly email: EmailService,
   ) {}
+
+  /**
+   * The password rules actually enforced for this project: Keycloak's policy,
+   * with the minimum length raised to the project setting the SDK checks.
+   */
+  private async passwordRules(projectId: string, realm: string): Promise<PasswordRules> {
+    const [policies, cfg] = await Promise.all([
+      this.keycloak.getRealmPolicies(realm),
+      this.authConfigService.getRaw(projectId),
+    ]);
+    return {
+      ...parsePasswordPolicy(policies.passwordPolicy),
+      minLength: effectiveMinLength(cfg.minPasswordLength, policies.passwordPolicy),
+    };
+  }
 
   @Get()
   async getRealmInfo(
@@ -188,22 +203,47 @@ export class ProjectAuthController {
     return this.keycloak.getRealmInfo(project.keycloakRealm);
   }
 
-  /** `?search=` (e-mail, username or name), `?first=` and `?max=` (≤ 500, default 100) page the list. */
+  /**
+   * Users of the project, newest Keycloak page first. `search` matches email,
+   * name and username; `first`/`max` page through the realm. Without `max`
+   * Keycloak's default page (100) is returned, as before.
+   */
   @Get('users')
   async listUsers(
     @Param('projectId') projectId: string,
-    @CurrentUser() user?: JwtPayload,
     @Query('search') search?: string,
-    @Query('first') first?: string,
-    @Query('max') max?: string,
+    @Query('first') firstRaw?: string,
+    @Query('max') maxRaw?: string,
+    @CurrentUser() user?: JwtPayload,
   ) {
     const project = await this.projectsService.findOne(projectId, user?.sub);
-    const num = (v?: string) => (v != null && v !== '' && Number.isFinite(Number(v)) ? Number(v) : undefined);
-    return this.keycloak.listUsers(project.keycloakRealm, {
-      search: typeof search === 'string' ? search.slice(0, 200) : undefined,
-      first: num(first),
-      max: num(max),
-    });
+    const first = optionalInt(firstRaw, 'first', 0, 1_000_000);
+    const max = optionalInt(maxRaw, 'max', 1, MAX_USER_PAGE);
+    const [users, mfaRequired] = await Promise.all([
+      this.keycloak.listUsers(project.keycloakRealm, {
+        search: search?.trim() || undefined,
+        first,
+        max,
+      }),
+      this.mfa.listEnrollmentRequired(projectId).catch((): string[] => []),
+    ]);
+    const required = new Set(mfaRequired);
+    return users.map((u) => ({
+      ...u,
+      mfaEnrollmentRequired:
+        required.has(u.id as string) || (u.requiredActions ?? []).includes('CONFIGURE_TOTP'),
+    }));
+  }
+
+  /** How many users match `search`, for paging the list. */
+  @Get('users/count')
+  async countUsers(
+    @Param('projectId') projectId: string,
+    @Query('search') search?: string,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    const project = await this.projectsService.findOne(projectId, user?.sub);
+    return { count: await this.keycloak.countUsers(project.keycloakRealm, search?.trim() || undefined) };
   }
 
   @Get('users/:userId')
@@ -214,16 +254,31 @@ export class ProjectAuthController {
   ) {
     const project = await this.projectsService.findOne(projectId, user?.sub);
     const realm = project.keycloakRealm;
-    const [detail, providers, sessions] = await Promise.all([
+    const [detail, providers, sessions, mfaState, hasOtp] = await Promise.all([
       this.keycloak.getRealmUserById(realm, userId),
       this.keycloak.listUserFederatedIdentities(realm, userId).catch((): string[] => []),
       this.keycloak.listUserSessions(realm, userId).catch((): any[] => []),
+      this.mfa.status(projectId, userId).catch(() => null),
+      this.keycloak.userHasOtpCredential(realm, userId).catch(() => false),
     ]);
-    if (!detail) throw new BadRequestException('User not found');
+    if (!detail) throw new NotFoundException('User not found');
     // "Email" is always an available login method; linked OAuth providers add to it.
     const sessTimes = (sessions as any[]).map((s) => s.lastAccess || s.start || 0);
     const lastSignIn = sessTimes.length ? Math.max(...sessTimes) || null : null;
-    return { ...detail, providers: ['email', ...providers], sessions, lastSignIn, sessionCount: sessions.length };
+    return {
+      ...detail,
+      providers: ['email', ...providers],
+      sessions,
+      lastSignIn,
+      sessionCount: sessions.length,
+      mfa: {
+        // Asked to enroll, by either path: the hosted login's required action
+        // or the flag the SDK sign-in honours.
+        enrollmentRequired:
+          !!mfaState?.enrollmentRequired || (detail.requiredActions ?? []).includes('CONFIGURE_TOTP'),
+        enrolled: !!mfaState?.enrolled || !!hasOtp,
+      },
+    };
   }
 
   @Get('users/:userId/sessions')
@@ -472,15 +527,36 @@ export class ProjectAuthController {
     return result;
   }
 
-  // ── Policies (brute-force + password) ──
+  // ── Policies (brute-force + password + token lifetime) ──
+  /**
+   * The one place the password rules live. `password.minLength` is the length
+   * actually enforced — the stricter of Keycloak's policy and the project
+   * setting the SDK sign-up checks — so this page and Auth → Settings can no
+   * longer show two different numbers.
+   */
   @Get('policies')
   async getPolicies(
     @Param('projectId') projectId: string,
     @CurrentUser() user?: JwtPayload,
   ) {
     const project = await this.projectsService.findOne(projectId, user?.sub);
-    const p = await this.keycloak.getRealmPolicies(project.keycloakRealm);
-    return { ...p, password: parsePasswordPolicy(p.passwordPolicy) };
+    return this.readPolicies(projectId, project.keycloakRealm);
+  }
+
+  private async readPolicies(projectId: string, realm: string) {
+    const [p, cfg] = await Promise.all([
+      this.keycloak.getRealmPolicies(realm),
+      this.authConfigService.getRaw(projectId),
+    ]);
+    const { accessTokenLifespan, ...rest } = p;
+    return {
+      ...rest,
+      accessTokenLifespanSeconds: accessTokenLifespan,
+      password: {
+        ...parsePasswordPolicy(p.passwordPolicy),
+        minLength: effectiveMinLength(cfg.minPasswordLength, p.passwordPolicy),
+      },
+    };
   }
 
   @Put('policies')
@@ -490,6 +566,9 @@ export class ProjectAuthController {
     @CurrentUser() user?: JwtPayload,
   ) {
     const project = await this.projectsService.findOne(projectId, user?.sub);
+    const realm = project.keycloakRealm;
+    const input = validatePolicyUpdate(body);
+
     const update: Record<string, any> = {};
     for (const k of [
       'bruteForceProtected',
@@ -497,18 +576,35 @@ export class ProjectAuthController {
       'failureFactor',
       'waitIncrementSeconds',
       'maxFailureWaitSeconds',
-    ]) {
-      if (body[k] !== undefined) update[k] = body[k];
+    ] as const) {
+      if (input[k] !== undefined) update[k] = input[k];
     }
-    if (body.password) update.passwordPolicy = buildPasswordPolicy(body.password);
-    await this.keycloak.updateRealmPolicies(project.keycloakRealm, update);
+    if (input.accessTokenLifespanSeconds !== undefined) {
+      update.accessTokenLifespan = input.accessTokenLifespanSeconds;
+    }
+    if (input.password) {
+      const current = await this.keycloak.getRealmPolicies(realm);
+      update.passwordPolicy = mergePasswordPolicy(current.passwordPolicy, input.password);
+    }
+    await this.keycloak.updateRealmPolicies(realm, update);
+
+    // Mirror into the project config the SDK flows read, so both enforce the same values.
+    const mirror: { minPasswordLength?: number; tokenExpirySeconds?: number } = {};
+    if (input.password?.minLength !== undefined) mirror.minPasswordLength = input.password.minLength;
+    if (input.accessTokenLifespanSeconds !== undefined) mirror.tokenExpirySeconds = input.accessTokenLifespanSeconds;
+    if (Object.keys(mirror).length) {
+      await this.authConfigService.mirrorRealmSettings(projectId, mirror);
+    }
+
     await this.activity.append(projectId, {
       userId: user?.sub,
       kind: ProjectActivityKind.AUTH_CONFIG_UPDATED,
       title: 'Authentication policies updated',
+      detail: Object.keys({ ...update, ...(input.password ? { password: 1 } : {}) })
+        .filter((k) => k !== 'passwordPolicy')
+        .join(', ') || null,
     });
-    const p = await this.keycloak.getRealmPolicies(project.keycloakRealm);
-    return { ...p, password: parsePasswordPolicy(p.passwordPolicy) };
+    return this.readPolicies(projectId, realm);
   }
 
   @Post('users')
@@ -518,10 +614,16 @@ export class ProjectAuthController {
     @CurrentUser() user?: JwtPayload,
   ) {
     const project = await this.projectsService.findOne(projectId, user?.sub);
-    const email = body.email?.trim();
+    const email = typeof body?.email === 'string' ? body.email.trim() : '';
     if (!email) {
       throw new BadRequestException('Email is required');
     }
+    if (!isValidEmail(email)) {
+      throw new BadRequestException(`"${email}" is not a valid email address (it needs a domain such as example.com)`);
+    }
+    const firstName = normalizePersonName(body.firstName, 'First name');
+    const lastName = normalizePersonName(body.lastName, 'Last name');
+    assertPasswordMeetsPolicy(body.password, await this.passwordRules(projectId, project.keycloakRealm));
     // Enforce one account per email in the project's auth realm (the SDK signup
     // path already does this; the dashboard "Add User" path did not, which let
     // duplicate emails accumulate).
@@ -529,11 +631,16 @@ export class ProjectAuthController {
     if (existing) {
       throw new ConflictException('A user with this email already exists in this project');
     }
-    const created = await this.keycloak.createUser(project.keycloakRealm, { ...body, email });
+    const created = await this.keycloak.createUser(
+      project.keycloakRealm,
+      { email, password: body.password, firstName: firstName ?? undefined, lastName: lastName ?? undefined },
+      // A name left blank stays blank instead of becoming a copy of the email.
+      { allowEmptyNames: true },
+    );
     await this.activity.append(projectId, {
       userId: user?.sub,
       kind: ProjectActivityKind.AUTH_USER_CREATED,
-      title: `Auth user created: ${body.email}`,
+      title: `Auth user created: ${email}`,
     });
     return created;
   }
@@ -546,12 +653,38 @@ export class ProjectAuthController {
     @CurrentUser() user?: JwtPayload,
   ) {
     const project = await this.projectsService.findOne(projectId, user?.sub);
-    await this.keycloak.updateRealmUser(project.keycloakRealm, userId, body);
+    const update: {
+      firstName?: string; lastName?: string; email?: string; enabled?: boolean; phoneNumber?: string; phoneVerified?: boolean;
+    } = {};
+    if (body?.email !== undefined) {
+      const email = typeof body.email === 'string' ? body.email.trim() : '';
+      if (!isValidEmail(email)) {
+        throw new BadRequestException(`"${email}" is not a valid email address (it needs a domain such as example.com)`);
+      }
+      update.email = email;
+    }
+    if (body?.firstName !== undefined) update.firstName = normalizePersonName(body.firstName, 'First name') ?? '';
+    if (body?.lastName !== undefined) update.lastName = normalizePersonName(body.lastName, 'Last name') ?? '';
+    if (body?.phoneNumber !== undefined) update.phoneNumber = normalizePhoneNumber(body.phoneNumber) ?? '';
+    for (const k of ['enabled', 'phoneVerified'] as const) {
+      if (body?.[k] !== undefined) {
+        if (typeof body[k] !== 'boolean') throw new BadRequestException(`${k} must be true or false`);
+        update[k] = body[k];
+      }
+    }
+    if (update.phoneNumber === '' && update.phoneVerified) {
+      throw new BadRequestException('A phone number cannot be marked verified without a number');
+    }
+    if (update.firstName === '' || update.lastName === '') {
+      // Clearing a name is refused by realms that still require one.
+      await this.keycloak.ensureNamesOptional(project.keycloakRealm);
+    }
+    await this.keycloak.updateRealmUser(project.keycloakRealm, userId, update);
     await this.activity.append(projectId, {
       userId: user?.sub,
       kind: ProjectActivityKind.AUTH_USER_UPDATED,
       title: `Auth user updated: ${userId}`,
-      detail: Object.keys(body).join(', '),
+      detail: Object.keys(update).join(', '),
     });
     return { message: 'User updated' };
   }
@@ -564,6 +697,7 @@ export class ProjectAuthController {
     @CurrentUser() user?: JwtPayload,
   ) {
     const project = await this.projectsService.findOne(projectId, user?.sub);
+    assertPasswordMeetsPolicy(body?.newPassword, await this.passwordRules(projectId, project.keycloakRealm));
     await this.keycloak.resetRealmUserPassword(project.keycloakRealm, userId, body.newPassword);
     await this.activity.append(projectId, {
       userId: user?.sub,
@@ -599,6 +733,12 @@ export class ProjectAuthController {
     return this.authConfigService.getOrCreate(projectId);
   }
 
+  /**
+   * Update the project's auth settings. Values are validated (a 400 names each
+   * problem) instead of being replaced by defaults. `minPasswordLength` and
+   * `tokenExpirySeconds` are mirrored into the realm when they change, so the
+   * number shown is the number enforced.
+   */
   @Put('config')
   async updateConfig(
     @Param('projectId') projectId: string,
@@ -606,18 +746,88 @@ export class ProjectAuthController {
     @CurrentUser() user?: JwtPayload,
   ) {
     const project = await this.projectsService.findOne(projectId, user?.sub);
-    const updated = await this.authConfigService.update(projectId, body, user?.sub);
-    // The setting is stored here but the lifetime is Keycloak's to apply; without this
-    // write every realm kept the 1800 s it was created with, whatever the setting said.
-    const lifespan = Number(body?.tokenExpirySeconds);
-    if (Number.isFinite(lifespan) && lifespan > 0 && project.keycloakRealm) {
-      await this.keycloak
-        .setRealmAccessTokenLifespan(project.keycloakRealm, lifespan)
-        .catch((err: any) =>
-          logger.warn(`Token lifetime not applied to realm "${project.keycloakRealm}": ${err?.message ?? err}`),
-        );
+    const { prepared, stored } = await this.authConfigService.validateUpdate(projectId, body);
+
+    const realmUpdate: Record<string, any> = {};
+    if (prepared.minPasswordLength !== undefined && prepared.minPasswordLength !== stored.minPasswordLength) {
+      const current = await this.keycloak.getRealmPolicies(project.keycloakRealm);
+      realmUpdate.passwordPolicy = mergePasswordPolicy(current.passwordPolicy, { minLength: prepared.minPasswordLength });
     }
-    return updated;
+    if (prepared.tokenExpirySeconds !== undefined && prepared.tokenExpirySeconds !== stored.tokenExpirySeconds) {
+      realmUpdate.accessTokenLifespan = prepared.tokenExpirySeconds;
+    }
+    if (Object.keys(realmUpdate).length) {
+      await this.keycloak.updateRealmPolicies(project.keycloakRealm, realmUpdate);
+    }
+    return this.authConfigService.update(projectId, prepared, user?.sub);
+  }
+
+  /**
+   * Try the email settings before relying on them: connect to the provider,
+   * log in, and send a short message. `settings` may carry values not saved
+   * yet (secrets left out fall back to the saved ones); omitted, the saved
+   * configuration is tested. Nothing is written.
+   *
+   * With the platform's own email service the message can only go to the
+   * signed-in operator's address, so this cannot be used to mail third parties.
+   */
+  @Post('config/email/test')
+  async testEmailSettings(
+    @Param('projectId') projectId: string,
+    @Body() body: { to?: string; settings?: Record<string, any> },
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    const project = await this.projectsService.findOne(projectId, user?.sub);
+    const stored = await this.authConfigService.getRaw(projectId);
+    const overrides: Record<string, any> = {};
+    for (const k of EMAIL_PROVIDER_FIELDS) {
+      if (body?.settings && k in body.settings) overrides[k] = body.settings[k];
+    }
+    const prepared = Object.keys(overrides).length ? prepareAuthConfigUpdate(overrides, stored) : {};
+    const cfg = { ...stored, ...prepared };
+
+    const operatorEmail = typeof user?.email === 'string' ? user.email : '';
+    const to = typeof body?.to === 'string' && body.to.trim() ? body.to.trim() : operatorEmail;
+    if (!isValidEmail(to)) {
+      throw new BadRequestException('Enter a valid address to send the test email to');
+    }
+
+    const subject = `[${project.name}] Test email from basefyio`;
+    const html =
+      `<p>This is a test email for <strong>${escapeHtml(project.name)}</strong>.</p>` +
+      `<p>If you can read it, the project's email settings work.</p>`;
+
+    const smtp = resolveProjectSmtp(cfg);
+    if (!smtp) {
+      if (!operatorEmail || to.toLowerCase() !== operatorEmail.toLowerCase()) {
+        throw new BadRequestException(
+          'With the platform email service a test can only be sent to your own address. Leave the recipient empty or use your account email.',
+        );
+      }
+      const sent = await this.email.sendRawHtml(to, subject, html);
+      if (!sent) {
+        return { ok: false, provider: 'platform', to, error: 'The platform email service could not send the message right now. Try again in a few minutes.' };
+      }
+      return { ok: true, provider: 'platform', to };
+    }
+
+    const transporter = nodemailer.createTransport(smtpTransportOptions(smtp) as nodemailer.TransportOptions);
+    try {
+      await transporter.verify();
+      await transporter.sendMail({ from: projectFromAddress(cfg, project.name), to, subject, html });
+      await this.activity.append(projectId, {
+        userId: user?.sub,
+        kind: ProjectActivityKind.AUTH_CONFIG_UPDATED,
+        title: 'Test email sent',
+        detail: `${cfg.emailProvider ?? 'smtp'} via ${smtp.host}:${smtp.port}`,
+      });
+      return { ok: true, provider: cfg.emailProvider ?? 'smtp', to };
+    } catch (err: any) {
+      // A failed test is an answer, not a server error: report it in the body.
+      return { ok: false, provider: cfg.emailProvider ?? 'smtp', to, error: describeSmtpFailure(err, smtp) };
+    } finally {
+      transporter.close();
+    }
   }
 
   @Put('providers/:provider')
@@ -720,18 +930,7 @@ export class ProjectAuthController {
       healthy = false;
     }
     if (healthy) {
-      // A healthy realm can still predate the GoTrue facade: no claim mappers, no aal2
-      // client, a token lifetime that ignores the setting. Bring those up to date here,
-      // which is what makes this route the one to run after upgrading.
-      const problems = await this.keycloak.ensureRealmGoTrueCompat(realmName);
-      await this.applyTokenLifespan(projectId, realmName);
-      return {
-        message: problems.length
-          ? `Realm is healthy; GoTrue compatibility repaired with problems: ${problems.join('; ')}`
-          : 'Realm is healthy; GoTrue compatibility verified',
-        realm: realmName,
-        problems,
-      };
+      return { message: 'Realm is healthy, no repair needed', realm: realmName };
     }
 
     // Provision a FRESH realm under a new name and repoint the project at it. We
@@ -743,8 +942,6 @@ export class ProjectAuthController {
     const newRealm = `${base}-r${Date.now().toString(36)}`;
     await this.keycloak.createRealm(newRealm);
     await this.keycloak.createClients(newRealm);
-    await this.keycloak.ensureRealmGoTrueCompat(newRealm);
-    await this.applyTokenLifespan(projectId, newRealm);
     await this.projectsService.updateKeycloakRealm(projectId, newRealm);
 
     await this.activity.append(projectId, {
@@ -755,18 +952,5 @@ export class ProjectAuthController {
     });
 
     return { message: 'Realm re-provisioned', realm: newRealm, previousRealm: realmName };
-  }
-
-  /** The stored tokenExpirySeconds, written to the realm. Best-effort. */
-  private async applyTokenLifespan(projectId: string, realmName: string): Promise<void> {
-    try {
-      const cfg = await this.authConfigService.getOrCreate(projectId);
-      const lifespan = Number(cfg.tokenExpirySeconds);
-      if (Number.isFinite(lifespan) && lifespan > 0) {
-        await this.keycloak.setRealmAccessTokenLifespan(realmName, lifespan);
-      }
-    } catch (err: any) {
-      logger.warn(`Token lifetime not applied to realm "${realmName}": ${err?.message ?? err}`);
-    }
   }
 }

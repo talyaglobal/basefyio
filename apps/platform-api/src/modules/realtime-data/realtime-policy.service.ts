@@ -12,6 +12,22 @@ import type {
 
 export type RlsFilterMode = 'all' | 'jwt' | 'off';
 
+/**
+ * `REALTIME_RLS_FILTER`, defaulting to `all`.
+ *
+ * `all` checks every subscriber that is not the service key, anon subscribers
+ * included. The default used to be `jwt`, which skipped anon subscribers — so
+ * a table whose policies hide rows from the public key still streamed those
+ * rows to anyone holding it, the very key RLS was protecting against. `jwt`
+ * remains available for a deployment that needs the old behaviour while it
+ * adds the policies its anon subscribers rely on; `off` disables filtering.
+ * Anything unrecognised (an empty compose default included) means `all`.
+ */
+export function resolveRlsFilterMode(raw: string | undefined): RlsFilterMode {
+  const value = (raw ?? '').trim().toLowerCase();
+  return value === 'jwt' || value === 'off' ? value : 'all';
+}
+
 export interface TableMeta {
   /** Row-level security is enabled (or forced) on the table. */
   rls: boolean;
@@ -100,8 +116,7 @@ export class RealtimePolicyService implements OnModuleDestroy {
     private readonly prisma: PrismaService,
     config: ConfigService,
   ) {
-    const raw = (config.get<string>('REALTIME_RLS_FILTER') ?? 'jwt').toLowerCase();
-    this.mode = raw === 'all' || raw === 'off' ? raw : 'jwt';
+    this.mode = resolveRlsFilterMode(config.get<string>('REALTIME_RLS_FILTER'));
     const ttl = Number(config.get<string>('REALTIME_RLS_META_TTL_MS'));
     this.metaTtlMs = Number.isFinite(ttl) && ttl > 0 ? ttl : DEFAULT_META_TTL_MS;
     this.evictTimer = setInterval(() => this.evictIdlePools(), 60_000);

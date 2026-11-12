@@ -18,24 +18,16 @@ import { MigrationModule } from './modules/migrations/migration.module';
 import { EmailModule } from './modules/email/email.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { TeamsModule } from './modules/teams/teams.module';
-import { OrganizationsModule } from './modules/organizations/organizations.module';
-import { FeaturesModule } from './modules/features/features.module';
-import { PlatformStatusModule } from './modules/platform-status/platform-status.module';
-import { CapacityModule } from './modules/capacity/capacity.module';
-import { AdmissionModule } from './modules/admission/admission.module';
-import { MessageBusModule } from './modules/message-bus/message-bus.module';
 import { ProjectsModule } from './modules/projects/projects.module';
 import { SqlModule } from './modules/sql/sql.module';
 import { StorageModule } from './modules/storage/storage.module';
-import { StorageFacadeModule } from './modules/storage-facade/storage-facade.module';
 import { FeedbackModule } from './modules/feedback/feedback.module';
 import { PgBouncerModule } from './modules/pgbouncer/pgbouncer.module';
 import { IntegrationsModule } from './modules/integrations/integrations.module';
 import { TsmartIntegrationModule } from './modules/integrations/tsmart/tsmart-integration.module';
 import { TeamIntegrationsModule } from './modules/team-integrations/team-integrations.module';
+import { TeamDomainsModule } from './modules/team-domains/team-domains.module';
 import { RedisModule } from './modules/redis/redis.module';
-import { RedisService } from './modules/redis/redis.service';
-import { RedisThrottlerStorage } from './common/throttling/redis-throttler-storage';
 import { AiModule } from './modules/ai/ai.module';
 import { StripeModule } from './modules/stripe/stripe.module';
 import { BillingModule } from './modules/billing/billing.module';
@@ -43,8 +35,6 @@ import { QuickbooksModule } from './modules/quickbooks/quickbooks.module';
 import { ManagementModule } from './modules/management/management.module';
 import { RootConsoleModule } from './modules/root-console/root-console.module';
 import { HealthController } from './modules/health/health.controller';
-import { HealthService } from './modules/health/health.service';
-import { MetricsCollectorService } from './modules/health/metrics-collector.service';
 import {
   MetricsController,
   MetricsInterceptor,
@@ -84,15 +74,7 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
     // App-level IP rate limiting (defense in depth against brute-force / DoS).
     // Generous default so legit dashboard/API use is unaffected; the high-volume
     // anonymous data API (rest/v1) is exempt via @SkipThrottle on its controllers.
-    // Limits are counted in Redis so every replica shares one bucket per
-    // client; the storage falls back to memory while Redis is unreachable.
-    ThrottlerModule.forRootAsync({
-      inject: [RedisService],
-      useFactory: (redis: RedisService) => ({
-        throttlers: [{ ttl: 60_000, limit: 300 }],
-        storage: new RedisThrottlerStorage(redis),
-      }),
-    }),
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
     PrismaModule,
     GuardsModule,
     // Registered before anything that (transitively) imports ProjectsModule —
@@ -111,22 +93,16 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
     EmailModule,
     AuthModule,
     TeamsModule,
-    OrganizationsModule,
-    FeaturesModule,
-    PlatformStatusModule,
-    CapacityModule,
-    AdmissionModule,
-    MessageBusModule,
     ProjectsModule,
     SqlModule,
     StorageModule,
-    // Supabase-compatible `storage/v1` surface over StorageModule.
-    StorageFacadeModule,
     FeedbackModule,
     PgBouncerModule,
     IntegrationsModule,
     TsmartIntegrationModule,
     TeamIntegrationsModule,
+    // Workspace addresses (<subdomain>.<domain>) and external database access rules.
+    TeamDomainsModule,
     RedisModule,
     AiModule,
     StripeModule,
@@ -161,8 +137,6 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
   ],
   controllers: [HealthController, MetricsController],
   providers: [
-    HealthService,
-    MetricsCollectorService,
     { provide: APP_INTERCEPTOR, useClass: AuditLogInterceptor },
     { provide: APP_INTERCEPTOR, useClass: MetricsInterceptor },
     { provide: APP_GUARD, useClass: ProxyThrottlerGuard },

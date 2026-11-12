@@ -1,13 +1,13 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { CreditCard, Check, AlertTriangle } from 'lucide-react';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
-import { useDashboard, orgPath } from '../layout';
+import { useDashboard } from '../layout';
 import {
   Dialog,
   DialogContent,
@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { ProjectCostsPanel } from '@/components/project-costs-panel';
+import { TeamScopePicker } from '@/components/team-scope-picker';
 import type { TeamCostReport } from '@/lib/types';
 
 const stripePromise = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
@@ -337,34 +338,15 @@ function CardForm({
 // ── Main Page ───────────────────────────────────────────
 
 export default function BillingPage() {
-  const { activeTeamId, refreshKey, teams, features, featuresLoaded } = useDashboard();
+  const { activeTeamId, refreshKey, viewTeamId, teams } = useDashboard();
   const searchParams = useSearchParams();
-  const router = useRouter();
-  const pathname = usePathname() ?? '';
-
-  // With the organization pages on, /dashboard/billing is the old address of
-  // the active organization's billing page (Stripe still returns here):
-  // forward there with the query string, so the success banner survives.
-  useEffect(() => {
-    if (!featuresLoaded || !features.organizations_ui || pathname !== '/dashboard/billing') return;
-    const team = teams.find((t) => t.id === activeTeamId);
-    if (!team?.publicId) return;
-    router.replace(orgPath(team, '/billing') + window.location.search);
-  }, [featuresLoaded, features.organizations_ui, pathname, teams, activeTeamId, router]);
+  const activeTeam = teams.find((t) => t.id === activeTeamId);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [usage, setUsage] = useState<Usage | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [projectCosts, setProjectCosts] = useState<TeamCostReport | null>(null);
   const [loading, setLoading] = useState(true);
-  // The platform's own availability this month, read-only; the status page has the detail.
-  const [availability, setAvailability] = useState<{ monthAvailabilityPct: number | null; statusUrl: string } | null>(null);
-  useEffect(() => {
-    api.platformStatus
-      .availability()
-      .then(setAvailability)
-      .catch(() => {});
-  }, []);
   const [changingPlan, setChangingPlan] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<{
     brand: string | null;
@@ -589,6 +571,24 @@ export default function BillingPage() {
     }
   };
 
+  // Billing is per team. With "All Teams" selected, ask which team instead of
+  // quietly showing the bill of whichever team happened to be active.
+  if (viewTeamId === 'all') {
+    return (
+      <div className="max-w-3xl mx-auto space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Billing</h1>
+          <p className="text-muted-foreground mt-1">Plans, usage and invoices are kept per team.</p>
+        </div>
+        <TeamScopePicker
+          title="Choose a team"
+          description="You are viewing All Teams. Pick the team whose plan, usage and invoices you want to see."
+          teams={teams}
+        />
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <div className="p-8">
@@ -610,17 +610,13 @@ export default function BillingPage() {
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-foreground">Billing</h1>
-        <p className="text-muted-foreground mt-1">Manage your subscription, usage, and invoices</p>
-        {availability && availability.monthAvailabilityPct !== null && (
-          <p className="mt-2 text-xs text-muted-foreground">
-            Platform availability this month:{' '}
-            <span className="font-medium text-foreground">{availability.monthAvailabilityPct.toFixed(2)} %</span>
-            {' · '}
-            <a href={availability.statusUrl} target="_blank" rel="noreferrer noopener" className="underline underline-offset-2">
-              status page
-            </a>
-          </p>
-        )}
+        <p className="text-muted-foreground mt-1">
+          {activeTeam ? (
+            <>Subscription, usage and invoices of <span className="font-medium text-foreground">{activeTeam.name}</span></>
+          ) : (
+            'Manage your subscription, usage, and invoices'
+          )}
+        </p>
       </div>
 
       {/* Alerts */}

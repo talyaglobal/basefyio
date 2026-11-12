@@ -37,7 +37,9 @@ import {
   normalizeImportProgressData,
   type ImportProgressData,
   type ImportJobProgressEvent,
+  type ProjectArchiveImportResponse,
   type ProjectListItem,
+  type Team,
 } from '@/lib/types';
 import { saveProjectSupabaseImportLog } from '@/lib/import-log-storage';
 import { DatabaseAdvisor } from '@/components/database-advisor';
@@ -62,7 +64,7 @@ interface CreateProjectDialogProps {
   reimportMode?: 'full' | 'sync';
 }
 
-type DialogView = 'db-type' | 'advisor' | 'create' | 'import' | 'import-zip' | 'importing' | 'result';
+type DialogView = 'db-type' | 'advisor' | 'create' | 'import' | 'import-zip' | 'zip-result' | 'importing' | 'result';
 
 type ProjectDatabaseType = 'RELATIONAL' | 'NOSQL';
 
@@ -130,6 +132,89 @@ function inspectSupabaseKey(raw: string): {
   } catch {
     return null;
   }
+}
+
+/**
+ * The project's internal name as the server derives it (projects.service
+ * toSlug): lowercase, every run of other characters becomes "_", no leading or
+ * trailing "_". The server then appends a short random suffix.
+ */
+function slugPreview(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_|_$/g, '')
+    .slice(0, 48);
+}
+
+function ProjectNameHint({ name }: { name: string }) {
+  const slug = slugPreview(name);
+  return (
+    <p className="text-xs text-muted-foreground">
+      2–64 characters; any characters are fine. The internal name used for the database and URLs is
+      made from it — lowercase letters, digits and underscores, plus a short random suffix
+      {name.trim() ? (
+        <>
+          {': '}
+          <code className="font-mono text-foreground">{slug || 'project'}_…</code>
+        </>
+      ) : (
+        '.'
+      )}
+    </p>
+  );
+}
+
+/** A Supabase project URL the importer can reach: http(s) with a real host name. */
+function isValidProjectUrl(raw: string): boolean {
+  try {
+    const u = new URL(raw.trim());
+    return (u.protocol === 'https:' || u.protocol === 'http:') && (u.hostname.includes('.') || u.hostname === 'localhost');
+  } catch {
+    return false;
+  }
+}
+
+/** Where the new project goes. Shown even with one team, so the destination is never a surprise. */
+function TeamPicker({
+  teams,
+  value,
+  onChange,
+  hint = 'The project is created in this team.',
+}: {
+  teams: Team[];
+  value: string;
+  onChange: (id: string) => void;
+  hint?: string;
+}) {
+  if (teams.length === 0) return null;
+  if (teams.length === 1) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        Team: <span className="font-medium text-foreground">{teams[0].name}</span>
+      </p>
+    );
+  }
+  return (
+    <div className="space-y-2">
+      <Label htmlFor="project-team">Team</Label>
+      <select
+        id="project-team"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+      >
+        {teams.map((t) => (
+          <option key={t.id} value={t.id}>
+            {t.name}
+            {t.isPersonal ? ' (personal)' : ''}
+          </option>
+        ))}
+      </select>
+      <p className="text-xs text-muted-foreground">{hint}</p>
+    </div>
+  );
 }
 
 function SupabaseLogo({ className }: { className?: string }) {
@@ -218,6 +303,17 @@ export function CreateProjectDialog({
   const [zipExistingProjectId, setZipExistingProjectId] = useState('');
   const [teamProjects, setTeamProjects] = useState<ProjectListItem[]>([]);
   const [zipImporting, setZipImporting] = useState(false);
+  /** Typed confirmation for overwriting an existing project from a ZIP. */
+  const [zipConfirmName, setZipConfirmName] = useState('');
+  const [zipFileError, setZipFileError] = useState<string | null>(null);
+  /** Upload percentage, then null while the server restores. */
+  const [zipUploadPercent, setZipUploadPercent] = useState<number | null>(null);
+  const [zipElapsed, setZipElapsed] = useState(0);
+  const [zipResult, setZipResult] = useState<ProjectArchiveImportResponse | null>(null);
+  /** Teams the user belongs to, and the one the new project goes into. */
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [selectedTeamId, setSelectedTeamId] = useState(teamId);
+  const [urlTouched, setUrlTouched] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const dismissedDuringImportRef = useRef(false);
@@ -332,6 +428,29 @@ export function CreateProjectDialog({
     updatePercentAndEta,
   ]);
 
+  // Each time the dialog opens, start from the team in view and load the
+  // user's teams so the destination can be chosen (in the "All Teams" view the
+  // project used to land silently in whichever team was active).
+  useEffect(() => {
+    if (!open) return;
+    setSelectedTeamId(teamId);
+    api.teams
+      .list()
+      .then((list) => setTeams(list))
+      .catch(() => setTeams([]));
+  }, [open, teamId]);
+
+  // Overwrite from ZIP: show the elapsed time while the server restores.
+  useEffect(() => {
+    if (!zipImporting) {
+      setZipElapsed(0);
+      return;
+    }
+    const started = Date.now();
+    const timer = setInterval(() => setZipElapsed(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => clearInterval(timer);
+  }, [zipImporting]);
+
   // Belt-and-suspenders: whenever the dialog closes with a running import,
   // ensure the toast becomes visible regardless of how the close happened.
   useEffect(() => {
@@ -443,6 +562,12 @@ export function CreateProjectDialog({
     setZipExistingProjectId('');
     setTeamProjects([]);
     setZipImporting(false);
+    setZipConfirmName('');
+    setZipFileError(null);
+    setZipUploadPercent(null);
+    setZipResult(null);
+    setUrlTouched(false);
+    setSelectedTeamId(teamId);
     setLoading(false);
     setCancelling(false);
     dismissedDuringImportRef.current = false;
@@ -525,7 +650,7 @@ export function CreateProjectDialog({
       const project = await api.projects.create({
         name,
         description: description || undefined,
-        teamId,
+        teamId: selectedTeamId || teamId,
         databaseType: databaseType ?? 'RELATIONAL',
       });
       toast.success(`Project "${project.name}" created`);
@@ -621,7 +746,7 @@ export function CreateProjectDialog({
         serviceRoleKey,
         ...(databasePassword.trim() ? { databasePassword: databasePassword.trim() } : {}),
         name: reimportTarget?.projectName ?? importName,
-        teamId,
+        teamId: reimportTarget ? teamId : selectedTeamId || teamId,
         ...(reimportTarget
           ? { existingProjectId: reimportTarget.projectId }
           : {}),
@@ -748,6 +873,42 @@ export function CreateProjectDialog({
     }
   }
 
+  /** The project an overwrite would replace, and the name the user must type. */
+  const zipOverwriteTarget =
+    zipImportMode === 'override'
+      ? reimportTarget && reimportTarget.projectId === zipExistingProjectId
+        ? { id: reimportTarget.projectId, name: reimportTarget.projectName }
+        : teamProjects.find((p) => p.id === zipExistingProjectId) ?? null
+      : null;
+  const zipConfirmOk =
+    !zipOverwriteTarget || zipConfirmName.trim() === zipOverwriteTarget.name.trim();
+
+  /** Reject anything that is not a .zip with a ZIP signature before uploading it. */
+  async function handleZipFileChange(file: File | null) {
+    setZipFile(null);
+    setZipFileError(null);
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith('.zip')) {
+      setZipFileError('Choose a .zip file downloaded from Backup & Export.');
+      return;
+    }
+    try {
+      const head = new Uint8Array(await file.slice(0, 4).arrayBuffer());
+      const isZip =
+        head.length === 4 &&
+        head[0] === 0x50 &&
+        head[1] === 0x4b &&
+        ((head[2] === 0x03 && head[3] === 0x04) || (head[2] === 0x05 && head[3] === 0x06));
+      if (!isZip) {
+        setZipFileError('This file is not a ZIP archive. Choose the .zip downloaded from Backup & Export.');
+        return;
+      }
+    } catch {
+      // Could not read the header here; the server checks it again.
+    }
+    setZipFile(file);
+  }
+
   async function handleImportExportZip(e: React.FormEvent) {
     e.preventDefault();
     if (!zipFile) {
@@ -755,7 +916,11 @@ export function CreateProjectDialog({
       return;
     }
     if (zipImportMode === 'override' && !zipExistingProjectId.trim()) {
-      toast.error('Please select a project to override.');
+      toast.error('Select the project to overwrite.');
+      return;
+    }
+    if (zipImportMode === 'override' && !zipConfirmOk) {
+      toast.error('Type the project name exactly to confirm the overwrite.');
       return;
     }
 
@@ -765,48 +930,62 @@ export function CreateProjectDialog({
     }
 
     setZipImporting(true);
+    setZipUploadPercent(0);
     try {
       const result = await api.projects.importFromExportZip({
         file: zipFile,
-        teamId,
+        teamId: selectedTeamId || teamId,
         nameMode: zipNameMode,
         newProjectName: zipNameMode === 'new' ? zipNewName.trim() : undefined,
         existingProjectId:
           zipImportMode === 'override' ? zipExistingProjectId : undefined,
+        confirmProjectName: zipImportMode === 'override' ? zipConfirmName.trim() : undefined,
+        onUploadProgress: (loaded, total) => {
+          const pct = total > 0 ? Math.round((loaded / total) * 100) : 0;
+          // Once every byte is sent the server is restoring; switch to elapsed time.
+          setZipUploadPercent(pct >= 100 ? null : pct);
+        },
       });
 
-      if (result.warnings.length > 0) {
-        toast.warning(
-          `ZIP import completed with ${result.warnings.length} warning${result.warnings.length === 1 ? '' : 's'}.`,
-        );
-      } else {
-        toast.success(`Project "${result.project.name}" imported from ZIP.`);
-      }
-      resetState();
       onCreated();
+      if (result.warnings.length > 0) {
+        // Keep the dialog open on a summary so the warnings are actually read.
+        setZipResult(result);
+        setView('zip-result');
+        toast.warning(
+          `ZIP import finished with ${result.warnings.length} warning${result.warnings.length === 1 ? '' : 's'}.`,
+        );
+        return;
+      }
+      toast.success(
+        zipImportMode === 'override'
+          ? `Project "${result.project.name}" overwritten from ZIP.`
+          : `Project "${result.project.name}" imported from ZIP.`,
+      );
+      resetState();
       onOpenChange(false);
       router.push(`/dashboard/projects/${result.project.id}`);
     } catch (err: any) {
       toast.error(err.message || 'ZIP import failed');
     } finally {
       setZipImporting(false);
+      setZipUploadPercent(null);
     }
   }
 
+  // Projects that "Override an existing project" can target: those of the
+  // chosen team. Nothing is preselected — overwriting is destructive, so the
+  // user picks the target explicitly (a re-import arrives with its target set).
   useEffect(() => {
-    if (!open || (view !== 'import' && view !== 'import-zip')) return;
+    if (!open || view !== 'import-zip') return;
+    const listTeam = reimportTarget ? teamId : selectedTeamId || teamId;
     api.projects
-      .list(teamId)
-      .then((items) => {
-        setTeamProjects(items);
-        if (!zipExistingProjectId && items.length > 0) {
-          setZipExistingProjectId(items[0].id);
-        }
-      })
+      .list(listTeam)
+      .then((items) => setTeamProjects(items))
       .catch(() => {
         setTeamProjects([]);
       });
-  }, [open, view, teamId, zipExistingProjectId]);
+  }, [open, view, teamId, selectedTeamId, reimportTarget]);
 
   function handleResultDone() {
     const targetId = importProjectId || activeImport?.projectId || null;
@@ -835,8 +1014,7 @@ export function CreateProjectDialog({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
-        // The import result carries a six-column reconciliation table; the other steps are forms.
-        className={view === 'result' ? 'sm:max-w-2xl' : 'sm:max-w-md'}
+        className="sm:max-w-md"
         hideClose={view === 'importing'}
         onInteractOutside={(e) => {
           if (view === 'importing') e.preventDefault();
@@ -1052,7 +1230,10 @@ export function CreateProjectDialog({
                   minLength={2}
                   maxLength={64}
                 />
+                <ProjectNameHint name={name} />
               </div>
+
+              <TeamPicker teams={teams} value={selectedTeamId} onChange={setSelectedTeamId} />
 
               <div className="space-y-2">
                 <Label htmlFor="project-desc">Description (optional)</Label>
@@ -1176,8 +1357,7 @@ export function CreateProjectDialog({
                       <li>
                         If some tables still show 0 rows or permission errors, add the{' '}
                         <strong>Database password</strong> (Settings → Database) so basefyio
-                        can copy data over a direct Postgres connection. It also carries your
-                        users&apos; passwords over, so they keep signing in as before.
+                        can copy data over a direct Postgres connection.
                       </li>
                       <li>
                         Match the <strong>Supabase project URL</strong> to the same source you
@@ -1205,10 +1385,22 @@ export function CreateProjectDialog({
                     setValidated(false);
                     setImportNameManual(false);
                   }}
+                  onBlur={() => setUrlTouched(true)}
                   placeholder="https://xyzproject.supabase.co"
                   required
                   type="url"
+                  aria-invalid={urlTouched && !!supabaseUrl.trim() && !isValidProjectUrl(supabaseUrl)}
+                  aria-describedby="supabase-url-help"
                 />
+                {urlTouched && supabaseUrl.trim() && !isValidProjectUrl(supabaseUrl) ? (
+                  <p id="supabase-url-help" className="text-xs text-red-600 dark:text-red-400">
+                    Enter the full project URL, for example https://abcd1234.supabase.co
+                  </p>
+                ) : (
+                  <p id="supabase-url-help" className="text-xs text-muted-foreground">
+                    In Supabase: Project Settings → API → Project URL.
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -1251,15 +1443,17 @@ export function CreateProjectDialog({
                       : ''}
                   </p>
                 )}
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                   <p className="text-xs text-muted-foreground">
-                    Found in Supabase Dashboard &rarr; Settings &rarr; API &rarr; service_role key
+                    {!isValidProjectUrl(supabaseUrl) || !serviceRoleKey.trim()
+                      ? 'Enter a valid project URL and the service_role key to validate the connection.'
+                      : 'In Supabase: Project Settings → API → the service_role key (secret).'}
                   </p>
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
-                    disabled={!supabaseUrl.trim() || !serviceRoleKey.trim() || validating}
+                    disabled={!isValidProjectUrl(supabaseUrl) || !serviceRoleKey.trim() || validating}
                     onClick={handleValidateSupabase}
                     className="h-7 text-xs shrink-0"
                   >
@@ -1282,7 +1476,7 @@ export function CreateProjectDialog({
                   id="db-password"
                   value={databasePassword}
                   onChange={(e) => setDatabasePassword(e.target.value)}
-                  placeholder="Recommended: carries passwords and protected rows"
+                  placeholder="Only if some tables fail to import"
                   name="supabase-db-password"
                   autoComplete="new-password"
                   spellCheck={false}
@@ -1290,10 +1484,9 @@ export function CreateProjectDialog({
                   data-lpignore="true"
                 />
                 <p className="text-xs text-muted-foreground">
-                  Supabase &rarr; Settings &rarr; Database. With it, your users keep signing in with the passwords they
-                  already have, and tables behind row-level security are copied in full over a direct Postgres
-                  connection. Without it, users and data still come across, but users need a password reset before
-                  they can sign in.
+                  Normally the <strong>service_role</strong> key is enough. Use Dashboard &rarr; Database &rarr; password
+                  only if specific tables still return permission errors — then we read those rows over a direct Postgres
+                  connection.
                 </p>
               </div>
 
@@ -1342,6 +1535,8 @@ export function CreateProjectDialog({
                     minLength={2}
                     maxLength={64}
                   />
+                  <ProjectNameHint name={importName} />
+                  <TeamPicker teams={teams} value={selectedTeamId} onChange={setSelectedTeamId} />
                 </div>
               )}
 
@@ -1358,7 +1553,7 @@ export function CreateProjectDialog({
                 <Button
                   type="submit"
                   disabled={
-                    !supabaseUrl.trim() ||
+                    !isValidProjectUrl(supabaseUrl) ||
                     !serviceRoleKey.trim() ||
                     !(reimportTarget?.projectName ?? importName).trim()
                   }
@@ -1415,11 +1610,17 @@ export function CreateProjectDialog({
                   id="zip-file"
                   type="file"
                   accept=".zip,application/zip"
-                  onChange={(e) => setZipFile(e.target.files?.[0] ?? null)}
+                  onChange={(e) => void handleZipFileChange(e.target.files?.[0] ?? null)}
+                  disabled={zipImporting}
+                  aria-invalid={!!zipFileError}
                 />
-                <p className="text-xs text-muted-foreground">
-                  Select a ZIP downloaded from the project export page.
-                </p>
+                {zipFileError ? (
+                  <p className="text-xs text-red-600 dark:text-red-400">{zipFileError}</p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Select a ZIP downloaded from the project&apos;s Backup &amp; Export page.
+                  </p>
+                )}
               </div>
 
               {!reimportTarget && (
@@ -1443,25 +1644,58 @@ export function CreateProjectDialog({
                   />
                   Override an existing project
                 </label>
+                <TeamPicker
+                  teams={teams}
+                  value={selectedTeamId}
+                  hint='A duplicate is created in this team; "Override" lists the projects of this team.'
+                  onChange={(id) => {
+                    setSelectedTeamId(id);
+                    setZipExistingProjectId('');
+                    setZipConfirmName('');
+                  }}
+                />
                 {zipImportMode === 'override' && (
                   <select
                     value={zipExistingProjectId}
-                    onChange={(e) => setZipExistingProjectId(e.target.value)}
+                    onChange={(e) => {
+                      setZipExistingProjectId(e.target.value);
+                      setZipConfirmName('');
+                    }}
                     className="h-9 w-full rounded-md border bg-background px-2 text-sm"
                     required
                   >
-                    {teamProjects.length === 0 ? (
-                      <option value="">No projects found in active team</option>
-                    ) : (
-                      teamProjects.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name}
-                        </option>
-                      ))
-                    )}
+                    <option value="">
+                      {teamProjects.length === 0 ? 'No projects in this team' : 'Select the project to overwrite…'}
+                    </option>
+                    {teamProjects.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
                   </select>
                 )}
               </div>
+              )}
+
+              {zipOverwriteTarget && (
+                <div className="space-y-2 rounded-md border border-red-300 bg-red-50 p-3 text-xs text-red-900 dark:border-red-900 dark:bg-red-950/30 dark:text-red-200">
+                  <p className="flex items-start gap-1.5 font-medium">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    This replaces the database, users and files of &ldquo;{zipOverwriteTarget.name}&rdquo; with the
+                    archive&apos;s contents. It cannot be undone — export a backup of it first if you may need it.
+                  </p>
+                  <Label htmlFor="zip-confirm" className="text-xs">
+                    Type <span className="font-semibold">{zipOverwriteTarget.name}</span> to confirm
+                  </Label>
+                  <Input
+                    id="zip-confirm"
+                    value={zipConfirmName}
+                    onChange={(e) => setZipConfirmName(e.target.value)}
+                    placeholder={zipOverwriteTarget.name}
+                    autoComplete="off"
+                    disabled={zipImporting}
+                  />
+                </div>
               )}
 
               {!reimportTarget && zipImportMode === 'duplicate' && (
@@ -1486,29 +1720,95 @@ export function CreateProjectDialog({
                   Import with a new project name
                 </label>
                 {zipNameMode === 'new' && (
-                  <Input
-                    value={zipNewName}
-                    onChange={(e) => setZipNewName(e.target.value)}
-                    placeholder="new-project-name"
-                    minLength={2}
-                    maxLength={64}
-                    required
-                  />
+                  <>
+                    <Input
+                      value={zipNewName}
+                      onChange={(e) => setZipNewName(e.target.value)}
+                      placeholder="new-project-name"
+                      minLength={2}
+                      maxLength={64}
+                      required
+                    />
+                    <ProjectNameHint name={zipNewName} />
+                  </>
                 )}
               </div>
               )}
 
-              <Button type="submit" disabled={!zipFile || zipImporting} className="w-full">
+              {zipImporting && (
+                <div className="space-y-1">
+                  <div className="h-2 overflow-hidden rounded-full bg-muted">
+                    <div
+                      className={`h-full bg-blue-500 transition-[width] duration-300 ${zipUploadPercent === null ? 'animate-pulse' : ''}`}
+                      style={{ width: `${zipUploadPercent ?? 100}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {zipUploadPercent !== null
+                      ? `Uploading… ${zipUploadPercent}%`
+                      : `Restoring on the server… ${zipElapsed}s elapsed. Large archives take a few minutes; keep this window open.`}
+                  </p>
+                </div>
+              )}
+
+              <Button
+                type="submit"
+                disabled={
+                  !zipFile ||
+                  zipImporting ||
+                  (zipImportMode === 'override' && (!zipExistingProjectId || !zipConfirmOk))
+                }
+                className="w-full"
+                variant={zipImportMode === 'override' ? 'destructive' : 'default'}
+              >
                 {zipImporting ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Importing ZIP...
+                    {zipUploadPercent !== null ? 'Uploading…' : 'Restoring…'}
                   </>
+                ) : zipImportMode === 'override' ? (
+                  reimportTarget ? 'Overwrite with this ZIP' : 'Overwrite project'
                 ) : (
-                  reimportTarget ? 'Start re-import' : 'Import Export ZIP'
+                  'Import Export ZIP'
                 )}
               </Button>
             </form>
+          </>
+        )}
+
+        {view === 'zip-result' && zipResult && (
+          <>
+            <DialogHeader>
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5 text-amber-500" />
+                <DialogTitle>Import finished with warnings</DialogTitle>
+              </div>
+              <DialogDescription>
+                &ldquo;{zipResult.project.name}&rdquo; was imported, but some parts of the archive were skipped.
+                Review them before using the project.
+              </DialogDescription>
+            </DialogHeader>
+            <ul className="max-h-60 space-y-1.5 overflow-y-auto rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+              {zipResult.warnings.map((w, i) => (
+                <li key={i} className="flex gap-2">
+                  <span className="shrink-0 font-mono text-[10px]">{i + 1}.</span>
+                  <span className="min-w-0 break-words">{w}</span>
+                </li>
+              ))}
+            </ul>
+            <DialogFooter>
+              <Button
+                onClick={() => {
+                  const id = zipResult.project.id;
+                  resetState();
+                  onOpenChange(false);
+                  router.push(`/dashboard/projects/${id}`);
+                }}
+                className="w-full"
+              >
+                Open project
+              </Button>
+            </DialogFooter>
           </>
         )}
 
@@ -1746,7 +2046,6 @@ export function CreateProjectDialog({
               <Badge variant="secondary">
                 <Shield className="h-3 w-3 mr-1" />
                 {importResult.auth.users} users
-                {importResult.auth.passwords ? ` · ${importResult.auth.passwords} with passwords` : ''}
               </Badge>
               <Badge variant="secondary">
                 <HardDrive className="h-3 w-3 mr-1" />

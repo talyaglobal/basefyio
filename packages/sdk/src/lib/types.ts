@@ -11,6 +11,33 @@ export interface BasefyioClientOptions {
   apiKey?: string;
   autoRefreshToken?: boolean;
   headers?: Record<string, string>;
+  /** Session handling for `bf.auth`. */
+  auth?: AuthOptions;
+}
+
+/**
+ * Where a persisted session is kept: `localStorage` in a browser by default,
+ * or anything with the same three methods (sync or async — e.g. AsyncStorage
+ * in React Native).
+ */
+export interface AuthStorage {
+  getItem(key: string): string | null | Promise<string | null>;
+  setItem(key: string, value: string): void | Promise<void>;
+  removeItem(key: string): void | Promise<void>;
+}
+
+export interface AuthOptions {
+  /**
+   * Keep the session across page loads. Off by default: the session lives in
+   * memory only, as it always has. Turned on, the tokens are stored in
+   * `storage` — readable by any script on the page, so only enable it where
+   * that is acceptable. Await `bf.auth.ready()` before reading the session.
+   */
+  persistSession?: boolean;
+  /** Defaults to `globalThis.localStorage` when it exists. */
+  storage?: AuthStorage;
+  /** Defaults to `basefyio.auth.<projectId>`. */
+  storageKey?: string;
 }
 
 // ── Generic response wrapper ────────────────────────────
@@ -117,7 +144,20 @@ export interface OAuthRedirectResult {
 
 export type OAuthProvider = 'google' | 'github';
 
-export type AuthChangeEvent = 'SIGNED_IN' | 'SIGNED_OUT' | 'TOKEN_REFRESHED' | 'EMAIL_VERIFIED' | 'EMAIL_CHANGED';
+/**
+ * - `SIGNED_IN` — a sign-in, sign-up, OAuth callback or MFA step produced a session.
+ * - `TOKEN_REFRESHED` — the access token was renewed.
+ * - `SIGNED_OUT` — the session ended (signOut, or a refresh the server refused).
+ * - `EMAIL_VERIFIED` / `EMAIL_CHANGED` — after verifyEmail / confirmChangeEmail.
+ * - `INITIAL_SESSION` — with `persistSession`, once the stored session (or none) is restored.
+ */
+export type AuthChangeEvent =
+  | 'SIGNED_IN'
+  | 'SIGNED_OUT'
+  | 'TOKEN_REFRESHED'
+  | 'EMAIL_VERIFIED'
+  | 'EMAIL_CHANGED'
+  | 'INITIAL_SESSION';
 export type AuthChangeListener = (event: AuthChangeEvent, session: Session | null) => void;
 
 // ── Database types ──────────────────────────────────────
@@ -136,6 +176,13 @@ export interface ColumnInfo {
   isPrimary: boolean;
 }
 
+/**
+ * A query's rows. Column values arrive as the database driver reads them:
+ * `bigint`, `numeric` and `count(*)` (a bigint) as **strings**, so no digit of
+ * a large number is lost to floating point — convert with `Number()` or
+ * `BigInt()` where that is safe. json/jsonb arrive parsed, timestamps as
+ * strings.
+ */
 export interface SqlResult {
   rows: Record<string, unknown>[];
   fields?: { name: string; dataTypeID?: number }[];

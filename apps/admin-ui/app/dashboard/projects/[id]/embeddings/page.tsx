@@ -38,10 +38,46 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { confirmDialog } from '@/components/ui/confirm-dialog';
+import { AiModelSettings } from '@/components/ai/ai-model-settings';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 /** Select value meaning "no project override — follow the platform setting". */
 const PLATFORM_DEFAULT = '__platform__';
 const REEMBED_POLL_MS = 5000;
+
+/** How each provider's key looks and where to get one, for the key card. */
+const KEY_HINTS: Record<string, { placeholder: string; help: string }> = {
+  openai: {
+    placeholder: 'sk-...',
+    help: 'Create one under API keys at platform.openai.com.',
+  },
+  cohere: {
+    placeholder: 'Cohere API key',
+    help: 'Create one under API keys in the Cohere dashboard.',
+  },
+  gemini: {
+    placeholder: 'AIza...',
+    help: 'Create one with "Get API key" in Google AI Studio (aistudio.google.com).',
+  },
+  ollama: {
+    placeholder: 'Bearer token (optional)',
+    help: 'Only needed when the Ollama host sits behind an authenticating proxy.',
+  },
+};
+
+/** Key test failures the API lets the caller override with `skipValidation`. */
+const SKIPPABLE_KEY_ERRORS = new Set(['EMBEDDING_PROVIDER_UNREACHABLE', 'EMBEDDING_API_KEY_TEST_FAILED']);
+
+function plural(n: number, word: string): string {
+  return `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`;
+}
 
 export default function EmbeddingsPage() {
   const { project } = useProject();
@@ -50,6 +86,9 @@ export default function EmbeddingsPage() {
   const [catalogue, setCatalogue] = useState<EmbeddingProviderCatalogue | null>(null);
   const [loading, setLoading] = useState(true);
   const [toggling, setToggling] = useState(false);
+  // Disable confirmation: keep the stored embeddings (default) or delete them.
+  const [disableOpen, setDisableOpen] = useState(false);
+  const [dropData, setDropData] = useState(false);
   const [apiKey, setApiKey] = useState('');
   const [savingKey, setSavingKey] = useState(false);
   const [showKey, setShowKey] = useState(false);
@@ -66,6 +105,10 @@ export default function EmbeddingsPage() {
   const [restUrl, setRestUrl] = useState(
     `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/rest/v1`,
   );
+  // The service key comes from the connection endpoint (the project record no
+  // longer carries it) and stays masked until the user asks to see it.
+  const [serviceKey, setServiceKey] = useState('');
+  const [showServiceKey, setShowServiceKey] = useState(false);
 
   const fetchStatus = useCallback(async () => {
     if (!project) return;
@@ -99,7 +142,10 @@ export default function EmbeddingsPage() {
     if (!project) return;
     api.projects
       .connect(project.id)
-      .then((conn) => conn?.restUrl && setRestUrl(conn.restUrl))
+      .then((conn) => {
+        if (conn?.restUrl) setRestUrl(conn.restUrl);
+        if (conn?.serviceKey) setServiceKey(conn.serviceKey);
+      })
       .catch(() => undefined); // keep the fallback; the status card reports real errors
   }, [project]);
 
@@ -130,25 +176,48 @@ export default function EmbeddingsPage() {
   const selectedOption = useMemo(
     () =>
       catalogue?.providers.find(
-        (p) => p.id === (providerSel === PLATFORM_DEFAULT ? status?.provider : providerSel),
+        (p) =>
+          p.id ===
+          (providerSel === PLATFORM_DEFAULT ? catalogue?.platformProvider ?? status?.provider : providerSel),
       ) ?? null,
     [catalogue, providerSel, status?.provider],
   );
 
   const handleToggle = async (enabled: boolean) => {
     if (!project) return;
+    if (!enabled) {
+      // Turning it off is never a single click: the dialog says what happens
+      // to the stored embeddings and lets the user choose.
+      setDropData(false);
+      setDisableOpen(true);
+      return;
+    }
     setToggling(true);
     try {
-      if (enabled) {
-        await api.embeddings.enable(project.id);
-        toast.success('pgvector enabled on your project database');
+      await api.embeddings.enable(project.id);
+      toast.success('pgvector enabled on your project database');
+      await fetchStatus();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to enable pgvector');
+    } finally {
+      setToggling(false);
+    }
+  };
+
+  const handleConfirmDisable = async () => {
+    if (!project) return;
+    setDisableOpen(false);
+    setToggling(true);
+    try {
+      const res = await api.embeddings.disable(project.id, { dropData });
+      if (dropData && !res.dataDropped) {
+        toast.warning('pgvector disabled, but the server did not confirm that the embedding data was deleted.');
       } else {
-        await api.embeddings.disable(project.id);
-        toast.success('pgvector disabled');
+        toast.success(dropData ? 'pgvector disabled and the embedding data deleted' : 'pgvector disabled; your embeddings are kept');
       }
       await fetchStatus();
     } catch (err: any) {
-      toast.error(err.message || 'Failed to toggle pgvector');
+      toast.error(err.message || 'Failed to disable pgvector');
     } finally {
       setToggling(false);
     }
@@ -156,10 +225,35 @@ export default function EmbeddingsPage() {
 
   const handleSaveApiKey = async () => {
     if (!project) return;
+    const key = apiKey.trim() || null;
+    // The key is tested against the provider picked in the form, so a key for
+    // a provider the project is about to switch to can be saved first.
+    const savedSel = status?.configSource === 'project' ? status.provider : PLATFORM_DEFAULT;
+    const opts =
+      key && providerSel !== savedSel
+        ? providerSel === PLATFORM_DEFAULT
+          ? { provider: null }
+          : { provider: providerSel, model: model.trim() || null, baseUrl: baseUrl.trim() || null }
+        : {};
     setSavingKey(true);
     try {
-      await api.embeddings.setApiKey(project.id, apiKey.trim() || null);
-      toast.success(apiKey.trim() ? 'API key saved' : 'API key cleared');
+      let res;
+      try {
+        res = await api.embeddings.setApiKey(project.id, key, opts);
+      } catch (err: any) {
+        if (!SKIPPABLE_KEY_ERRORS.has(err?.code)) throw err;
+        const ok = await confirmDialog({
+          title: 'Save the key without verifying it?',
+          description: `${err.message} The key will be stored as entered; embedding requests fail until it works.`,
+          confirmText: 'Save without verifying',
+        });
+        if (!ok) return;
+        res = await api.embeddings.setApiKey(project.id, key, { ...opts, skipValidation: true });
+      }
+      if (!key) toast.success('API key cleared');
+      else if (res?.warning) toast.warning(`API key saved. ${res.warning}`);
+      else if (res?.verified) toast.success('API key verified and saved');
+      else toast.success('API key saved without verification');
       setKeySaved(true);
       setApiKey('');
       setTimeout(() => setKeySaved(false), 2000);
@@ -257,6 +351,13 @@ export default function EmbeddingsPage() {
   const storedDims = disclosure?.provider.storedDimensions ?? status?.storedDimensions ?? null;
   const reembed = status?.reembed ?? null;
   const keyRequired = selectedOption ? selectedOption.requiresApiKey : status?.requiresApiKey ?? true;
+  // The key card follows the provider picked in the form, not only the saved one.
+  const keyProviderId = selectedOption?.id ?? status?.provider ?? 'openai';
+  const keyProviderName = selectedOption?.name ?? providerName;
+  const keyHint = KEY_HINTS[keyProviderId] ?? { placeholder: 'API key', help: '' };
+  const savedSel = status?.configSource === 'project' ? status.provider : PLATFORM_DEFAULT;
+  const keyForUnsavedProvider = providerSel !== savedSel;
+  const embeddingCount = status?.embeddingCount ?? null;
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-6">
@@ -307,7 +408,7 @@ export default function EmbeddingsPage() {
             {status.embeddingCount != null && (
               <Badge variant="secondary" className="gap-1.5">
                 <Sparkles className="h-3 w-3" />
-                {status.embeddingCount.toLocaleString()} embeddings
+                {plural(status.embeddingCount, 'embedding')}
               </Badge>
             )}
           </div>
@@ -320,6 +421,61 @@ export default function EmbeddingsPage() {
           </div>
         )}
       </div>
+
+      <Dialog open={disableOpen} onOpenChange={setDisableOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Disable pgvector?</DialogTitle>
+            <DialogDescription>
+              The Embeddings API stops accepting store and search requests for this project.
+              {embeddingCount != null
+                ? ` The project holds ${plural(embeddingCount, 'embedding')}.`
+                : ''}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2" role="radiogroup" aria-label="What happens to the stored embeddings">
+            <label className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 text-sm has-[:checked]:border-primary">
+              <input
+                type="radio"
+                name="pgvector-disable"
+                className="mt-1"
+                checked={!dropData}
+                onChange={() => setDropData(false)}
+              />
+              <span>
+                <span className="font-medium">Keep the embedding data</span>
+                <span className="block text-xs text-muted-foreground">
+                  The kb_embeddings tables stay in your database and are used again when you re-enable pgvector.
+                </span>
+              </span>
+            </label>
+            <label className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 text-sm has-[:checked]:border-destructive">
+              <input
+                type="radio"
+                name="pgvector-disable"
+                className="mt-1"
+                checked={dropData}
+                onChange={() => setDropData(true)}
+              />
+              <span>
+                <span className="font-medium">Delete the embedding data</span>
+                <span className="block text-xs text-muted-foreground">
+                  Drops the kb_embeddings and kb_embeddings_store tables with every stored text and vector. This cannot
+                  be undone. The vector extension stays installed for your own tables.
+                </span>
+              </span>
+            </label>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDisableOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleConfirmDisable}>
+              {dropData ? 'Disable and delete data' : 'Disable pgvector'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Re-embed progress */}
       {reembed && reembed.status !== 'COMPLETED' && (
@@ -461,6 +617,10 @@ export default function EmbeddingsPage() {
             <span className="text-xs text-muted-foreground">Provider list unavailable.</span>
           )}
         </div>
+        <p className="mt-3 text-xs text-muted-foreground">
+          Claude is not listed because Anthropic does not offer an embeddings API. You can choose Claude as the model of
+          the AI assistant below.
+        </p>
         {status?.pgvectorEnabled && (status.embeddingCount ?? 0) > 0 && (
           <p className="mt-3 text-xs text-muted-foreground">
             Changing the model re-embeds the {status.embeddingCount?.toLocaleString()} vectors this project
@@ -476,14 +636,14 @@ export default function EmbeddingsPage() {
             <Key className="h-5 w-5 text-amber-600 dark:text-amber-400" />
           </div>
           <div className="flex-1">
-            <h2 className="text-base font-semibold">{providerName} API key</h2>
+            <h2 className="text-base font-semibold">{keyProviderName} API key</h2>
             <p className="mt-0.5 text-sm text-muted-foreground">
               {keyRequired
-                ? 'Per-project key for generating embeddings. If not set, the platform-level key is used.'
+                ? `Per-project ${keyProviderName} key for generating embeddings. If not set, the platform-level key is used.`
                 : 'Optional for a self-hosted provider — only needed when the host sits behind an authenticating proxy.'}
             </p>
           </div>
-          {status?.hasApiKey && (
+          {status?.hasApiKey && !keyForUnsavedProvider && (
             <Badge variant="outline" className="shrink-0 gap-1.5">
               <Check className="h-3 w-3 text-emerald-500" />
               {status.keySource === 'project'
@@ -502,7 +662,7 @@ export default function EmbeddingsPage() {
               <Input
                 id="embedding-api-key"
                 type={showKey ? 'text' : 'password'}
-                placeholder={status?.provider === 'openai' ? 'sk-...' : 'API key'}
+                placeholder={keyHint.placeholder}
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 className="pr-10"
@@ -525,11 +685,22 @@ export default function EmbeddingsPage() {
               )}
             </Button>
           </div>
+          {keyHint.help && <p className="text-xs text-muted-foreground">{keyHint.help}</p>}
           <p className="text-xs text-muted-foreground">
-            Leave empty and click Save to clear the per-project key and fall back to the platform key.
+            The key is checked with one small test request to {keyProviderName} before it is saved. Leave the field
+            empty and click Save to clear the per-project key and fall back to the platform key.
           </p>
+          {keyForUnsavedProvider && (
+            <p className="text-xs text-amber-600 dark:text-amber-400">
+              {keyProviderName} is selected above but not saved yet: the key is checked against {keyProviderName}.
+              Click Save provider afterwards to switch.
+            </p>
+          )}
         </div>
       </div>
+
+      {/* The assistant's own model and key (OpenAI, Gemini or Claude) */}
+      <AiModelSettings projectId={project.id} />
 
       {/* Card 4: Where your data goes */}
       <div className="rounded-xl border bg-card p-6">
@@ -582,7 +753,8 @@ export default function EmbeddingsPage() {
               <dt className="text-xs text-muted-foreground">Data region</dt>
               <dd>
                 {disclosure.dataRegion.label}
-                {disclosure.dataRegion.code && !disclosure.dataRegion.label.includes(disclosure.dataRegion.code) && (
+                {disclosure.dataRegion.code &&
+                  !disclosure.dataRegion.label.toUpperCase().includes(disclosure.dataRegion.code.toUpperCase()) && (
                   <span className="text-muted-foreground"> ({disclosure.dataRegion.code})</span>
                 )}
               </dd>
@@ -693,9 +865,28 @@ export default function EmbeddingsPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="w-24 shrink-0 text-xs text-muted-foreground">service key</span>
-                  <span className="flex-1 truncate text-xs text-muted-foreground">
-                    Use a secret key from <span className="font-medium">Connect → API Keys</span>; server keys are not shown here.
-                  </span>
+                  <code className="flex-1 truncate rounded bg-muted px-2 py-1 text-xs">
+                    {showServiceKey ? serviceKey : serviceKey ? `••••••••${serviceKey.slice(-4)}` : '…'}
+                  </code>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 shrink-0"
+                    onClick={() => setShowServiceKey((v) => !v)}
+                    disabled={!serviceKey}
+                    title={showServiceKey ? 'Hide service key' : 'Show service key'}
+                  >
+                    {showServiceKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 shrink-0"
+                    onClick={() => copyToClipboard(serviceKey, 'Service key')}
+                    disabled={!serviceKey}
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </Button>
                 </div>
               </div>
             </div>
@@ -709,7 +900,7 @@ export default function EmbeddingsPage() {
 const res = await fetch('${restUrl}/embeddings', {
   method: 'POST',
   headers: {
-    'apikey': '<your-secret-key>',
+    'apikey': process.env.BASEFYIO_SERVICE_ROLE_KEY, // server-side only
     'Content-Type': 'application/json',
   },
   body: JSON.stringify({
@@ -730,7 +921,7 @@ const results = await fetch('${restUrl}/embeddings/search', {
     query: 'forgot my password',
     namespace: 'faq',
     limit: 5,
-    threshold: 0.7, // max cosine distance, default 0.5 (similarity >= 0.5)
+    threshold: 0.7, // max cosine distance (0-2, lower = stricter): keeps results with score = 1 - distance above 0.3; default 0.5
   }),
 });`}</code>
                 </pre>
@@ -765,7 +956,7 @@ const results = await fetch('${restUrl}/embeddings/search', {
     query: 'forgot my password',
     namespace: 'faq',
     limit: 5,
-    threshold: 0.7, // max cosine distance, default 0.5 (similarity >= 0.5)
+    threshold: 0.7, // max cosine distance (0-2, lower = stricter): keeps results with score = 1 - distance above 0.3; default 0.5
   }),
 });`,
                       'Code snippet',

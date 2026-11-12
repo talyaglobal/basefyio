@@ -27,6 +27,11 @@ export interface DocumentResult {
 
 const NOSQL_SCHEMA = 'nosql';
 const VALID_COLLECTION_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+/** PostgreSQL identifiers are cut at 63 bytes; longer names would silently collide. */
+const MAX_COLLECTION_NAME_LENGTH = 63;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Dotted JSON path for an index: "status" or "address.city". */
+const INDEX_PATH_RE = /^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*){0,7}$/;
 const MAX_DOCUMENT_SIZE_BYTES = 16 * 1024 * 1024; // 16 MB
 
 @Injectable()
@@ -45,10 +50,7 @@ export class CollectionService {
     opts?: { statementTimeoutMs?: number },
   ): Promise<{ pool: Pool; project: any }> {
     const project = await this.prisma.project.findFirst({
-      // A sleeping project is still there. The dashboard may browse it while
-      // it sleeps; waking is the customer's explicit choice, never a side
-      // effect of a read.
-      where: { id: projectId, status: { in: ['ACTIVE', 'PAUSED'] } },
+      where: { id: projectId, status: 'ACTIVE' },
     });
     if (!project) throw new NotFoundException('Project not found');
 
@@ -87,10 +89,31 @@ export class CollectionService {
   /* ─────────────── Validation ─────────────── */
 
   private validateCollectionName(name: string): void {
-    if (!VALID_COLLECTION_RE.test(name)) {
+    if (typeof name !== 'string' || !VALID_COLLECTION_RE.test(name)) {
       throw new BadRequestException(
-        `Invalid collection name: "${name}". Must start with a letter or underscore and contain only alphanumeric characters.`,
+        `Invalid collection name: "${name}". Must start with a letter or underscore and contain only letters, digits and underscores.`,
       );
+    }
+  }
+
+  /**
+   * Only enforced when creating: PostgreSQL silently truncates longer names, so
+   * a collection created with one would answer to a different name. Existing
+   * callers that address a collection by a longer (truncated) name keep working.
+   */
+  private validateNewCollectionName(name: string): void {
+    this.validateCollectionName(name);
+    if (name.length > MAX_COLLECTION_NAME_LENGTH) {
+      throw new BadRequestException(
+        `Invalid collection name: "${name}" is ${name.length} characters long; the maximum is ${MAX_COLLECTION_NAME_LENGTH}.`,
+      );
+    }
+  }
+
+  /** Document ids are UUIDs; anything else is a client error, not a database error. */
+  private validateDocId(docId: string): void {
+    if (!UUID_RE.test(docId)) {
+      throw new BadRequestException(`Invalid document id "${docId}": document ids are UUIDs`);
     }
   }
 
@@ -105,7 +128,7 @@ export class CollectionService {
     collectionName: string,
     userId?: string,
   ): Promise<{ message: string }> {
-    this.validateCollectionName(collectionName);
+    this.validateNewCollectionName(collectionName);
 
     const { pool } = await this.getProjectPool(projectId, userId);
     const client = await pool.connect();
@@ -127,6 +150,12 @@ export class CollectionService {
       // GIN index for fast JSONB queries
       await client.query(
         `CREATE INDEX "idx_${collectionName}_data_gin" ON ${qualified} USING GIN (data)`,
+      );
+
+      // Serves the default document order (creation order, id as the tiebreaker).
+      // The "-" keeps the name clear of the idx_<collection>_<field> field indexes.
+      await client.query(
+        `CREATE INDEX "${`idx_${collectionName}-order`.slice(0, MAX_COLLECTION_NAME_LENGTH)}" ON ${qualified} (created_at, id)`,
       );
 
       // Grant table permissions for RLS roles
@@ -250,6 +279,13 @@ export class CollectionService {
     const client = await pool.connect();
 
     try {
+      const exists = await client.query(
+        `SELECT 1 FROM pg_catalog.pg_tables WHERE schemaname = $1 AND tablename = $2`,
+        [NOSQL_SCHEMA, collectionName],
+      );
+      if (exists.rowCount === 0) {
+        throw new NotFoundException(`Collection "${collectionName}" not found`);
+      }
       await client.query(
         `DROP TABLE IF EXISTS ${this.qualifiedName(collectionName)} CASCADE`,
       );
@@ -373,7 +409,10 @@ export class CollectionService {
     try {
       const qualified = this.qualifiedName(collectionName);
       const { where, params } = buildNoSqlFilter(options.filter);
-      const orderBy = buildNoSqlSort(options.sort);
+      // id is the final tiebreaker so pages never skip or repeat documents;
+      // without a sort, documents come in creation order.
+      const sortSql = buildNoSqlSort(options.sort);
+      const orderBy = sortSql ? `${sortSql}, id ASC` : 'created_at ASC, id ASC';
       const projection = buildNoSqlProjection(options.project);
 
       const selectExpr = projection
@@ -390,7 +429,7 @@ export class CollectionService {
 
       const [dataResult, countResult] = await Promise.all([
         client.query(
-          `SELECT ${selectExpr} FROM ${qualified} ${whereClause} ${orderBy ? `ORDER BY ${orderBy}` : ''} LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
+          `SELECT ${selectExpr} FROM ${qualified} ${whereClause} ORDER BY ${orderBy} LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
           [...params, limit, offset],
         ),
         client.query(
@@ -425,6 +464,7 @@ export class CollectionService {
     userId?: string,
   ): Promise<DocumentResult> {
     this.validateCollectionName(collectionName);
+    this.validateDocId(docId);
 
     const { pool } = await this.getProjectPool(projectId, userId);
     const client = await pool.connect();
@@ -462,6 +502,7 @@ export class CollectionService {
     userId?: string,
   ): Promise<DocumentResult> {
     this.validateCollectionName(collectionName);
+    this.validateDocId(docId);
 
     const { pool } = await this.getProjectPool(projectId, userId);
     const client = await pool.connect();
@@ -507,6 +548,7 @@ export class CollectionService {
     userId?: string,
   ): Promise<DocumentResult> {
     this.validateCollectionName(collectionName);
+    this.validateDocId(docId);
 
     const size = Buffer.byteLength(JSON.stringify(newDoc), 'utf8');
     if (size > MAX_DOCUMENT_SIZE_BYTES) {
@@ -557,6 +599,7 @@ export class CollectionService {
     userId?: string,
   ): Promise<{ message: string }> {
     this.validateCollectionName(collectionName);
+    this.validateDocId(docId);
 
     const { pool } = await this.getProjectPool(projectId, userId);
     const client = await pool.connect();
@@ -577,6 +620,9 @@ export class CollectionService {
       return { message: 'Document deleted' };
     } catch (err: any) {
       if (err instanceof NotFoundException) throw err;
+      if (err.code === '42P01') {
+        throw new NotFoundException(`Collection "${collectionName}" not found`);
+      }
       throw new BadRequestException(`Delete failed: ${err.message}`);
     } finally {
       client.release();
@@ -655,15 +701,30 @@ export class CollectionService {
     }
   }
 
+  /** Index expression for a (possibly dotted) field path — the same expression the filters use. */
+  private indexExpression(fieldPath: string): string {
+    const parts = fieldPath.split('.');
+    return parts.length === 1
+      ? `(data->>'${parts[0]}')`
+      : `(data #>> '{${parts.join(',')}}')`;
+  }
+
   async createIndex(
     projectId: string,
     collectionName: string,
     fieldPath: string,
     userId?: string,
-  ): Promise<{ message: string }> {
+  ): Promise<{ message: string; name: string }> {
     this.validateCollectionName(collectionName);
-    if (!VALID_COLLECTION_RE.test(fieldPath)) {
-      throw new BadRequestException(`Invalid field path: "${fieldPath}"`);
+    if (typeof fieldPath !== 'string' || fieldPath.trim() === '') {
+      throw new BadRequestException(
+        'fieldPath is required, e.g. { "fieldPath": "status" } or { "fieldPath": "address.city" }',
+      );
+    }
+    if (!INDEX_PATH_RE.test(fieldPath)) {
+      throw new BadRequestException(
+        `Invalid field path: "${fieldPath}". Use a field name or a dotted path such as "address.city" (letters, digits, underscores).`,
+      );
     }
 
     const { pool } = await this.getProjectPool(projectId, userId);
@@ -671,14 +732,20 @@ export class CollectionService {
 
     try {
       const qualified = this.qualifiedName(collectionName);
-      const indexName = `idx_${collectionName}_${fieldPath.replace(/\./g, '_')}`;
-
-      await client.query(
-        `CREATE INDEX IF NOT EXISTS "${indexName}" ON ${qualified} ((data->>'${fieldPath}'))`,
+      const indexName = `idx_${collectionName}_${fieldPath.replace(/\./g, '_')}`.slice(
+        0,
+        MAX_COLLECTION_NAME_LENGTH,
       );
 
-      return { message: `Index created on "${collectionName}.${fieldPath}"` };
+      await client.query(
+        `CREATE INDEX IF NOT EXISTS "${indexName}" ON ${qualified} (${this.indexExpression(fieldPath)})`,
+      );
+
+      return { message: `Index created on "${collectionName}.${fieldPath}"`, name: indexName };
     } catch (err: any) {
+      if (err.code === '42P01') {
+        throw new NotFoundException(`Collection "${collectionName}" not found`);
+      }
       throw new BadRequestException(
         `Failed to create index: ${err.message}`,
       );
@@ -687,4 +754,90 @@ export class CollectionService {
       await pool.end();
     }
   }
+
+  /**
+   * The collection's indexes. `system` marks the two created with the
+   * collection (the primary key and the GIN index behind every filter) —
+   * those cannot be dropped.
+   */
+  async listIndexes(
+    projectId: string,
+    collectionName: string,
+    userId?: string,
+  ): Promise<Array<{ name: string; fieldPath: string | null; definition: string; system: boolean }>> {
+    this.validateCollectionName(collectionName);
+    const { pool } = await this.getProjectPool(projectId, userId);
+    const client = await pool.connect();
+    try {
+      const exists = await client.query(
+        `SELECT 1 FROM pg_catalog.pg_tables WHERE schemaname = $1 AND tablename = $2`,
+        [NOSQL_SCHEMA, collectionName],
+      );
+      if (exists.rowCount === 0) {
+        throw new NotFoundException(`Collection "${collectionName}" not found`);
+      }
+      const result = await client.query(
+        `SELECT indexname, indexdef FROM pg_catalog.pg_indexes WHERE schemaname = $1 AND tablename = $2 ORDER BY indexname`,
+        [NOSQL_SCHEMA, collectionName],
+      );
+      return (result.rows as { indexname: string; indexdef: string }[]).map((row) =>
+        describeIndex(row.indexname, row.indexdef),
+      );
+    } finally {
+      client.release();
+      await pool.end();
+    }
+  }
+
+  async dropIndex(
+    projectId: string,
+    collectionName: string,
+    indexName: string,
+    userId?: string,
+  ): Promise<{ message: string }> {
+    this.validateCollectionName(collectionName);
+    const indexes = await this.listIndexes(projectId, collectionName, userId);
+    const index = indexes.find((i) => i.name === indexName);
+    if (!index) {
+      throw new NotFoundException(
+        `Index "${indexName}" not found on collection "${collectionName}"`,
+      );
+    }
+    if (index.system) {
+      throw new BadRequestException(
+        `Index "${indexName}" is created with the collection and cannot be dropped`,
+      );
+    }
+    const { pool } = await this.getProjectPool(projectId, userId);
+    const client = await pool.connect();
+    try {
+      // The name was matched against pg_indexes above, so it names a real index.
+      await client.query(
+        `DROP INDEX IF EXISTS "${NOSQL_SCHEMA}"."${indexName.replace(/"/g, '""')}"`,
+      );
+      return { message: `Index "${indexName}" dropped` };
+    } finally {
+      client.release();
+      await pool.end();
+    }
+  }
+}
+
+/**
+ * Describe a pg_indexes row: which document field it covers (null for
+ * other expressions) and whether it is one of the indexes every collection
+ * is created with.
+ */
+export function describeIndex(
+  name: string,
+  definition: string,
+): { name: string; fieldPath: string | null; definition: string; system: boolean } {
+  const single = /\(data ->> '([^']+)'::text\)/.exec(definition);
+  const nested = /\(data #>> '\{([^}]+)\}'::text\[\]\)/.exec(definition);
+  const fieldPath = single ? single[1] : nested ? nested[1].split(',').join('.') : null;
+  const system =
+    name.endsWith('_pkey') ||
+    /USING gin \(data\)/i.test(definition) ||
+    /\(created_at, id\)/.test(definition);
+  return { name, fieldPath, definition, system };
 }

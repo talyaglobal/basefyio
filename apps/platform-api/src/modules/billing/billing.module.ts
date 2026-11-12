@@ -7,6 +7,7 @@ import { QuotaService } from './quota.service';
 import { ProjectCostService } from './project-cost.service';
 import { BillingScheduler } from './billing.scheduler';
 import { StripeSummaryScheduler } from './stripe-summary.scheduler';
+import { StripeOverviewService } from './stripe-overview.service';
 import { RootRoleGuard } from '../../common/guards/root-role.guard';
 import { ObservabilityModule } from '../observability/observability.module';
 import { ManagementPermissionGuard } from '../../common/guards/management-permission.guard';
@@ -28,6 +29,7 @@ import { QuickbooksModule } from '../quickbooks/quickbooks.module';
     ProjectCostService,
     BillingScheduler,
     StripeSummaryScheduler,
+    StripeOverviewService,
     BillingProcessor,
     RootRoleGuard,
     ManagementPermissionGuard,

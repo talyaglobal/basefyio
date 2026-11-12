@@ -24,6 +24,7 @@ import type { DataEngine, EntityCollection } from '../../interfaces/data-engine'
 import {
   ConcurrencyError,
   DataEngineError,
+  DocumentNotDeletedError,
   DocumentNotFoundError,
   DocumentTooLargeError,
   TenantNotProvisionedError,
@@ -39,6 +40,7 @@ import type {
   ProviderCapabilities,
   TenantDataPlane,
   WriteOpts,
+  ReadOpts,
 } from '../../interfaces/types';
 import type {
   EntityAggregation,
@@ -457,9 +459,9 @@ class CouchDbEntityCollection implements EntityCollection {
     return this.toDocResult(record);
   }
 
-  async get(id: string): Promise<DocResult | null> {
+  async get(id: string, opts?: ReadOpts): Promise<DocResult | null> {
     const doc = await this.fetchRaw(id);
-    if (!doc || doc.envelope.status === 'deleted') return null;
+    if (!doc || (doc.envelope.status === 'deleted' && !opts?.includeSoftDeleted)) return null;
     return this.toDocResult(doc);
   }
 
@@ -480,6 +482,19 @@ class CouchDbEntityCollection implements EntityCollection {
     });
   }
 
+  async restore(id: string, opts?: WriteOpts): Promise<DocResult> {
+    const doc = await this.fetchRaw(id);
+    if (!doc) throw new DocumentNotFoundError(this.entity, id);
+    if (doc.envelope.status !== 'deleted') throw new DocumentNotDeletedError(this.entity, id);
+    return this.mutate(
+      id,
+      opts,
+      (current) => current.data,
+      { status: 'active', deletedAt: null },
+      { deleted: true },
+    );
+  }
+
   /**
    * Shared read-modify-write with CAS. The envelope `version` implements the
    * public optimistic-concurrency contract; the CouchDB `_rev` guards the
@@ -489,13 +504,14 @@ class CouchDbEntityCollection implements EntityCollection {
     id: string,
     opts: WriteOpts | undefined,
     nextData: (current: CouchRecordDoc) => JsonObject,
-    statusOverride?: { status: DocumentStatus; deletedAt: string },
+    statusOverride?: { status: DocumentStatus; deletedAt: string | null },
+    match: { deleted: boolean } = { deleted: false },
   ): Promise<DocResult> {
     const maxAttempts = opts?.ifMatch !== undefined ? 1 : 3;
 
     for (let attempt = 1; ; attempt++) {
       const current = await this.fetchRaw(id);
-      if (!current || current.envelope.status === 'deleted') {
+      if (!current || (current.envelope.status === 'deleted') !== match.deleted) {
         throw new DocumentNotFoundError(this.entity, id);
       }
       if (opts?.ifMatch !== undefined && current.envelope.version !== opts.ifMatch) {
@@ -620,8 +636,8 @@ class CouchDbEntityCollection implements EntityCollection {
     };
   }
 
-  async count(filter?: Filter): Promise<number> {
-    const selector = this.baseSelector(false, filter);
+  async count(filter?: Filter, opts?: ReadOpts): Promise<number> {
+    const selector = this.baseSelector(opts?.includeSoftDeleted === true, filter);
     const matches = await this.scanAll(selector);
     return matches.length;
   }

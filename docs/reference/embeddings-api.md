@@ -1,8 +1,8 @@
 # Embeddings API
 
 Store text as vectors in the project's own database (pgvector) and search it semantically.
-Vectors are produced by an embedding provider — OpenAI by default, or Ollama (self-hosted) or
-Cohere — chosen for the platform by the operator and overridable per project. Everything a
+Vectors are produced by an embedding provider — OpenAI by default, or Ollama (self-hosted),
+Cohere or Google Gemini — chosen for the platform by the operator and overridable per project. Everything a
 customer needs to know about where their text goes is exposed by the disclosure routes.
 
 ## Public routes (`/api/rest/v1/embeddings`)
@@ -38,8 +38,9 @@ missing or an item has an empty `content`.
 POST /api/rest/v1/embeddings/search   { "query": "how do I reset my password", "namespace": "docs", "threshold": 0.5, "limit": 10, "filter": { "source": "faq" } }
 ```
 
-`threshold` is the maximum cosine distance (default 0.5), `limit` defaults to 10 and is
-capped, `filter` matches `metadata` keys exactly. Results:
+`threshold` is the maximum cosine distance (0–2, default 0.5; lower is stricter, and each result's
+`score` is `1 - distance`), `limit` defaults to 10 and is capped, `filter` matches `metadata` keys
+exactly. A search answers **200 OK** (it creates nothing). Results:
 
 ```json
 [ { "id": "…", "namespace": "docs", "content": "…", "metadata": {…}, "distance": 0.18, "score": 0.82 } ]
@@ -63,8 +64,8 @@ object the dashboard shows, so an application can display it to its own users.
 |---|---|---|---|
 | GET | `/api/projects/:projectId/embeddings/status` | session | same as the public status |
 | POST | `/api/projects/:projectId/embeddings/enable` | session | create the pgvector extension and the embedding tables in the project database |
-| DELETE | `/api/projects/:projectId/embeddings/enable` | session | disable (tables are kept) |
-| POST | `/api/projects/:projectId/embeddings/api-key` | session | `{ "apiKey": "sk-…" }` or `{ "apiKey": null }` — a per-project key for the selected provider |
+| DELETE | `/api/projects/:projectId/embeddings/enable` | session | disable; the tables are kept. `?dropData=true` also drops `kb_embeddings` and `kb_embeddings_store` (not cascading — 409 `EMBEDDING_TABLES_IN_USE` when your own objects depend on them). Answers `{ message, projectId, dataDropped }` |
+| POST | `/api/projects/:projectId/embeddings/api-key` | session | `{ "apiKey": "sk-…", "provider"?, "model"?, "baseUrl"?, "skipValidation"? }` or `{ "apiKey": null }` — a per-project key. The key is tested with one small embedding request before it is stored; answers `{ message, verified, warning }` |
 | GET | `/api/projects/:projectId/embeddings/providers` | session | the providers a project may choose from, their default models, and which platform keys exist |
 | PUT | `/api/projects/:projectId/embeddings/provider` | session | `{ provider?, model?, baseUrl?, reembed? }` — switch the project's provider/model/endpoint |
 | POST | `/api/projects/:projectId/embeddings/reembed` | session | re-embed every stored vector with the current provider; returns the job `{ status, done, total, model, updatedAt, finishedAt, error }` |
@@ -78,7 +79,7 @@ the `reembed` route) up to `EMBEDDING_REEMBED_MAX_ROWS`.
 Platform-wide settings: `EMBEDDING_PROVIDER`, `EMBEDDING_MODEL`, `EMBEDDING_BASE_URL`,
 `EMBEDDING_DIMENSIONS`, `EMBEDDING_FALLBACK_*` (a second provider used when the first fails
 with an auth, quota or connectivity error), `OPENAI_API_KEY`, `OLLAMA_BASE_URL`,
-`COHERE_API_KEY`, `PLATFORM_REGION`, `EMBEDDING_MAX_DAILY_TOKENS` — see
+`COHERE_API_KEY`, `GEMINI_API_KEY`, `PLATFORM_REGION`, `EMBEDDING_MAX_DAILY_TOKENS` — see
 [configuration.md](./configuration.md).
 
 ## Errors
@@ -87,8 +88,11 @@ with an auth, quota or connectivity error), `OPENAI_API_KEY`, `OLLAMA_BASE_URL`,
 |---|---|
 | 400 | `Body must be { items: [{ content, namespace?, metadata? }] }`; `items[i].content must be a non-empty string`; `query must be a non-empty string`; `No OpenAI API key available` (no platform or project key for the provider); a model wider than the store |
 | 403 | anon key on a write; `Namespace deletion requires service_role key` |
+| 400 | `EMBEDDING_API_KEY_REJECTED` (the provider refused the key — nothing stored), `EMBEDDING_API_KEY_TEST_FAILED` (the test request was refused, e.g. unknown model), `EMBEDDING_API_KEY_INVALID_FORMAT` |
 | 404 | `Project not found` |
+| 409 | `EMBEDDING_TABLES_IN_USE`, `EMBEDDING_REEMBED_RUNNING` (on `?dropData=true`) |
+| 502 | `EMBEDDING_PROVIDER_UNREACHABLE` — the key could not be tested; retry, or send `skipValidation: true` |
 
 Source: `apps/platform-api/src/modules/tenant-embedding/tenant-embedding-public.controller.ts`,
 `tenant-embedding.controller.ts`, `ai-disclosure.controller.ts`, `tenant-embedding.service.ts`,
-`dto/set-embedding-provider.dto.ts`, `apps/platform-api/src/modules/embedding/embedding.service.ts`.
+`dto/set-embedding-provider.dto.ts`, `dto/set-embedding-api-key.dto.ts`, `apps/platform-api/src/modules/embedding/embedding.service.ts`.

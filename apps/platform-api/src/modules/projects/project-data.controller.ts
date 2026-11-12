@@ -104,7 +104,14 @@ export class ProjectDataController {
     @Param('projectId') projectId: string,
     @Body() body: {
       name: string;
-      columns: { name: string; type: string; nullable: boolean; isPrimary: boolean; defaultValue?: string }[];
+      columns: {
+        name: string;
+        type: string;
+        nullable: boolean;
+        isPrimary: boolean;
+        defaultValue?: string;
+        isUnique?: boolean;
+      }[];
     },
     @CurrentUser() user?: JwtPayload,
   ) {
@@ -115,6 +122,26 @@ export class ProjectDataController {
       title: `Table created: ${body.name}`,
       detail: `${body.columns.length} columns`,
     });
+    return result;
+  }
+
+  /** Rename a table: body `{ "name": "new_name" }`. */
+  @Put('tables/:tableName')
+  async renameTable(
+    @Param('projectId') projectId: string,
+    @Param('tableName') tableName: string,
+    @Body() body: { name: string },
+    @Query('schema') schema?: string,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    const result = await this.dataService.renameTable(projectId, user?.sub, tableName, body?.name, schema);
+    if (result.name !== tableName) {
+      await this.activity.append(projectId, {
+        userId: user?.sub,
+        kind: ProjectActivityKind.TABLE_RENAMED,
+        title: `Table renamed: ${tableName} → ${result.name}`,
+      });
+    }
     return result;
   }
 
@@ -140,11 +167,27 @@ export class ProjectDataController {
   async updateRow(
     @Param('projectId') projectId: string,
     @Param('tableName') tableName: string,
-    @Body() body: { pkWhere: Record<string, unknown>; data: Record<string, unknown> },
+    @Body() body: {
+      pkWhere: Record<string, unknown>;
+      data: Record<string, unknown>;
+      /**
+       * The row's `_bf_xmin` as the editor read it. When sent, the update only
+       * applies if the row is unchanged since; otherwise 409 ROW_CHANGED.
+       */
+      expectedVersion?: string;
+    },
     @Query('schema') schema?: string,
     @CurrentUser() user?: JwtPayload,
   ) {
-    const row = await this.dataService.updateRow(projectId, user?.sub, tableName, body.pkWhere, body.data, schema);
+    const row = await this.dataService.updateRow(
+      projectId,
+      user?.sub,
+      tableName,
+      body.pkWhere,
+      body.data,
+      schema,
+      body.expectedVersion,
+    );
     await this.activity.append(projectId, {
       userId: user?.sub,
       kind: ProjectActivityKind.TABLE_ROW_UPDATED,

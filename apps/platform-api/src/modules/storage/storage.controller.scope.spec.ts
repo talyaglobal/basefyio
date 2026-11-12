@@ -21,7 +21,7 @@ import { Reflector } from '@nestjs/core';
 import { API_KEY_SCOPE_KEY } from '../../common/decorators/api-key-scope.decorator';
 import { ApiKeyGuard } from '../../common/guards/api-key.guard';
 import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
-import { StorageController } from './storage.controller';
+import { MAX_FILE_SIZE, StorageController } from './storage.controller';
 
 /**
  * Who may reach which storage route, read from what Nest itself reads.
@@ -57,15 +57,17 @@ describe('StorageController — declared key scope', () => {
 
   it('tripwire: exactly these routes are open to the public anon key', () => {
     // A new public route fails here until it is named. An <img src> cannot send
-    // headers, so these three are the only ones a browser needs without a user.
+    // headers, so these three are the only ones a browser needs without a user;
+    // `limits` only reports the platform's upload ceilings.
     const open = routeHandlers().filter((h) => effectiveScope(h) === 'anon').sort();
-    expect(open).toEqual(['downloadObject', 'getPublicUrl', 'renderObject']);
+    expect(open).toEqual(['downloadObject', 'getPublicUrl', 'limits', 'renderObject']);
   });
 
   it('these routes need a signed-in end user (or the service key)', () => {
     const authenticated = routeHandlers().filter((h) => effectiveScope(h) === 'authenticated').sort();
     expect(authenticated).toEqual(
       [
+        'copyObject',
         'createFolder',
         'deleteObjects',
         'findExisting',
@@ -73,6 +75,7 @@ describe('StorageController — declared key scope', () => {
         'listBuckets',
         'listObjects',
         'moveObjects',
+        'renameObject',
         'uploadObject',
       ].sort(),
     );
@@ -95,9 +98,7 @@ describe('StorageController — declared key scope', () => {
 });
 
 describe('StorageController — the real ApiKeyGuard against the real handlers', () => {
-  // The guard reads `status`: an active project is admitted, a deactivated one
-  // is activated, anything else is refused.
-  const PROJECT = { id: 'p1', anonKey: 'anon-key', serviceKey: 'svc-key', keycloakRealm: 'realm-p1', status: 'ACTIVE' };
+  const PROJECT = { id: 'p1', anonKey: 'anon-key', serviceKey: 'svc-key', keycloakRealm: 'realm-p1' };
 
   let warn: jest.SpyInstance;
   beforeAll(() => {
@@ -215,22 +216,31 @@ describe('StorageController — handler behaviour', () => {
     const storage = {
       listBuckets: jest.fn().mockResolvedValue([]),
       createBucket: jest.fn().mockResolvedValue({ id: 'bf-acme-docs', name: 'docs' }),
-      deleteBucket: jest.fn().mockResolvedValue({ message: 'deleted' }),
+      deleteBucket: jest.fn().mockResolvedValue({ message: 'deleted', deletedObjects: 0 }),
       toggleBucketPublic: jest.fn().mockImplementation(async (_p, _u, _b, pub: boolean) => ({ public: pub })),
+      setBucketLimits: jest
+        .fn()
+        .mockImplementation(async (_p, _b, l) => ({ fileSizeLimit: null, allowedMimeTypes: [], ...l })),
+      getBucketLimits: jest.fn().mockResolvedValue({ fileSizeLimit: null, allowedMimeTypes: [] }),
       getPublicUrl: jest.fn().mockResolvedValue({ public: false, url: null }),
       createFolder: jest.fn().mockResolvedValue({ name: 'docs/2026/' }),
       findExistingObjects: jest.fn().mockResolvedValue(['a.txt']),
       moveObjects: jest.fn().mockResolvedValue({ moved: 2 }),
+      copyObjects: jest.fn().mockImplementation(async (_p, _u, _b, from, to) => ({ from, to, count: 1 })),
       getPresignedUrl: jest.fn().mockResolvedValue({ url: 'signed', expiresIn: 3600 }),
-      deleteObjects: jest.fn().mockResolvedValue({ message: 'Deleted 1 object(s)' }),
-      resolveBucket: jest.fn(),
+      deleteObjects: jest.fn().mockResolvedValue({ message: 'Deleted 1 object(s)', deleted: ['a'], notFound: [] }),
+      isPublicBucket: jest.fn().mockResolvedValue(false),
+      resolveBucket: jest.fn().mockResolvedValue({ minioBucket: 'bf-acme-docs' }),
+      resolveProject: jest.fn().mockResolvedValue({ id: 'p1' }),
       statObjectIn: jest.fn(),
     };
     const activity = { append: jest.fn().mockResolvedValue(undefined) };
     const access = {
       resolveMode: jest.fn().mockResolvedValue(null),
       assertCanRead: jest.fn(),
+      assertCanOverwrite: jest.fn(),
       assertCanModifyAll: jest.fn().mockResolvedValue(undefined),
+      assertBucketReachable: jest.fn().mockResolvedValue(undefined),
     };
     const controller = new StorageController(storage as any, activity as any, {} as any, access as any);
     return { storage, activity, access, controller };
@@ -238,24 +248,46 @@ describe('StorageController — handler behaviour', () => {
 
   const user = { sub: 'u1' } as any;
   const serviceReq = { apiKeyPayload: { projectId: 'p1', role: 'service', dbRole: 'service_role' } } as any;
+  const anonReq = { apiKeyPayload: { projectId: 'p1', role: 'anon', dbRole: 'anon' } } as any;
+  const dashboardReq = { user: { sub: 'u1' } } as any;
 
   it('listBuckets passes the dashboard user, and nobody for a key caller', async () => {
     const { storage, controller } = deps();
-    await controller.listBuckets('p1', user);
-    await controller.listBuckets('p1', undefined);
+    await controller.listBuckets('p1', dashboardReq, user);
+    await controller.listBuckets('p1', serviceReq, undefined);
     expect(storage.listBuckets.mock.calls).toEqual([
       ['p1', 'u1'],
       ['p1', undefined],
     ]);
   });
 
-  it('createBucket forwards name and visibility and records which it was', async () => {
+  it('listBuckets shows the bare public key only the public buckets', async () => {
+    const { storage, controller } = deps();
+    const all = [
+      { name: 'assets', public: true },
+      { name: 'invoices', public: false },
+    ];
+    storage.listBuckets.mockResolvedValue(all);
+    expect(await controller.listBuckets('p1', anonReq, undefined)).toEqual([all[0]]);
+    expect(await controller.listBuckets('p1', serviceReq, undefined)).toEqual(all);
+  });
+
+  it('limits reports the single-request ceiling and the signed URL bounds', async () => {
+    const { storage, controller } = deps();
+    await expect(controller.limits('p1', undefined)).resolves.toEqual({
+      maxUploadBytes: MAX_FILE_SIZE,
+      signedUrlExpiry: { min: 60, max: 604800, default: 3600 },
+    });
+    expect(storage.resolveProject).toHaveBeenCalledWith('p1', undefined);
+  });
+
+  it('createBucket forwards name, visibility and limits and records which it was', async () => {
     const { storage, activity, controller } = deps();
     await controller.createBucket('p1', { name: 'docs', public: true }, user);
-    await controller.createBucket('p1', { name: 'raw' }, undefined);
+    await controller.createBucket('p1', { name: 'raw', fileSizeLimit: 1024 }, undefined);
     expect(storage.createBucket.mock.calls).toEqual([
-      ['p1', 'u1', 'docs', true],
-      ['p1', undefined, 'raw', undefined],
+      ['p1', 'u1', 'docs', true, {}],
+      ['p1', undefined, 'raw', false, { fileSizeLimit: 1024 }],
     ]);
     expect(activity.append.mock.calls.map(([, a]) => [a.kind, a.title, a.detail, a.userId])).toEqual([
       ['storage.bucket_created', 'Storage bucket created: docs', 'Public bucket', 'u1'],
@@ -263,22 +295,49 @@ describe('StorageController — handler behaviour', () => {
     ]);
   });
 
-  it('createBucket records nothing when the service refuses', async () => {
+  it('createBucket refuses a name the docs do not allow instead of rewriting it', async () => {
     const { storage, activity, controller } = deps();
-    storage.createBucket.mockRejectedValue(new BadRequestException('bad name'));
-    await expect(controller.createBucket('p1', { name: '-x' }, user)).rejects.toBeInstanceOf(BadRequestException);
+    for (const name of ['QA-E2E-API-Bad', 'my_bucket', 'has space', '-x', 'ab', undefined]) {
+      await expect(controller.createBucket('p1', { name } as any, user)).rejects.toThrow(/lowercase letters/);
+    }
+    expect(storage.createBucket).not.toHaveBeenCalled();
     expect(activity.append).not.toHaveBeenCalled();
   });
 
-  it('deleteBucket records the deletion', async () => {
+  it('createBucket refuses a non-boolean public flag', async () => {
+    const { storage, controller } = deps();
+    await expect(controller.createBucket('p1', { name: 'docs', public: 'yes' } as any, user)).rejects.toThrow(
+      'public must be true or false',
+    );
+    expect(storage.createBucket).not.toHaveBeenCalled();
+  });
+
+  it('createBucket records nothing when the service refuses', async () => {
     const { storage, activity, controller } = deps();
-    await expect(controller.deleteBucket('p1', 'docs', user)).resolves.toEqual({ message: 'deleted' });
-    expect(storage.deleteBucket).toHaveBeenCalledWith('p1', 'u1', 'docs');
+    storage.createBucket.mockRejectedValue(new BadRequestException('exists'));
+    await expect(controller.createBucket('p1', { name: 'docs' }, user)).rejects.toBeInstanceOf(BadRequestException);
+    expect(activity.append).not.toHaveBeenCalled();
+  });
+
+  it('deleteBucket passes force only when asked for, and records the deletion', async () => {
+    const { storage, activity, controller } = deps();
+    await expect(controller.deleteBucket('p1', 'docs', undefined, user)).resolves.toEqual({
+      message: 'deleted',
+      deletedObjects: 0,
+    });
+    expect(storage.deleteBucket).toHaveBeenCalledWith('p1', 'u1', 'docs', { force: false });
     expect(activity.append).toHaveBeenCalledWith('p1', {
       userId: 'u1',
       kind: 'storage.bucket_deleted',
       title: 'Storage bucket deleted: docs',
     });
+
+    storage.deleteBucket.mockResolvedValue({ message: 'deleted', deletedObjects: 6 });
+    await controller.deleteBucket('p1', 'docs', 'true', user);
+    expect(storage.deleteBucket).toHaveBeenLastCalledWith('p1', 'u1', 'docs', { force: true });
+    expect(activity.append.mock.calls[1][1].detail).toBe('6 file(s) deleted with it');
+
+    await expect(controller.deleteBucket('p1', 'docs', 'yes', user)).rejects.toThrow('force must be true or false');
   });
 
   it('updateBucket toggles visibility and records the direction', async () => {
@@ -295,6 +354,32 @@ describe('StorageController — handler behaviour', () => {
     ]);
   });
 
+  it('updateBucket refuses a string where a boolean belongs, and an empty body', async () => {
+    const { storage, controller } = deps();
+    await expect(controller.updateBucket('p1', 'docs', { public: 'yes' } as any, user)).rejects.toThrow(
+      'public must be true or false',
+    );
+    await expect(controller.updateBucket('p1', 'docs', {} as any, user)).rejects.toThrow(/Nothing to update/);
+    await expect(controller.updateBucket('p1', 'docs', undefined as any, user)).rejects.toThrow(/Nothing to update/);
+    expect(storage.toggleBucketPublic).not.toHaveBeenCalled();
+  });
+
+  it('updateBucket stores upload limits without touching visibility', async () => {
+    const { storage, controller } = deps();
+    const out = await controller.updateBucket(
+      'p1',
+      'docs',
+      { fileSizeLimit: 50 * 1024 * 1024, allowedMimeTypes: ['image/*'] },
+      user,
+    );
+    expect(storage.toggleBucketPublic).not.toHaveBeenCalled();
+    expect(storage.setBucketLimits).toHaveBeenCalledWith('p1', 'docs', {
+      fileSizeLimit: 50 * 1024 * 1024,
+      allowedMimeTypes: ['image/*'],
+    });
+    expect(out).toEqual({ fileSizeLimit: 50 * 1024 * 1024, allowedMimeTypes: ['image/*'] });
+  });
+
   it('getPublicUrl asks for the bucket root when no path is given', async () => {
     const { storage, controller } = deps();
     await controller.getPublicUrl('p1', 'docs', undefined as unknown as string, undefined);
@@ -307,7 +392,7 @@ describe('StorageController — handler behaviour', () => {
 
   it('createFolder records the marker the service created', async () => {
     const { storage, activity, controller } = deps();
-    await expect(controller.createFolder('p1', 'docs', { path: 'docs/2026' }, user)).resolves.toEqual({
+    await expect(controller.createFolder('p1', 'docs', { path: 'docs/2026' }, dashboardReq, user)).resolves.toEqual({
       name: 'docs/2026/',
     });
     expect(storage.createFolder).toHaveBeenCalledWith('p1', 'u1', 'docs', 'docs/2026');
@@ -318,20 +403,65 @@ describe('StorageController — handler behaviour', () => {
     });
   });
 
-  it('findExisting wraps the result and tolerates a body without paths', async () => {
+  it('findExisting wraps the result and refuses a body without paths', async () => {
     const { storage, controller } = deps();
-    await expect(controller.findExisting('p1', 'docs', {} as any, user)).resolves.toEqual({ existing: ['a.txt'] });
-    expect(storage.findExistingObjects).toHaveBeenCalledWith('p1', 'u1', 'docs', []);
+    await expect(controller.findExisting('p1', 'docs', { paths: ['a.txt'] }, dashboardReq, user)).resolves.toEqual({
+      existing: ['a.txt'],
+    });
+    expect(storage.findExistingObjects).toHaveBeenCalledWith('p1', 'u1', 'docs', ['a.txt']);
+    await expect(controller.findExisting('p1', 'docs', {} as any, dashboardReq, user)).rejects.toThrow(
+      'paths must be a non-empty array of strings',
+    );
   });
 
-  it('moveObjects defaults to no sources and the bucket root, and records the count', async () => {
+  it('moveObjects refuses an empty body instead of answering { moved: 0 }', async () => {
+    const { storage, controller } = deps();
+    for (const body of [{}, { sources: [] }, { sources: 'a' }, { sources: [1] }]) {
+      await expect(controller.moveObjects('p1', 'docs', body as any, serviceReq, undefined)).rejects.toThrow(
+        'sources must be a non-empty array of strings',
+      );
+    }
+    await expect(
+      controller.moveObjects('p1', 'docs', { sources: ['a'], destFolder: 5 } as any, serviceReq, undefined),
+    ).rejects.toThrow(/destFolder must be a string/);
+    expect(storage.moveObjects).not.toHaveBeenCalled();
+  });
+
+  it('moveObjects defaults to the bucket root and records the count', async () => {
     const { storage, activity, controller } = deps();
-    await controller.moveObjects('p1', 'docs', {} as any, serviceReq, undefined);
-    expect(storage.moveObjects).toHaveBeenCalledWith('p1', undefined, 'docs', [], '');
+    await controller.moveObjects('p1', 'docs', { sources: ['a'] }, serviceReq, undefined);
+    expect(storage.moveObjects).toHaveBeenCalledWith('p1', undefined, 'docs', ['a'], '');
     expect(activity.append.mock.calls[0][1].detail).toBe('2 item(s) → /');
 
     await controller.moveObjects('p1', 'docs', { sources: ['a'], destFolder: 'archive' }, serviceReq, undefined);
     expect(activity.append.mock.calls[1][1].detail).toBe('2 item(s) → archive');
+  });
+
+  it('copy and rename validate their paths and pass overwrite through', async () => {
+    const { storage, controller } = deps();
+    await expect(
+      controller.copyObject('p1', 'docs', { from: 'a.txt', to: 'b.txt' }, serviceReq, undefined),
+    ).resolves.toEqual({ from: 'a.txt', to: 'b.txt', count: 1, copied: 1 });
+    expect(storage.copyObjects).toHaveBeenLastCalledWith('p1', undefined, 'docs', 'a.txt', 'b.txt', {
+      overwrite: false,
+      move: false,
+    });
+    await expect(
+      controller.renameObject('p1', 'docs', { from: '/a.txt', to: 'c.txt', overwrite: true }, serviceReq, undefined),
+    ).resolves.toEqual({ from: 'a.txt', to: 'c.txt', moved: 1 });
+    expect(storage.copyObjects).toHaveBeenLastCalledWith('p1', undefined, 'docs', 'a.txt', 'c.txt', {
+      overwrite: true,
+      move: true,
+    });
+    await expect(
+      controller.copyObject('p1', 'docs', { from: '../x', to: 'b' }, serviceReq, undefined),
+    ).rejects.toThrow('Invalid from');
+    await expect(controller.copyObject('p1', 'docs', { to: 'b' } as any, serviceReq, undefined)).rejects.toThrow(
+      'from must be a string',
+    );
+    await expect(
+      controller.copyObject('p1', 'docs', { from: 'a', to: 'b', overwrite: 'yes' } as any, serviceReq, undefined),
+    ).rejects.toThrow('overwrite must be true or false');
   });
 
   it('getPresignedUrl defaults to an hour', async () => {
@@ -340,12 +470,12 @@ describe('StorageController — handler behaviour', () => {
     expect(storage.getPresignedUrl).toHaveBeenCalledWith('p1', undefined, 'docs', 'a.txt', 3600);
   });
 
-  it('getPresignedUrl refuses an expiry that is not a number or outside one minute .. seven days', async () => {
+  it('getPresignedUrl refuses an expiry that is not a whole number or outside one minute .. seven days', async () => {
     const { storage, controller } = deps();
-    for (const expiry of ['abc', '59', '0', '-60', '604801']) {
-      await expect(
-        controller.getPresignedUrl('p1', 'docs', 'a.txt', expiry, serviceReq, undefined),
-      ).rejects.toThrow('Expiry must be between 60 and 604800 seconds');
+    for (const expiry of ['abc', '59', '0', '-60', '604801', '60.5']) {
+      await expect(controller.getPresignedUrl('p1', 'docs', 'a.txt', expiry, serviceReq, undefined)).rejects.toThrow(
+        'Expiry must be a whole number of seconds between 60 and 604800',
+      );
     }
     expect(storage.getPresignedUrl).not.toHaveBeenCalled();
   });
@@ -357,13 +487,28 @@ describe('StorageController — handler behaviour', () => {
     expect(storage.getPresignedUrl.mock.calls.map((c) => c[4])).toEqual([60, 604800]);
   });
 
-  it('deleteObjects records how many paths, keeping at most twenty in the metadata', async () => {
-    const { activity, controller } = deps();
+  it('deleteObjects records how many objects went, keeping at most twenty paths in the metadata', async () => {
+    const { storage, activity, controller } = deps();
     const paths = Array.from({ length: 25 }, (_, i) => `f${i}.txt`);
+    storage.deleteObjects.mockResolvedValue({
+      message: 'Deleted 24 object(s); 1 not found',
+      deleted: paths.slice(1),
+      notFound: ['f0.txt'],
+    });
     await controller.deleteObjects('p1', 'docs', { paths }, serviceReq, undefined);
     const entry = activity.append.mock.calls[0][1];
-    expect(entry).toMatchObject({ kind: 'storage.object_deleted', detail: '25 path(s)' });
+    expect(entry).toMatchObject({ kind: 'storage.object_deleted', detail: '24 object(s)' });
     expect(entry.metadata.paths).toEqual(paths.slice(0, 20));
+  });
+
+  it('deleteObjects refuses a missing or empty paths list with a 400', async () => {
+    const { storage, controller } = deps();
+    for (const body of [undefined, {}, { paths: [] }, { paths: 'a' }]) {
+      await expect(controller.deleteObjects('p1', 'docs', body as any, serviceReq, undefined)).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+    }
+    expect(storage.deleteObjects).not.toHaveBeenCalled();
   });
 
   it('downloadObject falls back to a generic type and encodes a non-ASCII file name (RFC 5987)', async () => {

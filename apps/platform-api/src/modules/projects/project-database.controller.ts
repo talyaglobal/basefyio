@@ -39,6 +39,94 @@ export class ProjectDatabaseController {
     });
   }
 
+  // Schemas
+  @Get('schemas')
+  listSchemas(@Param('projectId') id: string, @CurrentUser() u: JwtPayload) {
+    return this.db.listSchemas(id, u.sub);
+  }
+
+  @Post('schemas')
+  async createSchema(
+    @Param('projectId') id: string,
+    @Body() body: { name: string },
+    @CurrentUser() u: JwtPayload,
+  ) {
+    const r = await this.db.createSchema(id, u.sub, body);
+    this.log(id, u.sub, 'Schema created', body.name);
+    return r;
+  }
+
+  @Delete('schemas/:name')
+  async dropSchema(
+    @Param('projectId') id: string,
+    @Param('name') name: string,
+    @Query('cascade') cascade: string | undefined,
+    @CurrentUser() u: JwtPayload,
+  ) {
+    const withCascade = cascade === 'true' || cascade === '1';
+    const r = await this.db.dropSchema(id, u.sub, name, withCascade);
+    this.log(id, u.sub, 'Schema dropped', withCascade ? `${name} (cascade)` : name);
+    return r;
+  }
+
+  // Columns (read-only, every table in the project's schemas)
+  @Get('columns')
+  listColumns(@Param('projectId') id: string, @CurrentUser() u: JwtPayload) {
+    return this.db.listColumns(id, u.sub);
+  }
+
+  // Roles (read-only)
+  @Get('roles')
+  listRoles(
+    @Param('projectId') id: string,
+    @Query('system') system: string | undefined,
+    @CurrentUser() u: JwtPayload,
+  ) {
+    return this.db.listRoles(id, u.sub, { includeSystem: system === 'true' || system === '1' });
+  }
+
+  // Enums
+  @Get('enums')
+  listEnums(@Param('projectId') id: string, @CurrentUser() u: JwtPayload) {
+    return this.db.listEnums(id, u.sub);
+  }
+
+  @Post('enums')
+  async createEnum(
+    @Param('projectId') id: string,
+    @Body() body: { schema?: string; name: string; values: string[] },
+    @CurrentUser() u: JwtPayload,
+  ) {
+    const r = await this.db.createEnum(id, u.sub, body);
+    this.log(id, u.sub, 'Enum created', `${body.schema || 'public'}.${body.name}`);
+    return r;
+  }
+
+  @Post('enums/:schema/:name/values')
+  async addEnumValue(
+    @Param('projectId') id: string,
+    @Param('schema') schema: string,
+    @Param('name') name: string,
+    @Body() body: { value: string; before?: string; after?: string },
+    @CurrentUser() u: JwtPayload,
+  ) {
+    const r = await this.db.addEnumValue(id, u.sub, schema, name, body);
+    this.log(id, u.sub, 'Enum value added', `${schema}.${name}: ${body.value}`);
+    return r;
+  }
+
+  @Delete('enums/:schema/:name')
+  async dropEnum(
+    @Param('projectId') id: string,
+    @Param('schema') schema: string,
+    @Param('name') name: string,
+    @CurrentUser() u: JwtPayload,
+  ) {
+    const r = await this.db.dropEnum(id, u.sub, schema, name);
+    this.log(id, u.sub, 'Enum dropped', `${schema}.${name}`);
+    return r;
+  }
+
   // Indexes
   @Get('indexes')
   listIndexes(@Param('projectId') id: string, @CurrentUser() u: JwtPayload) {
@@ -79,7 +167,7 @@ export class ProjectDatabaseController {
     @Body() body: {
       name: string; table: string; timing: 'BEFORE' | 'AFTER';
       events: ('INSERT' | 'UPDATE' | 'DELETE')[]; functionName: string;
-      forEach?: 'ROW' | 'STATEMENT';
+      forEach?: 'ROW' | 'STATEMENT'; functionSchema?: string;
     },
     @CurrentUser() u: JwtPayload,
   ) {
@@ -88,13 +176,21 @@ export class ProjectDatabaseController {
     return r;
   }
 
+  /** Functions a trigger can execute (return `trigger`, no declared arguments). */
+  @Get('trigger-functions')
+  listTriggerFunctions(@Param('projectId') id: string, @CurrentUser() u: JwtPayload) {
+    return this.db.listTriggerFunctions(id, u.sub);
+  }
+
   @Put('triggers/toggle')
-  toggleTrigger(
+  async toggleTrigger(
     @Param('projectId') id: string,
     @Body() body: { name: string; table: string; enabled: boolean },
     @CurrentUser() u: JwtPayload,
   ) {
-    return this.db.toggleTrigger(id, u.sub, body);
+    const r = await this.db.toggleTrigger(id, u.sub, body);
+    this.log(id, u.sub, `Trigger ${body.enabled ? 'enabled' : 'disabled'}`, `${body.name} on ${body.table}`);
+    return r;
   }
 
   @Delete('triggers/:table/:name')

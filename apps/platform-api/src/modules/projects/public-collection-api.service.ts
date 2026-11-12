@@ -201,7 +201,10 @@ export class PublicCollectionApiService {
     return this.withRls(projectId, ctx, async (client) => {
       const qualified = this.qualifiedName(collection);
       const { where, params } = buildNoSqlFilter(options.filter);
-      const orderBy = buildNoSqlSort(options.sort);
+      // id is the final tiebreaker so pages never skip or repeat documents;
+      // without a sort, documents come in creation order.
+      const sortSql = buildNoSqlSort(options.sort);
+      const orderBy = sortSql ? `${sortSql}, id ASC` : 'created_at ASC, id ASC';
       const projection = buildNoSqlProjection(options.project);
 
       const selectExpr = projection
@@ -216,7 +219,7 @@ export class PublicCollectionApiService {
 
       const [dataResult, countResult] = await Promise.all([
         client.query(
-          `SELECT ${selectExpr} FROM ${qualified} ${whereClause} ${orderBy ? `ORDER BY ${orderBy}` : ''} LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
+          `SELECT ${selectExpr} FROM ${qualified} ${whereClause} ORDER BY ${orderBy} LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
           [...params, limit, offset],
         ),
         client.query(

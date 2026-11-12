@@ -1,8 +1,6 @@
-import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Resend } from 'resend';
-import * as nodemailer from 'nodemailer';
-import { smtpTransportOptions } from './smtp-options';
 import { MetricsService } from '../health/metrics.service';
 import { welcomeTemplate } from './templates/welcome.template';
 import { signInTemplate } from './templates/signin.template';
@@ -23,15 +21,90 @@ import { projectChangeEmailTemplate } from './templates/project-change-email.tem
 import { projectReauthTemplate } from './templates/project-reauth.template';
 import { signupVerifyEmailTemplate } from './templates/signup-verify-email.template';
 
+/** Domain states a provider reports for a sender domain that cannot send yet. */
+const UNSENDABLE_DOMAIN_STATUS = new Set(['not_started', 'pending', 'failed']);
+
+/** `basefyio <noreply@basefyio.com>` → `basefyio.com`; undefined when there is no address. */
+export function senderDomain(from: string | undefined): string | undefined {
+  const match = /@([^\s<>@]+?)>?\s*$/.exec(from ?? '');
+  return match ? match[1].toLowerCase() : undefined;
+}
+
+/**
+ * What a domains listing says about the sender domain.
+ *
+ * `problem` is set only when the listing proves mail from that domain cannot
+ * leave: the list is complete and the domain is missing from it, or the
+ * provider names it with a status that cannot send. A listing in a shape we do
+ * not recognise, or one with more pages, proves nothing, so `confirmed` is
+ * false and no verdict is passed.
+ */
+export function senderDomainVerdict(
+  from: string | undefined,
+  listing: unknown,
+): { confirmed: boolean; problem?: string } {
+  const domain = senderDomain(from);
+  const body = listing as { data?: unknown; has_more?: unknown } | unknown[] | null | undefined;
+  const rows = Array.isArray(body) ? body : Array.isArray(body?.data) ? body.data : undefined;
+  if (!domain || !rows) return { confirmed: false };
+  const named = rows.filter(
+    (r): r is { name: string; status?: unknown } => typeof (r as { name?: unknown })?.name === 'string',
+  );
+  if (named.length !== rows.length) return { confirmed: false };
+
+  // A domain verified at the provider also covers its subdomains' mailboxes on
+  // most providers; matching the parent too keeps a false alarm off the table.
+  const match = named.find((r) => {
+    const name = r.name.toLowerCase();
+    return domain === name || domain.endsWith(`.${name}`);
+  });
+  if (!match) {
+    const complete = Array.isArray(body) || (body as { has_more?: unknown }).has_more !== true;
+    return complete
+      ? {
+          confirmed: false,
+          problem: `sender_domain_not_registered — ${domain} is not registered with the mail provider`,
+        }
+      : { confirmed: false };
+  }
+  const status = typeof match.status === 'string' ? match.status : '';
+  if (UNSENDABLE_DOMAIN_STATUS.has(status)) {
+    return {
+      confirmed: false,
+      problem: `sender_domain_not_verified — ${match.name} is ${status} at the mail provider`,
+    };
+  }
+  return { confirmed: true };
+}
+
 @Injectable()
-export class EmailService implements OnModuleInit {
+export class EmailService implements OnModuleInit, OnModuleDestroy {
   /** Provider errors that mean the key is unusable, as opposed to limited. */
   private static readonly KEY_IS_BAD = new Set(['invalid_api_key', 'missing_api_key']);
 
+  /**
+   * Send rejections about the sender rather than the message: the key, the
+   * from address or its domain. The probe can see all of them, so once it
+   * confirms the key works and the domain may send, such a rejection is over.
+   * `validation_error` is here because that is how a provider reports an
+   * unverified from domain; its other use, a bad recipient, is one message's
+   * problem and must not keep the whole mail path marked down either.
+   */
+  private static readonly SENDER_IS_BAD = new Set([
+    'invalid_api_key',
+    'missing_api_key',
+    'invalid_from_address',
+    'validation_error',
+  ]);
+
+  /** How often the probe runs again after startup. */
+  static readonly REPROBE_INTERVAL_MS = 10 * 60 * 1000;
+
   private readonly logger = new Logger(EmailService.name);
+  private reprobeTimer?: NodeJS.Timeout;
+  /** Who reported the current failure, and with which provider error. */
+  private failure?: { source: 'probe' | 'send'; code: string };
   private resend: Resend | null = null;
-  /** Set when MAIL_TRANSPORT=smtp: platform mail goes to this server instead of the HTTP API. */
-  private smtp: nodemailer.Transporter | null = null;
   private readonly fromEmail: string;
   private readonly replyTo: string;
   private readonly appUrl: string;
@@ -54,100 +127,114 @@ export class EmailService implements OnModuleInit {
     private readonly config: ConfigService,
     @Optional() private readonly metrics?: MetricsService,
   ) {
-    const transport = this.config.get<string>('mail.transport') || 'resend';
-    if (transport === 'smtp') {
-      const options = smtpTransportOptions(this.config);
-      if (options) {
-        this.smtp = nodemailer.createTransport(options);
-      } else {
-        this.deliverability = { state: 'not-configured' };
-        this.logger.warn('MAIL_TRANSPORT=smtp but SMTP_HOST is empty — emails will not be sent');
-      }
+    const apiKey = this.config.get<string>('resend.apiKey');
+    if (apiKey) {
+      this.resend = new Resend(apiKey);
     } else {
-      const apiKey = this.config.get<string>('resend.apiKey');
-      if (apiKey) {
-        this.resend = new Resend(apiKey);
-      } else {
-        this.deliverability = { state: 'not-configured' };
-        this.logger.warn('No mail provider API key is set — emails will not be sent');
-      }
+      this.deliverability = { state: 'not-configured' };
+      this.logger.warn('No mail provider API key is set — emails will not be sent');
     }
-    this.fromEmail = this.config.get<string>('mail.from') || this.config.get<string>('resend.fromEmail')!;
+    this.fromEmail = this.config.get<string>('resend.fromEmail')!;
     this.replyTo = this.config.get<string>('resend.replyTo')!;
     this.appUrl = this.config.get<string>('appUrl')!;
   }
 
   /**
-   * Ask the provider whether the key works, once, at startup.
+   * Ask the provider whether mail can leave: at startup, then every ten minutes.
    *
    * Cheaper than discovering it on the first password reset, and it fails in
    * the one place an operator looks. Never throws: mail being down must not
    * stop the API from starting, since everything else still works.
+   *
+   * Running again matters both ways. Without it a fixed sender domain kept
+   * /health on 'failing' until someone happened to request a mail, and a
+   * restart reported 'ok' for a key that worked but a from domain that could
+   * not send, until the first password reset bounced.
    */
   async onModuleInit(): Promise<void> {
-    if (this.smtp) {
-      await this.probeSmtp();
+    if (!this.resend) return;
+    await this.probe();
+    this.reprobeTimer = setInterval(() => void this.probe(), EmailService.REPROBE_INTERVAL_MS);
+    this.reprobeTimer.unref?.();
+  }
+
+  onModuleDestroy(): void {
+    if (this.reprobeTimer) clearInterval(this.reprobeTimer);
+  }
+
+  /** One look at the provider: is the key accepted, and may the from domain send? */
+  async probe(): Promise<void> {
+    if (!this.resend) return;
+    let probe: Awaited<ReturnType<Resend['domains']['list']>>;
+    try {
+      probe = await this.resend.domains.list();
+    } catch (err: any) {
+      // A network blip is not proof the key is bad, so say what happened
+      // rather than condemning the key — and never overwrite a verdict we
+      // already had with "could not tell".
+      if (this.deliverability.state === 'unchecked') {
+        this.deliverability = {
+          state: 'unchecked',
+          detail: `startup probe did not complete: ${err?.message ?? err}`,
+          checkedAt: new Date().toISOString(),
+        };
+      }
+      this.logger.warn(`[EMAIL] Could not reach the mail provider to check the key: ${err?.message ?? err}`);
       return;
     }
-    if (!this.resend) return;
-    try {
-      const probe = await this.resend.domains.list();
-      if (probe.error) {
-        // Only a refusal that means the KEY ITSELF is bad counts as mail being
-        // down. The probe reads the domains endpoint, which a key can be
-        // refused on for reasons that have nothing to do with sending — it may
-        // be scoped to sending only, or its creator may lack a console right.
-        // Listing those instead would mean a false 'mail is down' every time
-        // the provider adds a new one, so the narrow list is the one that
-        // condemns the key and everything else is treated as valid-but-limited.
-        const err = String(probe.error.name ?? '');
-        if (!EmailService.KEY_IS_BAD.has(err)) {
-          this.deliverability = { state: 'ok', checkedAt: new Date().toISOString() };
-          this.logger.log(
-            `[EMAIL] Provider key accepted (limited: ${err || 'unspecified'}) — mail can be sent`,
-          );
-          return;
-        }
-        this.markFailing(`${probe.error.name ?? 'error'} — ${probe.error.message ?? 'unknown'}`);
+
+    if (probe.error) {
+      // Only a refusal that means the KEY ITSELF is bad counts as mail being
+      // down. The probe reads the domains endpoint, which a key can be
+      // refused on for reasons that have nothing to do with sending — it may
+      // be scoped to sending only, or its creator may lack a console right.
+      // Listing those instead would mean a false 'mail is down' every time
+      // the provider adds a new one, so the narrow list is the one that
+      // condemns the key and everything else is treated as valid-but-limited.
+      const err = String(probe.error.name ?? '');
+      if (EmailService.KEY_IS_BAD.has(err)) {
+        this.markFailing(`${probe.error.name ?? 'error'} — ${probe.error.message ?? 'unknown'}`, 'probe', err);
         return;
       }
-      this.deliverability = { state: 'ok', checkedAt: new Date().toISOString() };
-      this.logger.log('[EMAIL] Provider key accepted — mail can be sent');
-    } catch (err: any) {
-      // A network blip at boot is not proof the key is bad, so say what
-      // happened rather than condemning the key.
-      this.deliverability = {
-        state: 'unchecked',
-        detail: `startup probe did not complete: ${err?.message ?? err}`,
-        checkedAt: new Date().toISOString(),
-      };
-      this.logger.warn(`[EMAIL] Could not verify the provider key at startup: ${err?.message ?? err}`);
+      // A limited key cannot list domains, so the sender domain stays unchecked.
+      this.markProbeHealthy(false, `limited: ${err || 'unspecified'}`);
+      return;
     }
+
+    const verdict = senderDomainVerdict(this.fromEmail, probe.data);
+    if (verdict.problem) {
+      this.markFailing(verdict.problem, 'probe', 'sender_domain');
+      return;
+    }
+    this.markProbeHealthy(verdict.confirmed);
   }
 
-  /** SMTP: one connection + login at startup. A refused login condemns the settings; a network blip only says so. */
-  private async probeSmtp(): Promise<void> {
-    try {
-      await this.smtp!.verify();
-      this.deliverability = { state: 'ok', checkedAt: new Date().toISOString() };
-      this.logger.log('[EMAIL] SMTP server accepted the connection — mail can be sent');
-    } catch (err: any) {
-      const code = String(err?.code ?? '');
-      if (code === 'EAUTH' || code === 'ETLS' || code === 'ESOCKET' && /certificate/i.test(String(err?.message))) {
-        this.markFailing(`SMTP ${code}: ${err?.message ?? 'refused'}`);
-        return;
-      }
-      this.deliverability = {
-        state: 'unchecked',
-        detail: `SMTP startup check did not complete: ${err?.message ?? err}`,
-        checkedAt: new Date().toISOString(),
-      };
-      this.logger.warn(`[EMAIL] Could not verify the SMTP server at startup: ${err?.message ?? err}`);
+  /**
+   * The probe found nothing wrong. That clears what the probe can see, and a
+   * send rejection about the sender once the domain is positively confirmed;
+   * a rejection the probe cannot see (an exhausted quota) waits for the next
+   * successful send instead.
+   */
+  private markProbeHealthy(senderConfirmed: boolean, note?: string): void {
+    if (this.deliverability.state === 'failing' && this.failure) {
+      const cleared =
+        this.failure.source === 'probe' ||
+        (senderConfirmed && EmailService.SENDER_IS_BAD.has(this.failure.code));
+      if (!cleared) return;
+      this.logger.log('[EMAIL] The mail provider now accepts the key and the sender domain — delivery recovered');
+    } else if (this.deliverability.state !== 'ok') {
+      this.logger.log(`[EMAIL] Provider key accepted${note ? ` (${note})` : ''} — mail can be sent`);
     }
+    this.failure = undefined;
+    this.deliverability = { state: 'ok', checkedAt: new Date().toISOString() };
   }
 
-  private markFailing(detail: string): void {
+  private markFailing(detail: string, source: 'probe' | 'send' = 'send', code = ''): void {
+    const repeated = this.deliverability.state === 'failing' && this.deliverability.detail === detail;
+    this.failure = { source, code };
     this.deliverability = { state: 'failing', detail, checkedAt: new Date().toISOString() };
+    // The re-probe repeats the same finding every ten minutes; count and shout once.
+    if (repeated && source === 'probe') return;
     this.metrics?.increment('email_provider_rejected');
     this.logger.error(
       `[EMAIL] MAIL IS NOT BEING DELIVERED — the provider rejected the request: ${detail}. ` +
@@ -344,7 +431,7 @@ export class EmailService implements OnModuleInit {
     });
   }
 
-  /** Warns the owner that a quiet project is about to be deactivated. */
+  /** Warns the owner that a quiet project is about to be put to sleep. */
   async sendProjectSleepWarning(
     to: string,
     projectName: string,
@@ -356,16 +443,16 @@ export class EmailService implements OnModuleInit {
     const html = projectSleepWarningTemplate({ projectName, idleDays, daysLeft, dashboardUrl });
     return this.send({
       to,
-      subject: `${projectName} will be deactivated in ${daysLeft} day${daysLeft === 1 ? '' : 's'}`,
+      subject: `${projectName} goes to sleep in ${daysLeft} day${daysLeft === 1 ? '' : 's'}`,
       html,
     });
   }
 
-  /** Tells the owner a quiet project has been deactivated, and how to activate it. */
+  /** Tells the owner a quiet project has been put to sleep, and how to wake it. */
   async sendProjectAsleep(to: string, projectName: string, projectId: string, idleDays: number) {
     const dashboardUrl = `${this.appUrl}/dashboard/projects/${projectId}`;
     const html = projectAsleepTemplate({ projectName, idleDays, dashboardUrl });
-    return this.send({ to, subject: `${projectName} has been deactivated — activate it any time`, html });
+    return this.send({ to, subject: `${projectName} is asleep — wake it any time`, html });
   }
 
   async sendProjectWelcome(to: string, projectName: string) {
@@ -398,7 +485,6 @@ export class EmailService implements OnModuleInit {
   }
 
   private async send(params: { to: string; subject: string; html: string }) {
-    if (this.smtp) return this.sendSmtp(params);
     if (!this.resend) {
       this.logger.warn(`[EMAIL] Skipped (no API key): "${params.subject}" → ${params.to}`);
       return null;
@@ -425,11 +511,16 @@ export class EmailService implements OnModuleInit {
             `From: ${this.fromEmail}\n` +
             `Error: ${result.error.name || ''} — ${result.error.message || JSON.stringify(result.error)}`,
         );
-        this.markFailing(`${result.error.name || ''} — ${result.error.message || 'rejected'}`);
+        this.markFailing(
+          `${result.error.name || ''} — ${result.error.message || 'rejected'}`,
+          'send',
+          String(result.error.name ?? ''),
+        );
         return null;
       }
 
       if (this.deliverability.state !== 'ok') {
+        this.failure = undefined;
         this.deliverability = { state: 'ok', checkedAt: new Date().toISOString() };
         this.logger.log('[EMAIL] Delivery recovered');
       }
@@ -445,34 +536,6 @@ export class EmailService implements OnModuleInit {
         error.stack
       );
       this.metrics?.increment('email_send_failed');
-      return null;
-    }
-  }
-
-  private async sendSmtp(params: { to: string; subject: string; html: string }) {
-    try {
-      const info = await this.smtp!.sendMail({
-        from: this.fromEmail,
-        to: params.to,
-        replyTo: this.replyTo,
-        subject: params.subject,
-        html: params.html,
-      });
-      if (this.deliverability.state !== 'ok') {
-        this.deliverability = { state: 'ok', checkedAt: new Date().toISOString() };
-        this.logger.log('[EMAIL] Delivery recovered');
-      }
-      this.metrics?.increment('email_sent');
-      this.logger.log(`[EMAIL] ✓ Sent over SMTP: "${params.subject}" → ${params.to} (${info?.messageId || 'no id'})`);
-      return info;
-    } catch (error: any) {
-      this.logger.error(
-        `[EMAIL] ✗ SMTP refused: "${params.subject}" → ${params.to}\n` +
-          `From: ${this.fromEmail}\n` +
-          `Error: ${error?.code || ''} ${error?.message || error}`,
-      );
-      this.metrics?.increment('email_send_failed');
-      if (error?.code === 'EAUTH' || error?.code === 'EENVELOPE') this.markFailing(`SMTP ${error.code}: ${error.message}`);
       return null;
     }
   }

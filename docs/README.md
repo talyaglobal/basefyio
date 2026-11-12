@@ -17,7 +17,6 @@ documented route stops existing.
 | Install basefyio on your own server | the Quick Start in the [repository README](../README.md), then [reference/configuration.md](./reference/configuration.md); offline installs: [SELF_HOSTING_OFFLINE.md](./SELF_HOSTING_OFFLINE.md) |
 | Build an application against a project | [reference/js-sdk.md](./reference/js-sdk.md) |
 | Understand keys, roles and row-level security | [concepts/security-model.md](./concepts/security-model.md) |
-| [concepts/sla.md](./concepts/sla.md) | Availability: the indicators, how a minute counts as down, the targets, the draft compensation policy |
 | Configure the platform | [reference/configuration.md](./reference/configuration.md) |
 
 ## Data API — called by your application with a project key
@@ -25,13 +24,11 @@ documented route stops existing.
 | Page | Routes |
 |---|---|
 | [reference/auth-api.md](./reference/auth-api.md) | `/api/rest/v1/auth/*` — sign-up, sign-in, passwordless, OAuth, session |
-| [reference/supabase-auth-v1.md](./reference/supabase-auth-v1.md) | `/api/auth/v1/*` — the same identity system in GoTrue's shapes, for `@supabase/supabase-js` |
 | [reference/rest-api.md](./reference/rest-api.md) | `/api/rest/v1/:table`, `/api/rest/v1/rpc/:fn` — tables through the PostgREST query grammar |
 | [reference/collections-api.md](./reference/collections-api.md) | `/api/rest/v1/collections/*` — document collections |
 | [reference/sql-api.md](./reference/sql-api.md) | `POST /api/sql/execute` — SQL with bound parameters |
 | [REALTIME_API.md](./REALTIME_API.md) | `/api/realtime/v1/stream`, realtime bindings |
 | [reference/storage-api.md](./reference/storage-api.md) | `/api/projects/:projectId/storage/*` — buckets and objects |
-| [reference/storage-v1-api.md](./reference/storage-v1-api.md) | `/api/storage/v1/*` — the Supabase Storage protocol (`@supabase/storage-js`) over the same buckets |
 | [reference/embeddings-api.md](./reference/embeddings-api.md) | `/api/rest/v1/embeddings/*` — vectors and semantic search |
 
 ## Platform API — called with the service key, a dashboard session or an API token
@@ -44,9 +41,6 @@ documented route stops existing.
 | [reference/flows-api.md](./reference/flows-api.md) | `/api/projects/:projectId/flows/*` — automation flows |
 | [reference/data-engine-api.md](./reference/data-engine-api.md) | `/api/v1/projects/:projectId/*` — schema-flexible entities, queries, structures |
 | [reference/billing-api.md](./reference/billing-api.md) | `/api/billing/*` — plans, subscription, usage, invoices |
-| [reference/organizations-api.md](./reference/organizations-api.md) | `/api/organizations/*` — organizations by public id: kinds, plan, members, projects, role permissions |
-| [reference/platform-status-api.md](./reference/platform-status-api.md) | `/api/platform-status/*` — the public status payload, external probe ingestion, incidents, the canary |
-| [reference/capacity-api.md](./reference/capacity-api.md) | `/api/admin/capacity/*` — load samples, the capacity model, the what-if simulation, benchmark results |
 | [API_TOKENS.md](./API_TOKENS.md) | account API tokens (`bf_pat_…`) and their scopes |
 | [CODEFYIO_ADAPTER.md](./CODEFYIO_ADAPTER.md) | the Codefyio IDE adapter at `/_codefyio/*` |
 | [integrations/tsmart.md](./integrations/tsmart.md) | platform-to-platform project feed |

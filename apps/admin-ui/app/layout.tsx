@@ -15,11 +15,11 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://basefyio.com';
 
 export const metadata: Metadata = {
   title: {
-    default: 'basefyio — Open Source Backend Platform',
-    template: process.env.NEXT_PUBLIC_RELEASE_STAGE?.toLowerCase() === 'ga' ? '%s | basefyio' : '%s | basefyio beta',
+    default: 'basefyio — Backend Platform for Developers',
+    template: '%s | basefyio',
   },
   description:
-    'Self-hosted, open-source backend platform with a dedicated database per project, authentication, storage, real-time APIs, and team collaboration — a backend you fully own.',
+    'The basefyio dashboard: create projects with a dedicated database, authentication, file storage, realtime and an instant REST API, and run them with your team.',
   metadataBase: new URL(APP_URL),
   icons: {
     icon: '/icon.svg',
@@ -28,16 +28,16 @@ export const metadata: Metadata = {
   openGraph: {
     type: 'website',
     siteName: 'basefyio',
-    title: 'basefyio — Open Source Backend Platform',
+    title: 'basefyio — Backend Platform for Developers',
     description:
-      'Self-hosted backend platform with database management, authentication, storage, real-time APIs, and team collaboration.',
+      'Create a project and get a dedicated database, authentication, file storage, realtime and an instant REST API — managed from one dashboard.',
     url: SITE_URL,
   },
   twitter: {
     card: 'summary',
-    title: 'basefyio — Open Source Backend Platform',
+    title: 'basefyio — Backend Platform for Developers',
     description:
-      'Self-hosted backend platform with database management, authentication, storage, real-time APIs, and team collaboration.',
+      'Create a project and get a dedicated database, authentication, file storage, realtime and an instant REST API — managed from one dashboard.',
   },
   robots: {
     index: true,

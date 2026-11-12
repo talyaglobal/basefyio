@@ -77,10 +77,13 @@ function build(config: Record<string, unknown> = {}) {
     putPart: jest.fn().mockImplementation(async (_b, _k, _u, part) => `etag-${part}`),
     finishMultipart: jest.fn().mockResolvedValue(undefined),
     abortMultipart: jest.fn().mockResolvedValue(undefined),
+    bucketIsPublic: jest.fn().mockResolvedValue(false),
+    getBucketLimits: jest.fn().mockResolvedValue({ fileSizeLimit: null, allowedMimeTypes: [] }),
   };
   const access = {
     resolveMode: jest.fn().mockResolvedValue(null),
     assertCanOverwrite: jest.fn(),
+    assertBucketReachable: jest.fn().mockResolvedValue(undefined),
   };
   const sessions = new UploadSessionService(
     prisma as any,
@@ -146,6 +149,45 @@ describe('createUploadSession', () => {
       }),
     });
     expect(view).toMatchObject({ id: 'new', offset: 0, size: 20 * MiB, chunkSize: 8 * MiB, status: 'active' });
+  });
+
+  it('asks whether the bucket is reachable as a write, and enforces its upload limits', async () => {
+    const { storage, access, sessions } = build();
+    await sessions.createUploadSession('p1', alice, undefined, 'docs', { path: 'a.bin', size: 10 });
+    expect(access.assertBucketReachable).toHaveBeenCalledWith(
+      alice,
+      'p1',
+      'docs',
+      'a.bin',
+      'write',
+      'upload to',
+      expect.any(Function),
+    );
+    await (access.assertBucketReachable.mock.calls[0][6] as () => Promise<boolean>)();
+    expect(storage.bucketIsPublic).toHaveBeenCalledWith('bf-proj-docs');
+
+    storage.getBucketLimits.mockResolvedValue({ fileSizeLimit: 5, allowedMimeTypes: [] });
+    await expect(
+      sessions.createUploadSession('p1', alice, undefined, 'docs', { path: 'a.bin', size: 10 }),
+    ).rejects.toThrow(/accepts files up to 5 bytes/);
+    storage.getBucketLimits.mockResolvedValue({ fileSizeLimit: null, allowedMimeTypes: ['image/*'] });
+    await expect(
+      sessions.createUploadSession('p1', alice, undefined, 'docs', { path: 'a.bin', size: 10, contentType: 'video/mp4' }),
+    ).rejects.toThrow(/does not accept video\/mp4/);
+    expect(storage.beginMultipart).toHaveBeenCalledTimes(1);
+  });
+
+  it('stores a page as an attachment so it never renders from the storage host', async () => {
+    const { storage, sessions } = build();
+    await sessions.createUploadSession('p1', service, undefined, 'docs', {
+      path: 'site/index.html',
+      size: 10,
+      contentType: 'text/html',
+    });
+    expect(storage.beginMultipart.mock.calls[0][2]).toMatchObject({
+      'Content-Type': 'text/html',
+      'Content-Disposition': `attachment; filename="index.html"; filename*=UTF-8''index.html`,
+    });
   });
 
   it('records no owner for the service key', async () => {

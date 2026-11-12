@@ -12,6 +12,7 @@ import { COMPARISONS } from "@/lib/content/comparisons";
 import { USE_CASES } from "@/lib/content/use-cases";
 import { GLOSSARY } from "@/lib/content/glossary";
 import { INTEGRATIONS } from "@/lib/content/integrations";
+import { DOCS_NAV_ITEMS } from "@/app/docs/docs-nav-items";
 
 /**
  * Build the dynamic content sections that surface every blog post, comparison,
@@ -116,9 +117,9 @@ export function createGeoProfile(siteUrl: string): GeoProfile {
     lang: "en",
     logo: "/logo.svg",
     summary:
-      "basefyio is a production-grade, self-hosted backend-as-a-service (BaaS) that gives every project its own dedicated database, authentication realm, object storage, and auto-generated REST API.",
+      "basefyio is a backend-as-a-service (BaaS) for developers: every project gets its own dedicated database, authentication realm, object storage and auto-generated REST API — in the managed cloud at app.basefyio.com, or on your own servers.",
     description:
-      "basefyio is a developer backend platform. Each project is provisioned with a dedicated database, an authentication realm, S3-compatible object storage, and an instant REST API. It ships a JavaScript/TypeScript SDK (basefyio-js) and a CLI (basefyio) for managing projects, running migrations, and generating types. It is multi-tenant, runs anywhere via Docker, and is suited to teams who want Supabase-style productivity on infrastructure they control.",
+      "basefyio is a developer backend platform. Each project is provisioned with a dedicated database, an authentication realm, S3-compatible object storage, and an instant REST API. It ships a JavaScript/TypeScript SDK (basefyio-js) and a CLI (basefyio) for managing projects, running migrations, and generating types. It runs as a managed cloud service with a free plan and, being open source, can also be self-hosted with Docker Compose by teams that need the backend on their own infrastructure.",
     offer: {
       price: "0",
       priceCurrency: "USD",
@@ -132,7 +133,7 @@ export function createGeoProfile(siteUrl: string): GeoProfile {
         "S3-compatible object storage",
         "basefyio-js JavaScript/TypeScript SDK",
         "basefyio command-line interface",
-        "Self-hosted via Docker Compose",
+        "Managed cloud, or self-hosted via Docker Compose",
       ],
     },
     facts: [
@@ -142,26 +143,26 @@ export function createGeoProfile(siteUrl: string): GeoProfile {
       { label: "Storage", value: "S3-compatible object storage" },
       { label: "API", value: "Auto-generated REST API with powerful query syntax" },
       { label: "Clients", value: "basefyio-js SDK and the basefyio CLI" },
-      { label: "Hosting", value: "Self-hosted via Docker Compose, or managed cloud" },
+      { label: "Hosting", value: "Managed cloud at app.basefyio.com; open source and self-hostable with Docker Compose" },
       { label: "Pricing", value: "Free tier available; paid plans scale limits" },
     ],
     sections: [
       {
         title: "Documentation",
         description: "Reference for building on basefyio.",
-        links: [
-          { title: "Documentation home", url: "/docs", note: "Start here" },
-          { title: "REST API reference", url: "/docs/api", note: "Endpoints, auth, and query syntax" },
-          { title: "JavaScript/TypeScript SDK", url: "/docs/sdk", note: "basefyio-js client" },
-          { title: "CLI reference", url: "/docs/cli", note: "The basefyio command-line tool" },
-        ],
+        // Every docs page, from the same registry as the docs sidebar.
+        links: DOCS_NAV_ITEMS.map((item) => ({
+          title: item.href === "/docs" ? "Documentation home" : item.label,
+          url: item.href,
+          ...(item.href === "/docs" ? { note: "Start here" } : {}),
+        })),
       },
       ...contentSections(),
       {
         title: "Product",
         links: [
           { title: "basefyio home", url: "/", note: "Overview and features" },
-          { title: "Pricing", url: "/#pricing", note: "Plans and limits" },
+          { title: "Pricing", url: "/pricing", note: "Plans and limits" },
         ],
       },
     ],
@@ -169,12 +170,12 @@ export function createGeoProfile(siteUrl: string): GeoProfile {
       {
         question: "What is basefyio?",
         answer:
-          "basefyio is a self-hosted backend-as-a-service platform for developers. Each project gets its own dedicated database, authentication realm, object storage, and an auto-generated REST API, plus a JavaScript SDK and a CLI.",
+          "basefyio is a backend-as-a-service platform for developers. Each project gets its own dedicated database, authentication realm, object storage and an auto-generated REST API, plus a JavaScript SDK and a CLI. Use it in the managed cloud, or self-host it.",
       },
       {
         question: "How is basefyio different from Supabase?",
         answer:
-          "basefyio offers a similar developer experience to Supabase — database, auth, storage, and an instant REST API — but is built to be self-hosted and multi-tenant, provisioning an isolated database and a dedicated auth realm per project so you keep full control of your infrastructure.",
+          "basefyio gives every project its own dedicated database and its own auth realm, so projects are isolated by design rather than sharing tables. It runs in the managed cloud or on your own servers, and existing Supabase projects can be imported. A side-by-side comparison is at /compare.",
       },
       {
         question: "Is basefyio free?",
@@ -199,7 +200,7 @@ export function createGeoProfile(siteUrl: string): GeoProfile {
       {
         question: "How do I get started with basefyio?",
         answer:
-          "Install the CLI with 'npm install -g basefyio-cli', then run 'basefyio start' to launch the local stack, or sign up for the hosted dashboard. Create a project to get an anon key and service key, then connect with the basefyio-js SDK.",
+          "Sign up at app.basefyio.com (the Free plan needs no credit card), create a project, copy its anon key from the Connection page, and query it with the basefyio-js SDK or plain HTTP. The Quickstart at /docs/quickstart walks through it.",
       },
     ],
     howtos: [
@@ -207,15 +208,14 @@ export function createGeoProfile(siteUrl: string): GeoProfile {
         name: "Create your first basefyio backend",
         description: "Go from zero to a working backend with a database and REST API.",
         steps: [
-          { name: "Install the CLI", text: "Run 'npm install -g basefyio-cli' to install the basefyio command." },
-          { name: "Start the stack", text: "Run 'basefyio start' to launch the backend services with the Platform API and Admin UI." },
-          { name: "Create a project", text: "Create a project in the dashboard to provision a dedicated database and auth realm, and to get your anon and service keys.", url: "/docs" },
+          { name: "Sign up", text: "Create a free account at app.basefyio.com.", url: "/docs/quickstart" },
+          { name: "Create a project", text: "Create a project in the dashboard to provision a dedicated database and auth realm, and to get your anon and service keys.", url: "/docs/quickstart" },
           { name: "Connect the SDK", text: "Install basefyio-js and create a client with your project URL and anon key to query data and authenticate users.", url: "/docs/sdk" },
         ],
       },
     ],
     notes: [
-      "basefyio is a backend-as-a-service (BaaS) platform; compare it to Supabase, Firebase, Appwrite, and PocketBase.",
+      "basefyio is a backend-as-a-service (BaaS) platform; comparisons with other backend platforms are at /compare.",
       "Full content for AI engines is available at /llms-full.txt.",
     ],
   };

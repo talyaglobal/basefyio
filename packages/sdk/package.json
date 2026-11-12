@@ -4,7 +4,7 @@
     "access": "public"
   },
   "version": "2.3.0",
-  "description": "basefyio JavaScript/TypeScript SDK — database, auth & storage client",
+  "description": "basefyio JavaScript/TypeScript SDK — tables, SQL, functions, auth, storage, collections, the Data Engine and realtime",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -17,8 +17,14 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "!dist/**/*.map",
+    "README.md"
   ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
@@ -35,12 +41,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/fsipka/basefyio-new",
+    "url": "git+https://github.com/talyaglobal/basefyio.git",
     "directory": "packages/sdk"
   },
-  "homepage": "https://github.com/fsipka/basefyio-new/tree/main/packages/sdk",
+  "homepage": "https://basefyio.com/docs/sdk",
   "bugs": {
-    "url": "https://github.com/fsipka/basefyio-new/issues"
+    "url": "https://github.com/talyaglobal/basefyio/issues"
   },
   "keywords": [
     "basefyio",

@@ -75,12 +75,10 @@ describe('RealtimeDataStreamController', () => {
     expect(guards).toEqual([ApiKeyGuard]);
   });
 
-  it('broadcast hands the guard\'s payload, the body and the client address Express resolved to the service', async () => {
+  it('broadcast hands the guard\'s payload, the body and the first forwarded hop to the service', async () => {
     const broadcastService = { broadcastFromClient: jest.fn().mockResolvedValue({ ok: true, eventId: 'e' }) };
     const ctl = new RealtimeDataStreamController({} as any, broadcastService as any);
-    // `req.ip` is what Express derived behind `trust proxy`; the raw header,
-    // which the client writes, is deliberately not consulted.
-    const req: any = { apiKeyPayload: anon, headers: { 'x-forwarded-for': '198.51.100.7, 10.0.0.1' }, ip: '203.0.113.9' };
+    const req: any = { apiKeyPayload: anon, headers: { 'x-forwarded-for': '203.0.113.9, 10.0.0.1' }, ip: '10.0.0.1' };
     const body = { channel: 'room', event: 'ping', payload: 1 };
     await expect(ctl.broadcast(body, req)).resolves.toEqual({ ok: true, eventId: 'e' });
     expect(broadcastService.broadcastFromClient).toHaveBeenCalledWith(anon, body, '203.0.113.9');

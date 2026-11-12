@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { google } from 'googleapis';
 import type { JWTInput } from 'google-auth-library';
 import type { GoogleAuth } from 'google-auth-library';
+import { weightedAveragePosition } from './search-performance';
 
 const SCOPES = [
   'https://www.googleapis.com/auth/webmasters.readonly',
@@ -235,6 +236,7 @@ export class MarketingInsightsService {
     let totalCtr = 0;
     let totalPosition = 0;
     const byDate: { date: string; clicks: number; impressions: number; ctr: number; position: number }[] = [];
+    const rawPositions: { impressions: number; position: number }[] = [];
     for (const r of byDateRows) {
       const date = (r.keys || [])[0] || '';
       const clicks = Number(r.clicks || 0);
@@ -243,11 +245,13 @@ export class MarketingInsightsService {
       const position = Number(r.position || 0);
       totalClicks += clicks;
       totalImpressions += impressions;
+      rawPositions.push({ impressions, position });
       byDate.push({ date, clicks, impressions, ctr: Math.round(ctr * 10000) / 100, position: Math.round(position * 10) / 10 });
     }
     if (byDate.length > 0) {
       totalCtr = totalImpressions > 0 ? Math.round((totalClicks / totalImpressions) * 10000) / 100 : 0;
-      totalPosition = byDate.reduce((s, r) => s + r.position, 0) / byDate.length;
+      // Weighted by impressions, the way Search Console itself reports it.
+      totalPosition = weightedAveragePosition(rawPositions);
     }
     byDate.sort((a, b) => a.date.localeCompare(b.date));
 

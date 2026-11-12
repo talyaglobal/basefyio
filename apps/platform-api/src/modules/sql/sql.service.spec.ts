@@ -5,7 +5,12 @@ import { BadRequestException } from '@nestjs/common';
 // this unit test neither needs nor can transform. The harness injects a mock.
 jest.mock('../projects/projects.service', () => ({ ProjectsService: class {} }));
 
-import { SqlService } from './sql.service';
+import { SqlService, uniqueColumnNames } from './sql.service';
+
+/** The text and values of a recorded client.query call (string or config form). */
+const textOf = (call: any[]): string => (typeof call[0] === 'string' ? call[0] : call[0].text);
+const valuesOf = (call: any[]): unknown[] | undefined =>
+  typeof call[0] === 'string' ? call[1] : call[0].values;
 
 /**
  * Parameters, and the reason they exist.
@@ -72,7 +77,8 @@ describe('SqlService.execute — values travel apart from the statement', () => 
       params: ['page load'],
     });
 
-    const [text, values] = client.query.mock.calls[0];
+    const text = textOf(client.query.mock.calls[0]);
+    const values = valuesOf(client.query.mock.calls[0]);
     expect(text).toContain('$1');
     expect(text).not.toContain('page load');
     expect(values).toEqual(['page load']);
@@ -89,7 +95,7 @@ describe('SqlService.execute — values travel apart from the statement', () => 
       }),
     ).resolves.toBeDefined();
 
-    expect(client.query.mock.calls[0][1]).toEqual([
+    expect(valuesOf(client.query.mock.calls[0])).toEqual([
       'myfyio copy would post there',
       7,
     ]);
@@ -109,7 +115,7 @@ describe('SqlService.execute — values travel apart from the statement', () => 
 
     await svc.execute('p1', 'SELECT 1', 'u1');
 
-    expect(client.query.mock.calls[0][1]).toBeUndefined();
+    expect(valuesOf(client.query.mock.calls[0])).toBeUndefined();
   });
 
   it('gives the count query the same values', async () => {
@@ -120,8 +126,9 @@ describe('SqlService.execute — values travel apart from the statement', () => 
       countTotal: true,
     });
 
-    expect(client.query).toHaveBeenCalledTimes(2);
-    const [countText, countValues] = client.query.mock.calls[1];
+    const countCall = client.query.mock.calls.find((c: any[]) => textOf(c).includes('COUNT(*)'))!;
+    const countText = textOf(countCall);
+    const countValues = valuesOf(countCall);
     expect(countText).toContain('COUNT(*)');
     expect(countValues).toEqual(['v']);
   });
@@ -134,7 +141,7 @@ describe('SqlService.execute — values travel apart from the statement', () => 
       limit: 10,
     });
 
-    const [text] = client.query.mock.calls[0];
+    const text = textOf(client.query.mock.calls[0]);
     expect(text).toContain('_bf_paged');
     expect(text).toContain('$1');
   });
@@ -188,7 +195,8 @@ describe('SqlService.execute — runs under the caller role', () => {
     let setRoleCalls = 0;
     const calls: string[] = [];
     const client = {
-      query: jest.fn(async (sql: string) => {
+      query: jest.fn(async (q: string | { text: string }) => {
+        const sql = typeof q === 'string' ? q : q.text;
         calls.push(sql);
         if (/^SET LOCAL ROLE/.test(sql)) {
           setRoleCalls++;

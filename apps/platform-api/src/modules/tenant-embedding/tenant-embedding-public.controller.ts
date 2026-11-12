@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Body,
+  HttpCode,
   Query,
   Req,
   UseGuards,
@@ -79,6 +80,7 @@ export class TenantEmbeddingPublicController {
    * Body: { query, namespace?, threshold?, limit?, filter? }
    */
   @Post('search')
+  @HttpCode(200)
   @AuthenticatedKeyOnly()
   async search(
     @Body()

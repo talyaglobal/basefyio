@@ -30,16 +30,12 @@ import {
   GitBranch, GitCommit, Circle, ExternalLink, ArrowRightLeft,
   RotateCcw,
   GitCompareArrows,
-  Power,
-  Moon,
-  ChevronDown,
 } from 'lucide-react';
 import { CreateProjectDialog } from '@/components/create-project-dialog';
 import { ProjectAdvisorSection } from '@/components/project-advisor-section';
 import { ProjectImportLogCard } from '@/components/project-import-log-card';
 import { useProject } from '@/contexts/project-context';
-import { confirmDialog } from '@/components/ui/confirm-dialog';
-import { cn, projectStatusBadgeClass, projectStatusLabel } from '@/lib/utils';
+import { cn, projectStatusBadgeClass } from '@/lib/utils';
 
 function timeAgo(dateStr: string) {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -62,43 +58,6 @@ function deployStateColor(state: string) {
   }
 }
 
-// Three words for a project's life, the same ones everywhere: active,
-// deactivated, deleted. Deactivated is a pause — the API stops answering and
-// sign-in closes until it is activated again — and never a deletion.
-type StatusChoice = 'ACTIVE' | 'PAUSED' | 'DELETE';
-
-// What the badge offers when clicked. Every option maps to an action the
-// projects list already had; the dialog only puts them where the status is.
-const STATUS_OPTIONS: Array<{
-  value: StatusChoice;
-  label: string;
-  hint: string;
-  icon: typeof Power;
-  tone: string;
-}> = [
-  {
-    value: 'ACTIVE',
-    label: 'Active',
-    hint: 'Serving requests. Activating a deactivated project restores it exactly as it was.',
-    icon: Power,
-    tone: 'text-teal-500',
-  },
-  {
-    value: 'PAUSED',
-    label: 'Deactivated',
-    hint: 'Its API stops answering and sign-in closes until it is activated again. Nothing is deleted, ever; a request carrying its key activates it again.',
-    icon: Moon,
-    tone: 'text-amber-500',
-  },
-  {
-    value: 'DELETE',
-    label: 'Delete',
-    hint: 'Move the project to the trash. You will be asked to type its name first.',
-    icon: Trash2,
-    tone: 'text-red-500',
-  },
-];
-
 interface ProjectDetailProps {
   project: Project;
 }
@@ -120,7 +79,6 @@ const DELETE_REASONS = [
 export function ProjectDetail({ project }: ProjectDetailProps) {
   const router = useRouter();
   const { refreshProject } = useProject();
-
   const [deleting, setDeleting] = useState(false);
   const [commits, setCommits] = useState<GitHubCommit[]>([]);
   const [deployments, setDeployments] = useState<VercelDeployment[]>([]);
@@ -133,41 +91,7 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
   const [reimportOpen, setReimportOpen] = useState(false);
   const [reimportMode, setReimportMode] = useState<'full' | 'sync'>('full');
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-
-  // The status badge is a control: clicking it opens this dialog, and the
-  // choice — activate, deactivate or delete — is always the customer's.
-  const [statusDialogOpen, setStatusDialogOpen] = useState(false);
-  const [statusChoice, setStatusChoice] = useState<StatusChoice>('ACTIVE');
-  const [statusSaving, setStatusSaving] = useState(false);
-  const openStatusDialog = () => {
-    setStatusChoice(project.status === 'PAUSED' ? 'PAUSED' : 'ACTIVE');
-    setStatusDialogOpen(true);
-  };
-  const applyStatus = async () => {
-    if (statusChoice === 'DELETE') {
-      // The existing deletion flow, with its reason and typed-name guard.
-      setStatusDialogOpen(false);
-      setDeleteDialogOpen(true);
-      return;
-    }
-    setStatusSaving(true);
-    try {
-      if (statusChoice === 'ACTIVE') {
-        await api.projects.reactivate(project.id);
-        toast.success('Project is active again');
-      } else {
-        await api.projects.sleep(project.id);
-        toast.success('Project deactivated. A request with its API key activates it again.');
-      }
-      setStatusDialogOpen(false);
-      await refreshProject?.();
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to change the project status');
-    } finally {
-      setStatusSaving(false);
-    }
-  };
-  const [deleteReasonCode, setDeleteReasonCode] = useState<string>('none');
+  const [deleteReasonCode, setDeleteReasonCode] = useState<string>('');
   const [deleteDetails, setDeleteDetails] = useState('');
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [nameEditing, setNameEditing] = useState(false);
@@ -254,7 +178,7 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
       const selectedReason = DELETE_REASONS.find((x) => x.code === deleteReasonCode);
       await api.projects.delete(project.id, {
         reasonCode: deleteReasonCode,
-        reasonLabel: selectedReason?.label || 'None of the above',
+        reasonLabel: selectedReason?.label || undefined,
         details: deleteDetails.trim() || undefined,
       });
       toast.success('Project moved to trash');
@@ -377,20 +301,9 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={openStatusDialog}
-            title="Change project status"
-            className="rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <Badge
-              variant="secondary"
-              className={cn(projectStatusBadgeClass(project.status), 'cursor-pointer gap-1 pr-1.5')}
-            >
-              {projectStatusLabel(project.status).toUpperCase()}
-              <ChevronDown className="h-3 w-3" />
-            </Badge>
-          </button>
+          <Badge variant="secondary" className={projectStatusBadgeClass(project.status)}>
+            {project.status}
+          </Badge>
           {project.previewBranch && (
             <Link
               href={`/dashboard/projects/${project.previewBranch.parentProjectId}`}
@@ -681,73 +594,13 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
       </Dialog>
 
       <Dialog
-        open={statusDialogOpen}
-        onOpenChange={(open) => {
-          if (!statusSaving) setStatusDialogOpen(open);
-        }}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Change project status</DialogTitle>
-            <DialogDescription>
-              &ldquo;{project.name}&rdquo; is {projectStatusLabel(project.status).toLowerCase()}. Choose what it
-              should be.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            {STATUS_OPTIONS.map((opt) => {
-              const Icon = opt.icon;
-              const current = opt.value === project.status;
-              const selected = statusChoice === opt.value;
-              return (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setStatusChoice(opt.value)}
-                  disabled={current || statusSaving}
-                  className={cn(
-                    'flex w-full items-start gap-3 rounded-lg border p-3 text-left transition-colors',
-                    selected ? 'border-primary bg-primary/5' : 'hover:bg-accent',
-                    current && 'cursor-default opacity-60',
-                  )}
-                >
-                  <Icon className={cn('mt-0.5 h-4 w-4 shrink-0', opt.tone)} />
-                  <span>
-                    <span className="block text-sm font-medium">
-                      {opt.label}
-                      {current && (
-                        <span className="ml-2 text-xs font-normal text-muted-foreground">current</span>
-                      )}
-                    </span>
-                    <span className="block text-xs text-muted-foreground">{opt.hint}</span>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setStatusDialogOpen(false)} disabled={statusSaving}>
-              Cancel
-            </Button>
-            <Button
-              variant={statusChoice === 'DELETE' ? 'destructive' : 'default'}
-              onClick={applyStatus}
-              disabled={statusSaving || statusChoice === project.status}
-            >
-              {statusSaving ? 'Applying…' : statusChoice === 'DELETE' ? 'Continue to delete' : 'Apply'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
         open={deleteDialogOpen}
         onOpenChange={(open) => {
           setDeleteDialogOpen(open);
           if (!open) {
             setDeleteDetails('');
             setDeleteConfirmText('');
-            setDeleteReasonCode('none');
+            setDeleteReasonCode('');
           }
         }}
       >

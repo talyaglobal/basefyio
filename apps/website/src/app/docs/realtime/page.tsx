@@ -1,17 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { withAbsoluteSiteUrls } from "@/lib/absolute-site-metadata";
-import { docsPath } from "@/lib/public-hosts";
+import { docsMetadata } from "../docs-metadata";
 
 const pageDescription =
   "Subscribe to live INSERT/UPDATE/DELETE events on your basefyio tables and collections with the SDK or plain EventSource.";
 
 export async function generateMetadata(): Promise<Metadata> {
-  return withAbsoluteSiteUrls("/docs/realtime", {
-    title: "Realtime",
-    description: pageDescription,
-    openGraph: { title: "Realtime | basefyio Docs", description: pageDescription },
-  });
+  return docsMetadata("/docs/realtime", "Realtime", pageDescription);
 }
 
 export default function RealtimeDocs() {
@@ -104,7 +99,7 @@ es.addEventListener('data_change', (e) => {
 
       <hr />
       <p>
-        See the <Link href={docsPath("/docs/sdk")}>SDK reference</Link> for the full client API.
+        See the <Link href="/docs/sdk">SDK reference</Link> for the full client API.
       </p>
     </div>
   );

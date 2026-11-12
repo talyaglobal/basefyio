@@ -18,6 +18,7 @@ import { RequestWithTraceId } from '../../common/middleware/trace-id.middleware'
 import { AuditSinkService } from '../../common/audit/audit-sink.service';
 import { toAuditEvent } from '../../common/audit/audit-event';
 import { ObservabilityService } from './observability.service';
+import { parseAuditDirection } from './audit-pagination';
 
 @Controller('observability')
 @UseGuards(JwtAuthGuard, ManagementPermissionGuard)
@@ -49,6 +50,11 @@ export class ObservabilityController {
     @Query('success') success?: string,
     @Query('dateFrom') dateFrom?: string,
     @Query('dateTo') dateTo?: string,
+    // Keyset paging: direction=first|next|prev|last with the cursor of the
+    // current page's last (next) or first (prev) row. Without it, `page` pages
+    // by OFFSET as before.
+    @Query('direction') direction?: string,
+    @Query('cursor') cursor?: string,
   ) {
     return this.observability.listAuditLogs({
       page: page ? Math.floor(Number(page)) : undefined,
@@ -58,6 +64,8 @@ export class ObservabilityController {
       success: success?.trim() || undefined,
       dateFrom: dateFrom?.trim() || undefined,
       dateTo: dateTo?.trim() || undefined,
+      direction: parseAuditDirection(direction),
+      cursor: cursor?.trim() || undefined,
     });
   }
 

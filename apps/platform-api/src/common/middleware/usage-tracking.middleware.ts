@@ -2,7 +2,6 @@ import { Injectable, NestMiddleware, Logger } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsageService } from '../../modules/billing/usage.service';
-import { hashSecretKey, isSecretKey } from '../utils/secret-keys';
 
 interface ResolvedOwner {
   teamId: string;
@@ -19,7 +18,8 @@ interface ResolvedOwner {
  * 2. apikey header → look up project by anonKey/serviceKey → teamId + projectId
  *
  * Usage is counted per team (plan quotas) and per project (the cost
- * breakdown under Billing).
+ * breakdown under Billing). Bandwidth means egress — response bytes only;
+ * uploads are ingress and are not counted.
  */
 @Injectable()
 export class UsageTrackingMiddleware implements NestMiddleware {
@@ -57,6 +57,10 @@ export class UsageTrackingMiddleware implements NestMiddleware {
   async use(req: Request, res: Response, next: NextFunction) {
     // Skip non-API routes — only track public REST/data API calls
     const path = req.originalUrl || req.url;
+    // A browser's CORS preflight carries no project context and no payload.
+    if (req.method === 'OPTIONS') {
+      return next();
+    }
     if (!path.startsWith('/rest/') && !path.startsWith('/api/')) {
       return next();
     }
@@ -76,30 +80,35 @@ export class UsageTrackingMiddleware implements NestMiddleware {
 
       const usageService = this.usage;
       let responseSize = 0;
+      let counted = false;
 
       const originalWrite = res.write;
       (res as any).write = function (chunk: any, ...args: any[]) {
-        if (chunk) {
-          responseSize +=
-            typeof chunk === 'string' ? Buffer.byteLength(chunk) : chunk.length;
-        }
+        responseSize += UsageTrackingMiddleware.chunkBytes(chunk, args[0]);
         return originalWrite.apply(res, [chunk, ...args]);
       };
 
       const originalEnd = res.end;
       (res as any).end = function (chunk: any, ...args: any[]) {
-        if (chunk) {
-          responseSize +=
-            typeof chunk === 'string' ? Buffer.byteLength(chunk) : chunk.length;
+        // Callback-only form: end(cb) carries no body.
+        if (typeof chunk !== 'function') {
+          responseSize += UsageTrackingMiddleware.chunkBytes(chunk, args[0]);
         }
 
-        const requestSize = req.headers['content-length']
-          ? parseInt(req.headers['content-length'], 10)
-          : 0;
-        const totalBytes = requestSize + responseSize;
-
-        if (totalBytes > 0) {
-          usageService.trackBandwidth(teamId, totalBytes, projectId).catch(() => {});
+        // end() can be reached twice (an error handler after a stream); the
+        // response leaves once, so it is counted once.
+        if (!counted) {
+          counted = true;
+          // Bandwidth is egress: the bytes we send back. The request body is
+          // ingress — an upload — and is never billed as bandwidth, so the
+          // request's Content-Length is deliberately not part of this figure.
+          if (responseSize > 0) {
+            usageService.trackBandwidth(teamId, responseSize, projectId).catch(() => {});
+          }
+          const activeUser = UsageTrackingMiddleware.verifiedEndUser(req, projectId);
+          if (activeUser) {
+            usageService.trackActiveUser(teamId, activeUser, projectId).catch(() => {});
+          }
         }
 
         return originalEnd.apply(res, [chunk, ...args]);
@@ -107,6 +116,35 @@ export class UsageTrackingMiddleware implements NestMiddleware {
     }
 
     next();
+  }
+
+  /** Bytes in one write()/end() chunk; strings are measured in their encoding. */
+  static chunkBytes(chunk: unknown, encoding?: unknown): number {
+    if (!chunk || typeof chunk === 'function') return 0;
+    if (typeof chunk === 'string') {
+      return Buffer.byteLength(chunk, typeof encoding === 'string' ? (encoding as BufferEncoding) : 'utf8');
+    }
+    if (Buffer.isBuffer(chunk) || chunk instanceof Uint8Array) return chunk.byteLength;
+    return 0;
+  }
+
+  /**
+   * The end user behind a request, but only one whose access token the
+   * ApiKeyGuard has verified against the project's realm — it publishes the
+   * verified claims on `req.apiKeyPayload` before the handler runs, so they are
+   * there by the time the response ends. An unverified or forged token never
+   * reaches this point: the guard rejects the request instead. Feeds the
+   * monthly-active-users figure under Billing.
+   */
+  static verifiedEndUser(req: Request, projectId: string | null): string | null {
+    const payload = (req as any).apiKeyPayload as
+      | { projectId?: string; dbRole?: string; jwtClaims?: Record<string, unknown> }
+      | undefined;
+    if (!payload || payload.dbRole !== 'authenticated') return null;
+    // Attribute only to the project the token was verified for.
+    if (!projectId || payload.projectId !== projectId) return null;
+    const sub = payload.jwtClaims?.sub;
+    return typeof sub === 'string' && sub.length > 0 ? sub : null;
   }
 
   private async resolveOwner(req: Request): Promise<ResolvedOwner | null> {
@@ -154,21 +192,13 @@ export class UsageTrackingMiddleware implements NestMiddleware {
     }
 
     try {
-      // A secret key is stored only as its hash; any other key is compared as it is.
-      const project = isSecretKey(apiKey)
-        ? (
-            await this.prisma.projectSecretKey.findFirst({
-              where: { keyHash: hashSecretKey(apiKey), revokedAt: null, project: { status: 'ACTIVE' } },
-              select: { project: { select: { id: true, teamId: true } } },
-            })
-          )?.project ?? null
-        : await this.prisma.project.findFirst({
-            where: {
-              OR: [{ anonKey: apiKey }, { serviceKey: apiKey }],
-              status: 'ACTIVE',
-            },
-            select: { id: true, teamId: true },
-          });
+      const project = await this.prisma.project.findFirst({
+        where: {
+          OR: [{ anonKey: apiKey }, { serviceKey: apiKey }],
+          status: 'ACTIVE',
+        },
+        select: { id: true, teamId: true },
+      });
       if (project) {
         const owner = { teamId: project.teamId, projectId: project.id };
         this.setCacheEntry(cacheKey, owner);

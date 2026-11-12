@@ -6,7 +6,7 @@ import {
 
 /** Body of PUT /projects/:projectId/embeddings/provider. */
 export class SetEmbeddingProviderDto {
-  /** openai | ollama | cohere; null (or omitted) returns the project to the platform default. */
+  /** openai | ollama | cohere | gemini; null (or omitted) returns the project to the platform default. */
   @IsOptional()
   @IsIn(EMBEDDING_PROVIDER_IDS as readonly string[])
   provider?: EmbeddingProviderId | null;

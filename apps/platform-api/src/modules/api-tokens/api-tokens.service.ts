@@ -39,8 +39,8 @@ export class ApiTokensService {
     let expiresAt: Date | null = null;
     if (input.expiresAt) {
       const d = new Date(input.expiresAt);
-      if (isNaN(d.getTime())) throw new BadRequestException('invalid expiresAt');
-      if (d.getTime() <= Date.now()) throw new BadRequestException('expiresAt must be in the future');
+      if (isNaN(d.getTime())) throw new BadRequestException('The expiry date is not a valid date.');
+      if (d.getTime() <= Date.now()) throw new BadRequestException('The expiry date must be in the future.');
       expiresAt = d;
     }
     return { scopes, expiresAt };
@@ -96,18 +96,22 @@ export class ApiTokensService {
     });
   }
 
-  private async own(userId: string, id: string): Promise<{ id: string; status: string }> {
-    const t = await this.prisma.platformApiToken.findFirst({ where: { id, userId }, select: { id: true, status: true } });
+  private async own(userId: string, id: string) {
+    const t = await this.prisma.platformApiToken.findFirst({
+      where: { id, userId },
+      select: { id: true, status: true, expiresAt: true },
+    });
     if (!t) throw new NotFoundException('Token not found');
     return t;
   }
 
-  /** Revocation is final: a revoked token is never edited or given a new secret again. */
+  /**
+   * A revoked token is final: it can never be edited or rolled back to life.
+   * Only an active token may change; a revoked one can only be deleted.
+   */
   private async ownActive(userId: string, id: string) {
     const t = await this.own(userId, id);
-    if (t.status !== 'active') {
-      throw new ConflictException('This token is revoked. Revocation is permanent; create a new token instead.');
-    }
+    if (t.status !== 'active') throw this.revokedConflict();
     return t;
   }
 
@@ -139,44 +143,75 @@ export class ApiTokensService {
         data.expiresAt = null;
       } else {
         const d = new Date(input.expiresAt);
-        if (isNaN(d.getTime())) throw new BadRequestException('invalid expiresAt');
-        if (d.getTime() <= Date.now()) throw new BadRequestException('expiresAt must be in the future');
+        if (isNaN(d.getTime())) throw new BadRequestException('The expiry date is not a valid date.');
+        if (d.getTime() <= Date.now()) throw new BadRequestException('The expiry date must be in the future.');
         data.expiresAt = d;
       }
     }
 
-    return this.prisma.platformApiToken.update({
-      where: { id },
+    // Guard on status in the write itself so a revoke that lands between the
+    // check above and this update still wins.
+    const res = await this.prisma.platformApiToken.updateMany({
+      where: { id, userId, status: 'active' },
       data,
-      select: this.publicSelect,
     });
+    if (res.count === 0) throw this.revokedConflict();
+    return this.prisma.platformApiToken.findFirst({ where: { id, userId }, select: this.publicSelect });
   }
 
-  /**
-   * Revoke an active token. A token that is already revoked is removed from the list for good:
-   * it can never be used again either way, so keeping it only clutters the list.
-   */
-  async revoke(userId: string, id: string): Promise<{ revoked: true } | { removed: true }> {
-    const t = await this.own(userId, id);
-    if (t.status !== 'active') {
-      await this.prisma.platformApiToken.delete({ where: { id } });
-      return { removed: true };
-    }
-    await this.prisma.platformApiToken.update({ where: { id }, data: { status: 'revoked' } });
+  /** Revoke a token. Idempotent; revocation is permanent. */
+  async revoke(userId: string, id: string) {
+    await this.own(userId, id);
+    await this.prisma.platformApiToken.updateMany({
+      where: { id, userId },
+      data: { status: 'revoked' },
+    });
     return { revoked: true };
   }
 
-  /** Regenerate the secret (invalidates the old one). */
+  /**
+   * Permanently remove a token row. Only a revoked token can be removed, so an
+   * active credential is never deleted by accident; revoke it first.
+   */
+  async remove(userId: string, id: string) {
+    const t = await this.own(userId, id);
+    if (t.status === 'active') {
+      throw new ConflictException('Revoke this token before deleting it.');
+    }
+    await this.prisma.platformApiToken.deleteMany({ where: { id, userId, status: { not: 'active' } } });
+    return { deleted: true };
+  }
+
+  /**
+   * Regenerate the secret of an ACTIVE token (invalidates the old secret). A
+   * revoked token is never reactivated — the status is not touched here and the
+   * write only matches an active row.
+   */
   async roll(userId: string, id: string) {
-    // Rolling used to set the status back to active, so a revoked token came back to life.
-    await this.ownActive(userId, id);
+    const t = await this.ownActive(userId, id);
+    if (t.expiresAt && t.expiresAt.getTime() <= Date.now()) {
+      // A new secret on an expired token would be dead on arrival.
+      throw new BadRequestException(
+        'This token has expired. Set a new expiry date first, or create a new token.',
+      );
+    }
     const { token, hash, prefix } = generateToken();
-    const row = await this.prisma.platformApiToken.update({
-      where: { id },
-      data: { tokenHash: hash, tokenPrefix: prefix, status: 'active', lastUsedAt: null },
+    const res = await this.prisma.platformApiToken.updateMany({
+      where: { id, userId, status: 'active' },
+      data: { tokenHash: hash, tokenPrefix: prefix, lastUsedAt: null },
+    });
+    if (res.count === 0) throw this.revokedConflict();
+    const row = await this.prisma.platformApiToken.findFirst({
+      where: { id, userId },
       select: this.publicSelect,
     });
     return { ...row, token };
+  }
+
+  private revokedConflict() {
+    return new ConflictException(
+      'This token has been revoked and can no longer be changed. Create a new token instead.',
+    );
   }
 
   /** Verify a raw token; returns the owner + scopes, or throws. Bumps lastUsedAt. */

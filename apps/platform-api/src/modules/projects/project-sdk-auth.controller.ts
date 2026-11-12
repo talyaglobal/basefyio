@@ -10,11 +10,11 @@ import {
   Headers,
   UseGuards,
   ForbiddenException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { ProjectSdkAuthService } from './project-sdk-auth.service';
 import { ProjectAnonymousAuthService } from './project-anonymous-auth.service';
-import { SupabaseAuthCompatService } from './supabase-auth-compat.service';
 import { ApiKeyGuard, ApiKeyPayload } from '../../common/guards/api-key.guard';
 import { AuthenticatedKeyOnly } from '../../common/decorators/api-key-scope.decorator';
 
@@ -24,16 +24,13 @@ export class ProjectSdkAuthController {
   constructor(
     private readonly sdkAuth: ProjectSdkAuthService,
     private readonly anonymousAuth: ProjectAnonymousAuthService,
-    private readonly gotrue: SupabaseAuthCompatService,
   ) {}
 
-  /**
-   * Real end-user IP: Express's answer behind the trusted proxies (`trust
-   * proxy` in main.ts). The left-most X-Forwarded-For hop is whatever the
-   * client chose to send, so it is not read.
-   */
+  /** Real end-user IP from the proxy chain (first X-Forwarded-For hop). */
   private clientIp(req: Request): string | undefined {
-    const ip = (req.ip || req.socket?.remoteAddress || '').trim();
+    const xff = req.headers['x-forwarded-for'];
+    const raw = Array.isArray(xff) ? xff[0] : xff;
+    const ip = (raw ? raw.split(',')[0] : req.ip || req.socket?.remoteAddress || '').trim();
     return ip || undefined;
   }
 
@@ -219,11 +216,6 @@ export class ProjectSdkAuthController {
     return this.sdkAuth.verifyReauth(projectId, body.otp);
   }
 
-  /**
-   * The invitation is the GoTrue one: a password-less user and a link that signs them in.
-   * The older flow mailed a link to a route that never existed, so no invitation could be
-   * accepted; the facade's invite is the working one, and both routes share it.
-   */
   @Post('invite')
   async inviteUser(
     @Req() req: Request,
@@ -233,8 +225,7 @@ export class ProjectSdkAuthController {
     if (role !== 'service') {
       throw new ForbiddenException('Invite requires service_role key');
     }
-    const user = await this.gotrue.invite(projectId, { email: body?.email });
-    return { message: `Invitation sent to ${body.email}`, userId: user.id };
+    return this.sdkAuth.inviteUser(projectId, body.email);
   }
 
   @Post('refresh')
@@ -253,8 +244,19 @@ export class ProjectSdkAuthController {
   ) {
     const { projectId } = this.getPayload(req);
     const token = auth?.replace('Bearer ', '');
-    if (!token) throw new ForbiddenException('Missing Authorization header');
+    // No session is "not signed in" (401), not "not allowed" (403).
+    if (!token) throw new UnauthorizedException('Not signed in: send the user access token as Authorization: Bearer <token>');
     return this.sdkAuth.me(projectId, token);
+  }
+
+  /** Revoke the session behind a refresh token — what signOut() calls. */
+  @Post('signout')
+  async signout(
+    @Req() req: Request,
+    @Body() body: { refreshToken: string },
+  ) {
+    const { projectId } = this.getPayload(req);
+    return this.sdkAuth.signout(projectId, body?.refreshToken);
   }
 
   @Get('signin/:provider')

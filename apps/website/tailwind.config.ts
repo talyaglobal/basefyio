@@ -85,6 +85,17 @@ const config: Config = {
         "fade-in": "fadeIn 200ms ease-out forwards",
         "slide-up": "slideUp 200ms ease-out forwards",
       },
+      // The typography plugin wraps inline <code> in literal backticks
+      // (code::before / code::after). Our code is already styled as a chip, so
+      // the backticks only showed up as stray characters around it.
+      typography: {
+        DEFAULT: {
+          css: {
+            "code::before": { content: "none" },
+            "code::after": { content: "none" },
+          },
+        },
+      },
     },
   },
   plugins: [typography],

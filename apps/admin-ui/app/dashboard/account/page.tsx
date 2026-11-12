@@ -31,6 +31,25 @@ import {
   X,
 } from 'lucide-react';
 
+const PROVIDER_NAME: Record<string, string> = { local: 'Email and password', google: 'Google', github: 'GitHub' };
+
+/** The browser's Notification.permission, in words. */
+const BROWSER_PERMISSION_LABEL: Record<string, string> = {
+  default: 'Not asked yet — you will be asked when you turn this on',
+  granted: 'Allowed in this browser',
+  denied: 'Blocked in this browser — allow notifications for this site in the browser settings',
+  unsupported: 'Not supported in this browser',
+};
+
+type SignInEmailMode = 'every' | 'new_device' | 'off';
+
+/** The API keeps two flags; "every sign-in" already covers new devices. */
+function signInEmailMode(notifySignIn: boolean, notifySignInNewDevice: boolean): SignInEmailMode {
+  if (notifySignIn) return 'every';
+  if (notifySignInNewDevice) return 'new_device';
+  return 'off';
+}
+
 export default function AccountPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -128,13 +147,21 @@ export default function AccountPage() {
       firstName.trim() !== (profile.firstName ?? '') ||
       lastName.trim() !== (profile.lastName ?? '') ||
       pendingAvatarDataUrl !== null);
+  // The first name is how the dashboard, member lists and emails address the
+  // user; it may not be saved empty (the API refuses it as well).
+  const firstNameMissing = !firstName.trim();
   const authProvider = profile?.authProvider ?? 'local';
   const signOnMethod = profile?.signOnMethod ?? authProvider;
   const isExternalAuth = signOnMethod !== 'local';
   const canEditIdentity = !isExternalAuth || forcePasswordChange;
+  const providerName = PROVIDER_NAME[signOnMethod] ?? signOnMethod;
 
   const handleSaveProfile = async () => {
     if (!hasProfileChanges) return;
+    if (firstNameMissing) {
+      toast.error('First name is required');
+      return;
+    }
     setSaving(true);
     try {
       const updates: Record<string, string | boolean> = {};
@@ -160,10 +187,18 @@ export default function AccountPage() {
     }
   };
 
+  const signInMode = signInEmailMode(notifySignIn, notifySignInNewDevice);
+  const savedSignInMode = profile
+    ? signInEmailMode(profile.notifySignIn, profile.notifySignInNewDevice ?? false)
+    : signInMode;
+  const setSignInMode = (mode: SignInEmailMode) => {
+    setNotifySignIn(mode === 'every');
+    setNotifySignInNewDevice(mode === 'new_device');
+  };
+
   const hasNotifChanges =
     profile &&
-    (notifySignIn !== profile.notifySignIn ||
-      notifySignInNewDevice !== (profile.notifySignInNewDevice ?? false) ||
+    (signInMode !== savedSignInMode ||
       notifyTeamInvite !== profile.notifyTeamInvite ||
       notifyBrowserPush !== (profile.notifyBrowserPush ?? false));
 
@@ -177,9 +212,10 @@ export default function AccountPage() {
         notifyTeamInvite?: boolean;
         notifyBrowserPush?: boolean;
       } = {};
-      if (notifySignIn !== profile!.notifySignIn) updates.notifySignIn = notifySignIn;
-      if (notifySignInNewDevice !== (profile!.notifySignInNewDevice ?? false)) {
-        updates.notifySignInNewDevice = notifySignInNewDevice;
+      if (signInMode !== savedSignInMode) {
+        // Both flags together, so the stored pair can never contradict itself.
+        updates.notifySignIn = signInMode === 'every';
+        updates.notifySignInNewDevice = signInMode === 'new_device';
       }
       if (notifyTeamInvite !== profile!.notifyTeamInvite) updates.notifyTeamInvite = notifyTeamInvite;
       if (notifyBrowserPush !== (profile!.notifyBrowserPush ?? false)) {
@@ -368,16 +404,18 @@ export default function AccountPage() {
           />
         </div>
         {isExternalAuth && !canEditIdentity && (
-          <div className="flex items-center justify-between gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+          <div className="flex items-center justify-between gap-3 rounded-md border border-amber-500/50 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">
             <span>
-              This account uses {authProvider} sign-in. Email and password are locked. You can still update first and last name.
+              This account signs in with {providerName}. Your email address and password are managed there. You can still update your first and last name.
             </span>
           </div>
         )}
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
-            <Label htmlFor="account-first">First name</Label>
+            <Label htmlFor="account-first">
+              First name <span className="text-destructive" aria-hidden>*</span>
+            </Label>
             <Input
               id="account-first"
               value={firstName}
@@ -385,7 +423,16 @@ export default function AccountPage() {
               placeholder="First name"
               autoComplete="given-name"
               maxLength={100}
+              required
+              aria-required
+              aria-invalid={firstNameMissing}
+              aria-describedby={firstNameMissing ? 'account-first-error' : undefined}
             />
+            {firstNameMissing && (
+              <p id="account-first-error" className="text-xs text-destructive">
+                First name is required.
+              </p>
+            )}
           </div>
           <div className="space-y-2">
             <Label htmlFor="account-last">Last name</Label>
@@ -403,9 +450,9 @@ export default function AccountPage() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Badge variant="secondary" className="text-xs">{profile.role}</Badge>
-            <Badge variant="outline" className="text-xs uppercase">{authProvider}</Badge>
+            <Badge variant="outline" className="text-xs">{PROVIDER_NAME[authProvider] ?? authProvider}</Badge>
           </div>
-          <Button onClick={handleSaveProfile} disabled={!hasProfileChanges || saving} size="sm">
+          <Button onClick={handleSaveProfile} disabled={!hasProfileChanges || saving || firstNameMissing} size="sm">
             {saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
             Save changes
           </Button>

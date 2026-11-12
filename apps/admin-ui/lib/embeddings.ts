@@ -102,6 +102,38 @@ export interface SetEmbeddingProviderBody {
   reembed?: boolean;
 }
 
+/** Extra fields of POST /embeddings/api-key. */
+export interface SetEmbeddingApiKeyOptions {
+  /**
+   * The provider the key is for when it is not the saved one (the provider
+   * picked in the form); null = the platform default. Omit for the saved one.
+   */
+  provider?: string | null;
+  model?: string | null;
+  baseUrl?: string | null;
+  /** Store without the test request (only after an "unreachable" / "test failed" answer). */
+  skipValidation?: boolean;
+}
+
+export interface SetEmbeddingApiKeyResult {
+  message: string;
+  /** A test request with the key succeeded (false when cleared or stored unverified). */
+  verified?: boolean;
+  /** Set when the key authenticated but the provider reported a rate limit or quota. */
+  warning?: string | null;
+}
+
+/**
+ * Tables the platform creates in a project database when pgvector is enabled.
+ * They are reached through the Embeddings API, so lists meant for the
+ * project's own tables (the REST explorer) leave them out.
+ */
+export const PLATFORM_EMBEDDING_TABLES: readonly string[] = ['kb_embeddings', 'kb_embeddings_store'];
+
+export function isPlatformEmbeddingTable(name: string, schema?: string | null): boolean {
+  return (schema == null || schema === 'public') && PLATFORM_EMBEDDING_TABLES.includes(name);
+}
+
 export interface SetEmbeddingProviderResult {
   provider: string;
   model: string;

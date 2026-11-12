@@ -1,4 +1,5 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { StoragePolicy } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StorageCaller, isPrivileged, ownerOf } from './storage-caller';
@@ -6,20 +7,37 @@ import { StorageCaller, isPrivileged, ownerOf } from './storage-caller';
 /**
  * Access rules a project can place on a bucket or on a key prefix inside it.
  *
- *  - `public-read`         any valid key may read (what every bucket does with no rule);
- *                          exists so a prefix inside a stricter bucket can be pinned open.
+ *  - `public-read`         any valid key may read, the bare public key included. On a
+ *                          private bucket this is the explicit opt-in that opens reads to
+ *                          the public key; inside a stricter bucket it pins a prefix open.
  *  - `authenticated-read`  reads need a signed-in end user; the public key alone is refused.
  *  - `owner-only`          reads, deletes and overwrites are limited to the user who
  *                          uploaded the object (recorded as x-amz-meta-owner).
  *
- * The service key and dashboard team members are never restricted. A bucket
- * with no rule behaves exactly as it always has.
+ * Independently of these rules a private bucket is closed to the bare public
+ * key (see `assertBucketReachable`): the key ships inside every browser app, so
+ * a private bucket it could read or write would not be private. The service
+ * key and dashboard team members are never restricted.
  */
 export const STORAGE_POLICY_MODES = ['public-read', 'authenticated-read', 'owner-only'] as const;
 export type StoragePolicyMode = (typeof STORAGE_POLICY_MODES)[number];
 
 export type AccessDecision = 'allow' | 'deny-anon' | 'deny-owner';
 export type AccessVerb = 'read' | 'delete' | 'overwrite' | 'move';
+
+/** Whether a request only looks at a bucket or changes what is in it. */
+export type BucketIntent = 'read' | 'write';
+
+/**
+ * `STORAGE_PRIVATE_BUCKET_ANON`: `refuse` (default) or `log`. With `log` the
+ * bare public key keeps reaching private buckets and every such call is logged,
+ * for a deployment that has to measure who depends on it before closing it.
+ */
+export type PrivateBucketAnonMode = 'refuse' | 'log';
+
+export function privateBucketAnonMode(raw: string | undefined): PrivateBucketAnonMode {
+  return (raw ?? '').trim().toLowerCase() === 'log' ? 'log' : 'refuse';
+}
 
 /** How long one instance trusts its copy of a project's rules. */
 const CACHE_TTL_MS = 30_000;
@@ -81,7 +99,17 @@ export class StorageAccessService {
   private readonly logger = new Logger(StorageAccessService.name);
   private readonly cache = new Map<string, { at: number; rows: StoragePolicy[] }>();
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly config?: ConfigService,
+  ) {}
+
+  /** How the bare public key is treated on a private bucket; read per call so tests and operators can flip it. */
+  privateAnonMode(): PrivateBucketAnonMode {
+    return privateBucketAnonMode(
+      this.config?.get<string>('STORAGE_PRIVATE_BUCKET_ANON') ?? process.env.STORAGE_PRIVATE_BUCKET_ANON,
+    );
+  }
 
   // ── Rules ───────────────────────────────────────────────
 
@@ -142,6 +170,46 @@ export class StorageAccessService {
   }
 
   // ── Checks ──────────────────────────────────────────────
+
+  /**
+   * A private bucket is reachable through its own session or a signed URL,
+   * never through the bare public key: that key ships inside every browser
+   * app, so whatever it can reach the whole internet can reach.
+   *
+   * Only the anon caller is affected; a signed-in end user, the service key and
+   * team members pass straight through to the access rules. Reads are let
+   * through where the project said so explicitly with a `public-read` rule on
+   * the bucket or prefix; writes never are.
+   *
+   * `verb` completes "the public anon key alone cannot <verb> it", e.g.
+   * "upload to", "list", "download from".
+   */
+  async assertBucketReachable(
+    caller: StorageCaller,
+    projectId: string,
+    bucket: string,
+    key: string,
+    intent: BucketIntent,
+    verb: string,
+    isPublic: () => Promise<boolean>,
+  ): Promise<void> {
+    if (caller.kind !== 'anon') return;
+    if (await isPublic()) return;
+    if (intent === 'read' && (await this.resolveMode(projectId, bucket, key)) === 'public-read') return;
+
+    if (this.privateAnonMode() === 'log') {
+      this.logger.warn(
+        `PRIVATE BUCKET ANON: project ${projectId} used its public anon key to ${verb} private bucket "${bucket}" — allowed because STORAGE_PRIVATE_BUCKET_ANON=log`,
+      );
+      return;
+    }
+    this.logger.warn(`Refused anon key of project ${projectId} on private bucket "${bucket}" (${verb})`);
+    throw new ForbiddenException(
+      `Bucket "${bucket}" is private, so the public anon key alone cannot ${verb} it. ` +
+        "Send the signed-in user's access token as a Bearer token alongside the anon key, " +
+        'hand out a signed URL created by your server, or call from your server with the service key.',
+    );
+  }
 
   private refuse(decision: Exclude<AccessDecision, 'allow'>, verb: AccessVerb, key: string): never {
     if (decision === 'deny-anon') {

@@ -17,7 +17,7 @@ import {
 } from '@nestjs/common';
 import * as Minio from 'minio';
 import { Readable } from 'stream';
-import { StorageService } from './storage.service';
+import { StorageService, withoutAnonymousListing } from './storage.service';
 
 /**
  * StorageService: what a project's buckets are called, who may touch them,
@@ -86,6 +86,17 @@ function build(cfg: Record<string, unknown> = DEFAULT_CFG) {
     teamUsage: { upsert: jest.fn().mockResolvedValue(undefined) },
     projectUsage: { upsert: jest.fn().mockResolvedValue(undefined) },
     systemSetting: { upsert: jest.fn().mockResolvedValue(undefined), findUnique: jest.fn().mockResolvedValue(null) },
+    storageBucketSettings: {
+      findMany: jest.fn().mockResolvedValue([]),
+      findUnique: jest.fn().mockResolvedValue(null),
+      upsert: jest.fn().mockImplementation(async ({ create, update }) => ({
+        fileSizeLimit: null,
+        allowedMimeTypes: [],
+        ...create,
+        ...update,
+      })),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
   };
   const quota = { assertCanUploadStorage: jest.fn().mockResolvedValue(undefined) };
   const config = { get: (k: string) => cfg[k] };
@@ -270,7 +281,7 @@ describe('createBucket', () => {
     expect(out.name).toBe('MyDocs');
   });
 
-  it('a public bucket gets anonymous GetObject on its objects, and no anonymous listing (feedback #9)', async () => {
+  it('a public bucket gets anonymous GetObject on its objects and nothing that lists them', async () => {
     const { svc, client } = build();
     client.bucketExists.mockResolvedValue(false);
     await svc.createBucket('p1', undefined, 'docs', true);
@@ -282,31 +293,27 @@ describe('createBucket', () => {
     ]);
   });
 
-  it('closes anonymous listing on existing public buckets and leaves the rest alone', async () => {
-    const { svc, client } = build();
-    const withListing = JSON.stringify({
-      Statement: [
-        { Effect: 'Allow', Principal: { AWS: ['*'] }, Action: ['s3:GetObject'], Resource: ['arn:aws:s3:::bf-a/*'] },
-        { Effect: 'Allow', Principal: { AWS: ['*'] }, Action: ['s3:ListBucket'], Resource: ['arn:aws:s3:::bf-a'] },
-      ],
+  it('STORAGE_PUBLIC_BUCKET_LISTING=on restores the anonymous listing for operators who need it', async () => {
+    const { svc, client } = build({ ...DEFAULT_CFG, STORAGE_PUBLIC_BUCKET_LISTING: 'on' });
+    client.bucketExists.mockResolvedValue(false);
+    await svc.createBucket('p1', undefined, 'docs', true);
+    const statements = JSON.parse(client.setBucketPolicy.mock.calls[0][1]).Statement;
+    expect(statements[1]).toEqual({
+      Effect: 'Allow',
+      Principal: { AWS: ['*'] },
+      Action: ['s3:ListBucket'],
+      Resource: [`arn:aws:s3:::${BUCKET}`],
     });
-    client.listBuckets = jest.fn().mockResolvedValue([{ name: 'bf-a' }, { name: 'bf-b' }, { name: 'bf-private' }]);
-    const readOnly = JSON.stringify({
-      Statement: [{ Effect: 'Allow', Principal: { AWS: ['*'] }, Action: ['s3:GetObject'], Resource: ['arn:aws:s3:::bf-b/*'] }],
-    });
-    client.getBucketPolicy = jest.fn(async (b: string) => (b === 'bf-a' ? withListing : b === 'bf-b' ? readOnly : ''));
-    client.setBucketPolicy.mockClear();
-    await expect(svc.closeAnonymousListings()).resolves.toEqual({ checked: 3, closed: 1 });
-    expect(client.setBucketPolicy).toHaveBeenCalledTimes(1);
-    const [bucket, policy] = client.setBucketPolicy.mock.calls[0];
-    expect(bucket).toBe('bf-a');
-    expect(JSON.parse(policy).Statement.map((s: any) => s.Action[0])).toEqual(['s3:GetObject']);
   });
 
-  it('encodes each segment of a public URL, so a # or a space stays part of the key', async () => {
-    const { svc } = build();
-    const url = (svc as any).buildPublicUrl(BUCKET, 'reports/q4 #1.pdf');
-    expect(url.endsWith(`/${BUCKET}/reports/q4%20%231.pdf`)).toBe(true);
+  it('stores upload limits given at creation and reports them', async () => {
+    const { svc, client, prisma } = build();
+    client.bucketExists.mockResolvedValue(false);
+    const out = await svc.createBucket('p1', undefined, 'docs', false, { fileSizeLimit: 1024, allowedMimeTypes: ['image/*'] });
+    expect(prisma.storageBucketSettings.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ create: { projectId: 'p1', bucket: 'docs', fileSizeLimit: BigInt(1024), allowedMimeTypes: ['image/*'] } }),
+    );
+    expect(out).toMatchObject({ fileSizeLimit: 1024, allowedMimeTypes: ['image/*'] });
   });
 });
 
@@ -318,15 +325,36 @@ describe('deleteBucket', () => {
     expect(client.removeBucket).not.toHaveBeenCalled();
   });
 
-  it('empties the bucket before removing it', async () => {
+  it('refuses a bucket that still holds files unless forced', async () => {
     const { svc, client } = build();
+    client.listObjectsV2.mockImplementation(() => listing([{ name: 'a.txt', size: 1 }, { name: 'dir/b.txt', size: 2 }]));
+    await expect(svc.deleteBucket('p1', undefined, 'docs')).rejects.toThrow(/not empty \(2 file\(s\)\)/);
+    await expect(svc.deleteBucket('p1', undefined, 'docs')).rejects.toBeInstanceOf(ConflictException);
+    expect(client.removeObjects).not.toHaveBeenCalled();
+    expect(client.removeBucket).not.toHaveBeenCalled();
+  });
+
+  it('with force, empties the bucket before removing it and forgets its limits', async () => {
+    const { svc, client, prisma } = build();
     client.listObjectsV2.mockImplementation(() => listing([{ name: 'a.txt', size: 1 }, { name: 'dir/b.txt', size: 2 }]));
     const order: string[] = [];
     client.removeObjects.mockImplementation(async () => void order.push('removeObjects'));
     client.removeBucket.mockImplementation(async () => void order.push('removeBucket'));
-    await expect(svc.deleteBucket('p1', undefined, 'docs')).resolves.toEqual({ message: 'Bucket "docs" deleted' });
+    await expect(svc.deleteBucket('p1', undefined, 'docs', { force: true })).resolves.toEqual({
+      message: 'Bucket "docs" deleted',
+      deletedObjects: 2,
+    });
     expect(client.removeObjects).toHaveBeenCalledWith(BUCKET, ['a.txt', 'dir/b.txt']);
     expect(order).toEqual(['removeObjects', 'removeBucket']);
+    expect(prisma.storageBucketSettings.deleteMany).toHaveBeenCalledWith({ where: { projectId: 'p1', bucket: 'docs' } });
+  });
+
+  it('deletes a bucket holding only empty folders without force', async () => {
+    const { svc, client } = build();
+    client.listObjectsV2.mockImplementation(() => listing([{ name: 'empty/', size: 0 }]));
+    await expect(svc.deleteBucket('p1', undefined, 'docs')).resolves.toMatchObject({ deletedObjects: 0 });
+    expect(client.removeObjects).toHaveBeenCalledWith(BUCKET, ['empty/']);
+    expect(client.removeBucket).toHaveBeenCalledWith(BUCKET);
   });
 
   it('skips the object sweep for an empty bucket', async () => {
@@ -459,6 +487,17 @@ describe('getPublicUrl', () => {
     });
     await expect(svc.getPublicUrl('p1', undefined, 'docs')).resolves.toMatchObject({
       url: `https://files.example.com/${BUCKET}/`,
+    });
+  });
+
+  it('percent-encodes each path segment so spaces and non-ASCII names give a working URL', async () => {
+    const { svc, client } = build();
+    client.getBucketPolicy.mockResolvedValue(publicPolicy(BUCKET));
+    await expect(svc.getPublicUrl('p1', undefined, 'docs', 'qa dir/qa e2e ş.txt')).resolves.toMatchObject({
+      url: `https://files.example.com/${BUCKET}/qa%20dir/qa%20e2e%20%C5%9F.txt`,
+    });
+    await expect(svc.getPublicUrl('p1', undefined, 'docs', 'folder/')).resolves.toMatchObject({
+      url: `https://files.example.com/${BUCKET}/folder/`,
     });
   });
 
@@ -717,17 +756,160 @@ describe('deleteObjects', () => {
     expect(client.listObjectsV2).toHaveBeenCalledWith(BUCKET, 'img/', true);
     expect(client.removeObjects).toHaveBeenCalledTimes(1);
     expect([...client.removeObjects.mock.calls[0][1]].sort()).toEqual(['img/', 'img/a.png', 'img/b.png', 'top.txt']);
-    expect(out).toEqual({ message: 'Deleted 4 object(s)' });
+    // The folder marker goes too, but only files are counted.
+    expect(out).toEqual({
+      message: 'Deleted 3 object(s)',
+      deleted: expect.arrayContaining(['img/a.png', 'img/b.png', 'top.txt']),
+      notFound: [],
+    });
+    expect(out.deleted).toHaveLength(3);
   });
 
-  it('reports zero for an empty selection', async () => {
+  it('counts only what was there and names the paths that were not', async () => {
     const { svc, client } = build();
-    await expect(svc.deleteObjects('p1', undefined, 'docs', [])).resolves.toEqual({ message: 'Deleted 0 object(s)' });
-    expect(client.removeObjects).toHaveBeenCalledWith(BUCKET, []);
+    client.statObject.mockImplementation(async (_b: string, key: string) => {
+      if (key === 'gone.txt') throw Object.assign(new Error('missing'), { code: 'NotFound' });
+      return { size: 1, metaData: {} };
+    });
+    const out = await svc.deleteObjects('p1', undefined, 'docs', ['a.txt', 'b.txt', 'gone.txt']);
+    expect(out).toEqual({ message: 'Deleted 2 object(s); 1 not found', deleted: ['a.txt', 'b.txt'], notFound: ['gone.txt'] });
+    expect(client.removeObjects).toHaveBeenCalledWith(BUCKET, ['a.txt', 'b.txt']);
+  });
+
+  it('reports zero for an empty selection without calling the store', async () => {
+    const { svc, client } = build();
+    await expect(svc.deleteObjects('p1', undefined, 'docs', [])).resolves.toEqual({
+      message: 'Deleted 0 object(s)',
+      deleted: [],
+      notFound: [],
+    });
+    expect(client.removeObjects).not.toHaveBeenCalled();
+  });
+
+  it('answers NotFound for a bucket that does not exist', async () => {
+    const { svc, client } = build();
+    client.bucketExists.mockResolvedValue(false);
+    await expect(svc.deleteObjects('p1', undefined, 'docs', ['a.txt'])).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+describe('copyObjects', () => {
+  it('copies one file, refusing an existing destination unless overwrite is set', async () => {
+    const { svc, client, quota } = build();
+    client.statObject.mockImplementation(async (_b: string, key: string) => {
+      if (key === 'new.txt') throw Object.assign(new Error('missing'), { code: 'NotFound' });
+      return { size: 7, metaData: {} };
+    });
+    await expect(svc.copyObjects('p1', undefined, 'docs', 'a.txt', 'new.txt')).resolves.toEqual({
+      from: 'a.txt',
+      to: 'new.txt',
+      count: 1,
+    });
+    expect(client.copyObject).toHaveBeenCalledWith(BUCKET, 'new.txt', `/${BUCKET}/a.txt`);
+    expect(client.removeObject).not.toHaveBeenCalled();
+    expect(quota.assertCanUploadStorage).toHaveBeenCalledWith('t1', 7);
+
+    await expect(svc.copyObjects('p1', undefined, 'docs', 'a.txt', 'taken.txt')).rejects.toBeInstanceOf(ConflictException);
+    await svc.copyObjects('p1', undefined, 'docs', 'a.txt', 'taken.txt', { overwrite: true });
+    expect(client.copyObject).toHaveBeenLastCalledWith(BUCKET, 'taken.txt', `/${BUCKET}/a.txt`);
+  });
+
+  it('renames a folder with everything in it and leaves usage alone', async () => {
+    const { svc, client, quota } = build();
+    client.listObjectsV2.mockImplementation(() => listing([{ name: 'img/' }, { name: 'img/a.png' }]));
+    client.statObject.mockRejectedValue(Object.assign(new Error('missing'), { code: 'NotFound' }));
+    await expect(svc.copyObjects('p1', undefined, 'docs', 'img/', 'pics/', { move: true })).resolves.toEqual({
+      from: 'img/',
+      to: 'pics/',
+      count: 1,
+    });
+    expect(client.copyObject.mock.calls.map((c) => c[1])).toEqual(['pics/', 'pics/a.png']);
+    expect(client.removeObject.mock.calls.map((c) => c[1])).toEqual(['img/', 'img/a.png']);
+    expect(quota.assertCanUploadStorage).not.toHaveBeenCalled();
+  });
+
+  it('refuses a missing source, a file-to-folder copy and a folder into itself', async () => {
+    const { svc, client } = build();
+    client.statObject.mockRejectedValue(Object.assign(new Error('missing'), { code: 'NotFound' }));
+    await expect(svc.copyObjects('p1', undefined, 'docs', 'nope.txt', 'b.txt')).rejects.toBeInstanceOf(NotFoundException);
+    await expect(svc.copyObjects('p1', undefined, 'docs', 'a.txt', 'dir/')).rejects.toBeInstanceOf(BadRequestException);
+    await expect(svc.copyObjects('p1', undefined, 'docs', 'img/', 'img/sub/')).rejects.toThrow('into itself');
+    await expect(svc.copyObjects('p1', undefined, 'docs', 'a.txt', 'a.txt')).rejects.toThrow('the same');
+  });
+});
+
+describe('public listing and visibility', () => {
+  it('removes anonymous listing from existing public buckets and keeps everything else', async () => {
+    const { svc, client } = build();
+    client.listBuckets.mockResolvedValue([
+      { name: 'bf-acme-assets', creationDate: new Date(0) },
+      { name: 'bf-acme-private', creationDate: new Date(0) },
+      { name: 'someone-elses', creationDate: new Date(0) },
+    ]);
+    const old = JSON.stringify({
+      Version: '2012-10-17',
+      Statement: [
+        { Effect: 'Allow', Principal: { AWS: ['*'] }, Action: ['s3:GetObject'], Resource: ['arn:aws:s3:::bf-acme-assets/*'] },
+        { Effect: 'Allow', Principal: { AWS: ['*'] }, Action: ['s3:ListBucket'], Resource: ['arn:aws:s3:::bf-acme-assets'] },
+      ],
+    });
+    client.getBucketPolicy.mockImplementation(async (b: string) => {
+      if (b === 'bf-acme-assets') return old;
+      throw Object.assign(new Error('none'), { code: 'NoSuchBucketPolicy' });
+    });
+    await expect(svc.removeAnonymousListing()).resolves.toEqual(['bf-acme-assets']);
+    expect(client.getBucketPolicy).not.toHaveBeenCalledWith('someone-elses');
+    const written = JSON.parse(client.setBucketPolicy.mock.calls[0][1]);
+    expect(written.Statement).toEqual([JSON.parse(old).Statement[0]]);
+  });
+
+  it('withoutAnonymousListing leaves a policy without listing alone and strips every listing action', () => {
+    expect(withoutAnonymousListing(publicPolicy(BUCKET))).toBeNull();
+    expect(withoutAnonymousListing('not json')).toBeNull();
+    const mc = JSON.stringify({
+      Version: '2012-10-17',
+      Statement: [
+        { Effect: 'Allow', Principal: { AWS: '*' }, Action: ['s3:GetBucketLocation', 's3:ListBucket', 's3:ListBucketMultipartUploads'], Resource: ['b'] },
+        { Effect: 'Allow', Principal: { AWS: ['arn:aws:iam::1:user/x'] }, Action: ['s3:ListBucket'], Resource: ['b'] },
+      ],
+    });
+    const out = JSON.parse(withoutAnonymousListing(mc)!);
+    expect(out.Statement[0].Action).toEqual(['s3:GetBucketLocation']);
+    expect(out.Statement[1].Action).toEqual(['s3:ListBucket']);
+    const onlyListing = JSON.stringify({ Statement: [{ Effect: 'Allow', Principal: '*', Action: 's3:ListBucket', Resource: 'b' }] });
+    expect(withoutAnonymousListing(onlyListing)).toBe('');
+  });
+
+  it('isPublicBucket asks the store once and then trusts its answer briefly', async () => {
+    const { svc, client } = build();
+    client.getBucketPolicy.mockResolvedValue(publicPolicy(BUCKET));
+    await expect(svc.isPublicBucket('p1', 'docs')).resolves.toBe(true);
+    await expect(svc.isPublicBucket('p1', 'docs')).resolves.toBe(true);
+    expect(client.getBucketPolicy).toHaveBeenCalledTimes(1);
+  });
+
+  it('statPublicObject serves only public buckets, with one answer for everything it does not serve', async () => {
+    const { svc, client } = build();
+    await expect(svc.statPublicObject('p1', 'docs', 'a.png')).rejects.toThrow('Object not found, or the bucket is not public');
+    client.getBucketPolicy.mockResolvedValue(publicPolicy(BUCKET));
+    const { svc: pub, client: c2 } = build();
+    c2.getBucketPolicy.mockResolvedValue(publicPolicy(BUCKET));
+    await expect(pub.statPublicObject('p1', 'docs', '/a.png')).resolves.toMatchObject({ minioBucket: BUCKET, key: 'a.png' });
+    await expect(pub.statPublicObject('p1', 'docs', 'dir/')).rejects.toBeInstanceOf(NotFoundException);
   });
 });
 
 describe('getPresignedUrl', () => {
+  it('answers NotFound instead of signing a URL for nothing', async () => {
+    const { svc, client, publicClient } = build();
+    client.statObject.mockRejectedValue(Object.assign(new Error('missing'), { code: 'NotFound' }));
+    await expect(svc.getPresignedUrl('p1', undefined, 'docs', 'nope.txt')).rejects.toThrow('Object "nope.txt" not found');
+    client.statObject.mockRejectedValue(Object.assign(new Error('gone'), { code: 'NoSuchBucket' }));
+    await expect(svc.getPresignedUrl('p1', undefined, 'docs', 'a.txt')).rejects.toThrow('Bucket "docs" not found');
+    await expect(svc.getPresignedUrl('p1', undefined, 'docs', 'dir/')).rejects.toBeInstanceOf(BadRequestException);
+    expect(publicClient.presignedGetObject).not.toHaveBeenCalled();
+  });
+
   it('signs with the public client so the signature matches the host the browser uses', async () => {
     const { svc, client, publicClient } = build();
     await expect(svc.getPresignedUrl('p1', undefined, 'docs', 'a.txt', 600)).resolves.toEqual({

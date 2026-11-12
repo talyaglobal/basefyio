@@ -106,8 +106,13 @@ class StorageClient:
     def create_bucket(self, name: str, public: bool = False) -> BasefyioResponse[StorageBucket]:
         return _call(lambda: self._http.json("POST", f"{self._base()}/buckets", json={"name": name, "public": public}))
 
-    def delete_bucket(self, name: str) -> BasefyioResponse[Dict[str, Any]]:
-        return _call(lambda: self._http.json("DELETE", f"{self._base()}/buckets/{quote(name, safe='')}"))
+    def delete_bucket(self, name: str, force: bool = False) -> BasefyioResponse[Dict[str, Any]]:
+        """Delete a bucket. One that still holds files is refused (409) unless
+        ``force=True``, which deletes it together with everything in it."""
+        params = {"force": "true"} if force else None
+        return _call(
+            lambda: self._http.json("DELETE", f"{self._base()}/buckets/{quote(name, safe='')}", params=params)
+        )
 
     def update_bucket(self, name: str, public: bool) -> BasefyioResponse[StorageBucket]:
         return _call(

@@ -22,7 +22,8 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
 
   return buildMetadata({
     path: `/learn/${t.slug}`,
-    title: `${t.term}${t.aka ? ` (${t.aka})` : ""}`,
+    // "CRUD | basefyio" alone was too thin a title to rank; say what the page answers.
+    title: `What is ${t.term}${t.aka ? ` (${t.aka})` : ""}? Definition & Examples`,
     description: t.definition,
     keywords: [t.term, ...(t.aka ? [t.aka] : []), "definition", "meaning"],
   });

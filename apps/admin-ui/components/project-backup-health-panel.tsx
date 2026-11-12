@@ -49,11 +49,17 @@ export function ProjectBackupHealthPanel({
   health,
   loading,
   onRefresh,
+  hasBackup = true,
 }: {
   projectId: string;
   health: BackupHealth | null;
   loading: boolean;
   onRefresh: () => Promise<void> | void;
+  /**
+   * Whether a nightly or on-demand backup exists. The drill restores the newest
+   * one, so without any it could only report "skipped".
+   */
+  hasBackup?: boolean;
 }) {
   const [verifying, setVerifying] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -77,8 +83,9 @@ export function ProjectBackupHealthPanel({
       await api.projects.verifyBackup(projectId);
       toast.success('Restore verification started — the verdict appears here when the drill finishes');
       // The drill takes seconds for a small project and minutes for a large one;
-      // poll until the newest row leaves RUNNING, then hand the result back.
-      for (let i = 0; i < 120 && alive.current; i++) {
+      // poll until the newest row leaves RUNNING (every 5 s for two minutes,
+      // then every 15 s, giving up after ten), then hand the result back.
+      for (let i = 0; i < 56 && alive.current; i++) {
         await new Promise((r) => setTimeout(r, i < 24 ? 5000 : 15000));
         const h = await api.projects.backupHealth(projectId).catch(() => null);
         const row = h?.verification.latest;
@@ -142,8 +149,8 @@ export function ProjectBackupHealthPanel({
             <>
               <p className="font-medium">Off-site copies: not configured</p>
               <p className="text-xs text-muted-foreground">
-                Backups live only on this server. An operator can set BACKUP_S3_* and BACKUP_ENC_KEY on the API to copy
-                every nightly archive, encrypted, to a bucket elsewhere.
+                Backups live only on this server. The platform operator can switch on off-site copies, which store
+                every nightly archive, encrypted, in a separate location.
               </p>
             </>
           )}
@@ -164,7 +171,12 @@ export function ProjectBackupHealthPanel({
               <span className="text-xs text-muted-foreground">never run for this project</span>
             )}
           </div>
-          <Button size="sm" onClick={() => void verifyNow()} disabled={!!running || loading}>
+          <Button
+            size="sm"
+            onClick={() => void verifyNow()}
+            disabled={!!running || loading || !hasBackup}
+            title={hasBackup ? undefined : 'Available once a nightly backup exists, or after Back up now'}
+          >
             {running ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -175,6 +187,12 @@ export function ProjectBackupHealthPanel({
             )}
           </Button>
         </div>
+        {!hasBackup && !running && (
+          <p className="text-xs text-amber-700 dark:text-amber-300">
+            There is no backup to verify yet. The first nightly backup runs at 03:00 UTC; use Back up now below to
+            take one sooner.
+          </p>
+        )}
         <p className="text-xs text-muted-foreground">
           The newest nightly archive is rebuilt into a throwaway database on the cluster, its tables are counted and
           compared with the counts taken when the backup was made, and the database is dropped again.{' '}

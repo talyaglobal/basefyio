@@ -62,6 +62,16 @@ export class RealtimeBroadcastService {
     this.requireJwt = config.get<string>('REALTIME_BROADCAST_REQUIRE_JWT') === '1';
   }
 
+  /** The limits in force, for status pages. */
+  limits(): { maxBytes: number; ratePerMin: number; projectRatePerMin: number; requireJwt: boolean } {
+    return {
+      maxBytes: this.maxBytes,
+      ratePerMin: this.ratePerMin,
+      projectRatePerMin: this.projectRatePerMin,
+      requireJwt: this.requireJwt,
+    };
+  }
+
   async broadcastFromClient(
     payload: ApiKeyPayload,
     body: BroadcastInput,

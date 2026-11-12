@@ -1,4 +1,5 @@
 import type { BasefyioFetchClient } from '../lib/fetch.js';
+import { toBasefyioError } from '../lib/errors.js';
 import type {
   BasefyioResponse,
   AuthTokens,
@@ -21,6 +22,7 @@ import type {
   OAuthRedirectResult,
   OAuthProvider,
   BasefyioError,
+  AuthStorage,
 } from '../lib/types.js';
 
 // ── Multi-factor authentication (TOTP) ─────────────────────
@@ -105,10 +107,31 @@ export class AuthClient {
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
   private listeners: Set<AuthChangeListener> = new Set();
   private autoRefresh: boolean;
+  private persistence: { storage: AuthStorage; key: string } | null;
+  private initialized: Promise<void>;
 
-  constructor(http: BasefyioFetchClient, autoRefresh = true) {
+  /**
+   * @param persistence Where to keep the session across page loads; null (the
+   *   default) keeps it in memory only, as before.
+   */
+  constructor(
+    http: BasefyioFetchClient,
+    autoRefresh = true,
+    persistence: { storage: AuthStorage; key: string } | null = null,
+  ) {
     this.http = http;
     this.autoRefresh = autoRefresh;
+    this.persistence = persistence;
+    this.initialized = persistence ? this.restoreSession() : Promise.resolve();
+  }
+
+  /**
+   * Resolves once a persisted session has been restored (with
+   * `auth: { persistSession: true }`); immediately otherwise. Await it before
+   * reading `getSession()` on page load.
+   */
+  ready(): Promise<void> {
+    return this.initialized;
   }
 
   async signUp(credentials: SignUpCredentials): Promise<BasefyioResponse<AuthTokens>> {
@@ -120,7 +143,7 @@ export class AuthClient {
       this.setSession(data);
       return { data, error: null };
     } catch (err: any) {
-      return { data: null, error: { message: err.message, status: err.status } };
+      return { data: null, error: this.toError(err) };
     }
   }
 
@@ -298,8 +321,29 @@ export class AuthClient {
     return value === true || value === 'true';
   }
 
-  async signOut(): Promise<void> {
+  /**
+   * End the session: here at once, and on the server, where the refresh token
+   * is revoked so it cannot mint new access tokens. `SIGNED_OUT` is emitted
+   * only when there was a session to end. A failure to reach the server is
+   * returned as `error`; the local session is cleared regardless.
+   */
+  async signOut(): Promise<{ error: BasefyioError | null }> {
+    const refreshToken = this.session?.refreshToken;
+    // Cleared first, so the revoke goes out with the project key alone — an
+    // expired access token must not be what stops a sign-out.
     this.clearSession();
+    if (!refreshToken) return { error: null };
+    try {
+      await this.http.json('/rest/v1/auth/signout', {
+        method: 'POST',
+        body: JSON.stringify({ refreshToken }),
+      });
+      return { error: null };
+    } catch (err: unknown) {
+      const error = this.toError(err);
+      // An API from before the revoke endpoint existed: the local sign-out is all there is.
+      return { error: error.status === 404 ? null : error };
+    }
   }
 
   async verifyEmail(otp: string): Promise<BasefyioResponse<VerifyEmailResult>> {
@@ -311,7 +355,7 @@ export class AuthClient {
       this.emit('EMAIL_VERIFIED');
       return { data, error: null };
     } catch (err: any) {
-      return { data: null, error: { message: err.message, status: err.status } };
+      return { data: null, error: this.toError(err) };
     }
   }
 
@@ -323,7 +367,7 @@ export class AuthClient {
       });
       return { data, error: null };
     } catch (err: any) {
-      return { data: null, error: { message: err.message, status: err.status } };
+      return { data: null, error: this.toError(err) };
     }
   }
 
@@ -335,7 +379,7 @@ export class AuthClient {
       });
       return { data, error: null };
     } catch (err: any) {
-      return { data: null, error: { message: err.message, status: err.status } };
+      return { data: null, error: this.toError(err) };
     }
   }
 
@@ -347,7 +391,7 @@ export class AuthClient {
       });
       return { data, error: null };
     } catch (err: any) {
-      return { data: null, error: { message: err.message, status: err.status } };
+      return { data: null, error: this.toError(err) };
     }
   }
 
@@ -359,7 +403,7 @@ export class AuthClient {
       });
       return { data, error: null };
     } catch (err: any) {
-      return { data: null, error: { message: err.message, status: err.status } };
+      return { data: null, error: this.toError(err) };
     }
   }
 
@@ -371,7 +415,7 @@ export class AuthClient {
       });
       return { data, error: null };
     } catch (err: any) {
-      return { data: null, error: { message: err.message, status: err.status } };
+      return { data: null, error: this.toError(err) };
     }
   }
 
@@ -384,7 +428,7 @@ export class AuthClient {
       this.emit('EMAIL_CHANGED');
       return { data, error: null };
     } catch (err: any) {
-      return { data: null, error: { message: err.message, status: err.status } };
+      return { data: null, error: this.toError(err) };
     }
   }
 
@@ -395,7 +439,7 @@ export class AuthClient {
       });
       return { data, error: null };
     } catch (err: any) {
-      return { data: null, error: { message: err.message, status: err.status } };
+      return { data: null, error: this.toError(err) };
     }
   }
 
@@ -407,7 +451,7 @@ export class AuthClient {
       });
       return { data, error: null };
     } catch (err: any) {
-      return { data: null, error: { message: err.message, status: err.status } };
+      return { data: null, error: this.toError(err) };
     }
   }
 
@@ -419,26 +463,31 @@ export class AuthClient {
       });
       return { data, error: null };
     } catch (err: any) {
-      return { data: null, error: { message: err.message, status: err.status } };
+      return { data: null, error: this.toError(err) };
     }
   }
 
+  /**
+   * Start an OAuth sign-in. In a browser the page is sent to the provider
+   * straight away; pass `skipBrowserRedirect: true` to get `data.url` and
+   * redirect yourself. Outside a browser `data.url` is all there is.
+   */
   async signInWithProvider(
     provider: OAuthProvider | string,
-    options?: { redirectTo?: string },
+    options?: { redirectTo?: string; skipBrowserRedirect?: boolean },
   ): Promise<BasefyioResponse<OAuthRedirectResult>> {
     try {
       const params = new URLSearchParams();
       if (options?.redirectTo) params.set('redirect_to', options.redirectTo);
       const qs = params.toString();
-      const url = `/rest/v1/auth/signin/${provider}${qs ? `?${qs}` : ''}`;
+      const url = `/rest/v1/auth/signin/${encodeURIComponent(provider)}${qs ? `?${qs}` : ''}`;
       const data = await this.http.json<OAuthRedirectResult>(url);
-      if (typeof window !== 'undefined' && data.url) {
+      if (typeof window !== 'undefined' && data.url && !options?.skipBrowserRedirect) {
         window.location.href = data.url;
       }
       return { data, error: null };
     } catch (err: any) {
-      return { data: null, error: { message: err.message, status: err.status } };
+      return { data: null, error: this.toError(err) };
     }
   }
 
@@ -471,10 +520,11 @@ export class AuthClient {
       const data = await this.http.json<User>('/rest/v1/auth/me');
       if (this.session) {
         this.session.user = data;
+        this.persist();
       }
       return { data, error: null };
     } catch (err: any) {
-      return { data: null, error: { message: err.message, status: err.status } };
+      return { data: null, error: this.toError(err) };
     }
   }
 
@@ -495,12 +545,13 @@ export class AuthClient {
         method: 'POST',
         body: JSON.stringify({ refreshToken: this.session.refreshToken }),
       });
-      this.setSession(data);
-      this.emit('TOKEN_REFRESHED');
+      // One event per refresh: TOKEN_REFRESHED (it used to be preceded by a
+      // second SIGNED_IN for the same session).
+      this.setSession(data, 'TOKEN_REFRESHED');
       return { data, error: null };
     } catch (err: any) {
       this.clearSession();
-      return { data: null, error: { message: err.message, status: err.status } };
+      return { data: null, error: this.toError(err) };
     }
   }
 
@@ -528,12 +579,8 @@ export class AuthClient {
 
   // ── Internal ───────────────────────────────────────────
 
-  private toError(err: any): BasefyioError {
-    return {
-      message: err?.message ?? 'Request failed',
-      status: err?.status,
-      code: typeof err?.code === 'string' ? err.code : undefined,
-    };
+  private toError(err: unknown): BasefyioError {
+    return toBasefyioError(err);
   }
 
   /** The access token's claims, read without verification — for display decisions only. */
@@ -550,27 +597,75 @@ export class AuthClient {
     }
   }
 
-  private setSession(tokens: AuthTokens): void {
+  private setSession(tokens: AuthTokens, event: AuthChangeEvent = 'SIGNED_IN'): void {
     const expiresAt = Date.now() + tokens.expiresIn * 1000;
     this.session = {
-      user: { sub: '', email: '', preferred_username: '' },
+      // A refresh keeps the user already loaded; a new sign-in starts blank
+      // until getUser() below fills it in.
+      user:
+        event === 'TOKEN_REFRESHED' && this.session
+          ? this.session.user
+          : { sub: '', email: '', preferred_username: '' },
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
       expiresAt,
     };
 
-    this.emit('SIGNED_IN');
+    this.persist();
+    this.emit(event);
     this.scheduleRefresh(tokens.expiresIn);
     this.getUser().catch(() => {});
   }
 
+  /** Forget the session; SIGNED_OUT only when there was one to forget. */
   private clearSession(): void {
+    const had = this.session !== null;
     this.session = null;
     if (this.refreshTimer) {
       clearTimeout(this.refreshTimer);
       this.refreshTimer = null;
     }
-    this.emit('SIGNED_OUT');
+    this.persist();
+    if (had) this.emit('SIGNED_OUT');
+  }
+
+  /** Bring back a stored session on start-up, refreshing it if it has expired. */
+  private async restoreSession(): Promise<void> {
+    const { storage, key } = this.persistence!;
+    try {
+      const raw = await storage.getItem(key);
+      const saved = raw ? JSON.parse(raw) : null;
+      if (saved && typeof saved.accessToken === 'string' && typeof saved.refreshToken === 'string') {
+        this.session = {
+          user: saved.user ?? { sub: '', email: '', preferred_username: '' },
+          accessToken: saved.accessToken,
+          refreshToken: saved.refreshToken,
+          expiresAt: Number(saved.expiresAt) || 0,
+        };
+        const remaining = (this.session.expiresAt - Date.now()) / 1000;
+        if (remaining > 30) this.scheduleRefresh(remaining);
+        else await this.refreshSession();
+      }
+    } catch {
+      // Unreadable or corrupt storage: start signed out.
+    }
+    this.emit('INITIAL_SESSION');
+  }
+
+  /** Mirror the session into storage when persistence is on. Never throws. */
+  private persist(): void {
+    if (!this.persistence) return;
+    const { storage, key } = this.persistence;
+    try {
+      const result = this.session
+        ? storage.setItem(key, JSON.stringify(this.session))
+        : storage.removeItem(key);
+      if (result && typeof (result as Promise<void>).catch === 'function') {
+        (result as Promise<void>).catch(() => {});
+      }
+    } catch {
+      // Storage full or blocked: the in-memory session still works.
+    }
   }
 
   private scheduleRefresh(expiresInSec: number): void {

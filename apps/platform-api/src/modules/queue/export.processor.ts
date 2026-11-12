@@ -1,7 +1,6 @@
 import { InjectQueue, OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
-import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Job, Queue } from 'bullmq';
-import { BootTaskService } from '../cluster/boot-task.service';
 import { ConfigService } from '@nestjs/config';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'fs/promises';
 import { createReadStream, createWriteStream } from 'fs';
@@ -37,6 +36,8 @@ export interface ExportJobData {
   /** Scheduled daily backup: artifact goes to the auto-backup bucket (7-day retention)
    *  instead of the manual-export bucket (24h TTL). */
   autoBackup?: boolean;
+  /** "Back up now" from the dashboard: stored like a nightly backup, named backup-… */
+  onDemand?: boolean;
 }
 
 export interface ExportJobProgress {
@@ -60,14 +61,6 @@ export interface ExportJobResult {
   size: number;
 }
 
-/** An active job older than this with no progress is an orphan of a dead process. */
-const STALE_AFTER_MS = Number.parseInt(process.env.IMPORT_STALE_AFTER_MS ?? '', 10) || 30 * 60_000;
-
-function isStale(job: { processedOn?: number; timestamp?: number }): boolean {
-  const startedAt = job.processedOn ?? job.timestamp ?? 0;
-  return Date.now() - startedAt >= STALE_AFTER_MS;
-}
-
 @Injectable()
 @Processor(EXPORT_QUEUE, {
   concurrency: 1,
@@ -88,41 +81,27 @@ export class ExportProcessor extends WorkerHost {
     private readonly activity: ProjectActivityService,
     @InjectQueue(EXPORT_QUEUE) private readonly exportQueue: Queue,
     private readonly offsite: BackupOffsiteService,
-    // Optional so a hand-built instance in a test needs no cluster module.
-    @Optional() private readonly bootTasks?: BootTaskService,
   ) {
     super();
   }
 
-  /**
-   * Jobs a dead process left "active" are failed so their owners hear about
-   * it — but only jobs that have been active long enough to be orphans. A
-   * job a sibling replica started a minute ago is not stale, and failing
-   * every active job on boot would kill a running export on every deploy
-   * once there is more than one process. The first replica to boot does the
-   * sweep; the others skip it.
-   */
   @OnWorkerEvent('ready')
   async onReady() {
     this.logger.log('Export worker is ready');
-    if (!((await this.bootTasks?.claim('export-stale-jobs')) ?? true)) return;
     try {
       const active = await this.exportQueue.getActive();
-      let cleaned = 0;
       for (const job of active) {
-        if (!isStale(job)) continue;
         try {
           await job.moveToFailed(
             new Error('Stale export job recovered after server restart'),
             job.token || '0',
             true,
           );
-          cleaned++;
           this.logger.warn(`Cleaned stale active export job ${job.id}`);
         } catch {}
       }
-      if (cleaned > 0) {
-        this.logger.warn(`Recovered ${cleaned} stale active export job(s)`);
+      if (active.length > 0) {
+        this.logger.warn(`Recovered ${active.length} stale active export job(s)`);
       }
     } catch (err: any) {
       this.logger.warn(`Export stale job cleanup failed: ${err.message}`);
@@ -241,7 +220,7 @@ export class ExportProcessor extends WorkerHost {
       const isAuto = job.data.autoBackup === true;
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const filename = isAuto
-        ? `auto-backup-${project.slug}-${timestamp}.zip`
+        ? `${job.data.onDemand ? 'backup' : 'auto-backup'}-${project.slug}-${timestamp}.zip`
         : `project-export-${project.slug}-${timestamp}.zip`;
       const targetBucket = isAuto ? this.autoBackupBucket : this.exportBucket;
       const objectKey = `${project.id}/${job.id}-${filename}`;
@@ -436,8 +415,7 @@ export class ExportProcessor extends WorkerHost {
     // it first so a broken realm reference doesn't surface as the admin
     // client's opaque "Network response was not OK".
     const realmInfo = await this.keycloak.getRealmInfo(realmName);
-    // Every user, not the first page: a realm with more than 100 users used to export 100.
-    const users = await this.keycloak.listAllUsers(realmName);
+    const users = await this.keycloak.listUsers(realmName);
     const authConfig = await this.prisma.projectAuthConfig.findUnique({
       where: { projectId },
     });

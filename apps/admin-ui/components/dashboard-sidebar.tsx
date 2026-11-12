@@ -22,7 +22,7 @@ import {
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import type { Team } from '@/lib/types';
-import { useDashboard, useOrgNoun, orgPath } from '@/app/dashboard/layout';
+import { useDashboard } from '@/app/dashboard/layout';
 
 const COLLAPSED_KEY = 'basefyio_dashboard_nav_collapsed';
 const SIDEBAR_MODE_KEY = 'basefyio_dashboard_sidebar_mode';
@@ -39,8 +39,6 @@ type NavItem = {
   label: string;
   icon: ElementType;
   isActive: (pathname: string) => boolean;
-  /** Stable identity for React keys; the href of an entry may change once the teams are known. */
-  id?: string;
 };
 
 const ALL_NAV_ITEMS: NavItem[] = [
@@ -117,7 +115,7 @@ function hrefForHost(href: string, host: string) {
 }
 
 function renderNavLink(
-  { href, label, icon: Icon, isActive, id }: NavItem,
+  { href, label, icon: Icon, isActive }: NavItem,
   pathname: string,
   collapsed: boolean,
   host: string,
@@ -125,7 +123,7 @@ function renderNavLink(
   const active = isActive(pathname);
   return (
     <Link
-      key={id ?? href}
+      key={href}
       href={hrefForHost(href, host)}
       title={collapsed ? label : undefined}
       className={cn(
@@ -156,7 +154,6 @@ export function DashboardSidebar({
   const router = useRouter();
   const pathname = usePathname() ?? '';
   const { teams } = useDashboard();
-  const { on: orgUi, noun } = useOrgNoun();
   const team = teams.find((t) => t.id === activeTeamId) ?? null;
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>('open');
   const [autoExpanded, setAutoExpanded] = useState(false);
@@ -219,27 +216,7 @@ export function DashboardSidebar({
 
   const collapsed = sidebarMode === 'auto' && !autoExpanded;
   const w = collapsed ? COLLAPSED_W : EXPANDED_W;
-  // With the organization pages on, the "Team" entry becomes the active
-  // organization's address; the old route keeps working and forwards there.
-  // Every entry keeps its original href as its React key: while the teams are
-  // still loading the organization entries would otherwise share one fallback
-  // address, and three siblings with one key left a stale "Organization" row
-  // behind after the real addresses arrived.
-  const items = orgUi
-    ? ALL_NAV_ITEMS.map((item) =>
-        item.href === '/dashboard/team'
-          ? {
-              ...item,
-              id: item.href,
-              href: team ? orgPath(team, '/members') : item.href,
-              label: noun,
-              isActive: (p: string) => p.startsWith('/dashboard/team') || p.startsWith('/dashboard/org/'),
-            }
-          : item.href === '/dashboard/billing'
-            ? { ...item, id: item.href, href: team ? orgPath(team, '/billing') : item.href }
-            : { ...item, id: item.href },
-      )
-    : ALL_NAV_ITEMS;
+  const items = ALL_NAV_ITEMS;
   // Root-only entries live in their own group pinned to the bottom of the nav,
   // so "Admin" always sits below the regular navigation.
   const rootItems = isRoot ? ROOT_NAV_ITEMS : [];
@@ -256,12 +233,21 @@ export function DashboardSidebar({
     }
   }
 
+  // In Auto mode the page keeps the narrow rail's width and the expanded
+  // sidebar floats over the content, so hovering it no longer pushes the page
+  // sideways.
+  const overlay = sidebarMode === 'auto';
+
   return (
+    <div
+      className={cn('relative hidden md:block shrink-0', !hydrated && 'opacity-0', hydrated && 'opacity-100')}
+      style={{ width: overlay ? COLLAPSED_W : w }}
+    >
     <aside
       className={cn(
-        'hidden md:flex shrink-0 flex-col border-r border-border bg-card transition-[width] duration-200 ease-out',
-        !hydrated && 'opacity-0',
-        hydrated && 'opacity-100',
+        'flex h-full flex-col border-r border-border bg-card transition-[width,box-shadow] duration-200 ease-out',
+        overlay && 'absolute inset-y-0 left-0 z-30',
+        overlay && autoExpanded && 'shadow-xl',
       )}
       style={{ width: w }}
       onMouseEnter={() => {
@@ -328,5 +314,6 @@ export function DashboardSidebar({
         )}
       </div>
     </aside>
+    </div>
   );
 }

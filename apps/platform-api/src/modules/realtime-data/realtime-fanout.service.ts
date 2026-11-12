@@ -6,6 +6,8 @@ import { RedisService } from '../redis/redis.service';
 import type { FanoutMessage } from './realtime-data.types';
 
 export type LocalDeliverer = (msg: FanoutMessage) => void;
+/** Sees every message this instance publishes (not those arriving from others), e.g. to keep a replay buffer. */
+export type PublishRecorder = (msg: FanoutMessage) => void;
 
 /** How long a PUBSUB NUMSUB answer stands in for "does any instance care". */
 const REMOTE_INTEREST_TTL_MS = 5_000;
@@ -34,15 +36,9 @@ export class RealtimeFanoutService implements OnModuleInit, OnModuleDestroy {
   private sub: Redis | null = null;
   private subRetry: ReturnType<typeof setTimeout> | null = null;
   private deliverer: LocalDeliverer | null = null;
+  private recorder: PublishRecorder | null = null;
   /** projectId → number of local subscribers. */
   private readonly localCounts = new Map<string, number>();
-
-  /** Subscribers this process holds across every project; the metrics scrape reads it. */
-  localSubscriberTotal(): number {
-    let n = 0;
-    for (const v of this.localCounts.values()) n += v;
-    return n;
-  }
   /** projectId → cached NUMSUB answer. */
   private readonly remoteInterest = new Map<string, { n: number; at: number }>();
 
@@ -75,6 +71,10 @@ export class RealtimeFanoutService implements OnModuleInit, OnModuleDestroy {
     this.deliverer = fn;
   }
 
+  setRecorder(fn: PublishRecorder): void {
+    this.recorder = fn;
+  }
+
   channelFor(projectId: string): string {
     return `rt:${projectId}`;
   }
@@ -82,6 +82,11 @@ export class RealtimeFanoutService implements OnModuleInit, OnModuleDestroy {
   /** Deliver locally, then to every other instance through Redis. */
   publish(msg: Omit<FanoutMessage, 'v' | 'origin'>): void {
     const full: FanoutMessage = { ...msg, v: 1, origin: this.instanceId };
+    try {
+      this.recorder?.(full);
+    } catch (err: any) {
+      this.logger.debug(`recorder failed: ${err?.message}`);
+    }
     this.deliverLocal(full);
     if (!this.enabled || !this.redis.isReady()) return;
     this.redis

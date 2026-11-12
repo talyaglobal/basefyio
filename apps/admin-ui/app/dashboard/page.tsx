@@ -31,6 +31,7 @@ import {
   Search,
   TrendingUp,
   Users,
+  UserCog,
   Activity,
   Calendar,
   CheckCircle2,
@@ -39,7 +40,25 @@ import {
 } from 'lucide-react';
 import { format, subMonths, startOfMonth, endOfMonth, parseISO, isWithinInterval } from 'date-fns';
 import { RootAlertsPanel } from '@/components/root-alerts-panel';
-import { cn, projectStatusBadgeClass, projectStatusLabel } from '@/lib/utils';
+import { cn, projectStatusBadgeClass } from '@/lib/utils';
+import { formatDate } from '@/lib/format';
+import { handleMenuArrowKeys, useEscapeKey } from '@/lib/use-escape-key';
+
+/**
+ * Subtitle of the "Created This Month" card. It used to say "↑ more than last
+ * month" for 0 vs 0, because an equal count counted as "up".
+ */
+function monthTrendLabel(thisMonth: number, lastMonth: number): string {
+  if (thisMonth === 0 && lastMonth === 0) return 'None this month or last';
+  if (thisMonth > lastMonth) return `↑ ${thisMonth - lastMonth} more than last month`;
+  if (thisMonth < lastMonth) return `↓ ${lastMonth - thisMonth} fewer than last month`;
+  return 'Same as last month';
+}
+
+/** "1 owner" / "2 owners". */
+function pluralize(count: number, singular: string, plural = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
 
 // ── Helpers ──────────────────────────────────────────────────
 function buildMonthlyData(projects: ProjectListItem[], months = 6) {
@@ -62,12 +81,12 @@ function buildStatusData(
 ) {
   const active = projects.filter((p) => p.status === 'ACTIVE').length;
   const paused = projects.filter((p) => p.status === 'PAUSED').length;
-  // Deactivated projects are the paused ones in the main list plus any legacy
-  // frozen rows, which the separately fetched count covers (it includes both,
-  // so take whichever is larger rather than adding them up).
+  // Deactivated + deleted projects are excluded from the main list, so their
+  // counts are fetched separately and passed in.
   return [
     { name: 'Active', value: active, color: '#14b8a6', query: 'status=ACTIVE' },
-    { name: 'Deactivated', value: Math.max(paused, deactivatedCount), color: '#f59e0b', query: 'view=deactivated' },
+    { name: 'Paused', value: paused, color: '#f59e0b', query: 'status=PAUSED' },
+    { name: 'Deactivated', value: deactivatedCount, color: '#94a3b8', query: 'view=deactivated' },
     { name: 'Deleted', value: deletedCount, color: '#ef4444', query: 'view=trash' },
   ].filter((d) => d.value > 0);
 }
@@ -143,6 +162,13 @@ export default function DashboardPage() {
   }
   const sortedTeams = useMemo(() => [...teams].sort((a, b) => a.name.localeCompare(b.name)), [teams]);
 
+  const teamMenuRef = useRef<HTMLDivElement | null>(null);
+  const teamTriggerRef = useRef<HTMLButtonElement | null>(null);
+  useEscapeKey(teamDropdownOpen, () => {
+    setTeamDropdownOpen(false);
+    teamTriggerRef.current?.focus();
+  });
+
   // Close team dropdown on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -170,6 +196,7 @@ export default function DashboardPage() {
   const [allTeamsProjects, setAllTeamsProjects] = useState<(ProjectListItem & { teamId: string; teamName: string })[]>([]);
   const [allTeamsLoading, setAllTeamsLoading] = useState(false);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const searchBoxRef = useRef<HTMLDivElement | null>(null);
 
   // Deactivated + deleted projects are excluded from the main list; fetch their
   // counts separately so the By Status chart can show (and link to) them.
@@ -300,9 +327,7 @@ export default function DashboardPage() {
     .slice(0, 5);
 
   const monthlyData = buildMonthlyData(projects, 6);
-  const totalThisMonth = monthlyData[monthlyData.length - 1].count;
   const totalLastMonth = monthlyData[monthlyData.length - 2].count;
-  const trendUp = totalThisMonth >= totalLastMonth;
 
   const statusData = buildStatusData(projects, deactivatedCount, deletedCount);
 
@@ -346,7 +371,20 @@ export default function DashboardPage() {
         <div className="relative shrink-0" data-team-selector="true">
           <button
             type="button"
+            ref={teamTriggerRef}
+            aria-haspopup="menu"
+            aria-expanded={teamDropdownOpen}
             onClick={() => setTeamDropdownOpen((prev) => !prev)}
+            onKeyDown={(e) => {
+              // ArrowDown opens the list and moves into it.
+              if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                if (!teamDropdownOpen) setTeamDropdownOpen(true);
+                requestAnimationFrame(() =>
+                  handleMenuArrowKeys({ key: 'Home', preventDefault() {} }, teamMenuRef.current),
+                );
+              }
+            }}
             className="flex h-12 items-center gap-2 rounded-xl border border-input bg-card px-4 text-sm font-medium shadow-sm transition-colors hover:bg-accent"
           >
             <Users className="h-4 w-4 text-muted-foreground" />
@@ -354,10 +392,17 @@ export default function DashboardPage() {
             <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
           </button>
           {teamDropdownOpen && (
-            <div className="absolute left-0 top-full z-40 mt-1.5 w-64 max-h-72 overflow-y-auto rounded-xl border bg-card p-1 shadow-lg">
+            <div
+              ref={teamMenuRef}
+              role="menu"
+              onKeyDown={(e) => { handleMenuArrowKeys(e, teamMenuRef.current); }}
+              className="absolute left-0 top-full z-40 mt-1.5 w-64 max-h-72 overflow-y-auto rounded-xl border bg-card p-1 shadow-lg"
+            >
               {/* All Teams option */}
               <button
                 type="button"
+                role="menuitem"
+                data-menu-item
                 onClick={() => { changeViewTeam('all'); setTeamDropdownOpen(false); }}
                 className={cn(
                   'flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm transition-colors',
@@ -374,6 +419,8 @@ export default function DashboardPage() {
                 <button
                   key={t.id}
                   type="button"
+                  role="menuitem"
+                  data-menu-item
                   onClick={() => { changeViewTeam(t.id); setTeamDropdownOpen(false); }}
                   className={cn(
                     'flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm transition-colors',
@@ -389,7 +436,14 @@ export default function DashboardPage() {
         </div>
 
         {/* Search */}
-        <div className="relative min-w-0 flex-1" data-dashboard-search="true">
+        <div
+          className="relative min-w-0 flex-1"
+          data-dashboard-search="true"
+          ref={searchBoxRef}
+          onKeyDown={(e) => {
+            if (showSearchDropdown) handleMenuArrowKeys(e, searchBoxRef.current);
+          }}
+        >
           <Search
             className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground"
             aria-hidden
@@ -397,15 +451,35 @@ export default function DashboardPage() {
           <input
             ref={searchInputRef}
             type="search"
+            data-menu-search
+            aria-label="Search projects across all your teams"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+              // Esc closes the results (it used to only clear the text and
+              // leave the list open); Enter opens the first match.
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                setSearchQuery('');
+                setSearchFocused(false);
+                e.currentTarget.blur();
+              } else if (e.key === 'Enter' && searchResults.length > 0) {
+                e.preventDefault();
+                const first = searchResults[0];
+                setSearchQuery('');
+                setSearchFocused(false);
+                router.push(`/dashboard/projects/${first.id}`);
+              }
+            }}
             onFocus={() => setSearchFocused(true)}
-            onBlur={() => { setTimeout(() => setSearchFocused(false), 150); }}
+            onBlur={(e) => { if (!searchBoxRef.current?.contains(e.relatedTarget as Node | null)) setTimeout(() => setSearchFocused(false), 150); }}
             placeholder="Search projects across all your teams..."
             autoComplete="off"
             autoCorrect="off"
             className={cn(
               'h-12 w-full rounded-xl border border-input bg-card pl-12 pr-12 text-sm shadow-sm',
+              // One clear button: hide the browser's own clear icon of type="search".
+              '[&::-webkit-search-cancel-button]:appearance-none [&::-webkit-search-cancel-button]:hidden',
               'placeholder:text-muted-foreground/70',
               'focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/30',
               'transition-shadow duration-150',
@@ -436,7 +510,10 @@ export default function DashboardPage() {
                   <li key={project.id}>
                     <button
                       type="button"
+                      data-menu-item
                       onMouseDown={(e) => e.preventDefault()}
+                      onFocus={() => setSearchFocused(true)}
+                      onBlur={(e) => { if (!searchBoxRef.current?.contains(e.relatedTarget as Node | null)) setTimeout(() => setSearchFocused(false), 150); }}
                       onClick={() => {
                         setSearchQuery('');
                         setSearchFocused(false);
@@ -484,7 +561,13 @@ export default function DashboardPage() {
           icon={Users}
           label="Team Members"
           value={members.length}
-          sub={`${members.filter((m) => m.role === 'OWNER').length} owner`}
+          sub={
+            // All Teams counts each person once across every team; say so, as
+            // the Team page then asks which team to open.
+            viewTeamId === 'all'
+              ? `across ${pluralize(teams.length, 'team')}`
+              : pluralize(members.filter((m) => m.role === 'OWNER').length, 'owner')
+          }
           colorIndex={2}
           onClick={() => router.push('/dashboard/team')}
         />
@@ -492,7 +575,7 @@ export default function DashboardPage() {
           icon={Calendar}
           label="Created This Month"
           value={thisMonth}
-          sub={trendUp ? '↑ more than last month' : totalLastMonth > 0 ? '↓ less than last month' : 'No projects last month'}
+          sub={monthTrendLabel(thisMonth, totalLastMonth)}
           colorIndex={3}
           onClick={() => router.push('/dashboard/projects?filter=this-month')}
         />
@@ -638,14 +721,14 @@ export default function DashboardPage() {
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{p.name}</p>
                     <p className="text-xs text-muted-foreground">
-                      Updated {format(parseISO(p.updatedAt), 'MMM d, yyyy')}
+                      Updated {formatDate(p.updatedAt)}
                     </p>
                   </div>
                   <Badge
                     variant="secondary"
                     className={cn('shrink-0 text-[10px] h-5', projectStatusBadgeClass(p.status))}
                   >
-                    {projectStatusLabel(p.status).toUpperCase()}
+                    {p.status}
                   </Badge>
                   <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
                 </button>
@@ -699,7 +782,7 @@ export default function DashboardPage() {
               className="flex w-full items-center gap-3 rounded-lg border px-4 py-3 text-left text-sm font-medium transition-colors hover:bg-accent"
             >
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted">
-                <Activity className="h-4 w-4 text-muted-foreground" />
+                <UserCog className="h-4 w-4 text-muted-foreground" />
               </div>
               Account Settings
               <ArrowRight className="ml-auto h-4 w-4 text-muted-foreground" />

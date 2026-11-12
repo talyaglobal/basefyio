@@ -1,4 +1,5 @@
 import type { BasefyioFetchClient } from '../lib/fetch.js';
+import { toBasefyioError, toJson } from '../lib/errors.js';
 import type { BasefyioResponse, BasefyioError } from '../lib/types.js';
 
 /* ─────────────── Types ─────────────── */
@@ -86,13 +87,13 @@ export class DocumentQuery<T = Record<string, unknown>> implements PromiseLike<B
     try {
       const params = new URLSearchParams();
       if (this._filter && Object.keys(this._filter).length > 0) {
-        params.set('filter', JSON.stringify(this._filter));
+        params.set('filter', toJson(this._filter));
       }
       if (this._sort && Object.keys(this._sort).length > 0) {
-        params.set('sort', JSON.stringify(this._sort));
+        params.set('sort', toJson(this._sort));
       }
       if (this._project && Object.keys(this._project).length > 0) {
-        params.set('project', JSON.stringify(this._project));
+        params.set('project', toJson(this._project));
       }
       if (this._limit !== undefined) {
         params.set('limit', String(this._limit));
@@ -106,8 +107,7 @@ export class DocumentQuery<T = Record<string, unknown>> implements PromiseLike<B
       const data = await this.http.json<DocumentListResult<T>>(path);
       return { data, error: null };
     } catch (err: unknown) {
-      const error = err as BasefyioError;
-      return { data: null, error };
+      return { data: null, error: toBasefyioError(err) };
     }
   }
 
@@ -142,12 +142,12 @@ export class CollectionClient<T = Record<string, unknown>> {
     try {
       const data = await this.http.json<Document<T>[]>(this.basePath, {
         method: 'POST',
-        body: JSON.stringify(doc),
+        body: toJson(doc),
         headers: { 'Prefer': 'return=representation' },
       });
       return { data, error: null };
     } catch (err: unknown) {
-      return { data: null, error: err as BasefyioError };
+      return { data: null, error: toBasefyioError(err) };
     }
   }
 
@@ -170,7 +170,7 @@ export class CollectionClient<T = Record<string, unknown>> {
       const data = await this.http.json<Document<T>>(`${this.basePath}/${id}`);
       return { data, error: null };
     } catch (err: unknown) {
-      return { data: null, error: err as BasefyioError };
+      return { data: null, error: toBasefyioError(err) };
     }
   }
 
@@ -184,12 +184,12 @@ export class CollectionClient<T = Record<string, unknown>> {
     try {
       const data = await this.http.json<Document<T>>(`${this.basePath}/${id}`, {
         method: 'PATCH',
-        body: JSON.stringify(update),
+        body: toJson(update),
         headers: { 'Prefer': 'return=representation' },
       });
       return { data, error: null };
     } catch (err: unknown) {
-      return { data: null, error: err as BasefyioError };
+      return { data: null, error: toBasefyioError(err) };
     }
   }
 
@@ -200,12 +200,12 @@ export class CollectionClient<T = Record<string, unknown>> {
     try {
       const data = await this.http.json<Document<T>>(`${this.basePath}/${id}`, {
         method: 'PUT',
-        body: JSON.stringify(doc),
+        body: toJson(doc),
         headers: { 'Prefer': 'return=representation' },
       });
       return { data, error: null };
     } catch (err: unknown) {
-      return { data: null, error: err as BasefyioError };
+      return { data: null, error: toBasefyioError(err) };
     }
   }
 
@@ -219,7 +219,7 @@ export class CollectionClient<T = Record<string, unknown>> {
       });
       return { data, error: null };
     } catch (err: unknown) {
-      return { data: null, error: err as BasefyioError };
+      return { data: null, error: toBasefyioError(err) };
     }
   }
 
@@ -230,7 +230,7 @@ export class CollectionClient<T = Record<string, unknown>> {
     try {
       const params = new URLSearchParams();
       if (filter && Object.keys(filter).length > 0) {
-        params.set('filter', JSON.stringify(filter));
+        params.set('filter', toJson(filter));
       }
       const qs = params.toString();
       // The count endpoint is on the admin API. For public API, use find with limit=0.
@@ -242,7 +242,7 @@ export class CollectionClient<T = Record<string, unknown>> {
       const result = await this.http.json<{ data: unknown[]; count: number }>(path);
       return { data: result.count, error: null };
     } catch (err: unknown) {
-      return { data: null, error: err as BasefyioError };
+      return { data: null, error: toBasefyioError(err) };
     }
   }
 }
@@ -280,7 +280,7 @@ export class CollectionManager {
       const data = await this.http.json<CollectionInfo[]>(this.adminBasePath);
       return { data, error: null };
     } catch (err: unknown) {
-      return { data: null, error: err as BasefyioError };
+      return { data: null, error: toBasefyioError(err) };
     }
   }
 
@@ -294,11 +294,11 @@ export class CollectionManager {
     try {
       const data = await this.http.json<{ message: string }>(this.adminBasePath, {
         method: 'POST',
-        body: JSON.stringify({ name }),
+        body: toJson({ name }),
       });
       return { data, error: null };
     } catch (err: unknown) {
-      return { data: null, error: err as BasefyioError };
+      return { data: null, error: toBasefyioError(err) };
     }
   }
 
@@ -313,7 +313,7 @@ export class CollectionManager {
       );
       return { data, error: null };
     } catch (err: unknown) {
-      return { data: null, error: err as BasefyioError };
+      return { data: null, error: toBasefyioError(err) };
     }
   }
 }

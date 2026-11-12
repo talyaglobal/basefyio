@@ -1,14 +1,10 @@
 'use client';
 
 import type { ElementType, ReactNode } from 'react';
-import { BetaBadge } from '@/components/beta-badge';
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
-  BookOpen,
-  Activity,
-  Gauge,
   BarChart3,
   Box,
   ExternalLink,
@@ -33,7 +29,7 @@ import {
   startProactiveRefresh,
 } from '@/lib/auth';
 import type { UserProfile } from '@/lib/types';
-import { DashboardContext, DEFAULT_FEATURES } from '@/app/dashboard/layout';
+import { DashboardContext } from '@/app/dashboard/layout';
 import { ConsoleAlertBar } from '@/components/console/alert-bar';
 import { cn } from '@/lib/utils';
 
@@ -51,12 +47,7 @@ const NAV: Array<{ group: string; items: NavItem[] }> = [
   },
   {
     group: 'Operations',
-    items: [
-      { href: '/console/manage', label: 'Users & billing', icon: ShieldCheck },
-      { href: '/console/reliability', label: 'Reliability', icon: Activity },
-      { href: '/console/capacity', label: 'Capacity', icon: Gauge },
-      { href: '/console/techdocs', label: 'Technical docs', icon: BookOpen },
-    ],
+    items: [{ href: '/console/manage', label: 'Users & billing', icon: ShieldCheck }],
   },
   {
     group: 'Growth',
@@ -120,8 +111,6 @@ export default function ConsoleLayout({ children }: { children: ReactNode }) {
       },
       teams: [],
       inviteCount: 0,
-      features: DEFAULT_FEATURES,
-      featuresLoaded: true,
     }),
     [profile],
   );
@@ -155,10 +144,7 @@ export default function ConsoleLayout({ children }: { children: ReactNode }) {
               <BarChart3 className="h-4 w-4 text-white" />
             </div>
             <div className="leading-tight">
-              <div className="flex items-center gap-1.5 text-sm font-semibold text-white">
-                basefyio
-                <BetaBadge tone="dark" />
-              </div>
+              <div className="text-sm font-semibold text-white">basefyio</div>
               <div className="text-[11px] uppercase tracking-wider text-zinc-500">Root console</div>
             </div>
           </div>

@@ -4,6 +4,7 @@ import {
   ProjectActivityKind,
   ProjectActivityService,
 } from './project-activity.service';
+import { prepareAuthConfigUpdate } from './project-auth-validation';
 
 const TEMPLATE_FIELDS = [
   'verifyEmailSubject', 'verifyEmailBody',
@@ -47,12 +48,23 @@ export class ProjectAuthConfigService {
     return this.sanitize(created);
   }
 
+  /**
+   * Check a PUT body against the stored row without writing anything, so a
+   * caller can act on the result (e.g. mirror a setting into Keycloak) before
+   * the row changes. Throws a 400 describing every problem.
+   */
+  async validateUpdate(projectId: string, data: Record<string, any>) {
+    const stored = await this.getRaw(projectId);
+    return { prepared: prepareAuthConfigUpdate(data, stored), stored };
+  }
+
   async update(
     projectId: string,
     data: Record<string, any>,
     userId?: string,
   ) {
-    await this.getOrCreate(projectId);
+    const { prepared } = await this.validateUpdate(projectId, data);
+    data = prepared;
 
     const updated = await this.prisma.projectAuthConfig.update({
       where: { projectId },
@@ -69,6 +81,19 @@ export class ProjectAuthConfigService {
     });
 
     return this.sanitize(updated);
+  }
+
+  /**
+   * Keep the copies of realm settings this row holds (minimum password length,
+   * token lifetime) equal to what was just written to Keycloak. No activity
+   * entry: the caller logs the change it made.
+   */
+  async mirrorRealmSettings(
+    projectId: string,
+    data: { minPasswordLength?: number; tokenExpirySeconds?: number },
+  ) {
+    await this.getRaw(projectId);
+    await this.prisma.projectAuthConfig.update({ where: { projectId }, data });
   }
 
   async getRaw(projectId: string) {

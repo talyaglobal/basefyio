@@ -3,7 +3,7 @@
 /**
  * Database management — Indexes / Triggers / Functions / Extensions / Policies
  * for the project database. Postgres functions created here are
- * instantly callable as APIs via POST /rest/v1/rpc/{name}.
+ * instantly callable as APIs via POST /api/rest/v1/rpc/{name}.
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -174,8 +174,8 @@ export default function DatabasePage() {
       {tab === 'functions' && (
         <p className="text-sm text-muted-foreground">
           Functions are callable as APIs:{' '}
-          <code className="rounded bg-muted px-1.5 py-0.5 text-xs">POST {(process.env.NEXT_PUBLIC_API_URL || 'https://api.basefyio.com').replace(/\/+$/, '')}/api/rest/v1/rpc/&#123;name&#125;</code>{' '}
-          with the arguments as a JSON object (a read-only function also over GET, with them in the query string), or <code className="rounded bg-muted px-1.5 py-0.5 text-xs">bf.rpc(&apos;name&apos;, args)</code> from the SDK.
+          <code className="rounded bg-muted px-1.5 py-0.5 text-xs">POST /api/rest/v1/rpc/&#123;name&#125;</code>{' '}
+          with JSON args, or <code className="rounded bg-muted px-1.5 py-0.5 text-xs">bf.rpc(&apos;name&apos;, args)</code> from the SDK.
         </p>
       )}
 

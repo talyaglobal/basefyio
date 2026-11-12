@@ -385,13 +385,36 @@ export class QuickbooksService {
       }
     }
 
-    const [success, failed, deleted, recentLog, agg] = await Promise.all([
+    const [success, failed, deleted, recentLog, agg, lastSuccess, paidSinceConnect] = await Promise.all([
       this.prisma.quickbooksSyncLog.count({ where: { status: 'success' } }),
       this.prisma.quickbooksSyncLog.count({ where: { status: 'failed' } }),
       this.prisma.quickbooksSyncLog.count({ where: { status: 'deleted' } }),
       this.prisma.quickbooksSyncLog.findMany({ orderBy: { createdAt: 'desc' }, take: limit }),
       this.prisma.quickbooksSyncLog.aggregate({ where: { status: 'success' }, _sum: { amountCents: true } }),
+      this.prisma.quickbooksSyncLog.findFirst({
+        where: { status: { in: ['success', 'deleted'] }, invoiceId: { not: 'TEST' } },
+        orderBy: { createdAt: 'desc' },
+        select: { createdAt: true },
+      }),
+      // Paid basefyio invoices since the connection — each should have a sync row.
+      this.prisma.invoice.findMany({
+        where: { createdAt: { gte: conn.connectedAt }, amountPaid: { gt: 0 }, status: 'paid' },
+        orderBy: { createdAt: 'desc' },
+        take: 200,
+        select: { id: true, createdAt: true },
+      }),
     ]);
+    const syncedInvoiceIds = paidSinceConnect.length
+      ? new Set(
+          (
+            await this.prisma.quickbooksSyncLog.findMany({
+              where: { invoiceId: { in: paidSinceConnect.map((i) => i.id) } },
+              select: { invoiceId: true },
+            })
+          ).map((l) => l.invoiceId),
+        )
+      : new Set<string>();
+    const notSynced = paidSinceConnect.filter((i) => !syncedInvoiceIds.has(i.id));
 
     let live: any = { available: false };
     if (tok) {
@@ -440,7 +463,15 @@ export class QuickbooksService {
         failed,
         deleted,
         totalAmountCents: agg._sum.amountCents ?? 0,
+        /** Last attempt of any kind, test receipts included. */
         lastSyncAt: recentLog[0]?.createdAt ?? null,
+        /** Last receipt created for a real sale. */
+        lastSaleSyncAt: lastSuccess?.createdAt ?? null,
+        /** Last paid basefyio invoice — Stripe charges for other products never sync. */
+        lastPaidInvoiceAt: paidSinceConnect[0]?.createdAt ?? null,
+        /** Paid invoices since connecting that have no sync attempt at all. */
+        unsyncedPaidInvoices: notSynced.length,
+        oldestUnsyncedPaidInvoiceAt: notSynced.length ? notSynced[notSynced.length - 1].createdAt : null,
       },
       recentSyncs: recentLog.map((l) => ({
         id: l.id,

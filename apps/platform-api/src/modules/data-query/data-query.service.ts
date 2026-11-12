@@ -295,6 +295,91 @@ export class DataQueryService {
     return { message: 'Saved query deleted' };
   }
 
+  // ── Views (saved queries served as read models) ────────
+
+  /**
+   * Run the saved query called `name` and return it as a page — what the
+   * SDK's `bf.data.view(name)` reads. A "js" query pages with limit/offset
+   * (or the `nextCursor` of the previous page) unless its own text sets
+   * .limit()/.skip(); an aggregation returns its rows in one page.
+   */
+  async executeView(
+    projectId: string,
+    name: string,
+    opts: { limit?: number; offset?: number },
+    userId?: string,
+  ): Promise<{ data: Record<string, unknown>[]; total: number; hasMore: boolean; nextCursor?: string }> {
+    await this.getProjectWithAccess(projectId, userId);
+
+    const saved = await this.prisma.savedDataQuery.findUnique({
+      where: { projectId_name: { projectId, name } },
+    });
+    if (!saved) {
+      throw new NotFoundException(
+        `View "${name}" not found. A view is a saved Data Engine query — save one with POST /api/v1/projects/:projectId/data-query/saved.`,
+      );
+    }
+    const source = saved.sql ?? '';
+
+    if (saved.mode === 'aggregation') {
+      let pipeline: unknown;
+      try {
+        pipeline = JSON.parse(source);
+      } catch {
+        throw new BadRequestException(`View "${name}" holds an aggregation pipeline that is not valid JSON`);
+      }
+      const parsed = pipeline as { entity?: string; pipeline?: unknown[] } | unknown[];
+      const entity = Array.isArray(parsed) ? saved.entity : parsed.entity ?? saved.entity;
+      const stages = Array.isArray(parsed) ? parsed : parsed.pipeline;
+      if (!entity || !Array.isArray(stages)) {
+        throw new BadRequestException(`View "${name}" does not name an entity and a pipeline`);
+      }
+      const result = await this.executeAggregation(projectId, entity, stages, userId);
+      return { data: result.rows, total: result.rowCount, hasMore: false };
+    }
+
+    let parsed: ParsedJsQuery;
+    try {
+      parsed = parseJsQuery(source);
+    } catch (err: any) {
+      throw this.toHttpError(err);
+    }
+    const limit = Math.min(Math.max(opts.limit ?? 50, 1), 1000);
+    const offset = Math.max(opts.offset ?? 0, 0);
+    const paging: Paging =
+      parsed.query.limit !== undefined || parsed.query.offset !== undefined
+        ? this.resolvePaging(parsed)
+        : { page: Math.floor(offset / limit) + 1, limit, offset, paginated: true };
+
+    const startTime = Date.now();
+    let result: DataQueryResult;
+    try {
+      const entityDef = await this.prisma.entityDefinition.findUnique({
+        where: { projectId_logicalName: { projectId, logicalName: parsed.entity } },
+      });
+      if (entityDef) {
+        result = await this.runEntityQuery(projectId, parsed, paging, startTime);
+      } else if (await this.collectionExists(projectId, parsed.entity, userId)) {
+        result = await this.runCollectionQuery(projectId, parsed, paging, userId, startTime);
+      } else {
+        throw new BadRequestException(
+          `View "${name}" reads "${parsed.entity}", which is no longer an entity or collection in this project`,
+        );
+      }
+    } catch (err: any) {
+      throw this.toHttpError(err);
+    }
+
+    const total = result.total ?? result.rowCount;
+    const hasMore = paging.paginated && paging.offset + result.rowCount < total;
+    return {
+      data: result.rows,
+      total,
+      hasMore,
+      ...(hasMore ? { nextCursor: String(paging.offset + result.rowCount) } : {}),
+    };
+  }
+
   // ── Target execution ───────────────────────────────────
 
   private async runEntityQuery(

@@ -1,11 +1,8 @@
 import {
   Injectable,
   BadRequestException,
-  ConflictException,
   ForbiddenException,
-  HttpException,
   InternalServerErrorException,
-  NotFoundException,
   Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -15,21 +12,19 @@ import { ProjectsService } from './projects.service';
 import { RealtimeDataService } from '../realtime-data/realtime-data.service';
 import { mapPgError } from './pg-error.util';
 import { jwtClaimSettings } from './jwt-claim-settings';
-import { parseQuery } from './postgrest/parser';
+import { parseQuery, parseSelect } from './postgrest/parser';
 import { SelectBuilder } from './postgrest/builder';
-import { SchemaCache } from './postgrest/schema-cache';
-import { ParsedQuery, PostgrestParseError } from './postgrest/types';
-import { assertIdent } from './postgrest/parser';
-import { FunctionMeta, RpcCall, chooseOverload, callShape } from './postgrest/rpc';
-import { ProjectSchema, TableInfo } from './postgrest/schema-cache';
-import { CountMode, Prefer, parseColumnsParam } from './postgrest/compat';
+import { ProjectSchema, SchemaCache } from './postgrest/schema-cache';
+import { CountMode, MAX_ROWS, ParsedQuery, PostgrestParseError, SelectItem } from './postgrest/types';
+import { parseRangeHeader, projectRows } from './postgrest/response';
 import {
-  PostgrestHttpError,
-  notAcceptableObject,
-  parseErrorToPostgrest,
-  pgToPostgrest,
-  postgrestBody,
-} from './postgrest/errors';
+  assertRows,
+  buildInsertStatements,
+  INSERTED_FLAG,
+  parseOnConflict,
+  UpsertResolution,
+} from './postgrest/write';
+import { planRpcCall, RpcOverloadRow } from './postgrest/rpc';
 
 export type PgDbRole = 'anon' | 'authenticated' | 'service_role';
 
@@ -37,71 +32,39 @@ export interface RlsContext {
   role: PgDbRole;
   /** Decoded JWT payload (claims) — will be exposed to policies via auth.jwt(). */
   jwtClaims?: Record<string, unknown>;
-  /**
-   * The caller speaks PostgREST (supabase-js / postgrest-js). Database errors
-   * are then reported with their SQLSTATE and PostgREST's status for it,
-   * rather than through {@link mapPgError}'s fixed messages.
-   */
-  compat?: boolean;
-  /**
-   * Run the request in a read-only transaction. A function called over GET or HEAD
-   * (a link, an image, a prefetch can send one, with the anon key in the query) must
-   * not be able to write.
-   */
-  readOnly?: boolean;
 }
 
-/** How a PostgREST client wants a read answered. */
 export interface SelectOptions {
-  /** `Prefer: count=…` — only then is the total computed. */
-  count?: CountMode | null;
-  /** The request was HEAD: no rows, only the total for `Content-Range`. */
-  head?: boolean;
-  /** `.single()` — exactly one row, or 406 PGRST116. */
-  wantsObject?: boolean;
+  /** `Prefer: count=…`; a `?count=` in the query wins over it. */
+  count?: CountMode;
+  /** The raw `Range` / `Range-Unit` headers, used when the query sets no limit or offset. */
+  range?: string;
+  rangeUnit?: string;
 }
 
-/** The rows of a PostgREST-shaped read, plus what `Content-Range` needs. */
-export interface CompatRows {
-  rows: Record<string, unknown>[];
-  /** `null` when no count was asked for. */
-  total: number | null;
+export interface SelectResult {
+  data: Record<string, unknown>[];
+  /** The total, or null when the caller asked for no count. */
+  count: number | null;
+  /** Where the page starts, for Content-Range. */
   offset: number;
+  /** How the count was arrived at, when there is one. */
+  countMethod: 'exact' | 'planned' | null;
 }
 
-/** How a PostgREST client wants a write answered. */
 export interface WriteOptions {
-  prefer: Prefer;
-  /** `.single()` after the write — exactly one row, or 406 and a rollback. */
-  wantsObject?: boolean;
+  /** `Prefer: return=representation` — answer with the rows rather than a count. */
+  returnRepresentation: boolean;
+  /** `?select=` — the columns of the rows returned. */
+  select?: unknown;
 }
 
-/** What a PostgREST-shaped write produced. */
-export interface CompatWriteResult {
-  /** The representation (through `select=` when given); empty unless asked for. */
-  rows: Record<string, unknown>[];
-  /** Affected rows; `null` unless `Prefer: count=` was sent. */
-  total: number | null;
-  representation: boolean;
+export interface InsertOptions extends WriteOptions {
+  /** `Prefer: resolution=…` turns the insert into an upsert. */
+  resolution?: UpsertResolution;
+  /** `?on_conflict=` — the unique column(s) an upsert resolves on; the primary key otherwise. */
+  onConflict?: unknown;
 }
-
-/** How a PostgREST client calls a function. */
-export interface RpcOptions {
-  compat: true;
-  prefer: Prefer;
-}
-
-/** A function's result, shaped as PostgREST would send it. */
-export interface RpcCompatResult {
-  kind: 'void' | 'scalar' | 'object' | 'array';
-  value: unknown;
-  /** Rows for `Content-Range`: the set's length, 1 for a single value. */
-  rows: number;
-}
-
-const COMPAT_BUILDER = { nullsDefault: 'postgres' as const };
-/** Column carrying the whole written row through a `select=` projection. */
-const RAW_ROW = '__basefyio_raw';
 
 const ALLOWED_ROLES: ReadonlySet<PgDbRole> = new Set<PgDbRole>([
   'anon',
@@ -112,6 +75,13 @@ const ALLOWED_ROLES: ReadonlySet<PgDbRole> = new Set<PgDbRole>([
 /** Postgres "insufficient_privilege" — emitted by SET LOCAL ROLE when the
  *  connecting user lacks GRANTed membership in the target role. */
 const PG_INSUFFICIENT_PRIVILEGE = '42501';
+
+/**
+ * Up to this many matching rows, a read's `count` is exact even when nobody
+ * asked for `count=exact`; past it, the planner's estimate stands in. Counting
+ * every row of a large table on every page was most of the cost of a read.
+ */
+export const EXACT_COUNT_THRESHOLD = 10_000;
 
 @Injectable()
 export class PublicApiService {
@@ -162,51 +132,50 @@ export class PublicApiService {
     }
   }
 
+  /**
+   * Read rows.
+   *
+   * The `count` beside them no longer costs a full COUNT on every request.
+   * A page that comes back short already shows the total; otherwise rows are
+   * counted exactly up to {@link EXACT_COUNT_THRESHOLD} and estimated past it.
+   * `Prefer: count=exact` (or `?count=exact`) counts every row as before,
+   * `count=planned` always estimates and `count=none` skips the count. The
+   * response keeps its `{ data, count }` shape throughout.
+   */
   async select(
     projectId: string,
     table: string,
     query: Record<string, string | string[]>,
     ctx: RlsContext,
-  ): Promise<{ data: Record<string, unknown>[]; count: number }>;
-  async select(
-    projectId: string,
-    table: string,
-    query: Record<string, string | string[]>,
-    ctx: RlsContext,
-    opts: SelectOptions,
-  ): Promise<CompatRows>;
-  async select(
-    projectId: string,
-    table: string,
-    query: Record<string, string | string[]>,
-    ctx: RlsContext,
-    opts?: SelectOptions,
-  ): Promise<{ data: Record<string, unknown>[]; count: number } | CompatRows> {
+    opts: SelectOptions = {},
+  ): Promise<SelectResult> {
     this.validateTableName(table);
-    const parsed = this.parse(query, !!opts);
-    if (opts) return this.selectCompat(projectId, table, parsed, ctx, opts);
+    const parsed = this.parse(query);
+    const range = this.parseHttp(() => parseRangeHeader(opts.range, opts.rangeUnit));
+    if (range && !parsed.limit.has('') && !parsed.offset.has('')) {
+      parsed.offset.set('', range.offset);
+      if (range.limit !== undefined) parsed.limit.set('', Math.min(range.limit, MAX_ROWS));
+    }
+    const mode: CountMode = parsed.count ?? opts.count ?? 'estimated';
 
     return this.withRls(projectId, ctx, async (client) => {
       // Resolving embeds needs the foreign keys, which the URL cannot carry.
       // If the request names a relation or column the cache has not seen, it is
       // reloaded once — a newly created table surfaces exactly this way — before
       // the request is called wrong.
-      const run = async (force: boolean) => {
+      const run = async (force: boolean): Promise<SelectResult> => {
         const schema = await this.schemaCache.get(projectId, client, force);
-        const dataBuilder = new SelectBuilder(schema, this.schemaCache);
-        const { sql, params } = dataBuilder.build(table, parsed);
-
-        const countBuilder = new SelectBuilder(schema, this.schemaCache);
-        const count = countBuilder.buildCount(table, parsed);
-
-        const [dataResult, countResult] = await Promise.all([
-          client.query(sql, params),
-          client.query(count.sql, count.params),
-        ]);
-        return {
-          data: dataResult.rows,
-          count: countResult.rows[0]?.total ?? 0,
-        };
+        const { sql, params } = new SelectBuilder(schema, this.schemaCache).build(table, parsed);
+        const dataResult = await client.query(sql, params);
+        const rows = dataResult.rows as Record<string, unknown>[];
+        const offset = parsed.offset.get('') ?? 0;
+        const limit = parsed.limit.get('') ?? MAX_ROWS;
+        const counted = await this.countRows(client, schema, table, parsed, mode, {
+          returned: rows.length,
+          offset,
+          limit,
+        });
+        return { data: rows, count: counted.total, offset, countMethod: counted.method };
       };
 
       return this.withSchemaRetry(projectId, run);
@@ -214,46 +183,56 @@ export class PublicApiService {
   }
 
   /**
-   * A read for a PostgREST client: a bare page of rows, the total only when
-   * asked for (`Prefer: count=`), Postgres's own NULLS ordering, and `.single()`
-   * enforced as PostgREST does. HEAD runs the count alone — the client reads
-   * `Content-Range` and never sees a body.
+   * The total behind a page of rows, as cheaply as the requested mode allows.
+   *
+   * Whatever the mode, a page that came back short — fewer rows than the limit,
+   * and not because the offset ran past the end — already is the total: no
+   * query at all. That is every read of a small table.
    */
-  private async selectCompat(
-    projectId: string,
+  private async countRows(
+    client: PoolClient,
+    schema: ProjectSchema,
     table: string,
     parsed: ParsedQuery,
-    ctx: RlsContext,
-    opts: SelectOptions,
-  ): Promise<CompatRows> {
-    const rlsCtx: RlsContext = { ...ctx, compat: true };
-    return this.withRls(projectId, rlsCtx, async (client) => {
-      const run = async (force: boolean): Promise<CompatRows> => {
-        const schema = await this.schemaCache.get(projectId, client, force);
-        const wantCount = !!opts.count || !!opts.head;
-        const data = opts.head
-          ? null
-          : new SelectBuilder(schema, this.schemaCache, COMPAT_BUILDER).build(table, parsed);
-        const count = wantCount
-          ? new SelectBuilder(schema, this.schemaCache, COMPAT_BUILDER).buildCount(table, parsed)
-          : null;
+    mode: CountMode,
+    page: { returned: number; offset: number; limit: number },
+  ): Promise<{ total: number | null; method: 'exact' | 'planned' | null }> {
+    if (mode === 'none') return { total: null, method: null };
+    const { returned, offset, limit } = page;
+    if (returned < limit && (returned > 0 || offset === 0)) {
+      return { total: offset + returned, method: 'exact' };
+    }
+    const builder = () => new SelectBuilder(schema, this.schemaCache);
 
-        const [dataResult, countResult] = await Promise.all([
-          data ? client.query(data.sql, data.params) : Promise.resolve(null),
-          count ? client.query(count.sql, count.params) : Promise.resolve(null),
-        ]);
-        const rows = (dataResult?.rows ?? []) as Record<string, unknown>[];
-        if (opts.wantsObject && !opts.head && rows.length !== 1) {
-          throw notAcceptableObject(rows.length);
-        }
-        return {
-          rows,
-          total: countResult ? Number(countResult.rows[0]?.total ?? 0) : null,
-          offset: parsed.offset.get('') ?? 0,
-        };
-      };
-      return this.withSchemaRetry(projectId, run, true);
-    });
+    if (mode === 'exact') {
+      const c = builder().buildCount(table, parsed);
+      const r = await client.query(c.sql, c.params);
+      return { total: Number(r.rows[0]?.total ?? 0), method: 'exact' };
+    }
+    if (mode === 'estimated') {
+      const c = builder().buildBoundedCount(table, parsed, EXACT_COUNT_THRESHOLD);
+      const r = await client.query(c.sql, c.params);
+      const n = Number(r.rows[0]?.total ?? 0);
+      if (n <= EXACT_COUNT_THRESHOLD) return { total: n, method: 'exact' };
+    }
+
+    // The planner's estimate. EXPLAIN runs behind a savepoint: if it cannot
+    // run, the read still answers, with a count of null rather than an error.
+    const p = builder().buildPlannedCount(table, parsed);
+    await client.query('SAVEPOINT _bf_count');
+    try {
+      const r = await client.query(p.sql, p.params);
+      await client.query('RELEASE SAVEPOINT _bf_count');
+      const plan = (r.rows[0]?.['QUERY PLAN'] as Array<{ Plan?: { 'Plan Rows'?: number } }> | undefined)?.[0]?.Plan;
+      const estimate = Math.round(Number(plan?.['Plan Rows'] ?? 0));
+      // Never report fewer rows than are known to exist.
+      const floor = mode === 'estimated' ? EXACT_COUNT_THRESHOLD + 1 : offset + returned;
+      return { total: Math.max(estimate, floor), method: 'planned' };
+    } catch (err: any) {
+      await client.query('ROLLBACK TO SAVEPOINT _bf_count');
+      this.logger.warn(`Planned count failed on "${table}": ${err?.message ?? err}`);
+      return { total: null, method: null };
+    }
   }
 
   /**
@@ -265,11 +244,13 @@ export class PublicApiService {
    * actually a stale cache — a table created a moment ago surfaces exactly
    * this way. Only the three codes that mean "not in the schema" are retried;
    * anything else is the caller's error and is reported as it is.
+   *
+   * `run` must not have written anything before it throws one of those codes,
+   * since it runs again in the same transaction.
    */
   private async withSchemaRetry<T>(
     projectId: string,
     run: (force: boolean) => Promise<T>,
-    compat = false,
   ): Promise<T> {
     try {
       return await run(false);
@@ -282,31 +263,17 @@ export class PublicApiService {
         try {
           return await run(true);
         } catch (retryErr) {
-          throw this.toHttp(retryErr, compat);
+          throw this.toHttp(retryErr);
         }
       }
-      throw this.toHttp(err, compat);
-    }
-  }
-
-  /**
-   * Parse the query string, reporting a malformed one as a 400 in the
-   * caller's dialect rather than letting the parse error escape as a 500.
-   */
-  private parse(query: Record<string, string | string[]>, compat: boolean): ParsedQuery {
-    try {
-      return parseQuery(query);
-    } catch (err) {
-      throw this.toHttp(err, compat);
+      throw this.toHttp(err);
     }
   }
 
   /** Map a parse failure to a 400 that keeps PostgREST's error code; anything
-   *  else is left for withRls / mapPgError to classify. A PostgREST client
-   *  gets the code's own status (a missing relation is 404 there). */
-  private toHttp(err: unknown, compat = false): unknown {
+   *  else is left for withRls / mapPgError to classify. */
+  private toHttp(err: unknown): unknown {
     if (err instanceof PostgrestParseError) {
-      if (compat) return parseErrorToPostgrest(err);
       return new BadRequestException({
         message: err.message,
         details: err.details,
@@ -314,6 +281,23 @@ export class PublicApiService {
       });
     }
     return err;
+  }
+
+  /**
+   * Parse the query string. A malformed one — a filter with no operator, an
+   * unknown operator or order modifier, a character no column name can hold —
+   * is the caller's mistake and answers 400 with what was wrong, not a 500.
+   */
+  private parse(query: Record<string, string | string[]>): ParsedQuery {
+    return this.parseHttp(() => parseQuery(query));
+  }
+
+  private parseHttp<T>(fn: () => T): T {
+    try {
+      return fn();
+    } catch (err) {
+      throw this.toHttp(err);
+    }
   }
 
   /**
@@ -331,444 +315,158 @@ export class PublicApiService {
    * with the service key, or from an app with a signed-in user, which is the
    * usual reason to write one. An anonymous caller gets the invoker-rights
    * functions only, where their policies still apply.
+   *
+   * Which overload a call reaches is worked out from the argument names before
+   * anything runs (see planRpcCall), so the definer check looks at the
+   * function that can actually be called, and a call that matches nothing is
+   * told which arguments exist instead of failing inside Postgres.
    */
   async rpc(
     projectId: string,
     fnName: string,
     args: Record<string, unknown>,
     ctx: RlsContext,
-  ): Promise<unknown[]>;
-  async rpc(
-    projectId: string,
-    fnName: string,
-    args: Record<string, unknown>,
-    ctx: RlsContext,
-    opts: RpcOptions,
-  ): Promise<RpcCompatResult>;
-  async rpc(
-    projectId: string,
-    fnName: string,
-    args: Record<string, unknown>,
-    ctx: RlsContext,
-    opts?: RpcOptions,
-  ): Promise<unknown[] | RpcCompatResult> {
+  ) {
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(fnName)) {
       throw new BadRequestException('Invalid function name');
     }
-    const compat = !!opts?.compat;
-    const rlsCtx: RlsContext = compat ? { ...ctx, compat: true } : ctx;
-    return this.withRls(projectId, rlsCtx, async (client) => {
-      // Every overload: the one called is the one whose input names cover
-      // the keys sent. LIMIT 1 used to pick whichever came first.
-      const meta = await client.query<FunctionMeta>(
-        `SELECT p.oid::regprocedure AS signature,
+    if (args === null || typeof args !== 'object' || Array.isArray(args)) {
+      throw new BadRequestException(
+        'The request body must be a JSON object of argument name → value, e.g. {"name": "world"}',
+      );
+    }
+    return this.withRls(projectId, ctx, async (client) => {
+      const meta = await client.query(
+        `SELECT p.oid::regprocedure::text AS signature,
                 p.prosecdef AS definer,
+                p.pronargdefaults AS ndefaults,
                 COALESCE(array_to_json(p.proargnames), '[]'::json) AS argnames,
                 COALESCE(array_to_json(p.proargmodes), '[]'::json) AS argmodes,
-                COALESCE((SELECT array_to_json(array_agg(format_type(u.o, NULL) ORDER BY u.n))
-                            FROM unnest(p.proargtypes::oid[]) WITH ORDINALITY AS u(o, n)), '[]'::json) AS argtypes,
-                p.pronargs, p.pronargdefaults, p.proretset, p.provolatile,
-                t.typtype, t.typname, t.typrelid
-           FROM pg_proc p
-           JOIN pg_namespace n ON n.oid = p.pronamespace
-           JOIN pg_type t ON t.oid = p.prorettype
-          WHERE n.nspname = 'public' AND p.proname = $1 AND p.prokind = 'f'
-          ORDER BY p.pronargs`,
+                array_to_json(COALESCE(p.proallargtypes, p.proargtypes::oid[])::regtype[]) AS argtypes
+           FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+          WHERE n.nspname = 'public' AND p.proname = $1 AND p.prokind = 'f'`,
         [fnName],
       );
-      const keys = Object.keys(args ?? {});
-      const singleObject = compat && opts!.prefer.params === 'single-object';
-      const chosen = chooseOverload(meta.rows, keys, { strict: compat, singleObject });
-      if (!chosen) {
-        if (compat) {
-          const list = [...keys].sort().join(', ');
-          throw new PostgrestHttpError(
-            404,
-            postgrestBody(
-              'PGRST202',
-              `Could not find the function public.${fnName}(${list}) in the schema cache`,
-              `Searched for the function public.${fnName}${keys.length ? ` with parameters ${list}` : ' without parameters'}, but no matches were found in the schema cache.`,
-              meta.rowCount
-                ? `Perhaps you meant to call one of: ${meta.rows.map((m) => m.signature).join(', ')}`
-                : null,
-            ),
-          );
-        }
+      if (meta.rowCount === 0) {
         throw new BadRequestException(`Function "${fnName}" not found`);
       }
-      if (chosen.meta.definer && ctx.role === 'anon') {
-        const message = `Function "${fnName}" is SECURITY DEFINER, so it runs as the database owner and row-level policies do not apply to it. It cannot be called anonymously — send a signed-in user's access token, or call it from your server with the service key.`;
-        if (compat) throw new PostgrestHttpError(403, postgrestBody('42501', message));
-        throw new ForbiddenException(message);
+      const plan = this.parseHttp(() =>
+        planRpcCall(fnName, meta.rows as RpcOverloadRow[], args),
+      );
+      if (plan.definer && ctx.role === 'anon') {
+        throw new ForbiddenException(
+          `Function "${fnName}" is SECURITY DEFINER, so it runs as the database owner and row-level policies do not apply to it. It cannot be called anonymously — send a signed-in user's access token, or call it from your server with the service key.`,
+        );
       }
-
-      const { call, params } = this.renderRpcCall(fnName, chosen, args ?? {});
-      if (ctx.readOnly) await client.query('SET TRANSACTION READ ONLY');
-      if (!compat) {
-        const result = await client.query(`SELECT * FROM ${call}`, params);
-        return result.rows;
-      }
-      return this.runRpcCompat(client, call, params, chosen.meta);
+      const result = await client.query(
+        `SELECT * FROM "${fnName}"(${plan.named})`,
+        plan.params,
+      );
+      return result.rows;
     });
   }
 
-  /** `"fn"("a" := $1, "b" := $2)` — or `"fn"($1::json)` for a single JSON argument. */
-  private renderRpcCall(
-    fnName: string,
-    chosen: RpcCall,
-    args: Record<string, unknown>,
-  ): { call: string; params: unknown[] } {
-    const params: unknown[] = [];
-    if (chosen.singleJson) {
-      params.push(JSON.stringify(args));
-      return { call: `"${fnName}"($1::${chosen.jsonType})`, params };
-    }
-    // Each value is cast to the chosen overload's own input type (from the catalog, never
-    // from the request). An untyped parameter lets Postgres pick the overload itself, which
-    // could be a SECURITY DEFINER one other than the overload the anonymous check looked at.
-    const types = chosen.meta.argtypes ?? [];
-    const named = chosen.inputs
-      .filter((k) => Object.prototype.hasOwnProperty.call(args, k))
-      .map((k) => {
-        params.push(args[k]);
-        const type = types[chosen.inputs.indexOf(k)];
-        return `"${k}" := $${params.length}${type ? `::${type}` : ''}`;
-      })
-      .join(', ');
-    return { call: `"${fnName}"(${named})`, params };
-  }
-
   /**
-   * Run the call and shape the result as PostgREST does: a scalar or JSON
-   * function yields its bare value, a composite yields one object, a SETOF
-   * yields an array (of bare values for a scalar set), void yields nothing.
+   * Insert rows — or upsert them, with `Prefer: resolution=merge-duplicates`
+   * (update the existing row) or `resolution=ignore-duplicates` (keep it).
+   *
+   * An upsert resolves on the `?on_conflict=` columns, or the primary key when
+   * none are named. It runs exactly where an insert runs: under the caller's
+   * role in the same RLS transaction, so policies decide as they would for an
+   * INSERT and, for the rows it updates, an UPDATE. Every value is bound.
+   *
+   * A large batch is split into statements under Postgres' parameter ceiling,
+   * all in one transaction, so it lands whole or not at all.
    */
-  private async runRpcCompat(
-    client: PoolClient,
-    call: string,
-    params: unknown[],
-    meta: FunctionMeta,
-  ): Promise<RpcCompatResult> {
-    const shape = callShape(meta);
-    if (shape === 'void') {
-      await client.query(`SELECT ${call}`, params);
-      return { kind: 'void', value: null, rows: 0 };
-    }
-    if (meta.proretset) {
-      const result = await client.query(`SELECT * FROM ${call} AS _r`, params);
-      const value = shape === 'scalar' ? result.rows.map((r: any) => r._r) : result.rows;
-      return { kind: 'array', value, rows: result.rows.length };
-    }
-    if (shape === 'composite') {
-      const result = await client.query(`SELECT * FROM ${call} AS _r`, params);
-      return { kind: 'object', value: result.rows[0] ?? null, rows: result.rows.length };
-    }
-    const result = await client.query(`SELECT ${call} AS v`, params);
-    return { kind: 'scalar', value: result.rows[0]?.v ?? null, rows: 1 };
-  }
-
   async insert(
     projectId: string,
     table: string,
-    body: Record<string, unknown> | Record<string, unknown>[],
-    returnRepresentation: boolean,
+    body: unknown,
+    options: InsertOptions | boolean,
     ctx: RlsContext,
   ) {
+    // A bare boolean is the original signature (return the rows or not), kept for in-process callers.
+    const opts: InsertOptions =
+      typeof options === 'boolean' ? { returnRepresentation: options } : options;
     this.validateTableName(table);
+    const rows = this.parseHttp(() => assertRows(body));
+    const select = this.parseSelectOnWrite(opts.select);
+    const onConflict = opts.resolution
+      ? this.parseHttp(() => parseOnConflict(opts.onConflict))
+      : undefined;
 
     return this.withRls(projectId, ctx, async (client) => {
-      const rows = Array.isArray(body) ? body : [body];
-      if (!rows.length) throw new BadRequestException('Empty body');
-
-      const keys = Object.keys(rows[0]);
-      if (!keys.length) throw new BadRequestException('No columns provided');
-
-      const cols = keys.map((k) => this.quoteIdent(k, 'insert column')).join(', ');
-
-      const allValues: unknown[] = [];
-      const valueGroups: string[] = [];
-
-      for (const row of rows) {
-        const placeholders: string[] = [];
-        for (const key of keys) {
-          allValues.push(row[key] ?? null);
-          placeholders.push(`$${allValues.length}`);
-        }
-        valueGroups.push(`(${placeholders.join(', ')})`);
-      }
-
-      // RETURNING * unconditionally: response shape below is unchanged, but
-      // realtime needs the rows to broadcast full INSERT payloads.
-      const sql = `INSERT INTO "${table}" (${cols}) VALUES ${valueGroups.join(', ')} RETURNING *`;
-
-      const result = await client.query(sql, allValues);
-      return { __rows: result.rows, __count: result.rowCount };
-    }).then((r: any) => {
-      for (const row of r.__rows ?? []) {
-        this.realtimeData.publishChange(projectId, {
-          type: 'INSERT', kind: 'table', entity: table, new: row,
-        });
-      }
-      return returnRepresentation ? r.__rows : { count: r.__count };
-    });
-  }
-
-  /* ───────────────────────── PostgREST-shaped writes ───────────────────────── */
-
-  /**
-   * An insert or upsert for a PostgREST client.
-   *
-   * The differences from {@link insert} are what postgrest-js relies on: the
-   * column list is the union of every row's keys (or the `columns=` hint it
-   * sends for arrays), a key a row lacks becomes DEFAULT under
-   * `Prefer: missing=default` and NULL otherwise, `Prefer: resolution=` with
-   * `on_conflict=` (or the primary key) is an upsert, and `select=` shapes
-   * the returned representation. An empty array inserts nothing and is 201 [].
-   */
-  async insertCompat(
-    projectId: string,
-    table: string,
-    body: Record<string, unknown> | Record<string, unknown>[],
-    query: Record<string, string | string[]>,
-    ctx: RlsContext,
-    opts: WriteOptions,
-  ): Promise<CompatWriteResult> {
-    this.validateTableName(table);
-    const parsed = this.parse(query, true);
-    const rows = Array.isArray(body) ? body : [body];
-    const rlsCtx: RlsContext = { ...ctx, compat: true };
-
-    return this.withRls(projectId, rlsCtx, async (client) => {
-      if (!rows.length) return { raw: [], out: [], count: 0 };
-      const run = async (force: boolean) => {
-        const schema = await this.schemaCache.get(projectId, client, force);
-        const info = this.tableInfo(schema, table);
-        const cols = parseColumnsParam(query.columns) ?? [...new Set(rows.flatMap((r) => Object.keys(r ?? {})))];
-        for (const c of cols) this.assertColumn(info, c);
-        if (!cols.length) {
-          throw new PostgrestHttpError(400, postgrestBody('PGRST100', 'No columns provided'));
-        }
-
-        const params: unknown[] = [];
-        const groups = rows.map((row) => {
-          const src = row ?? {};
-          const cells = cols.map((c) => {
-            if (!(c in src)) {
-              if (opts.prefer.missing === 'default') return 'DEFAULT';
-              params.push(null);
-              return `$${params.length}`;
+      let upsert: { resolution: UpsertResolution; target: string[] | null } | undefined;
+      if (opts.resolution) {
+        const target =
+          onConflict ??
+          (await this.withSchemaRetry(projectId, async (force) => {
+            const schema = await this.schemaCache.get(projectId, client, force);
+            const info = schema.tables.get(table);
+            if (!info) {
+              throw new PostgrestParseError(`Relation "${table}" not found`, undefined, 'PGRST205');
             }
-            params.push(src[c] ?? null);
-            return `$${params.length}`;
-          });
-          return `(${cells.join(', ')})`;
+            return info.primaryKey.length ? [...info.primaryKey] : null;
+          }));
+        upsert = { resolution: opts.resolution, target };
+      }
+
+      const statements = this.parseHttp(() =>
+        buildInsertStatements({
+          table,
+          rows,
+          quote: (name, context) => this.quoteIdent(name, context),
+          upsert,
+        }),
+      );
+
+      const written: Record<string, unknown>[] = [];
+      let count = 0;
+      for (const statement of statements) {
+        const result = await client.query(statement.sql, statement.params);
+        written.push(...(result.rows as Record<string, unknown>[]));
+        count += result.rowCount ?? 0;
+      }
+
+      // Which rows an upsert created and which it updated, for realtime; the
+      // marker column is not part of the table and never reaches the caller.
+      const inserted = written.map((row) => (upsert ? row[INSERTED_FLAG] !== false : true));
+      if (upsert) for (const row of written) delete row[INSERTED_FLAG];
+
+      // Shaped inside the transaction: a select that names a column the rows
+      // do not have is refused before anything is committed.
+      const shaped = this.shapeWritten(written, select, opts.returnRepresentation);
+      return { written, inserted, count, shaped };
+    }).then((r) => {
+      r.written.forEach((row, i) => {
+        this.realtimeData.publishChange(projectId, {
+          type: r.inserted[i] ? 'INSERT' : 'UPDATE', kind: 'table', entity: table, new: row,
         });
-
-        let sql = `INSERT INTO "${table}" (${cols.map((c) => `"${c}"`).join(', ')}) VALUES ${groups.join(', ')}`;
-        if (opts.prefer.resolution) {
-          const target = parseColumnsParam(query.on_conflict) ?? info.primaryKey;
-          for (const c of target) this.assertColumn(info, c);
-          if (!target.length) {
-            throw new PostgrestHttpError(
-              400,
-              postgrestBody(
-                'PGRST100',
-                `Cannot upsert into "${table}": it has no primary key`,
-                null,
-                'Pass on_conflict=<columns> naming a unique constraint.',
-              ),
-            );
-          }
-          sql += ` ON CONFLICT (${target.map((c) => `"${c}"`).join(', ')})`;
-          sql +=
-            opts.prefer.resolution === 'ignore-duplicates'
-              ? ' DO NOTHING'
-              : ` DO UPDATE SET ${cols.map((c) => `"${c}" = EXCLUDED."${c}"`).join(', ')}`;
-        }
-        sql += ' RETURNING *';
-        return this.runCompatWrite(client, schema, table, parsed, sql, params, opts);
-      };
-      return this.withSchemaRetry(projectId, run, true);
-    }).then((r) => {
-      for (const row of r.raw) {
-        this.realtimeData.publishChange(projectId, { type: 'INSERT', kind: 'table', entity: table, new: row });
-      }
-      return this.compatWriteResult(r, opts);
-    });
-  }
-
-  /** An update for a PostgREST client; see {@link insertCompat} for the shape. */
-  async updateCompat(
-    projectId: string,
-    table: string,
-    query: Record<string, string | string[]>,
-    body: Record<string, unknown>,
-    ctx: RlsContext,
-    opts: WriteOptions,
-  ): Promise<CompatWriteResult> {
-    this.validateTableName(table);
-    const parsed = this.parse(query, true);
-    const rlsCtx: RlsContext = { ...ctx, compat: true };
-
-    return this.withRls(projectId, rlsCtx, async (client) => {
-      const setCols = Object.keys(body ?? {});
-      if (!setCols.length) {
-        throw new PostgrestHttpError(400, postgrestBody('PGRST100', 'No data to update'));
-      }
-      const run = async (force: boolean) => {
-        const schema = await this.schemaCache.get(projectId, client, force);
-        const info = this.tableInfo(schema, table);
-        for (const c of setCols) this.assertColumn(info, c);
-        const builder = new SelectBuilder(schema, this.schemaCache, COMPAT_BUILDER);
-        const { alias, where, params } = builder.buildWriteWhere(table, parsed);
-        this.assertWriteFilter(where, 'PATCH', 'updates');
-
-        let idx = params.length;
-        const setClause = setCols.map((k) => `"${k}" = $${++idx}`).join(', ');
-        const values = [...params, ...setCols.map((k) => body[k] ?? null)];
-        const sql = `UPDATE "${table}" AS ${alias} SET ${setClause} WHERE ${where} RETURNING *`;
-        return this.runCompatWrite(client, schema, table, parsed, sql, values, opts);
-      };
-      return this.withSchemaRetry(projectId, run, true);
-    }).then((r) => {
-      for (const row of r.raw) {
-        this.realtimeData.publishChange(projectId, { type: 'UPDATE', kind: 'table', entity: table, new: row });
-      }
-      return this.compatWriteResult(r, opts);
-    });
-  }
-
-  /** A delete for a PostgREST client; see {@link insertCompat} for the shape. */
-  async deleteCompat(
-    projectId: string,
-    table: string,
-    query: Record<string, string | string[]>,
-    ctx: RlsContext,
-    opts: WriteOptions,
-  ): Promise<CompatWriteResult> {
-    this.validateTableName(table);
-    const parsed = this.parse(query, true);
-    const rlsCtx: RlsContext = { ...ctx, compat: true };
-
-    return this.withRls(projectId, rlsCtx, async (client) => {
-      const run = async (force: boolean) => {
-        const schema = await this.schemaCache.get(projectId, client, force);
-        const builder = new SelectBuilder(schema, this.schemaCache, COMPAT_BUILDER);
-        const { alias, where, params } = builder.buildWriteWhere(table, parsed);
-        this.assertWriteFilter(where, 'DELETE', 'deletes');
-        const sql = `DELETE FROM "${table}" AS ${alias} WHERE ${where} RETURNING *`;
-        return this.runCompatWrite(client, schema, table, parsed, sql, params, opts);
-      };
-      return this.withSchemaRetry(projectId, run, true);
-    }).then((r) => {
-      for (const row of r.raw) {
-        this.realtimeData.publishChange(projectId, { type: 'DELETE', kind: 'table', entity: table, old: row });
-      }
-      return this.compatWriteResult(r, opts);
-    });
-  }
-
-  /**
-   * Execute a write that ends in `RETURNING *`, shaping what comes back.
-   *
-   * With `select=` and a representation wanted, the write becomes a CTE and
-   * the projection reads from it, so embeds and aliases work on a write as
-   * they do on a read; the whole row rides along under {@link RAW_ROW} for
-   * realtime. `.single()` is checked here, inside the transaction, so a
-   * write that did not touch exactly one row is rolled back with its 406.
-   */
-  private async runCompatWrite(
-    client: PoolClient,
-    schema: ProjectSchema,
-    table: string,
-    parsed: ParsedQuery,
-    writeSql: string,
-    params: unknown[],
-    opts: WriteOptions,
-  ): Promise<{ raw: Record<string, unknown>[]; out: Record<string, unknown>[]; count: number }> {
-    const representation = opts.prefer.return === 'representation';
-    const projected = representation && !(parsed.select.length === 1 && parsed.select[0].kind === 'star');
-
-    let raw: Record<string, unknown>[];
-    let out: Record<string, unknown>[];
-    if (projected) {
-      const proj = new SelectBuilder(schema, this.schemaCache, COMPAT_BUILDER).buildProjection(
-        table,
-        parsed,
-        '_w',
-        params,
-        { rawAs: RAW_ROW },
-      );
-      const result = await client.query(`WITH _w AS (${writeSql}) ${proj.sql}`, proj.params);
-      raw = result.rows.map((r: Record<string, unknown>) => r[RAW_ROW] as Record<string, unknown>);
-      out = result.rows.map((r: Record<string, unknown>) => {
-        const { [RAW_ROW]: _raw, ...rest } = r;
-        return rest;
       });
-    } else {
-      const result = await client.query(writeSql, params);
-      raw = result.rows;
-      out = representation ? result.rows : [];
-    }
-    if (opts.wantsObject && raw.length !== 1) throw notAcceptableObject(raw.length);
-    return { raw, out, count: raw.length };
-  }
-
-  private compatWriteResult(
-    r: { out: Record<string, unknown>[]; count: number },
-    opts: WriteOptions,
-  ): CompatWriteResult {
-    return {
-      rows: r.out,
-      total: opts.prefer.count ? r.count : null,
-      representation: opts.prefer.return === 'representation',
-    };
-  }
-
-  private tableInfo(schema: ProjectSchema, table: string): TableInfo {
-    const info = schema.tables.get(table);
-    if (!info) throw new PostgrestParseError(`Relation "${table}" not found`, undefined, 'PGRST205');
-    return info;
-  }
-
-  private assertColumn(info: TableInfo, column: string): void {
-    assertIdent(column, 'column');
-    if (!info.columns.has(column)) {
-      throw new PostgrestParseError(
-        `Could not find the '${column}' column of '${info.name}' in the schema cache`,
-        undefined,
-        'PGRST204',
-      );
-    }
-  }
-
-  /** An unfiltered UPDATE or DELETE takes the whole table; refused, as it always was. */
-  private assertWriteFilter(where: string, verb: string, noun: string): void {
-    if (where) return;
-    throw new PostgrestHttpError(
-      400,
-      postgrestBody(
-        '21000',
-        `${verb} requires at least one filter to prevent full-table ${noun}`,
-        null,
-        'Add a filter such as ?id=eq.1.',
-      ),
-    );
+      return opts.returnRepresentation ? r.shaped : { count: r.count };
+    });
   }
 
   async update(
     projectId: string,
     table: string,
     query: Record<string, string | string[]>,
-    body: Record<string, unknown>,
-    returnRepresentation: boolean,
+    body: unknown,
+    options: WriteOptions | boolean,
     ctx: RlsContext,
   ) {
+    const opts: WriteOptions =
+      typeof options === 'boolean' ? { returnRepresentation: options } : options;
     this.validateTableName(table);
-    const parsed = this.parse(query, false);
+    const parsed = this.parse(query);
+    const select = this.parseSelectOnWrite(opts.select);
+    if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+      throw new BadRequestException('PATCH takes one JSON object of column → new value');
+    }
+    const data = body as Record<string, unknown>;
 
     return this.withRls(projectId, ctx, async (client) => {
-      const setCols = Object.keys(body);
+      const setCols = Object.keys(data);
       if (!setCols.length) throw new BadRequestException('No data to update');
 
       const run = async (force: boolean) => {
@@ -780,31 +478,36 @@ export class PublicApiService {
             'PATCH requires at least one filter to prevent full-table updates',
           );
         }
-
-        // The filter's parameters are bound first, so the assignments continue
-        // the numbering from where it left off.
-        let idx = params.length;
-        const setClause = setCols
-          .map((k) => {
-            idx++;
-            return `${this.quoteIdent(k, 'update column')} = $${idx}`;
-          })
-          .join(', ');
-        const setValues = setCols.map((k) => body[k] ?? null);
-
-        const sql = `UPDATE "${table}" AS ${alias} SET ${setClause} WHERE ${where} RETURNING *`;
-        const result = await client.query(sql, [...params, ...setValues]);
-        return { __rows: result.rows, __count: result.rowCount };
+        return { alias, where, params };
       };
+      const { alias, where, params } = await this.withSchemaRetry(projectId, run);
 
-      return this.withSchemaRetry(projectId, run);
-    }).then((r: any) => {
-      for (const row of r.__rows ?? []) {
+      // The filter's parameters are bound first, so the assignments continue
+      // the numbering from where it left off.
+      let idx = params.length;
+      const setClause = setCols
+        .map((k) => {
+          idx++;
+          return `${this.quoteIdent(k, 'update column')} = $${idx}`;
+        })
+        .join(', ');
+      const setValues = setCols.map((k) => data[k] ?? null);
+
+      const sql = `UPDATE "${table}" AS ${alias} SET ${setClause} WHERE ${where} RETURNING *`;
+      const result = await client.query(sql, [...params, ...setValues]);
+      const written = result.rows as Record<string, unknown>[];
+      return {
+        written,
+        count: result.rowCount,
+        shaped: this.shapeWritten(written, select, opts.returnRepresentation),
+      };
+    }).then((r) => {
+      for (const row of r.written) {
         this.realtimeData.publishChange(projectId, {
           type: 'UPDATE', kind: 'table', entity: table, new: row,
         });
       }
-      return returnRepresentation ? r.__rows : { count: r.__count };
+      return opts.returnRepresentation ? r.shaped : { count: r.count };
     });
   }
 
@@ -812,11 +515,14 @@ export class PublicApiService {
     projectId: string,
     table: string,
     query: Record<string, string | string[]>,
-    returnRepresentation: boolean,
+    options: WriteOptions | boolean,
     ctx: RlsContext,
   ) {
+    const opts: WriteOptions =
+      typeof options === 'boolean' ? { returnRepresentation: options } : options;
     this.validateTableName(table);
-    const parsed = this.parse(query, false);
+    const parsed = this.parse(query);
+    const select = this.parseSelectOnWrite(opts.select);
 
     return this.withRls(projectId, ctx, async (client) => {
       const run = async (force: boolean) => {
@@ -828,21 +534,44 @@ export class PublicApiService {
             'DELETE requires at least one filter to prevent full-table deletes',
           );
         }
-
-        const sql = `DELETE FROM "${table}" AS ${alias} WHERE ${where} RETURNING *`;
-        const result = await client.query(sql, params);
-        return { __rows: result.rows, __count: result.rowCount };
+        return { alias, where, params };
       };
+      const { alias, where, params } = await this.withSchemaRetry(projectId, run);
 
-      return this.withSchemaRetry(projectId, run);
-    }).then((r: any) => {
-      for (const row of r.__rows ?? []) {
+      const sql = `DELETE FROM "${table}" AS ${alias} WHERE ${where} RETURNING *`;
+      const result = await client.query(sql, params);
+      const written = result.rows as Record<string, unknown>[];
+      return {
+        written,
+        count: result.rowCount,
+        shaped: this.shapeWritten(written, select, opts.returnRepresentation),
+      };
+    }).then((r) => {
+      for (const row of r.written) {
         this.realtimeData.publishChange(projectId, {
           type: 'DELETE', kind: 'table', entity: table, old: row,
         });
       }
-      return returnRepresentation ? r.__rows : { count: r.__count };
+      return opts.returnRepresentation ? r.shaped : { count: r.count };
     });
+  }
+
+  /** `?select=` on a write, parsed up front so a bad one is refused before anything runs. */
+  private parseSelectOnWrite(raw: unknown): SelectItem[] | undefined {
+    if (raw === undefined) return undefined;
+    if (typeof raw !== 'string') {
+      throw new BadRequestException('Malformed select parameter');
+    }
+    return this.parseHttp(() => parseSelect(raw));
+  }
+
+  private shapeWritten(
+    rows: Record<string, unknown>[],
+    select: SelectItem[] | undefined,
+    returnRepresentation: boolean,
+  ): Record<string, unknown>[] {
+    if (!returnRepresentation || !select) return rows;
+    return this.parseHttp(() => projectRows(rows, select));
   }
 
   /* ────────────────────────────── RLS core ────────────────────────────── */
@@ -878,7 +607,7 @@ export class PublicApiService {
       // RLS policy denial) or any other Postgres error is mapped to a proper
       // HTTP status instead of bubbling up as a generic 500.
       if (!(e?.code === PG_INSUFFICIENT_PRIVILEGE && e.__setRoleFailed)) {
-        throw this.classify(e, ctx);
+        throw mapPgError(this.toHttp(e));
       }
 
       const lastAttempt = this.autoHealLastAttemptMs.get(projectId) ?? 0;
@@ -935,14 +664,9 @@ export class PublicApiService {
       try {
         return await this.runRlsTransaction(projectId, ctx, fn);
       } catch (retryErr: any) {
-        throw this.classify(retryErr, ctx);
+        throw mapPgError(this.toHttp(retryErr));
       }
     }
-  }
-
-  /** The HTTP error for a failed statement, in the dialect the caller speaks. */
-  private classify(e: unknown, ctx: RlsContext): unknown {
-    return ctx.compat ? pgToPostgrest(e, ctx.role) : mapPgError(e);
   }
 
 

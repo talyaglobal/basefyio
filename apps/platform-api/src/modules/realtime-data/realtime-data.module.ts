@@ -4,6 +4,7 @@ import { RealtimeFanoutService } from './realtime-fanout.service';
 import { RealtimePolicyService } from './realtime-policy.service';
 import { RealtimePresenceService } from './realtime-presence.service';
 import { RealtimeBroadcastService } from './realtime-broadcast.service';
+import { RealtimeReplayService } from './realtime-replay.service';
 import { QueryAccessTokenGuard } from './query-access-token.guard';
 import {
   RealtimeApiController,
@@ -28,10 +29,9 @@ import {
     RealtimePolicyService,
     RealtimePresenceService,
     RealtimeBroadcastService,
+    RealtimeReplayService,
     QueryAccessTokenGuard,
   ],
-  // The fan-out is exported for the metrics scrape, which counts the realtime
-  // connections this process holds.
-  exports: [RealtimeDataService, RealtimeFanoutService],
+  exports: [RealtimeDataService],
 })
 export class RealtimeDataModule {}

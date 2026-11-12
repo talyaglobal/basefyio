@@ -2,13 +2,23 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { ArrowDown, ArrowUp, Download, RefreshCw, Search } from 'lucide-react';
+import { Download, RefreshCw, Search } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { ConsoleProjectList, ConsoleProjectRow } from '@/lib/console-types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { formatCount, formatDate, formatMb, formatUsd, timeAgo } from '@/components/console/format';
-import { ErrorState, PageHeader, Panel, Spinner, StatusBadge, td, tdRight, th, thRight } from '@/components/console/ui';
+import { formatBytes, formatCount, formatDate, formatUsd, timeAgo } from '@/components/console/format';
+import {
+  EmptyRow,
+  ErrorState,
+  FilterChips,
+  PageHeader,
+  Panel,
+  SortHeader,
+  Spinner,
+  StatusBadge,
+  th,
+} from '@/components/console/ui';
 import { cn } from '@/lib/utils';
 
 type SortKey = 'name' | 'created' | 'db' | 'storage' | 'total' | 'buckets' | 'api' | 'egress' | 'cost' | 'price';
@@ -26,16 +36,26 @@ const SORTERS: Record<SortKey, (p: ConsoleProjectRow) => number | string> = {
   price: (p) => p.cost?.projectedPricedUsd ?? -1,
 };
 
-// PAUSED is the deactivated state; the legacy DEACTIVATED rows read the same
-// word and are rare enough not to need a chip of their own.
-const STATUSES = ['ALL', 'ACTIVE', 'PAUSED', 'DELETED'] as const;
+const STATUSES = ['ALL', 'ACTIVE', 'PAUSED', 'DEACTIVATED', 'DELETED'] as const;
+type Status = (typeof STATUSES)[number];
+const STATUS_LABELS: Record<Status, string> = {
+  ALL: 'All',
+  ACTIVE: 'Active',
+  PAUSED: 'Paused',
+  DEACTIVATED: 'Deactivated',
+  DELETED: 'In trash',
+};
+
+// Tighter cells than the console default: ten columns have to fit next to the sidebar.
+const cell = 'px-2 py-2 align-middle';
+const cellRight = `${cell} whitespace-nowrap text-right tabular-nums`;
 
 export default function ConsoleProjectsPage() {
   const [data, setData] = useState<ConsoleProjectList | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
-  const [status, setStatus] = useState<(typeof STATUSES)[number]>('ALL');
+  const [status, setStatus] = useState<Status>('ALL');
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: 'cost', desc: true });
 
   const includeDeleted = status === 'DELETED';
@@ -96,24 +116,20 @@ export default function ConsoleProjectsPage() {
     [rows],
   );
 
-  function header(label: string, key: SortKey, right = true) {
-    const active = sort.key === key;
-    const Arrow = sort.desc ? ArrowDown : ArrowUp;
-    return (
-      <th className={right ? thRight : th}>
-        <button
-          onClick={() => setSort({ key, desc: active ? !sort.desc : key !== 'name' })}
-          className={cn('inline-flex items-center gap-1 uppercase hover:text-foreground', active && 'text-foreground')}
-        >
-          {label}
-          {active && <Arrow className="h-3 w-3" />}
-        </button>
-      </th>
-    );
-  }
+  const header = (label: string, key: SortKey, align: 'left' | 'right' = 'right', className?: string) => (
+    <SortHeader
+      label={label}
+      sortKey={key}
+      sort={sort}
+      onSort={setSort}
+      align={align}
+      defaultDesc={key !== 'name'}
+      className={cn('px-2', className)}
+    />
+  );
 
   function exportCsv() {
-    const head = ['project', 'slug', 'status', 'team', 'owner', 'plan', 'db_bytes', 'storage_bytes', 'buckets', 'api_requests', 'egress_bytes', 'tier', 'our_cost_usd_projected', 'price_usd_projected', 'created'];
+    const head = ['project', 'slug', 'status', 'team', 'owner', 'plan', 'db_bytes', 'storage_bytes', 'buckets', 'api_requests', 'egress_bytes', 'tier', 'modeled_cost_usd_projected', 'price_usd_projected', 'created'];
     const lines = rows.map((p) =>
       [p.name, p.slug, p.status, p.team.name, p.owner?.email ?? '', p.plan?.displayName ?? '', p.dbSizeBytes, p.storageBytes, p.bucketCount ?? '', p.apiRequests, p.bandwidthBytes, p.cost?.computeTier ?? '', p.cost?.projectedRawUsd ?? '', p.cost?.projectedPricedUsd ?? '', p.createdAt]
         .map((v) => `"${String(v).replace(/"/g, '""')}"`)
@@ -127,13 +143,15 @@ export default function ConsoleProjectsPage() {
     URL.revokeObjectURL(a.href);
   }
 
+  const searching = query.trim().length > 0;
+
   return (
     <>
       <PageHeader
         title="Projects"
         description={
           data
-            ? `${rows.length} of ${data.projects.length} projects · our cost over customer price, projected to month end · buckets measured ${timeAgo(data.storageMeasuredAt)}`
+            ? `${rows.length} of ${data.projects.length} projects · modeled cost over customer price, projected to month end · buckets measured ${timeAgo(data.storageMeasuredAt)}`
             : 'Every project on the platform'
         }
         actions={
@@ -152,29 +170,33 @@ export default function ConsoleProjectsPage() {
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <div className="relative w-full max-w-xs">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" aria-hidden />
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Project, team or owner"
+            aria-label="Search projects by name, team or owner"
             className="pl-8"
           />
         </div>
-        <div className="flex rounded-md border bg-card p-0.5">
-          {STATUSES.map((s) => (
-            <button
-              key={s}
-              onClick={() => setStatus(s)}
-              className={cn(
-                'rounded px-2.5 py-1 text-xs font-medium',
-                status === s ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {s === 'ALL' ? 'All' : s === 'PAUSED' ? 'Deactivated' : s.charAt(0) + s.slice(1).toLowerCase()}
-            </button>
-          ))}
-        </div>
+        <FilterChips
+          label="Project status"
+          options={STATUSES.map((s) => ({ value: s, label: STATUS_LABELS[s] }))}
+          value={status}
+          onChange={setStatus}
+        />
       </div>
+
+      {status === 'DELETED' && (
+        <p className="mb-3 text-xs text-muted-foreground">
+          Projects in the trash can still be restored. Projects deleted permanently are gone from this list — their
+          records stay in the{' '}
+          <Link href="/console/manage?tab=deletionReasons" prefetch={false} className="text-primary hover:underline">
+            deletion log
+          </Link>
+          .
+        </p>
+      )}
 
       {loading && !data ? (
         <Spinner />
@@ -183,16 +205,16 @@ export default function ConsoleProjectsPage() {
       ) : (
         <Panel flush>
           <div className="overflow-x-auto">
-            <table className="w-full whitespace-nowrap text-sm">
+            <table className="w-full text-sm">
               <thead className="border-b bg-muted/40">
                 <tr>
-                  {header('Project', 'name', false)}
-                  <th className={th}>Team · owner</th>
-                  <th className={th}>Plan</th>
+                  {header('Project', 'name', 'left')}
+                  <th className={cn(th, 'px-2')} scope="col">Team · owner</th>
+                  <th className={cn(th, 'px-2')} scope="col">Plan</th>
                   {header('Database', 'db')}
                   {header('Files', 'storage')}
                   {header('Total', 'total')}
-                  {header('Buckets', 'buckets')}
+                  {header('Buckets', 'buckets', 'right', 'hidden 2xl:table-cell')}
                   {header('API req', 'api')}
                   {header('Egress', 'egress')}
                   {header('Cost · price', 'cost')}
@@ -201,22 +223,30 @@ export default function ConsoleProjectsPage() {
               <tbody>
                 {rows.map((p) => (
                   <tr key={p.id} className="border-b last:border-0 hover:bg-muted/40">
-                    <td className={td}>
-                      <div className="flex items-center gap-2">
-                        <Link href={`/console/projects/${p.id}`} className="font-medium hover:underline">
+                    <td className={cn(cell, 'max-w-[220px]')}>
+                      <div className="flex min-w-0 items-center gap-2">
+                        {/* No prefetch: hundreds of rows each fetched their detail page on scroll. */}
+                        <Link
+                          href={`/console/projects/${p.id}`}
+                          prefetch={false}
+                          className="truncate font-medium hover:underline"
+                          title={p.name}
+                        >
                           {p.name}
                         </Link>
                         {p.status !== 'ACTIVE' && <StatusBadge status={p.status} />}
                       </div>
-                      <div className="text-xs text-muted-foreground">
+                      <div className="truncate text-xs text-muted-foreground" title={p.slug}>
                         {p.slug} · {formatDate(p.createdAt)}
                       </div>
                     </td>
-                    <td className={td}>
-                      <div>{p.team.name}</div>
-                      <div className="text-xs text-muted-foreground">{p.owner?.email ?? '—'}</div>
+                    <td className={cn(cell, 'max-w-[200px]')}>
+                      <div className="truncate" title={p.team.name}>{p.team.name}</div>
+                      <div className="truncate text-xs text-muted-foreground" title={p.owner?.email ?? ''}>
+                        {p.owner?.email ?? '—'}
+                      </div>
                     </td>
-                    <td className={td}>
+                    <td className={cn(cell, 'whitespace-nowrap')}>
                       {p.plan ? (
                         <span className={p.plan.priceMonthlyUsd > 0 ? 'font-medium' : 'text-muted-foreground'}>
                           {p.plan.displayName}
@@ -225,13 +255,13 @@ export default function ConsoleProjectsPage() {
                         '—'
                       )}
                     </td>
-                    <td className={tdRight}>{formatMb(p.dbSizeBytes)}</td>
-                    <td className={tdRight}>{formatMb(p.storageBytes)}</td>
-                    <td className={`${tdRight} font-medium`}>{formatMb(p.dbSizeBytes + p.storageBytes)}</td>
-                    <td className={tdRight}>{p.bucketCount ?? '—'}</td>
-                    <td className={tdRight}>{formatCount(p.apiRequests)}</td>
-                    <td className={tdRight}>{formatMb(p.bandwidthBytes)}</td>
-                    <td className={tdRight}>
+                    <td className={cellRight}>{formatBytes(p.dbSizeBytes)}</td>
+                    <td className={cellRight}>{formatBytes(p.storageBytes)}</td>
+                    <td className={`${cellRight} font-medium`}>{formatBytes(p.dbSizeBytes + p.storageBytes)}</td>
+                    <td className={`${cellRight} hidden 2xl:table-cell`}>{p.bucketCount ?? '—'}</td>
+                    <td className={cellRight}>{formatCount(p.apiRequests)}</td>
+                    <td className={cellRight}>{formatBytes(p.bandwidthBytes)}</td>
+                    <td className={cellRight}>
                       {p.cost ? (
                         <>
                           <div className="font-medium">{formatUsd(p.cost.projectedRawUsd)}</div>
@@ -244,26 +274,28 @@ export default function ConsoleProjectsPage() {
                   </tr>
                 ))}
                 {rows.length === 0 && (
-                  <tr>
-                    <td colSpan={10} className="px-3 py-10 text-center text-sm text-muted-foreground">
-                      No projects match.
-                    </td>
-                  </tr>
+                  <EmptyRow colSpan={10}>
+                    {searching
+                      ? `No projects match "${query.trim()}".`
+                      : status === 'DELETED'
+                        ? 'The trash is empty.'
+                        : 'No projects in this state.'}
+                  </EmptyRow>
                 )}
               </tbody>
               {rows.length > 0 && (
                 <tfoot className="border-t bg-muted/40 font-medium">
                   <tr>
-                    <td className={td} colSpan={3}>
+                    <td className={cell} colSpan={3}>
                       Total · {rows.length} projects
                     </td>
-                    <td className={tdRight}>{formatMb(totals.db)}</td>
-                    <td className={tdRight}>{formatMb(totals.storage)}</td>
-                    <td className={tdRight}>{formatMb(totals.db + totals.storage)}</td>
-                    <td className={tdRight}>{totals.buckets}</td>
-                    <td className={tdRight}>{formatCount(totals.api)}</td>
-                    <td className={tdRight}>{formatMb(totals.egress)}</td>
-                    <td className={tdRight}>
+                    <td className={cellRight}>{formatBytes(totals.db)}</td>
+                    <td className={cellRight}>{formatBytes(totals.storage)}</td>
+                    <td className={cellRight}>{formatBytes(totals.db + totals.storage)}</td>
+                    <td className={`${cellRight} hidden 2xl:table-cell`}>{totals.buckets.toLocaleString('en-US')}</td>
+                    <td className={cellRight}>{formatCount(totals.api)}</td>
+                    <td className={cellRight}>{formatBytes(totals.egress)}</td>
+                    <td className={cellRight}>
                       <div>{formatUsd(totals.cost)}</div>
                       <div className="text-xs font-normal text-muted-foreground">{formatUsd(totals.price)}</div>
                     </td>

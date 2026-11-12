@@ -36,9 +36,9 @@ export class MigrationController {
   @Post('migrations/:runId/apply')
   apply(
     @Param('runId') runId: string,
-    @Body() body: { force?: boolean },
+    @Body() body: { force?: boolean; loadData?: boolean },
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.migrations.apply(runId, !!body?.force, user?.sub);
+    return this.migrations.apply(runId, !!body?.force, user?.sub, body?.loadData === true);
   }
 }

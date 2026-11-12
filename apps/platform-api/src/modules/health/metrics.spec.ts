@@ -89,18 +89,19 @@ describe('MetricsService', () => {
 });
 
 describe('HealthController', () => {
-  const build = async (mailState: string, role = 'leader') => {
+  const build = async (
+    mail: { state: string; detail?: string; checkedAt?: string } | string,
+    role = 'leader',
+    env: Record<string, string> = { METRICS_TOKEN: 'ops-secret' },
+  ) => {
     const { HealthController } = await import('./health.controller');
-    const email = { getDeliverability: () => ({ state: mailState }) } as any;
+    const deliverability = typeof mail === 'string' ? { state: mail } : mail;
+    const email = { getDeliverability: () => deliverability } as any;
     const leader = { getInstanceId: () => 'api-1-c0ffee', getRole: () => role } as any;
-    // Every dependency answers, so only the mail state decides the verdict here.
-    const ok = { state: 'ok', latencyMs: 1 };
-    const health = {
-      all: async () => ({ database: ok, redis: ok, keycloak: ok, storage: ok, documentStore: ok }),
-      database: async () => ok,
-    } as any;
-    return new HealthController(email, leader, health);
+    const cfg = { get: (k: string) => env[k] } as any;
+    return new HealthController(email, leader, cfg);
   };
+  const operator = request('Bearer ops-secret');
 
   afterEach(() => {
     delete process.env.IMAGE_TAG;
@@ -113,21 +114,55 @@ describe('HealthController', () => {
    */
   it('names the replica that answered, its role and the build it runs', async () => {
     process.env.IMAGE_TAG = 'abc123def456';
-    const body = await (await build('ok')).check();
+    const body = (await build('ok')).check(operator) as any;
     expect(body.status).toBe('ok');
     expect(body.instance).toEqual({ id: 'api-1-c0ffee', role: 'leader', imageTag: 'abc123def456' });
   });
 
   it('reports an unknown build when no tag was passed to the container', async () => {
-    const body = await (await build('ok', 'follower')).check();
-    expect(body.instance).toMatchObject({ role: 'follower', imageTag: 'unknown' });
+    expect(((await build('ok', 'follower')).check(operator) as any).instance).toMatchObject({
+      role: 'follower',
+      imageTag: 'unknown',
+    });
   });
 
   /** The proxy routes on the status code, so a dead mail key must stay a 200 with status "degraded". */
   it('keeps the degraded verdict for a failing mail key alongside the instance block', async () => {
-    const body = await (await build('failing')).check();
+    const body = (await build('failing')).check(operator) as any;
     expect(body.status).toBe('degraded');
     expect(body.checks.email).toEqual({ state: 'failing' });
+    expect(body.instance).toBeDefined();
+  });
+
+  /**
+   * The route is public. A stranger gets the verdict a monitor needs and not
+   * the provider's account state or the exact build to look up exploits for.
+   */
+  it('gives an anonymous caller the verdict without the provider detail or the build', async () => {
+    process.env.IMAGE_TAG = 'abc123def456';
+    const mail = { state: 'failing', detail: 'invalid_from_address — x', checkedAt: '2026-10-22T00:00:00.000Z' };
+    const body = (await build(mail)).check(request()) as any;
+    expect(body).toEqual({
+      status: 'degraded',
+      checks: { email: { state: 'failing', checkedAt: '2026-10-22T00:00:00.000Z' } },
+    });
+  });
+
+  it('treats a wrong token like no token', async () => {
+    const body = (await build('ok')).check(request('Bearer guess')) as any;
+    expect(body.instance).toBeUndefined();
+  });
+
+  it('shows no detail to anyone when no operator token is configured', async () => {
+    const body = (await build('ok', 'leader', {})).check(request('Bearer ')) as any;
+    expect(body.instance).toBeUndefined();
+  });
+
+  it('serves the full body to everyone when the install opts in', async () => {
+    const mail = { state: 'failing', detail: 'invalid_api_key — x' };
+    const body = (await build(mail, 'leader', { HEALTH_PUBLIC_DETAIL: 'true' })).check(request()) as any;
+    expect(body.checks.email.detail).toBe('invalid_api_key — x');
+    expect(body.instance).toMatchObject({ id: 'api-1-c0ffee' });
   });
 });
 
@@ -137,45 +172,36 @@ describe('MetricsController', () => {
    * scrape endpoint accumulates detail over time, and one that started out
    * open does not get closed later.
    */
-  // The scrape is asynchronous now (platform gauges are read when it asks).
-  it('refuses to publish anything when no token is configured', async () => {
+  it('refuses to publish anything when no token is configured', () => {
     const c = new MetricsController(new MetricsService(), config(undefined));
-    await expect(c.scrape(request('Bearer anything'))).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(() => c.scrape(request('Bearer anything'))).toThrow(UnauthorizedException);
   });
 
-  it('refuses a request with no token', async () => {
+  it('refuses a request with no token', () => {
     const c = new MetricsController(new MetricsService(), config('secret'));
-    await expect(c.scrape(request())).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(() => c.scrape(request())).toThrow(UnauthorizedException);
   });
 
-  it('refuses the wrong token', async () => {
+  it('refuses the wrong token', () => {
     const c = new MetricsController(new MetricsService(), config('secret'));
-    await expect(c.scrape(request('Bearer nope'))).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(() => c.scrape(request('Bearer nope'))).toThrow(UnauthorizedException);
   });
 
-  it('refuses a token of the right length but the wrong value', async () => {
+  it('refuses a token of the right length but the wrong value', () => {
     const c = new MetricsController(new MetricsService(), config('secret'));
-    await expect(c.scrape(request('Bearer secrot'))).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(() => c.scrape(request('Bearer secrot'))).toThrow(UnauthorizedException);
   });
 
-  it('serves the metrics for the configured token', async () => {
+  it('serves the metrics for the configured token', () => {
     const m = new MetricsService();
     m.observeRequest('GET', 200, 5);
     const c = new MetricsController(m, config('secret'));
-    await expect(c.scrape(request('Bearer secret'))).resolves.toMatch(/basefyio_http_requests_total/);
+    expect(c.scrape(request('Bearer secret'))).toMatch(/basefyio_http_requests_total/);
   });
 
-  it('accepts the scheme case-insensitively, as the header is', async () => {
+  it('accepts the scheme case-insensitively, as the header is', () => {
     const c = new MetricsController(new MetricsService(), config('secret'));
-    await expect(c.scrape(request('bearer secret'))).resolves.toMatch(/basefyio_uptime_seconds/);
-  });
-
-  it('asks the collector for the platform gauges before rendering, and survives its failure', async () => {
-    const m = new MetricsService();
-    const collector = { refresh: jest.fn().mockRejectedValue(new Error('db away')) };
-    const c = new MetricsController(m, config('secret'), collector as any);
-    await expect(c.scrape(request('Bearer secret'))).resolves.toMatch(/basefyio_uptime_seconds/);
-    expect(collector.refresh).toHaveBeenCalledTimes(1);
+    expect(c.scrape(request('bearer secret'))).toMatch(/basefyio_uptime_seconds/);
   });
 });
 
@@ -248,5 +274,145 @@ describe('EmailService — what counts as a dead key', () => {
 
   it('treats a clean probe as working', async () => {
     expect((await makeService(null)).state).toBe('ok');
+  });
+});
+
+/**
+ * A key the provider accepts is half the answer: the from address has to be on
+ * a domain the provider will send for. Checking only the key made a restart
+ * report 'ok' while every mail bounced with invalid_from_address, and a fixed
+ * domain stayed 'failing' until someone happened to trigger a mail.
+ */
+describe('EmailService — sender domain and re-probe', () => {
+  const FROM = 'basefyio <noreply@basefyio.com>';
+  type Listing = { data?: unknown; error?: { name: string; message?: string } | null };
+
+  const makeService = async (listing: () => Listing | Promise<Listing>) => {
+    const { EmailService } = await import('../email/email.service');
+    const svc = new EmailService(
+      {
+        get: (k: string) => (k === 'resend.apiKey' ? 'ts_key' : k === 'resend.fromEmail' ? FROM : 'x'),
+      } as any,
+      undefined,
+    );
+    const sendResult: { value: any } = { value: { data: { id: 'm1' }, error: null } };
+    (svc as any).resend = {
+      domains: { list: async () => listing() },
+      emails: { send: async () => sendResult.value },
+    };
+    return { svc, sendResult };
+  };
+  const domains = (rows: unknown[], hasMore = false): Listing => ({
+    data: { object: 'list', has_more: hasMore, data: rows },
+    error: null,
+  });
+
+  it('marks mail failing when the sender domain is missing from a complete listing', async () => {
+    const { svc } = await makeService(() => domains([{ name: 'other.com', status: 'verified' }]));
+    await svc.probe();
+    expect(svc.getDeliverability()).toMatchObject({
+      state: 'failing',
+      detail: expect.stringContaining('basefyio.com is not registered'),
+    });
+  });
+
+  it.each([['pending'], ['not_started'], ['failed']])('marks a %s sender domain as failing', async (status) => {
+    const { svc } = await makeService(() => domains([{ name: 'basefyio.com', status }]));
+    await svc.probe();
+    expect(svc.getDeliverability().state).toBe('failing');
+  });
+
+  it('accepts a verified sender domain', async () => {
+    const { svc } = await makeService(() => domains([{ name: 'basefyio.com', status: 'verified' }]));
+    await svc.probe();
+    expect(svc.getDeliverability().state).toBe('ok');
+  });
+
+  it('accepts a listing it cannot judge: more pages, or rows of an unknown shape', async () => {
+    const paged = await makeService(() => domains([{ name: 'other.com', status: 'verified' }], true));
+    await paged.svc.probe();
+    expect(paged.svc.getDeliverability().state).toBe('ok');
+
+    const odd = await makeService(() => ({ data: { domains: ['basefyio.com'] }, error: null }));
+    await odd.svc.probe();
+    expect(odd.svc.getDeliverability().state).toBe('ok');
+  });
+
+  it('clears a probe-found problem once the domain is registered', async () => {
+    let rows: unknown[] = [];
+    const { svc } = await makeService(() => domains(rows));
+    await svc.probe();
+    expect(svc.getDeliverability().state).toBe('failing');
+    rows = [{ name: 'basefyio.com', status: 'verified' }];
+    await svc.probe();
+    expect(svc.getDeliverability().state).toBe('ok');
+  });
+
+  it('clears a rejected from address when the probe confirms the domain can send', async () => {
+    const { svc, sendResult } = await makeService(() => domains([{ name: 'basefyio.com', status: 'verified' }]));
+    sendResult.value = { data: null, error: { name: 'invalid_from_address', message: 'domain not registered' } };
+    await svc.sendRawHtml('a@b.co', 's', '<p>x</p>');
+    expect(svc.getDeliverability().state).toBe('failing');
+    await svc.probe();
+    expect(svc.getDeliverability().state).toBe('ok');
+  });
+
+  it('keeps a rejection the probe cannot see, such as an exhausted quota, until a send succeeds', async () => {
+    const { svc, sendResult } = await makeService(() => domains([{ name: 'basefyio.com', status: 'verified' }]));
+    sendResult.value = { data: null, error: { name: 'daily_quota_exceeded', message: 'quota' } };
+    await svc.sendRawHtml('a@b.co', 's', '<p>x</p>');
+    await svc.probe();
+    expect(svc.getDeliverability().state).toBe('failing');
+    sendResult.value = { data: { id: 'm2' }, error: null };
+    await svc.sendRawHtml('a@b.co', 's', '<p>x</p>');
+    expect(svc.getDeliverability().state).toBe('ok');
+  });
+
+  it('does not let an unreachable provider overwrite a verdict it already had', async () => {
+    let reachable = true;
+    const { svc } = await makeService(() => {
+      if (!reachable) throw new Error('ECONNRESET');
+      return domains([{ name: 'basefyio.com', status: 'verified' }]);
+    });
+    await svc.probe();
+    reachable = false;
+    await svc.probe();
+    expect(svc.getDeliverability().state).toBe('ok');
+  });
+
+  it('probes again on a timer after startup and stops on shutdown', async () => {
+    jest.useFakeTimers();
+    try {
+      let calls = 0;
+      const { svc } = await makeService(() => {
+        calls += 1;
+        return domains([{ name: 'basefyio.com', status: 'verified' }]);
+      });
+      await svc.onModuleInit();
+      expect(calls).toBe(1);
+      await jest.advanceTimersByTimeAsync((svc.constructor as any).REPROBE_INTERVAL_MS);
+      expect(calls).toBe(2);
+      svc.onModuleDestroy();
+      await jest.advanceTimersByTimeAsync((svc.constructor as any).REPROBE_INTERVAL_MS * 2);
+      expect(calls).toBe(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});
+
+describe('senderDomain / senderDomainVerdict', () => {
+  it('reads the domain from a display-name address and a bare one', async () => {
+    const { senderDomain } = await import('../email/email.service');
+    expect(senderDomain('basefyio <noreply@basefyio.com>')).toBe('basefyio.com');
+    expect(senderDomain('noreply@Mail.Basefyio.com')).toBe('mail.basefyio.com');
+    expect(senderDomain('not an address')).toBeUndefined();
+  });
+
+  it('accepts a subdomain sender when the provider verified the parent domain', async () => {
+    const { senderDomainVerdict } = await import('../email/email.service');
+    expect(
+      senderDomainVerdict('x <a@mail.basefyio.com>', { data: [{ name: 'basefyio.com', status: 'verified' }] }),
+    ).toEqual({ confirmed: true });
   });
 });

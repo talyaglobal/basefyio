@@ -4,7 +4,6 @@ import { Cron } from '@nestjs/schedule';
 import { PgBouncerService } from '../pgbouncer/pgbouncer.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
-import { KeycloakAdminService } from '../auth/keycloak-admin.service';
 import { ProjectActivityKind, ProjectActivityService } from './project-activity.service';
 
 /**
@@ -87,7 +86,6 @@ interface Candidate {
   createdBy: string | null;
   createdAt: Date;
   idleWarningSentAt: Date | null;
-  keycloakRealm: string;
   lastSeenAt: Date;
   idleDays: number;
 }
@@ -102,7 +100,6 @@ export class ProjectSleepService {
     private readonly email: EmailService,
     private readonly activity: ProjectActivityService,
     private readonly pgbouncer: PgBouncerService,
-    private readonly keycloak: KeycloakAdminService,
   ) {}
 
   settings(): SleepSettings {
@@ -199,7 +196,6 @@ export class ProjectSleepService {
         created_by: string | null;
         created_at: Date;
         idle_warning_sent_at: Date | null;
-        keycloak_realm: string;
         last_seen: Date;
       }>
     >`
@@ -210,7 +206,7 @@ export class ProjectSleepService {
          group by project_id
       )
       select p.id, p.name, p.slug, p.team_id, p.created_by, p.created_at,
-             p.idle_warning_sent_at, p.keycloak_realm,
+             p.idle_warning_sent_at,
              greatest(p.created_at, ${signalSince}, coalesce(u.last_request_at, 'epoch'), coalesce(a.at, 'epoch')) as last_seen
         from projects p
         left join project_usage u on u.project_id = p.id
@@ -221,18 +217,7 @@ export class ProjectSleepService {
        order by last_seen asc
     `;
 
-    // The availability canary is probed, never used: a probe outage must not
-    // read as idleness and put it to sleep (which would then read as "down").
-    let canary: string | null = null;
-    try {
-      const row = await this.prisma.systemSetting.findUnique({ where: { key: 'platform_status.canary' } });
-      canary = (row?.value as { projectId?: string } | null)?.projectId ?? null;
-    } catch {
-      canary = null;
-    }
-    const candidates = canary ? rows.filter((r) => r.id !== canary) : rows;
-
-    return candidates.map((r) => ({
+    return rows.map((r) => ({
       id: r.id,
       name: r.name,
       slug: r.slug,
@@ -240,7 +225,6 @@ export class ProjectSleepService {
       createdBy: r.created_by,
       createdAt: r.created_at,
       idleWarningSentAt: r.idle_warning_sent_at,
-      keycloakRealm: r.keycloak_realm,
       lastSeenAt: r.last_seen,
       idleDays: daysBetween(r.last_seen, now),
     }));
@@ -294,7 +278,7 @@ export class ProjectSleepService {
     await this.activity.append(project.id, {
       kind: ProjectActivityKind.PROJECT_UPDATED,
       title: 'Idle warning sent',
-      detail: `No requests for ${project.idleDays} days; the project is deactivated in ${daysLeft} unless it is used.`,
+      detail: `No requests for ${project.idleDays} days; the project sleeps in ${daysLeft} unless it is used.`,
     });
     return true;
   }
@@ -315,26 +299,20 @@ export class ProjectSleepService {
       where: { id: project.id },
       data: { status: 'PAUSED', pausedAt: new Date() },
     });
-    // Close sign-in for the project's own users while it is deactivated. Best
-    // effort: a realm that cannot be reached right now is re-enabled on
-    // activation anyway, and the status flip above is what matters.
-    await this.keycloak.disableRealm(project.keycloakRealm).catch((err: any) =>
-      this.logger.warn(`Realm ${project.keycloakRealm} not disabled for ${project.slug}: ${err.message}`),
-    );
     // An owner we cannot reach does not oblige the platform to keep running a
     // database nobody calls, but it has to be on the record rather than
     // implied by a missing e-mail.
     const unreachable = delivered === 0;
     await this.activity.append(project.id, {
       kind: ProjectActivityKind.PROJECT_UPDATED,
-      title: 'Project deactivated',
+      title: 'Project put to sleep',
       detail:
         `No requests for ${project.idleDays} days. The database, files and users are untouched; ` +
-        'activating the project from the dashboard brings it back as it was.' +
+        'reactivating the project from the dashboard brings it back as it was.' +
         (unreachable ? ' No notice could be delivered: no reachable owner address.' : ''),
     });
     this.logger.log(
-      `Project ${project.slug} deactivated after ${project.idleDays} quiet days` +
+      `Project ${project.slug} put to sleep after ${project.idleDays} quiet days` +
         (unreachable ? ' (nobody could be notified)' : `, ${delivered} notice(s) sent`),
     );
   }

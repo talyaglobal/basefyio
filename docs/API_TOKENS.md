@@ -144,9 +144,12 @@ reach projects in teams you belong to — cross-tenant access is not possible.
 
 - **List** — Account → API Tokens shows each token's name, scopes, team, **last used**,
   created date and status. The secret is never shown again.
-- **Roll** — generates a new secret and invalidates the old one (use if a token leaked).
-- **Revoke** — disables the token immediately; requests with it then return `401`.
-- **Expiry** — an expired token returns `401`; create a new one to continue.
+- **Roll** — generates a new secret for an active token and invalidates the old one (use if a
+  token leaked).
+- **Revoke** — disables the token immediately and for good; requests with it then return `401`.
+  A revoked token can never be rolled, edited or reactivated — create a new token instead.
+- **Delete** — removes a revoked token from the list.
+- **Expiry** — an expired token returns `401`; set a new expiry date or create a new token.
 
 ### Managing tokens over the API
 
@@ -161,10 +164,14 @@ to create or manage tokens — these routes answer `401` to a `bf_pat_…` beare
 | PATCH | `/api/account/api-tokens/:id` | `{ name?, scopes?, expiresAt? }` — rename, change scopes or expiry |
 | POST | `/api/account/api-tokens/:id/roll` | new secret, old one invalid; the answer carries the new `token` |
 | DELETE | `/api/account/api-tokens/:id` | revoke → `{ revoked: true }` |
+| DELETE | `/api/account/api-tokens/:id/permanent` | delete a revoked token → `{ deleted: true }`; an active token is `409` |
 
 `scopes` must name at least one scope from the catalogue (400 `unknown scope: …` otherwise) and
 `expiresAt` must be an ISO timestamp in the future; on `PATCH`, `expiresAt: null` removes the
 expiry. A `teamId` you are not a member of is 403.
+
+Revocation is final: `PATCH` and `roll` on a revoked token answer `409` and leave it revoked.
+`roll` on an expired token answers `400` — set a new expiry first.
 
 ## Security best practices
 

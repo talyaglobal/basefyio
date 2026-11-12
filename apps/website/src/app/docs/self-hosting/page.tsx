@@ -1,15 +1,13 @@
 import type { Metadata } from "next";
-import { withAbsoluteSiteUrls } from "@/lib/absolute-site-metadata";
+import { docsMetadata } from "../docs-metadata";
 
 export async function generateMetadata(): Promise<Metadata> {
-  return withAbsoluteSiteUrls("/docs/self-hosting", {
-    title: "Self-Hosting Guide",
-    description:
-      "Run basefyio on your own server with Docker Compose: PostgreSQL, Keycloak, MinIO, Redis, PgBouncer, the Data Engine store and Traefik.",
-  });
+  return docsMetadata("/docs/self-hosting", "Self-Hosting Guide", "Run basefyio on your own server with Docker Compose: PostgreSQL, Keycloak, MinIO, Redis, PgBouncer, the Data Engine store and Traefik.");
 }
 
-const REPO_DOCS = "https://github.com/talyaglobal/basefyio/blob/main/docs";
+/** The public repository; every link below must resolve to a file on its main branch. */
+const REPO = "https://github.com/talyaglobal/basefyio";
+const REPO_DOCS = `${REPO}/blob/main/docs`;
 
 export default function SelfHostingDocs() {
   return (
@@ -19,14 +17,19 @@ export default function SelfHostingDocs() {
         basefyio is built to be self-hosted. The repository ships two Compose files: <code>docker-compose.yml</code>{" "}
         builds the applications from source and publishes every port on <code>localhost</code> (development, a
         single machine), and <code>docker-compose.prod.yml</code> runs pre-built images behind Traefik with
-        Let&apos;s Encrypt certificates (production). This page covers both. The complete, step-by-step version
-        lives in the repository:{" "}
-        <a href={`${REPO_DOCS}/guides/self-hosting.md`}>docs/guides/self-hosting.md</a> (Turkish:{" "}
-        <a href={`${REPO_DOCS}/KURULUM.md`}>docs/KURULUM.md</a>).
+        Let&apos;s Encrypt certificates (production). This page covers both. The repository has the rest: the{" "}
+        <a href={`${REPO}#quick-start`}>README Quick Start</a>, every environment variable in{" "}
+        <a href={`${REPO_DOCS}/reference/configuration.md`}>docs/reference/configuration.md</a>, and installs
+        without internet access in{" "}
+        <a href={`${REPO_DOCS}/SELF_HOSTING_OFFLINE.md`}>docs/SELF_HOSTING_OFFLINE.md</a>.
+      </p>
+      <p>
+        Just want to build on basefyio? You do not need any of this — create a project in the
+        cloud and follow the <a href="/docs/quickstart">Quickstart</a>.
       </p>
 
       <h2>What runs</h2>
-      <table>
+      <div className="docs-table"><table>
         <thead><tr><th>Service</th><th>Image</th><th>Purpose</th><th>Port (dev file)</th></tr></thead>
         <tbody>
           <tr><td><strong>postgres</strong></td><td><code>pgvector/pgvector:pg16</code> (dev) · <code>ghcr.io/&lt;owner&gt;/basefyio-postgres</code> (prod, adds PostGIS)</td><td>The platform database and every project database</td><td>5433</td></tr>
@@ -40,31 +43,7 @@ export default function SelfHostingDocs() {
           <tr><td><strong>admin-ui</strong></td><td>built from <code>apps/admin-ui/Dockerfile</code> · <code>ghcr.io/&lt;owner&gt;/basefyio-ui</code></td><td>The dashboard (Next.js)</td><td>3000</td></tr>
           <tr><td><strong>website</strong></td><td>built from <code>apps/website/Dockerfile</code> · <code>ghcr.io/&lt;owner&gt;/basefyio-website</code></td><td>This site</td><td>3002</td></tr>
         </tbody>
-      </table>
-
-      <h2>The installer</h2>
-      <p>
-        <code>scripts/install.sh</code> installs, reconfigures, upgrades and rolls back a self-hosted stack. It asks
-        which release to run (the tags, newest first) and which components: Keycloak 24, 26 or an external server, a
-        direct PostgreSQL role with <code>CREATEDB</code>/<code>CREATEROLE</code> beside PgBouncer, where PgBouncer
-        listens (all interfaces, this host only, or not at all), whether the document store runs, whether AI features
-        are on, and whether platform mail goes through the HTTP API or an SMTP server. Every question defaults to what
-        an installation does today, so pressing Enter through them changes nothing.
-      </p>
-      <pre><code>{`git clone https://github.com/talyaglobal/basefyio.git basefyio && cd basefyio
-scripts/install.sh            # interactive
-scripts/install.sh --yes --answers answers.env   # unattended
-./basefyio ps                 # docker compose for this installation
-scripts/install.sh root you@example.com          # after signing up: the first administrator`}</code></pre>
-      <p>
-        Answers can also come from environment variables (<code>BASEFYIO_KEYCLOAK=26</code>,{" "}
-        <code>BASEFYIO_AI=off</code>, <code>BASEFYIO_MAIL=smtp</code>, …); they are stored in the env file, so an
-        upgrade asks nothing that was answered before. A new installation pins every component image to the versions
-        the release was tested with, and the installer prints them — with whether the release changed the database —
-        when it finishes. On a host without internet access it loads an image bundle and starts without a single
-        registry call. The full guide:{" "}
-        <a href={`${REPO_DOCS}/SELF_HOSTING_OFFLINE.md`}>docs/SELF_HOSTING_OFFLINE.md</a>.
-      </p>
+      </table></div>
 
       <h2>Development: everything on one machine</h2>
       <pre><code>{`git clone https://github.com/talyaglobal/basefyio.git basefyio
@@ -92,7 +71,7 @@ docker compose up -d --build`}</code></pre>
 
       <h3>1. DNS</h3>
       <p>Create A records for these names (replace <code>example.com</code> with your <code>DOMAIN</code>):</p>
-      <table>
+      <div className="docs-table"><table>
         <thead><tr><th>Name</th><th>Service</th></tr></thead>
         <tbody>
           <tr><td><code>example.com</code></td><td>Website</td></tr>
@@ -104,7 +83,7 @@ docker compose up -d --build`}</code></pre>
           <tr><td><code>db.example.com</code></td><td>PgBouncer, port 6432 (customers&apos; SQL clients)</td></tr>
           <tr><td><code>traefik.example.com</code></td><td>Traefik dashboard (basic auth)</td></tr>
         </tbody>
-      </table>
+      </table></div>
       <p>Ports 80 and 443 must reach the host; Traefik obtains certificates with the HTTP challenge.</p>
 
       <h3>2. Environment</h3>
@@ -137,17 +116,11 @@ METRICS_TOKEN=<strong random>                  # optional: publishes /api/metric
 
       <h3>3. Images</h3>
       <p>
-        The production file uses <code>image:</code> and never builds. Either pull a release and tag it as the
-        <code>:latest</code> the compose file expects, or build the same Dockerfiles yourself with those names:
+        The production file uses <code>image:</code> and never builds. Build the images from your checkout under the
+        names it expects (<code>ghcr.io/$GHCR_OWNER/basefyio-*</code>, tag <code>IMAGE_TAG</code> or{" "}
+        <code>:latest</code>), on the server or in CI and pushed to your own registry:
       </p>
-      <pre><code>{`# Option A — a signed release (see docs/guides/supply-chain.md to verify it)
-for i in api ui website postgres; do
-  docker pull ghcr.io/talyaglobal/basefyio-$i:v2.9.0
-  docker tag  ghcr.io/talyaglobal/basefyio-$i:v2.9.0 ghcr.io/$GHCR_OWNER/basefyio-$i:latest
-done
-
-# Option B — build locally
-docker build -t ghcr.io/$GHCR_OWNER/basefyio-postgres:latest docker/postgres
+      <pre><code>{`docker build -t ghcr.io/$GHCR_OWNER/basefyio-postgres:latest docker/postgres
 docker build -t ghcr.io/$GHCR_OWNER/basefyio-api:latest      -f apps/platform-api/Dockerfile .
 docker build -t ghcr.io/$GHCR_OWNER/basefyio-ui:latest       apps/admin-ui
 docker build -t ghcr.io/$GHCR_OWNER/basefyio-website:latest  --build-arg NEXT_PUBLIC_SITE_URL=https://example.com -f apps/website/Dockerfile .`}</code></pre>
@@ -164,12 +137,6 @@ open https://app.example.com/login`}</code></pre>
       </p>
 
       <h2>Updating</h2>
-      <p>
-        With the installer, <code>scripts/install.sh upgrade</code> backs up every database, moves to the release you
-        pick, and goes back to the previous release by itself if the API does not come up;{" "}
-        <code>scripts/install.sh rollback</code> and <code>scripts/install.sh restore &lt;backup&gt;</code> are the
-        explicit ways back. By hand:
-      </p>
       <pre><code>{`# new images (pull + retag, or rebuild as above), then:
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d`}</code></pre>
       <p>
@@ -178,7 +145,7 @@ docker compose -f docker-compose.prod.yml --env-file .env.production up -d`}</co
         recreating Keycloak for an application update, because that signs every dashboard user out.
       </p>
 
-      <h2>Backups</h2>
+      <h2 id="backups">Backups</h2>
       <ul>
         <li><strong>Project export</strong> — Dashboard → project → Backup &amp; Export, or <code>POST /api/projects/:id/export</code>, produces a ZIP with the database dump, realm users and storage objects.</li>
         <li><strong>Automatic daily backups</strong> — kept per project and restorable from the same page (<code>GET /api/projects/:id/backups</code>).</li>
@@ -187,7 +154,7 @@ docker compose -f docker-compose.prod.yml --env-file .env.production up -d`}</co
 
       <h2>Monitoring</h2>
       <ul>
-        <li><code>GET /api/health</code> — always 200; read <code>status</code> (<code>ok</code> or <code>degraded</code>) and <code>checks.email</code>.</li>
+        <li><code>GET /api/health</code> — always 200; read <code>status</code> (<code>ok</code> or <code>degraded</code>) and <code>checks.email.state</code>. Send <code>METRICS_TOKEN</code> as a bearer token to also see the mail provider&apos;s error and which replica and build answered.</li>
         <li><code>GET /api/metrics</code> — Prometheus text, published only when <code>METRICS_TOKEN</code> is set and sent as a bearer token.</li>
         <li><code>GET /api/v1/projects/:id/data-engine/health</code> (anon key) — whether the document store is reachable.</li>
         <li><code>docker compose ps</code> — every stateful service has a health check; the API waits for them at start.</li>

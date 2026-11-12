@@ -5,8 +5,6 @@ import {
   ForbiddenException,
   InternalServerErrorException,
   BadRequestException,
-  OnApplicationBootstrap,
-  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
@@ -14,10 +12,12 @@ import { Pool } from 'pg';
 import { randomBytes, randomUUID } from 'crypto';
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import type { Project } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { KeycloakAdminService } from '../auth/keycloak-admin.service';
 import { PgBouncerService } from '../pgbouncer/pgbouncer.service';
-import { QuotaService, QuotaExceededException } from '../billing/quota.service';
+import { QuotaService, QuotaExceededException, ProjectSlotReservation } from '../billing/quota.service';
+import { dataGridRowLimitFor } from '../billing/plan-limits';
 import { UsageService } from '../billing/usage.service';
 import { InfrastructureService } from '../infrastructure/infrastructure.service';
 import { DataEngineService } from '../data-engine/data-engine.service';
@@ -30,13 +30,13 @@ import { RealtimeEventsService } from '../../common/realtime/realtime-events.ser
 import { AdminTarget, ProjectProvisioningService } from './project-provisioning.service';
 import { ProjectReadonlyRoleService, readonlyRoleNameFor } from './project-readonly-role.service';
 import { previewBranchOf } from './branches/preview-branch';
-import { BootTaskService } from '../cluster/boot-task.service';
 import {
-  grantedByRole,
-  requireRolePermission,
-  roleAllows,
-  type PermissionKey,
-} from '../teams/role-permissions';
+  DeletionKind,
+  DeletionReason,
+  latestTrashReason,
+  listProjectDeletionReasons,
+  recordProjectDeletion,
+} from './project-deletion-records';
 
 
 export interface RlsBootstrapResult {
@@ -62,7 +62,7 @@ export interface RlsDiagnostic {
 }
 
 @Injectable()
-export class ProjectsService implements OnApplicationBootstrap {
+export class ProjectsService {
   private readonly logger = new Logger(ProjectsService.name);
 
   constructor(
@@ -78,53 +78,7 @@ export class ProjectsService implements OnApplicationBootstrap {
     private readonly dataEngine: DataEngineService,
     private readonly provisioning: ProjectProvisioningService,
     private readonly readonlyRole: ProjectReadonlyRoleService,
-    @Optional() private readonly bootTasks?: BootTaskService,
   ) {}
-
-  /** One replica, once per boot: give the projects that lost their read-only role one. */
-  onApplicationBootstrap(): void {
-    void this.repairMissingReadonlyRoles();
-  }
-
-  /**
-   * Between 2026-10-20 and 2026-10-26 every new project was created without its
-   * read-only companion role: the provisioning call spread the admin target and
-   * then set `password` for the role, so the admin connection used the role's
-   * secret and failed. The fix is in the service; this adds the role to the
-   * projects created while it was broken. Idempotent, a few at a time, logged.
-   */
-  async repairMissingReadonlyRoles(): Promise<number> {
-    if (this.config.get<boolean>('provisioning.readonlyRole') === false) return 0;
-    try {
-      if (!((await this.bootTasks?.claim('readonly-role-repair', 6 * 60 * 60_000)) ?? true)) return 0;
-      const projects = await this.prisma.project.findMany({
-        where: { status: 'ACTIVE', databaseType: 'RELATIONAL', dbReadonlyUser: null, createdAt: { gte: new Date('2026-10-19T00:00:00Z') } },
-        orderBy: { createdAt: 'asc' },
-        take: 100,
-      });
-      let repaired = 0;
-      for (const project of projects) {
-        try {
-          const target = this.provisioning.resolveAdminTarget(project);
-          const readonlyRole = readonlyRoleNameFor(project.dbUser);
-          const rolePassword = randomBytes(24).toString('base64url');
-          await this.readonlyRole.provision({ ...target, dbName: project.dbName, ownerUser: project.dbUser, readonlyRole, rolePassword });
-          await this.prisma.project.update({ where: { id: project.id }, data: { dbReadonlyUser: readonlyRole, dbReadonlyPassword: rolePassword } });
-          repaired++;
-        } catch (err: any) {
-          this.logger.warn(`Read-only role repair skipped for ${project.slug}: ${err?.message ?? err}`);
-        }
-      }
-      if (repaired > 0) {
-        this.logger.log(`Read-only roles repaired for ${repaired} project(s)`);
-        this.pgbouncer.regenerateConfig().catch((err) => this.logger.warn(`PgBouncer config update failed: ${err}`));
-      }
-      return repaired;
-    } catch (err: any) {
-      this.logger.warn(`Read-only role repair failed: ${err?.message ?? err}`);
-      return 0;
-    }
-  }
 
   /**
    * Returns the ids of every TeamMember in a given team — used as the
@@ -187,17 +141,30 @@ export class ProjectsService implements OnApplicationBootstrap {
       throw new BadRequestException('A project with this name already exists in this team');
     }
 
-    const creatorRole = await this.assertTeamMember(dto.teamId, userId);
-    // canCreateProjects was stored and shown but never read; it is applied as
-    // far as ORG_PERMISSIONS_ENFORCED allows (logged first, denied later).
-    await requireRolePermission(this.prisma, this.logger, {
-      teamId: dto.teamId,
-      userId,
-      role: creatorRole,
-      key: 'canCreateProjects',
-    });
-    if (!branch) await this.quota.assertCanCreateProject(dto.teamId);
+    await this.assertTeamMember(dto.teamId, userId);
+    // Hold a plan slot from the quota check until the project row exists, so two
+    // creations racing each other (a double submit, two imports started
+    // together) cannot both take the team's last slot.
+    const slot = branch ? null : await this.quota.reserveProjectSlot(dto.teamId);
+    try {
+      return await this.provisionNewProject(dto, userId, importSource, normalizedName, branch, async () => {
+        await slot?.release();
+      });
+    } finally {
+      await slot?.release();
+    }
+  }
 
+  /** Everything {@link create} does once the checks pass and a slot is held. */
+  private async provisionNewProject(
+    dto: CreateProjectDto & { teamId: string },
+    userId: string,
+    importSource: 'MANUAL' | 'SUPABASE' | 'ZIP' | 'BRANCH',
+    normalizedName: string,
+    branch: { parentProjectId: string; branchName: string; dataMode: 'schema' | 'full' } | undefined,
+    /** Called as soon as the project row exists and therefore counts itself. */
+    onRowCreated: () => Promise<void>,
+  ) {
     const databaseType: 'RELATIONAL' | 'NOSQL' = dto.databaseType ?? 'RELATIONAL';
 
     // Dedicated placement is a deliberate, capacity-bound decision, so it takes
@@ -368,6 +335,7 @@ export class ProjectsService implements OnApplicationBootstrap {
           : {}),
       },
     });
+    await onRowCreated();
 
     if (dedicatedPg) {
       // Now that the project row exists the foreign key resolves. If this is
@@ -769,7 +737,7 @@ export class ProjectsService implements OnApplicationBootstrap {
         dbName: project.dbName,
         ownerUser: project.dbUser,
         readonlyRole,
-        rolePassword: password,
+        password,
       }));
     } catch (err: any) {
       if (err instanceof BadRequestException) throw err;
@@ -805,7 +773,7 @@ export class ProjectsService implements OnApplicationBootstrap {
       await this.readonlyRole.setPassword({
         ...target,
         readonlyRole: project.dbReadonlyUser,
-        rolePassword: password,
+        password,
       });
     } catch (err: any) {
       throw new InternalServerErrorException(
@@ -972,18 +940,11 @@ export class ProjectsService implements OnApplicationBootstrap {
     // Load project and verify caller is a member of source team
     const project = await this.findOne(projectId, userId);
 
-    // The source organization's OWNER may move; so may a role whose stored
-    // canMoveProjects flag says so (the role-permissions page has shown it).
+    // Caller must be OWNER of the source team
     const sourceMembership = await this.prisma.teamMember.findUnique({
       where: { teamId_userId: { teamId: project.teamId, userId } },
     });
-    if (!sourceMembership) {
-      throw new ForbiddenException('You are not a member of this team');
-    }
-    if (
-      sourceMembership.role !== 'OWNER' &&
-      !(await grantedByRole(this.prisma, project.teamId, sourceMembership.role, 'canMoveProjects'))
-    ) {
+    if (!sourceMembership || sourceMembership.role !== 'OWNER') {
       throw new ForbiddenException('Only the source team owner can move projects');
     }
 
@@ -999,14 +960,45 @@ export class ProjectsService implements OnApplicationBootstrap {
       throw new ForbiddenException('Project is already in this team');
     }
 
-    await this.prisma.project.update({
-      where: { id: projectId },
-      data: {
-        teamId: targetTeamId,
-        // Clear folder assignment since folders are team-specific
-        folderId: null,
-      },
-    });
+    // A live project takes one of the target team's plan slots, so the target
+    // plan's project limit applies here exactly as it does to creating one.
+    const takesSlot = !project.parentProjectId && project.status !== 'DEACTIVATED';
+    let slot: ProjectSlotReservation | null = null;
+    if (takesSlot) {
+      try {
+        slot = await this.quota.reserveProjectSlot(targetTeamId);
+      } catch (err) {
+        if (err instanceof QuotaExceededException) {
+          throw new QuotaExceededException(
+            `Moving "${project.name}" would exceed the target team's plan project limit. ` +
+              `Upgrade that team's plan, or delete or deactivate one of its projects first.`,
+            'projects',
+          );
+        }
+        throw err;
+      }
+    }
+
+    try {
+      await this.prisma.project.update({
+        where: { id: projectId },
+        data: {
+          teamId: targetTeamId,
+          // Clear folder assignment since folders are team-specific
+          folderId: null,
+        },
+      });
+    } finally {
+      await slot?.release();
+    }
+
+    // This month's API requests and egress follow the project, so each team's
+    // usage keeps matching the projects it lists; then both counts are redone.
+    await this.usageService
+      .moveProjectUsage(projectId, project.teamId, targetTeamId)
+      .catch((err) => this.logger.warn(`Moving usage of project ${projectId} failed: ${err?.message}`));
+    this.usageService.syncTeamCounts(project.teamId).catch(() => {});
+    this.usageService.syncTeamCounts(targetTeamId).catch(() => {});
 
     this.logger.log(
       `Project "${project.name}" moved from team ${project.teamId} to team ${targetTeamId} by user ${userId}`,
@@ -1023,14 +1015,6 @@ export class ProjectsService implements OnApplicationBootstrap {
     return { message: 'Project moved successfully' };
   }
 
-  /** Per-plan ceiling for the Data grid's per-table row limit. */
-  private static readonly ROW_LIMIT_CEILINGS: Record<string, number> = {
-    free: 1000,
-    pro: 10000,
-    business: 100000,
-    enterprise: 100000,
-  };
-
   async setMaxRowsPerTable(projectId: string, userId: string, value: number) {
     const project = await this.findOne(projectId, userId);
     const ALLOWED = [1000, 10000, 100000];
@@ -1041,11 +1025,11 @@ export class ProjectsService implements OnApplicationBootstrap {
       where: { teamId: project.teamId },
       include: { plan: true },
     });
-    const planName = (sub?.plan?.name || 'free').toLowerCase();
-    const ceiling = ProjectsService.ROW_LIMIT_CEILINGS[planName] ?? 1000;
+    // Per-plan page-size ceiling, shared with the plan cards under Billing.
+    const ceiling = dataGridRowLimitFor(sub?.plan?.name);
     if (value > ceiling) {
       throw new ForbiddenException(
-        `Your current plan allows up to ${ceiling.toLocaleString()} rows per table. ` +
+        `Your current plan lets the Data grid load up to ${ceiling.toLocaleString('en-US')} rows per page. ` +
           `Upgrade your plan to raise this limit.`,
       );
     }
@@ -1074,15 +1058,8 @@ export class ProjectsService implements OnApplicationBootstrap {
       throw new ForbiddenException('You are not a member of this team');
     }
 
-    // Owners and creators could always delete; a role whose stored
-    // canDeleteProjects flag says so now can too. Deleting moves the project
-    // to the trash, where restore is available.
     const isCreator = project.createdBy === userId;
-    if (
-      membership.role !== 'OWNER' &&
-      !isCreator &&
-      !(await grantedByRole(this.prisma, project.teamId, membership.role, 'canDeleteProjects'))
-    ) {
+    if (membership.role !== 'OWNER' && !isCreator) {
       throw new ForbiddenException('You can only delete projects you created');
     }
 
@@ -1164,6 +1141,11 @@ export class ProjectsService implements OnApplicationBootstrap {
 
     this.logger.log(`Project "${project.name}" soft-deleted by user ${userId} (db: ${archivedDbName})`);
 
+    // No reason picked is recorded as such — it used to be stored as "None of
+    // the above", which made "skipped" and an explicit answer indistinguishable.
+    const reasonCode = reason?.reasonCode?.trim() || 'not_specified';
+    const reasonLabel =
+      reasonCode === 'not_specified' ? 'Not specified' : reason?.reasonLabel?.trim() || reasonCode;
     await this.activity.append(id, {
       userId,
       kind: ProjectActivityKind.PROJECT_DELETED,
@@ -1171,11 +1153,17 @@ export class ProjectsService implements OnApplicationBootstrap {
       detail: project.name,
       metadata: {
         originalProjectName: project.name,
-        reasonCode: reason?.reasonCode || 'none',
-        reasonLabel: reason?.reasonLabel || 'None of the above',
+        reasonCode,
+        reasonLabel,
         details: reason?.details?.trim() || null,
       },
     });
+    await this.recordDeletion(
+      { id, name: project.name, teamId: project.teamId, parentProjectId: project.parentProjectId },
+      'trashed',
+      userId,
+      { reasonCode, reasonLabel, details: reason?.details?.trim() || null },
+    );
 
     // Realtime: everyone in the team should know a project is gone so their
     // sidebar / project picker can drop the entry without a refresh.
@@ -1200,23 +1188,12 @@ export class ProjectsService implements OnApplicationBootstrap {
   }
 
   /**
-   * "Deactivate" and "sleep" are one state now (`PAUSED`). The older
-   * deactivation — a frozen project that gave up its plan slot and was purged
-   * after 14 days — is gone: the owner's rule is that a deactivated project is
-   * never deleted. The route stays so existing clients keep working.
+   * Deactivate a project: freeze it (auth disabled, dropped from data-plane
+   * routing) without deleting data. A deactivated project does NOT count against
+   * the plan's project quota, so the freed slot can be used for another project.
+   * It is permanently purged after 14 days if not reactivated.
    */
   async deactivate(id: string, userId: string) {
-    return this.sleep(id, userId);
-  }
-
-  /**
-   * Deactivate a project on request: the same state the idle sweep produces,
-   * chosen deliberately. Its API answers nothing and its users cannot sign in
-   * until it is activated again; nothing is deleted, the plan slot stays
-   * taken, and a request carrying its key activates it again — a pause, not
-   * a lock. No notice is sent: the person asking is the one who would get it.
-   */
-  async sleep(id: string, userId: string) {
     const project = await this.findOne(id, userId);
 
     const membership = await this.prisma.teamMember.findUnique({
@@ -1230,29 +1207,27 @@ export class ProjectsService implements OnApplicationBootstrap {
       throw new ForbiddenException('You can only deactivate projects you created');
     }
 
-    if (project.status === 'PAUSED') {
+    if (project.status === 'DEACTIVATED') {
       return { message: 'Project is already deactivated' };
     }
-    if (project.status !== 'ACTIVE') {
-      throw new ForbiddenException('Only an active project can be deactivated');
+    if (project.status === 'DELETED') {
+      throw new ForbiddenException('Deleted projects cannot be deactivated');
     }
 
-    // Flip only if it is still active, so two tabs racing deactivate it once.
-    const { count } = await this.prisma.project.updateMany({
-      where: { id, status: 'ACTIVE' },
-      data: { status: 'PAUSED', pausedAt: new Date(), idleWarningSentAt: null },
+    // Close auth so nobody can log in while the project is frozen.
+    try {
+      await this.keycloak.disableRealm(project.keycloakRealm);
+    } catch (err) {
+      this.logger.warn(`Deactivate: failed to disable Keycloak realm for "${project.name}": ${err}`);
+    }
+
+    await this.prisma.project.update({
+      where: { id },
+      data: { status: 'DEACTIVATED', deactivatedAt: new Date() },
     });
-    if (count === 0) {
-      return { message: 'Project is already deactivated' };
-    }
 
-    // Close sign-in for the project's own users while it is deactivated. Best
-    // effort: activation re-enables the realm regardless.
-    await this.keycloak.disableRealm(project.keycloakRealm).catch((err: any) =>
-      this.logger.warn(`Deactivate: realm not disabled for "${project.name}": ${err?.message ?? err}`),
-    );
-
-    // The pooler routes active projects only; drop this one from its config.
+    // Free the plan quota slot and drop the project from PgBouncer routing.
+    this.usageService.decrementProjectCount(project.teamId).catch(() => {});
     this.pgbouncer.regenerateConfig().catch((err) =>
       this.logger.warn(`PgBouncer config update failed: ${err}`),
     );
@@ -1261,11 +1236,9 @@ export class ProjectsService implements OnApplicationBootstrap {
 
     await this.activity.append(id, {
       userId,
-      kind: ProjectActivityKind.PROJECT_UPDATED,
+      kind: ProjectActivityKind.PROJECT_DEACTIVATED,
       title: 'Project deactivated',
-      detail:
-        'A team member deactivated it from the dashboard. Its API stops answering until it is activated; ' +
-        'nothing is deleted, and a request carrying its key activates it again.',
+      detail: project.name,
     });
 
     {
@@ -1278,7 +1251,7 @@ export class ProjectsService implements OnApplicationBootstrap {
         actorUserId: userId,
         teamId: project.teamId,
         userIds: memberIds,
-        payload: { name: project.name, status: 'PAUSED', actorName },
+        payload: { name: project.name, status: 'DEACTIVATED', actorName },
       });
     }
 
@@ -1303,10 +1276,10 @@ export class ProjectsService implements OnApplicationBootstrap {
     if (!membership) {
       throw new ForbiddenException('You are not a member of this team');
     }
-    // Any member may activate: a deactivated project holds data the whole
-    // organization is billed for, so reaching it is never gated beyond
-    // membership (owner decision, 2026-10-26). Deactivating stays with the
-    // owner and the creator.
+    const isCreator = project.createdBy === userId;
+    if (membership.role !== 'OWNER' && !isCreator) {
+      throw new ForbiddenException('You can only reactivate projects you created');
+    }
 
     // Reactivating consumes a project slot again — enforce the plan quota with a
     // message that spells out the user's options. A sleeping project never
@@ -1379,6 +1352,21 @@ export class ProjectsService implements OnApplicationBootstrap {
     return { message: 'Project reactivated' };
   }
 
+  /** Durable deletion record (see project-deletion-records.ts). Never fails the deletion. */
+  private recordDeletion(
+    project: { id: string; name: string; teamId?: string | null; parentProjectId?: string | null },
+    kind: DeletionKind,
+    userId: string | null,
+    reason?: DeletionReason | null,
+  ): Promise<void> {
+    return recordProjectDeletion(this.prisma, this.logger, project, kind, userId, reason);
+  }
+
+  private latestTrashReason(projectId: string): Promise<DeletionReason | null> {
+    return latestTrashReason(this.prisma, projectId);
+  }
+
+  /** Every project deletion step, newest first — including permanent ones. ROOT only. */
   async listDeletionReasons(userId: string, limit = 200) {
     const actor = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -1387,84 +1375,7 @@ export class ProjectsService implements OnApplicationBootstrap {
     if (actor?.role !== 'ROOT') {
       throw new ForbiddenException('Only ROOT can view project deletion reasons');
     }
-
-    const rows = await this.prisma.projectActivityLog.findMany({
-      where: { kind: ProjectActivityKind.PROJECT_DELETED },
-      orderBy: { createdAt: 'desc' },
-      take: Math.max(1, Math.min(limit || 200, 500)),
-    });
-
-    const actorIds = Array.from(
-      new Set(rows.map((x) => x.userId).filter((value): value is string => Boolean(value))),
-    );
-    const projectIds = Array.from(new Set(rows.map((x) => x.projectId)));
-
-    const [actors, projects] = await Promise.all([
-      actorIds.length > 0
-        ? this.prisma.user.findMany({
-            where: { id: { in: actorIds } },
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              email: true,
-            },
-          })
-        : Promise.resolve([]),
-      projectIds.length > 0
-        ? this.prisma.project.findMany({
-            where: { id: { in: projectIds } },
-            select: {
-              id: true,
-              name: true,
-              teamId: true,
-              team: { select: { id: true, name: true } },
-            },
-          })
-        : Promise.resolve([]),
-    ]);
-
-    const actorById = new Map(actors.map((a) => [a.id, a] as const));
-    const projectById = new Map(projects.map((p) => [p.id, p] as const));
-
-    return rows.map((x) => {
-      const metadata =
-        x.metadata && typeof x.metadata === 'object'
-          ? (x.metadata as Record<string, unknown>)
-          : {};
-      return {
-        id: x.id,
-        createdAt: x.createdAt,
-        actorUserId: x.userId,
-        actorName: (() => {
-          if (!x.userId) return null;
-          const actorUser = actorById.get(x.userId);
-          if (!actorUser) return null;
-          return (
-            [actorUser.firstName, actorUser.lastName].filter(Boolean).join(' ').trim() ||
-            actorUser.email ||
-            null
-          );
-        })(),
-        projectId: x.projectId,
-        projectName: (() => {
-          const project = projectById.get(x.projectId);
-          return (
-            (typeof metadata.originalProjectName === 'string' &&
-              metadata.originalProjectName) ||
-            project?.name ||
-            null
-          );
-        })(),
-        teamId: projectById.get(x.projectId)?.team?.id || projectById.get(x.projectId)?.teamId || null,
-        teamName: projectById.get(x.projectId)?.team?.name || null,
-        reasonCode:
-          typeof metadata.reasonCode === 'string' ? metadata.reasonCode : null,
-        reasonLabel:
-          typeof metadata.reasonLabel === 'string' ? metadata.reasonLabel : null,
-        details: typeof metadata.details === 'string' ? metadata.details : null,
-      };
-    });
+    return listProjectDeletionReasons(this.prisma, limit);
   }
 
   /**
@@ -1521,12 +1432,10 @@ export class ProjectsService implements OnApplicationBootstrap {
     });
   }
 
-  /**
-   * Deactivated projects for a team — the "Deactivated" list. `PAUSED` is
-   * the state; the legacy `DEACTIVATED` rows are listed alongside until they
-   * are activated, and nothing in this list is ever purged.
-   */
+  /** Deactivated (frozen) projects for a team — the "Deactivated" list. */
   async findDeactivated(teamId: string | undefined, userId: string) {
+    await this.purgeDeactivatedPastRetention();
+
     const memberships = await this.prisma.teamMember.findMany({
       where: { userId, ...(teamId ? { teamId } : {}) },
       select: { teamId: true, role: true },
@@ -1537,8 +1446,8 @@ export class ProjectsService implements OnApplicationBootstrap {
     const teamIds = memberships.map((m) => m.teamId);
 
     const projects = await this.prisma.project.findMany({
-      where: { teamId: { in: teamIds }, status: { in: ['PAUSED', 'DEACTIVATED'] } },
-      orderBy: [{ pausedAt: 'desc' }, { deactivatedAt: 'desc' }, { updatedAt: 'desc' }],
+      where: { teamId: { in: teamIds }, status: 'DEACTIVATED' },
+      orderBy: [{ deactivatedAt: 'desc' }, { updatedAt: 'desc' }],
       select: {
         id: true,
         name: true,
@@ -1548,7 +1457,6 @@ export class ProjectsService implements OnApplicationBootstrap {
         createdAt: true,
         updatedAt: true,
         deactivatedAt: true,
-        pausedAt: true,
         createdBy: true,
         teamId: true,
         team: { select: { id: true, name: true } },
@@ -1559,12 +1467,9 @@ export class ProjectsService implements OnApplicationBootstrap {
       const role = roleByTeam.get(p.teamId);
       const canManage =
         role === 'OWNER' || role === 'ADMIN' || p.createdBy === userId;
-      const { team, pausedAt, ...rest } = p;
+      const { team, ...rest } = p;
       return {
         ...rest,
-        // The list shows one "deactivated since" date whichever path got the
-        // project here.
-        deactivatedAt: rest.deactivatedAt ?? pausedAt,
         teamName: team?.name ?? null,
         canManage,
       };
@@ -1578,8 +1483,6 @@ export class ProjectsService implements OnApplicationBootstrap {
   private async assertCanManageDeleted(
     project: { teamId: string; createdBy: string | null },
     userId: string,
-    /** A stored flag that also grants this action to a role (e.g. canRestoreProjects). */
-    grantedBy?: PermissionKey,
   ): Promise<void> {
     const membership = await this.prisma.teamMember.findUnique({
       where: { teamId_userId: { teamId: project.teamId, userId } },
@@ -1594,9 +1497,6 @@ export class ProjectsService implements OnApplicationBootstrap {
     ) {
       return;
     }
-    if (grantedBy && (await grantedByRole(this.prisma, project.teamId, membership.role, grantedBy))) {
-      return;
-    }
     throw new ForbiddenException(
       'Only the team owner, a team admin, or the project creator can do this',
     );
@@ -1609,7 +1509,7 @@ export class ProjectsService implements OnApplicationBootstrap {
       throw new ForbiddenException('Project is not deleted');
     }
 
-    await this.assertCanManageDeleted(project, userId, 'canRestoreProjects');
+    await this.assertCanManageDeleted(project, userId);
 
     const originalName = this.stripDeletedSuffix(project.name);
     const originalSlug = this.stripDeletedSuffix(project.slug);
@@ -1629,6 +1529,42 @@ export class ProjectsService implements OnApplicationBootstrap {
         `A project named "${originalName}" already exists in this team. Delete or rename it before restoring this one.`,
       );
     }
+
+    // Leaving the trash takes a plan slot again, so the plan's project limit
+    // applies, as it does to reactivating. Restoring never checked it, which let
+    // a team at its limit end up with more live projects than its plan allows.
+    // When it is refused the project simply stays in the trash, untouched.
+    let slot: ProjectSlotReservation | null = null;
+    if (!project.parentProjectId) {
+      try {
+        slot = await this.quota.reserveProjectSlot(project.teamId);
+      } catch (err) {
+        if (err instanceof QuotaExceededException) {
+          throw new QuotaExceededException(
+            `Restoring "${originalName}" would exceed your plan's project limit. ` +
+              `Upgrade your plan, or delete or deactivate another project first. ` +
+              `The project stays in the trash until then.`,
+            'projects',
+          );
+        }
+        throw err;
+      }
+    }
+    try {
+      return await this.restoreFromTrash(project, userId, originalName, originalSlug);
+    } finally {
+      await slot?.release();
+    }
+  }
+
+  /** The restore itself, once {@link restore} has checked it may happen. */
+  private async restoreFromTrash(
+    project: Project,
+    userId: string,
+    originalName: string,
+    originalSlug: string,
+  ) {
+    const id = project.id;
 
     // Slugs are global. If the original got taken while this project sat in
     // the trash, mint a fresh one and freeze the storage prefix to the
@@ -1709,6 +1645,8 @@ export class ProjectsService implements OnApplicationBootstrap {
     this.pgbouncer.regenerateConfig().catch((err) =>
       this.logger.warn(`PgBouncer config update failed: ${err}`),
     );
+    // The project holds a plan slot again; restoring never added it back.
+    this.usageService.syncTeamCounts(project.teamId).catch(() => {});
 
     this.logger.log(`Project "${originalName}" restored by user ${userId}`);
 
@@ -1775,6 +1713,8 @@ export class ProjectsService implements OnApplicationBootstrap {
       dbName: string;
       dbUser: string;
       dbReadonlyUser?: string | null;
+      teamId?: string | null;
+      parentProjectId?: string | null;
     },
     userId?: string,
   ): Promise<void> {
@@ -1783,7 +1723,10 @@ export class ProjectsService implements OnApplicationBootstrap {
     await this.dropDatabaseUser(project.dbUser).catch(() => {});
     await this.dropReadonlyRoleQuietly(project.dbReadonlyUser);
 
+    // Read the trash reason before the row goes: its activity log cascades with it.
+    const trashReason = await this.latestTrashReason(project.id);
     await this.prisma.project.delete({ where: { id: project.id } });
+    await this.recordDeletion(project, 'permanent', userId ?? null, trashReason);
 
     this.logger.log(
       `Project "${project.name}" permanently deleted${userId ? ` by user ${userId}` : ''}`,
@@ -1874,7 +1817,9 @@ export class ProjectsService implements OnApplicationBootstrap {
         await this.dropDatabaseUser(project.dbUser).catch(() => {});
         await this.dropReadonlyRoleQuietly(project.dbReadonlyUser);
 
+        const trashReason = await this.latestTrashReason(project.id);
         await this.prisma.project.delete({ where: { id: project.id } });
+        await this.recordDeletion(project, 'purged', null, trashReason);
 
         this.logger.log(`Cleanup: permanently deleted "${project.name}"`);
       } catch (err: any) {
@@ -1889,13 +1834,64 @@ export class ProjectsService implements OnApplicationBootstrap {
     return expired.length;
   }
 
-  // A deactivated project is never purged. The 14-day cleanup that used to
-  // live here is gone on purpose: only the trash (`DELETED`) expires.
+  /** Permanently remove deactivated projects past the 14-day retention window. */
+  private async purgeDeactivatedPastRetention(): Promise<number> {
+    const cutoff = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+
+    const expired = await this.prisma.project.findMany({
+      where: {
+        status: 'DEACTIVATED',
+        OR: [
+          { deactivatedAt: { lt: cutoff } },
+          { AND: [{ deactivatedAt: null }, { updatedAt: { lt: cutoff } }] },
+        ],
+      },
+    });
+
+    if (expired.length === 0) {
+      return 0;
+    }
+
+    this.logger.log(
+      `Deactivated cleanup: permanently deleting ${expired.length} project(s) past 14-day retention`,
+    );
+
+    for (const project of expired) {
+      try {
+        await this.deleteProjectRealm(project.keycloakRealm);
+        await this.dropDatabase(project.dbName).catch(() => {});
+        await this.dropDatabaseUser(project.dbUser).catch(() => {});
+        await this.dropReadonlyRoleQuietly(project.dbReadonlyUser);
+        await this.prisma.project.delete({ where: { id: project.id } });
+        await this.recordDeletion(project, 'purged', null, {
+          reasonCode: 'deactivated_retention',
+          reasonLabel: 'Deactivated for 14 days',
+          details: null,
+        });
+        this.logger.log(`Cleanup: permanently deleted deactivated "${project.name}"`);
+      } catch (err: any) {
+        this.logger.error(
+          `Cleanup: failed to delete deactivated project "${project.name}": ${err.message}`,
+        );
+      }
+    }
+
+    this.pgbouncer.regenerateConfig().catch((err) =>
+      this.logger.warn(`PgBouncer config update failed after deactivated cleanup: ${err}`),
+    );
+
+    return expired.length;
+  }
+
   @Cron(CronExpression.EVERY_HOUR)
   async cleanupExpiredDeletedProjects() {
     const n = await this.purgeDeletedProjectsPastRetention();
     if (n > 0) {
       this.logger.log(`Trash cleanup: removed ${n} expired project(s) past 24h retention`);
+    }
+    const d = await this.purgeDeactivatedPastRetention();
+    if (d > 0) {
+      this.logger.log(`Deactivated cleanup: removed ${d} project(s) past 14-day retention`);
     }
   }
 
@@ -1905,14 +1901,12 @@ export class ProjectsService implements OnApplicationBootstrap {
       where: { teamId_userId: { teamId, userId } },
     });
     if (!m) throw new ForbiddenException('Not a member of this team');
-    return m.role;
   }
 
-  /** A flag that has always been enforced (canResetDbPassword): the stored row, else the role defaults. */
   private async assertTeamPermission(
     teamId: string,
     userId: string,
-    permission: PermissionKey,
+    permission: string,
   ) {
     if (!teamId) throw new ForbiddenException('No team specified');
     const member = await this.prisma.teamMember.findUnique({
@@ -1920,7 +1914,15 @@ export class ProjectsService implements OnApplicationBootstrap {
     });
     if (!member) throw new ForbiddenException('Not a member of this team');
 
-    if (!(await roleAllows(this.prisma, teamId, member.role, permission))) {
+    // OWNER always has all permissions
+    if (member.role === 'OWNER') return;
+
+    const rolePerms = await this.prisma.teamRolePermission.findUnique({
+      where: { teamId_role: { teamId, role: member.role } },
+    });
+
+    // If no role permissions configured, deny by default for non-owners
+    if (!rolePerms || !(rolePerms as any)[permission]) {
       throw new ForbiddenException(
         `Your role does not have the "${permission}" permission in this team`,
       );
@@ -2211,7 +2213,7 @@ export class ProjectsService implements OnApplicationBootstrap {
     const readonlyRole = readonlyRoleNameFor(ownerUser);
     const password = randomBytes(24).toString('base64url');
     try {
-      await this.readonlyRole.provision({ ...target, dbName, ownerUser, readonlyRole, rolePassword: password });
+      await this.readonlyRole.provision({ ...target, dbName, ownerUser, readonlyRole, password });
       return { user: readonlyRole, password };
     } catch (err: any) {
       this.logger.error(

@@ -8,12 +8,13 @@
  * `EmbeddingProviderService.fitDimensions`).
  */
 
-export type EmbeddingProviderId = 'openai' | 'ollama' | 'cohere';
+export type EmbeddingProviderId = 'openai' | 'ollama' | 'cohere' | 'gemini';
 
 export const EMBEDDING_PROVIDER_IDS: readonly EmbeddingProviderId[] = [
   'openai',
   'ollama',
   'cohere',
+  'gemini',
 ];
 
 export function isEmbeddingProviderId(value: unknown): value is EmbeddingProviderId {
@@ -25,7 +26,8 @@ export function isEmbeddingProviderId(value: unknown): value is EmbeddingProvide
 
 /**
  * Some providers embed search queries and stored documents differently
- * (Cohere's `input_type`). Providers that do not distinguish ignore it.
+ * (Cohere's `input_type`, Gemini's `taskType`). Providers that do not
+ * distinguish ignore it.
  */
 export type EmbedIntent = 'document' | 'query';
 
@@ -79,7 +81,7 @@ export interface EmbeddingProviderConfig {
   model?: string | null;
   baseUrl?: string | null;
   apiKey?: string | null;
-  /** Request-side output width for models that support it (OpenAI v3, Cohere v4). */
+  /** Request-side output width for models that support it (OpenAI v3, Cohere v4, Gemini). */
   dimensions?: number | null;
 }
 

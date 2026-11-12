@@ -1,13 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { withAbsoluteSiteUrls } from "@/lib/absolute-site-metadata";
-import { docsPath } from "@/lib/public-hosts";
+import { docsMetadata } from "../docs-metadata";
 
 export async function generateMetadata(): Promise<Metadata> {
-  return withAbsoluteSiteUrls("/docs/security", {
-    title: "Security & Row-Level Security",
-    description: "basefyio security model: API keys, JWT authentication, Row-Level Security (RLS) policies, and best practices.",
-  });
+  return docsMetadata("/docs/security", "Security & Row-Level Security", "basefyio security model: API keys, JWT authentication, Row-Level Security (RLS) policies, and best practices.");
 }
 
 export default function SecurityDocs() {
@@ -33,13 +29,13 @@ Server → Service Key (apikey header)
   └── database role: service_role (bypasses RLS)`}</code></pre>
 
       <h2>API Keys</h2>
-      <table>
+      <div className="docs-table"><table>
         <thead><tr><th>Key</th><th>Use In</th><th>RLS</th><th>Access Level</th></tr></thead>
         <tbody>
           <tr><td><strong>Anon Key</strong></td><td>Client-side (browser, mobile)</td><td>Enforced</td><td>Only rows allowed by RLS policies</td></tr>
           <tr><td><strong>Service Key</strong></td><td>Server-side only</td><td>Bypassed</td><td>Full access to all data</td></tr>
         </tbody>
-      </table>
+      </table></div>
       <p><strong>Never expose your service key in client-side code, public repositories, or browser DevTools.</strong></p>
 
       <h2>JWT Tokens</h2>
@@ -48,7 +44,7 @@ Server → Service Key (apikey header)
         The JWT is verified against the project&apos;s auth realm JWKS endpoint. Claims are
         exposed to RLS policies via helper functions.
       </p>
-      <table>
+      <div className="docs-table"><table>
         <thead><tr><th>Function</th><th>Returns</th><th>Example Usage</th></tr></thead>
         <tbody>
           <tr><td><code>auth.uid()</code></td><td>Current user ID (from JWT <code>sub</code>)</td><td><code>WHERE user_id = auth.uid()</code></td></tr>
@@ -56,7 +52,7 @@ Server → Service Key (apikey header)
           <tr><td><code>auth.role()</code></td><td>Current role name</td><td><code>WHERE auth.role() = &apos;authenticated&apos;</code></td></tr>
           <tr><td><code>auth.email()</code></td><td>Current user email</td><td><code>WHERE owner_email = auth.email()</code></td></tr>
         </tbody>
-      </table>
+      </table></div>
 
       <h2>Row-Level Security (RLS)</h2>
       <p>
@@ -76,7 +72,7 @@ Server → Service Key (apikey header)
         privileges. None of them — <code>service_role</code> included — can run DDL such as
         <code> CREATE TABLE</code> or <code>CREATE VIEW</code>, so a project key cannot change your
         schema even if it leaks. Schema changes belong to the database owner; see
-        <Link href={docsPath("/docs#schema-migrations")}> schema migrations</Link>.
+        <Link href="/docs#schema-migrations"> schema migrations</Link>.
       </p>
 
       <h3>Writing RLS Policies</h3>

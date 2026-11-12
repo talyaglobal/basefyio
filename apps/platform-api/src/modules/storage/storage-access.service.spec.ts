@@ -5,6 +5,7 @@ import {
   StorageAccessService,
   decide,
   normalisePrefix,
+  privateBucketAnonMode,
   resolveModeFromRows,
 } from './storage-access.service';
 import type { StorageCaller } from './storage-caller';
@@ -142,6 +143,63 @@ describe('StorageAccessService', () => {
       expect(() => access.assertCanOverwrite(bob, 'owner-only', owned, 'k')).toThrow(/overwrite/);
       expect(() => access.assertCanOverwrite(alice, 'owner-only', owned, 'k')).not.toThrow();
       expect(() => access.assertCanOverwrite(bob, 'authenticated-read', owned, 'k')).not.toThrow();
+    });
+  });
+
+  describe('assertBucketReachable (private buckets and the bare public key)', () => {
+    const isPublic = (v: boolean) => jest.fn().mockResolvedValue(v);
+
+    it('never stops a signed-in user, the service key or a team member, and does not ask the store', async () => {
+      const { access } = build();
+      for (const c of [alice, service, dashboard]) {
+        const probe = isPublic(false);
+        await access.assertBucketReachable(c, 'p1', 'b', 'k', 'write', 'upload to', probe);
+        expect(probe).not.toHaveBeenCalled();
+      }
+    });
+
+    it('lets the public key into a public bucket', async () => {
+      const { access } = build();
+      await expect(access.assertBucketReachable(anon, 'p1', 'b', 'k', 'read', 'list', isPublic(true))).resolves.toBeUndefined();
+    });
+
+    it('refuses the public key on a private bucket, reads and writes alike, naming the ways in', async () => {
+      const { access } = build();
+      await expect(
+        access.assertBucketReachable(anon, 'p1', 'b', 'k', 'write', 'upload to', isPublic(false)),
+      ).rejects.toThrow(/Bucket "b" is private, so the public anon key alone cannot upload to it/);
+      await expect(
+        access.assertBucketReachable(anon, 'p1', 'b', 'k', 'read', 'download from', isPublic(false)),
+      ).rejects.toThrow(/signed URL/);
+    });
+
+    it('opens reads, never writes, where a public-read rule says so', async () => {
+      const { access } = build([{ bucket: 'b', pathPrefix: 'shared/', mode: 'public-read' }]);
+      await expect(
+        access.assertBucketReachable(anon, 'p1', 'b', 'shared/a.png', 'read', 'download from', isPublic(false)),
+      ).resolves.toBeUndefined();
+      await expect(
+        access.assertBucketReachable(anon, 'p1', 'b', 'other/a.png', 'read', 'download from', isPublic(false)),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(
+        access.assertBucketReachable(anon, 'p1', 'b', 'shared/a.png', 'write', 'upload to', isPublic(false)),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('STORAGE_PRIVATE_BUCKET_ANON=log lets the call through and says so in the log', async () => {
+      const prisma = { storagePolicy: { findMany: jest.fn().mockResolvedValue([]) } };
+      const access = new StorageAccessService(prisma as any, { get: () => 'log' } as any);
+      const warn = jest.spyOn((access as any).logger, 'warn').mockImplementation(() => undefined);
+      await expect(
+        access.assertBucketReachable(anon, 'p1', 'b', 'k', 'write', 'upload to', isPublic(false)),
+      ).resolves.toBeUndefined();
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('STORAGE_PRIVATE_BUCKET_ANON=log'));
+    });
+
+    it('privateBucketAnonMode reads only "log" as the escape hatch', () => {
+      expect(privateBucketAnonMode(undefined)).toBe('refuse');
+      expect(privateBucketAnonMode(' LOG ')).toBe('log');
+      expect(privateBucketAnonMode('off')).toBe('refuse');
     });
   });
 

@@ -12,6 +12,7 @@ import {
   type ExportJobStatus,
   type RestoreFields,
 } from './backups.js';
+import type { DisablePgvectorResponse, EmbeddingStatus } from './pgvector.js';
 
 /**
  * Proactively refresh the access token if it expires within the next 60 seconds.
@@ -286,6 +287,43 @@ export class ApiClient {
   async deleteProject(projectId: string) {
     const { data } = await this.client.delete(`/api/projects/${projectId}`);
     return data;
+  }
+
+  /**
+   * New password for the project's owner database user. With no body the
+   * server generates a strong random one; the old password stops working at
+   * once. Needs the team's "reset database password" permission.
+   */
+  async rotateDbPassword(projectId: string) {
+    const { data } = await this.client.patch(`/api/projects/${projectId}/db-password`, {});
+    return data as { password: string };
+  }
+
+  /** Same for the read-only companion user (fails when the project has none). */
+  async rotateReadonlyDbPassword(projectId: string) {
+    const { data } = await this.client.patch(`/api/projects/${projectId}/db-readonly-password`, {});
+    return data as { password: string };
+  }
+
+  // Embeddings / pgvector endpoints
+  async getEmbeddingStatus(projectId: string) {
+    const { data } = await this.client.get(`/api/projects/${projectId}/embeddings/status`);
+    return data as EmbeddingStatus;
+  }
+
+  /** Runs the pgvector bootstrap in the project database; can take longer than a plain request. */
+  async enablePgvector(projectId: string) {
+    const { data } = await this.client.post(`/api/projects/${projectId}/embeddings/enable`, {}, { timeout: 120_000 });
+    return data as { message?: string; projectId?: string };
+  }
+
+  /** `dropData` also deletes the stored embeddings; without it they are kept. */
+  async disablePgvector(projectId: string, opts: { dropData?: boolean } = {}) {
+    const { data } = await this.client.delete(`/api/projects/${projectId}/embeddings/enable`, {
+      params: opts.dropData ? { dropData: 'true' } : undefined,
+      timeout: 120_000,
+    });
+    return data as DisablePgvectorResponse;
   }
 
   // SQL endpoints

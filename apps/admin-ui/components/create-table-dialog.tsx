@@ -51,6 +51,16 @@ function makeIdColumn(): ColumnDef {
   return { id: nextId++, name: 'id', type: 'uuid', nullable: false, isPrimary: true, defaultValue: 'gen_random_uuid()' };
 }
 
+/** Why a collection name is not acceptable, or null when it is. */
+function collectionNameProblem(name: string): string | null {
+  if (!name) return 'Collection name is required';
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+    return 'Use only letters, digits and underscores, starting with a letter or underscore (no spaces or dashes)';
+  }
+  if (name.length > 63) return `The name is ${name.length} characters long; the maximum is 63`;
+  return null;
+}
+
 export function CreateTableDialog({ open, onOpenChange, projectId, onCreated, onCreateEntity }: CreateTableDialogProps) {
   const [kind, setKind] = useState<'sql' | 'nosql' | 'entity'>('sql');
   const [tableName, setTableName] = useState('');
@@ -123,12 +133,9 @@ export function CreateTableDialog({ open, onOpenChange, projectId, onCreated, on
 
   async function handleCreateCollection() {
     const trimmed = collectionName.trim();
-    if (!trimmed) {
-      toast.error('Collection name is required');
-      return;
-    }
-    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(trimmed)) {
-      toast.error('Collection name must start with a letter or underscore and contain only alphanumeric characters');
+    const problem = collectionNameProblem(trimmed);
+    if (problem) {
+      toast.error(problem);
       return;
     }
     setSaving(true);
@@ -353,13 +360,20 @@ export function CreateTableDialog({ open, onOpenChange, projectId, onCreated, on
                 value={collectionName}
                 onChange={(e) => setCollectionName(e.target.value)}
                 placeholder="e.g. posts, products, events"
-                required
-                pattern="^[a-zA-Z_][a-zA-Z0-9_]*$"
+                aria-invalid={!!(collectionName.trim() && collectionNameProblem(collectionName.trim()))}
+                aria-describedby="cc-name-help"
               />
-              <p className="text-xs text-muted-foreground">
-                No columns to define — documents can have any JSON structure.
-                You can insert documents right after creating the collection.
-              </p>
+              {collectionName.trim() && collectionNameProblem(collectionName.trim()) ? (
+                <p id="cc-name-help" role="alert" className="text-xs text-destructive">
+                  {collectionNameProblem(collectionName.trim())}
+                </p>
+              ) : (
+                <p id="cc-name-help" className="text-xs text-muted-foreground">
+                  Letters, digits and underscores, starting with a letter or underscore; up to 63 characters.
+                  No columns to define — documents can have any JSON structure. A JSON collection lives in the
+                  project database; for documents validated against declared fields, create an Entity instead.
+                </p>
+              )}
             </div>
 
             <DialogFooter>

@@ -8,9 +8,8 @@ import React, {
   useState,
 } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { projectStatusLabel } from '@/lib/utils';
 import { toast } from 'sonner';
-import { promptDialog } from '@/components/ui/confirm-dialog';
+import { confirmDialog, promptDialog } from '@/components/ui/confirm-dialog';
 import {
   DndContext,
   DragCancelEvent,
@@ -36,6 +35,8 @@ import {
 import { KeyboardSensor } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { api } from '@/lib/api';
+import { formatDate, formatDateTime } from '@/lib/format';
+import { useEscapeKey } from '@/lib/use-escape-key';
 import type { ProjectListItem, ProjectFolder, ProjectTag } from '@/lib/types';
 import { startOfMonth, parseISO, isWithinInterval } from 'date-fns';
 import { useActiveTeam } from '../layout';
@@ -72,6 +73,7 @@ import {
   Zap,
   LayoutGrid,
   List,
+  MoreHorizontal,
 } from 'lucide-react';
 import type { Team } from '@/lib/types';
 import { parseJwt, getAccessToken } from '@/lib/auth';
@@ -150,17 +152,6 @@ interface ProjectsState {
 type ProjectsViewMode = 'grid' | 'list';
 const PROJECTS_VIEW_MODE_KEY = 'basefyio_projects_view_mode';
 
-function formatDateTime(value: string) {
-  const date = new Date(value);
-  return date.toLocaleString('tr-TR', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
 /** Bytes for sorting; missing or invalid sizes sort last in both directions. */
 function projectSizeSortKey(bytes?: number | null): number {
   if (bytes == null || bytes < 0) return -1;
@@ -191,6 +182,29 @@ function loadProjectsState(): ProjectsState | null {
   } catch { return null; }
 }
 
+/** URL keys that carry the projects filters (see the URL sync effect). */
+const URL_FILTER_KEYS = ['folder', 'tags', 'status', 'filter', 'q', 'mine', 'sort'] as const;
+
+/** Filters named in the URL, or null when the URL names none. */
+function readUrlProjectsState(
+  params: { get(key: string): string | null },
+): (Partial<ProjectsState> & { createdByMe?: boolean }) | null {
+  if (!URL_FILTER_KEYS.some((k) => params.get(k))) return null;
+  const sort = params.get('sort');
+  return {
+    selectedFolder: params.get('folder') || 'all',
+    selectedTags: (params.get('tags') ?? '').split(',').map((t) => t.trim()).filter(Boolean),
+    searchQuery: params.get('q') ?? '',
+    statusFilter: params.get('status') || null,
+    thisMonthOnly: params.get('filter') === 'this-month',
+    sortBy: SORT_OPTIONS.some((o) => o.value === sort) ? (sort as SortValue) : 'newest',
+    createdByMe: params.get('mine') === '1',
+  };
+}
+
+/** Number of projects rendered at first; more are added as the list scrolls. */
+const PROJECTS_PAGE_SIZE = 60;
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function ProjectsPage() {
@@ -204,33 +218,31 @@ export default function ProjectsPage() {
   const [loading, setLoading]       = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
 
-  // URL params take precedence over saved state (dashboard card clicks always win)
-  const urlStatus = searchParams.get('status');
-  const urlFilter = searchParams.get('filter');
+  // The filters live in the URL (?folder=…&tags=…&q=…), so a filtered view can
+  // be shared or bookmarked. URL params take precedence over saved state
+  // (dashboard card clicks always win); without any, the last session's
+  // filters are restored.
   const urlView = searchParams.get('view');
-  const hasUrlParams = !!(urlStatus || urlFilter);
-
-  // Restore from sessionStorage on first mount (unless URL params override)
-  // When URL params are present (coming from dashboard), clear saved state so it doesn't bleed
-  const savedState = (() => {
-    if (hasUrlParams) {
+  const [initialState] = useState(() => {
+    const url = readUrlProjectsState(searchParams);
+    if (url) {
       try { sessionStorage.removeItem(SESSION_KEY); } catch {}
-      return null;
+      return url;
     }
-    return loadProjectsState();
-  })();
+    return { ...loadProjectsState(), createdByMe: false } as Partial<ProjectsState> & { createdByMe?: boolean };
+  });
 
-  const [selectedFolder, setSelectedFolder] = useState<string | 'all'>(savedState?.selectedFolder ?? 'all');
-  const [selectedTags, setSelectedTags]     = useState<string[]>(savedState?.selectedTags ?? []);
-  const [searchQuery, setSearchQuery]       = useState(savedState?.searchQuery ?? '');
-  const [statusFilter, setStatusFilter]     = useState<string | null>(urlStatus ?? savedState?.statusFilter ?? null);
-  const [thisMonthOnly, setThisMonthOnly]   = useState(urlFilter === 'this-month' ? true : (savedState?.thisMonthOnly ?? false));
+  const [selectedFolder, setSelectedFolder] = useState<string | 'all'>(initialState?.selectedFolder || 'all');
+  const [selectedTags, setSelectedTags]     = useState<string[]>(initialState?.selectedTags ?? []);
+  const [searchQuery, setSearchQuery]       = useState(initialState?.searchQuery ?? '');
+  const [statusFilter, setStatusFilter]     = useState<string | null>(initialState?.statusFilter ?? null);
+  const [thisMonthOnly, setThisMonthOnly]   = useState(initialState?.thisMonthOnly ?? false);
   const [sortBy, setSortBy]                 = useState<SortValue>(() => {
-    const raw = savedState?.sortBy ?? 'newest';
+    const raw = initialState?.sortBy ?? 'newest';
     return SORT_OPTIONS.some((o) => o.value === raw) ? raw : 'newest';
   });
   const [sortOpen, setSortOpen]             = useState(false);
-  const [createdByMe, setCreatedByMe]       = useState(false);
+  const [createdByMe, setCreatedByMe]       = useState(!!initialState?.createdByMe);
   const currentUserId = useMemo(() => parseJwt(getAccessToken() ?? '')?.sub ?? null, []);
   const [viewMode, setViewMode]             = useState<ProjectsViewMode>(() => {
     if (typeof window === 'undefined') return 'grid';
@@ -245,11 +257,17 @@ export default function ProjectsPage() {
   const [folderModal, setFolderModal] = useState<{ open: boolean; editing?: ProjectFolder }>({ open: false });
   const [folderName, setFolderName]   = useState('');
   const [folderColor, setFolderColor] = useState(COLORS[0]);
+  const [folderSaving, setFolderSaving] = useState(false);
+  const [folderNameError, setFolderNameError] = useState<string | null>(null);
 
   // Tag modal (create or edit)
   const [tagModal, setTagModal] = useState<{ open: boolean; editing?: ProjectTag }>({ open: false });
   const [tagName, setTagName]   = useState('');
   const [tagColor, setTagColor] = useState(COLORS[1]);
+  const [tagSaving, setTagSaving] = useState(false);
+  const [tagNameError, setTagNameError] = useState<string | null>(null);
+  useEffect(() => { if (folderModal.open) setFolderNameError(null); }, [folderModal.open]);
+  useEffect(() => { if (tagModal.open) setTagNameError(null); }, [tagModal.open]);
 
   // Sidebar right-click context menu (folder or tag)
   const [sidebarCtx, setSidebarCtx] = useState<{
@@ -284,7 +302,7 @@ export default function ProjectsPage() {
   const [deleteConfirm, setDeleteConfirm] = useState<ProjectListItem | null>(null);
   const [deleting, setDeleting] = useState(false);
   // Rich single-delete confirm (mirrors the project detail delete modal).
-  const [deleteReasonCode, setDeleteReasonCode] = useState('none');
+  const [deleteReasonCode, setDeleteReasonCode] = useState('');
   const [deleteDetailsText, setDeleteDetailsText] = useState('');
   const [deleteNameConfirm, setDeleteNameConfirm] = useState('');
 
@@ -293,7 +311,7 @@ export default function ProjectsPage() {
   const [bulkDeactivateConfirm, setBulkDeactivateConfirm] = useState(false);
   const [bulkDeactivating, setBulkDeactivating] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
-  const [bulkDeleteReasonCode, setBulkDeleteReasonCode] = useState<string>('none');
+  const [bulkDeleteReasonCode, setBulkDeleteReasonCode] = useState<string>('');
   const [bulkDeleteDetails, setBulkDeleteDetails] = useState('');
   const [bulkDeleteConfirmText, setBulkDeleteConfirmText] = useState('');
 
@@ -310,13 +328,22 @@ export default function ProjectsPage() {
   const [permDeleteConfirm, setPermDeleteConfirm] = useState<ProjectListItem | null>(null);
   const [permDeleting, setPermDeleting] = useState(false);
 
-  // Deactivated projects (paused — data kept, never purged)
+  // Deactivated projects (frozen — 14-day retention, off the plan quota)
   const [showDeactivated, setShowDeactivated] = useState(false);
   const [deactivatedProjects, setDeactivatedProjects] = useState<ProjectListItem[]>([]);
   const [loadingDeactivated, setLoadingDeactivated] = useState(false);
   const [reactivatingId, setReactivatingId] = useState<string | null>(null);
   const [deactivateConfirm, setDeactivateConfirm] = useState<ProjectListItem | null>(null);
   const [deactivating, setDeactivating] = useState(false);
+
+  // Trash and Deactivated replace the project list. Picking "All Projects", a
+  // folder or a tag must leave them — it used to only change the folder, so the
+  // view stayed on Trash while "All Projects" looked selected.
+  const inSpecialView = showTrash || showDeactivated;
+  const leaveSpecialViews = useCallback(() => {
+    setShowTrash(false);
+    setShowDeactivated(false);
+  }, []);
 
   // Open the Trash / Deactivated view when linked with ?view=trash|deactivated
   // (e.g. from the dashboard "By Status" chart).
@@ -327,7 +354,7 @@ export default function ProjectsPage() {
 
   // Reset the single-delete confirm fields each time the modal opens.
   useEffect(() => {
-    if (deleteConfirm) { setDeleteReasonCode('none'); setDeleteDetailsText(''); setDeleteNameConfirm(''); }
+    if (deleteConfirm) { setDeleteReasonCode(''); setDeleteDetailsText(''); setDeleteNameConfirm(''); }
   }, [deleteConfirm]);
 
   // Sort dropdown ref
@@ -343,6 +370,9 @@ export default function ProjectsPage() {
 
   // ── Load ─────────────────────────────────────────────────────────────────────
   const isAllTeams = viewTeamId === 'all';
+  // All Teams lists every team's folders and tags together; same-named ones
+  // ("Clients" in two teams) are told apart by their team.
+  const teamNameById = useMemo(() => new Map(teams.map((t) => [t.id, t.name])), [teams]);
 
   const loadAll = useCallback(async () => {
     if (!activeTeamId) return;
@@ -354,7 +384,13 @@ export default function ProjectsPage() {
       if (isAllTeams) {
         // Fetch projects from all teams in parallel
         const chunks = await Promise.all(
-          allTeams.map((t) => api.projects.list(t.id).catch(() => [] as ProjectListItem[])),
+          allTeams.map((t) =>
+            api.projects
+              .list(t.id)
+              // Tag each project with its team for the list view's Team column.
+              .then((list) => list.map((p) => ({ ...p, teamId: p.teamId ?? t.id, teamName: p.teamName ?? t.name })))
+              .catch(() => [] as ProjectListItem[]),
+          ),
         );
         setProjects(chunks.flat());
         // Merge folders and tags from all teams
@@ -417,7 +453,9 @@ export default function ProjectsPage() {
   // Close context menus + sort dropdown on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (ctxRef.current && !ctxRef.current.contains(e.target as Node)) setCtxMenu(null);
+      // The "…" button toggles the menu itself; closing here would reopen it on click.
+      const onTrigger = !!(e.target as HTMLElement | null)?.closest?.('[data-project-menu-trigger="true"]');
+      if (ctxRef.current && !ctxRef.current.contains(e.target as Node) && !onTrigger) setCtxMenu(null);
       if (sortRef.current && !sortRef.current.contains(e.target as Node)) setSortOpen(false);
       if (sidebarCtxRef.current && !sidebarCtxRef.current.contains(e.target as Node)) setSidebarCtx(null);
     };
@@ -425,9 +463,46 @@ export default function ProjectsPage() {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
+  // Esc closes whichever menu is open.
+  useEscapeKey(!!ctxMenu, () => setCtxMenu(null));
+  useEscapeKey(!!sidebarCtx, () => setSidebarCtx(null));
+  useEscapeKey(sortOpen, () => setSortOpen(false));
+
   useEffect(() => {
     localStorage.setItem(PROJECTS_VIEW_MODE_KEY, viewMode);
   }, [viewMode]);
+
+  // Mirror the filters into the URL so the current view can be shared.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const put = (key: string, value: string | null) => {
+      if (value) params.set(key, value);
+      else params.delete(key);
+    };
+    put('folder', selectedFolder !== 'all' ? selectedFolder : null);
+    put('tags', selectedTags.length ? selectedTags.join(',') : null);
+    put('status', statusFilter);
+    put('filter', thisMonthOnly ? 'this-month' : null);
+    put('q', searchQuery.trim() || null);
+    put('mine', createdByMe ? '1' : null);
+    put('sort', sortBy !== 'newest' ? sortBy : null);
+    put('view', showTrash ? 'trash' : showDeactivated ? 'deactivated' : null);
+    const qs = params.toString();
+    const next = `${window.location.pathname}${qs ? `?${qs}` : ''}`;
+    if (next !== `${window.location.pathname}${window.location.search}`) {
+      window.history.replaceState(null, '', next);
+    }
+  }, [selectedFolder, selectedTags, statusFilter, thisMonthOnly, searchQuery, createdByMe, sortBy, showTrash, showDeactivated]);
+
+  // A shared link can name a folder or tag the viewer cannot see (another
+  // team, since deleted): fall back to everything instead of an empty list.
+  useEffect(() => {
+    if (loading) return;
+    if (selectedFolder !== 'all' && !folders.some((f) => f.id === selectedFolder)) setSelectedFolder('all');
+    if (selectedTags.some((id) => !tags.some((t) => t.id === id))) {
+      setSelectedTags((prev) => prev.filter((id) => tags.some((t) => t.id === id)));
+    }
+  }, [loading, folders, tags, selectedFolder, selectedTags]);
 
   // ── Tag project counts ────────────────────────────────────────────────────────
   const tagProjectCount = useMemo(() => {
@@ -455,9 +530,13 @@ export default function ProjectsPage() {
       if (thisMonthOnly) {
         if (!isWithinInterval(parseISO(p.createdAt), { start: monthStart, end: new Date() })) return false;
       }
-      if (searchQuery) {
-        const q = searchQuery.toLowerCase();
-        if (!p.name.toLowerCase().includes(q) && !(p.description ?? '').toLowerCase().includes(q)) return false;
+      if (searchQuery.trim()) {
+        const q = searchQuery.trim().toLowerCase();
+        if (
+          !p.name.toLowerCase().includes(q) &&
+          !(p.description ?? '').toLowerCase().includes(q) &&
+          !(p.slug ?? '').toLowerCase().includes(q)
+        ) return false;
       }
       return true;
     })
@@ -478,6 +557,29 @@ export default function ProjectsPage() {
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
 
+  // Render the list in pages: hundreds of cards at once made the page slow to
+  // open and scroll. More are added when the end of the list scrolls into view.
+  const [visibleCount, setVisibleCount] = useState(PROJECTS_PAGE_SIZE);
+  const filterKey = [selectedFolder, selectedTags.join(','), statusFilter, thisMonthOnly, searchQuery, createdByMe, sortBy, viewMode, viewTeamId].join('|');
+  useEffect(() => { setVisibleCount(PROJECTS_PAGE_SIZE); }, [filterKey]);
+  const visibleProjects = filtered.slice(0, visibleCount);
+  const mainScrollRef = useRef<HTMLElement | null>(null);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  const hasMore = filtered.length > visibleCount;
+  useEffect(() => {
+    if (!hasMore) return;
+    const sentinel = loadMoreRef.current;
+    if (!sentinel || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) setVisibleCount((n) => n + PROJECTS_PAGE_SIZE);
+      },
+      { root: mainScrollRef.current, rootMargin: '400px 0px' },
+    );
+    io.observe(sentinel);
+    return () => io.disconnect();
+  }, [hasMore, visibleCount]);
+
   // ── Navigate to project (saves state first) ──────────────────────────────────
   function openProject(projectId: string) {
     saveProjectsState({ selectedFolder, selectedTags, searchQuery, statusFilter, thisMonthOnly, sortBy });
@@ -485,31 +587,75 @@ export default function ProjectsPage() {
   }
 
   // ── Folder CRUD ───────────────────────────────────────────────────────────────
+  // A double-clicked "Create" used to send two requests and store two folders
+  // with the same name. The ref blocks re-entry synchronously; the state
+  // disables the button while the request is in flight.
+  const folderSavingRef = useRef(false);
+  const tagSavingRef = useRef(false);
+
+  /** Insert or replace by id, so a repeated create never shows a row twice. */
+  function upsertById<T extends { id: string }>(list: T[], item: T): T[] {
+    return list.some((x) => x.id === item.id)
+      ? list.map((x) => (x.id === item.id ? item : x))
+      : [...list, item];
+  }
+
   async function saveFolder() {
-    if (!activeTeamId || !folderName.trim()) return;
+    if (!activeTeamId || folderSavingRef.current) return;
+    const name = folderName.trim();
+    if (!name) {
+      setFolderNameError('Enter a folder name.');
+      return;
+    }
+    folderSavingRef.current = true;
+    setFolderSaving(true);
     try {
       if (folderModal.editing) {
-        const updated = await api.folders.update(folderModal.editing.id, { name: folderName, color: folderColor });
-        setFolders((prev) => prev.map((f) => (f.id === updated.id ? updated : f)));
+        const updated = await api.folders.update(folderModal.editing.id, { name, color: folderColor });
+        setFolders((prev) => prev.map((f) => (f.id === updated.id ? { ...f, ...updated } : f)));
+        setProjects((prev) =>
+          prev.map((p) =>
+            p.folderId === updated.id
+              ? { ...p, folder: { id: updated.id, name: updated.name, color: updated.color } }
+              : p,
+          ),
+        );
         toast.success('Folder updated');
       } else {
-        const created = await api.folders.create(activeTeamId, folderName.trim(), folderColor);
-        setFolders((prev) => [...prev, created]);
+        const created = await api.folders.create(activeTeamId, name, folderColor);
+        setFolders((prev) => upsertById(prev, created));
         toast.success('Folder created');
       }
       setFolderModal({ open: false });
       setFolderName('');
+      setFolderNameError(null);
     } catch (err: any) {
-      toast.error(err.message);
+      setFolderNameError(err?.message || 'Could not save the folder.');
+    } finally {
+      folderSavingRef.current = false;
+      setFolderSaving(false);
     }
   }
 
-  async function deleteFolder(id: string) {
+  /** Asks first: the list shifts after a delete, so the next click could land on another folder. */
+  async function deleteFolder(folder: ProjectFolder) {
+    const count = projects.filter((p) => p.folderId === folder.id).length;
+    const ok = await confirmDialog({
+      title: `Delete folder "${folder.name}"?`,
+      description:
+        count > 0
+          ? `${count} project${count === 1 ? '' : 's'} in this folder will not be deleted — ${count === 1 ? 'it moves' : 'they move'} to "No folder".`
+          : 'This folder is empty.',
+      confirmText: 'Delete folder',
+      destructive: true,
+    });
+    if (!ok) return;
     try {
-      await api.folders.delete(id);
-      setFolders((prev) => prev.filter((f) => f.id !== id));
-      if (selectedFolder === id) setSelectedFolder('all');
-      toast.success('Folder deleted');
+      await api.folders.delete(folder.id);
+      setFolders((prev) => prev.filter((f) => f.id !== folder.id));
+      setProjects((prev) => prev.map((p) => (p.folderId === folder.id ? { ...p, folderId: null, folder: null } : p)));
+      if (selectedFolder === folder.id) setSelectedFolder('all');
+      toast.success(`Folder "${folder.name}" deleted`);
     } catch (err: any) {
       toast.error(err.message);
     }
@@ -517,63 +663,120 @@ export default function ProjectsPage() {
 
   // ── Tag CRUD ──────────────────────────────────────────────────────────────────
   async function saveTag() {
-    if (!tagName.trim()) return;
+    if (tagSavingRef.current) return;
+    const name = tagName.trim();
+    if (!name) {
+      setTagNameError('Enter a tag name.');
+      return;
+    }
+    if (!tagModal.editing && !activeTeamId) return;
+    tagSavingRef.current = true;
+    setTagSaving(true);
     try {
       if (tagModal.editing) {
-        const updated = await api.tags.update(tagModal.editing.id, { name: tagName, color: tagColor });
-        setTags((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+        const updated = await api.tags.update(tagModal.editing.id, { name, color: tagColor });
+        setTags((prev) => prev.map((t) => (t.id === updated.id ? { ...t, ...updated } : t)));
+        setProjects((prev) =>
+          prev.map((p) =>
+            (p.tags ?? []).some((x) => x.tag.id === updated.id)
+              ? {
+                  ...p,
+                  tags: (p.tags ?? []).map((x) =>
+                    x.tag.id === updated.id
+                      ? { tag: { id: updated.id, name: updated.name, color: updated.color } }
+                      : x,
+                  ),
+                }
+              : p,
+          ),
+        );
         toast.success('Tag updated');
       } else {
-        if (!activeTeamId) return;
-        const created = await api.tags.create(activeTeamId, tagName.trim(), tagColor);
-        setTags((prev) => [...prev, created]);
+        const created = await api.tags.create(activeTeamId, name, tagColor);
+        setTags((prev) => upsertById(prev, created));
         toast.success('Tag created');
       }
       setTagModal({ open: false });
       setTagName('');
+      setTagNameError(null);
     } catch (err: any) {
-      toast.error(err.message);
+      setTagNameError(err?.message || 'Could not save the tag.');
+    } finally {
+      tagSavingRef.current = false;
+      setTagSaving(false);
     }
   }
 
-  async function deleteTag(id: string) {
+  async function deleteTag(tag: ProjectTag) {
+    const count = tagProjectCount[tag.id] ?? 0;
+    const ok = await confirmDialog({
+      title: `Delete tag "${tag.name}"?`,
+      description:
+        count > 0
+          ? `The tag is removed from ${count} project${count === 1 ? '' : 's'}. The projects themselves are not deleted.`
+          : 'No project uses this tag.',
+      confirmText: 'Delete tag',
+      destructive: true,
+    });
+    if (!ok) return;
     try {
-      await api.tags.delete(id);
-      setTags((prev) => prev.filter((t) => t.id !== id));
-      setSelectedTags((prev) => prev.filter((t) => t !== id));
-      toast.success('Tag deleted');
+      await api.tags.delete(tag.id);
+      setTags((prev) => prev.filter((t) => t.id !== tag.id));
+      setSelectedTags((prev) => prev.filter((t) => t !== tag.id));
+      setProjects((prev) =>
+        prev.map((p) =>
+          (p.tags ?? []).some((x) => x.tag.id === tag.id)
+            ? { ...p, tags: (p.tags ?? []).filter((x) => x.tag.id !== tag.id) }
+            : p,
+        ),
+      );
+      toast.success(`Tag "${tag.name}" deleted`);
     } catch (err: any) {
       toast.error(err.message);
     }
   }
 
   async function quickCreateFolder(): Promise<ProjectFolder | null> {
-    if (!activeTeamId) return null;
+    if (!activeTeamId || folderSavingRef.current) return null;
     const name = await promptDialog({ title: 'New folder', placeholder: 'Folder name', confirmText: 'Create' });
-    if (!name || !name.trim()) return null;
+    if (name === null) return null;
+    if (!name.trim()) {
+      toast.error('Enter a folder name.');
+      return null;
+    }
+    folderSavingRef.current = true;
     try {
       const created = await api.folders.create(activeTeamId, name.trim(), COLORS[0]);
-      setFolders((prev) => [...prev, created]);
+      setFolders((prev) => upsertById(prev, created));
       toast.success('Folder created');
       return created;
     } catch (err: any) {
       toast.error(err.message || 'Failed to create folder');
       return null;
+    } finally {
+      folderSavingRef.current = false;
     }
   }
 
   async function quickCreateTag(): Promise<ProjectTag | null> {
-    if (!activeTeamId) return null;
+    if (!activeTeamId || tagSavingRef.current) return null;
     const name = await promptDialog({ title: 'New tag', placeholder: 'Tag name', confirmText: 'Create' });
-    if (!name || !name.trim()) return null;
+    if (name === null) return null;
+    if (!name.trim()) {
+      toast.error('Enter a tag name.');
+      return null;
+    }
+    tagSavingRef.current = true;
     try {
       const created = await api.tags.create(activeTeamId, name.trim(), COLORS[1]);
-      setTags((prev) => [...prev, created]);
+      setTags((prev) => upsertById(prev, created));
       toast.success('Tag created');
       return created;
     } catch (err: any) {
       toast.error(err.message || 'Failed to create tag');
       return null;
+    } finally {
+      tagSavingRef.current = false;
     }
   }
 
@@ -639,7 +842,7 @@ export default function ProjectsPage() {
       const selectedReason = DELETE_REASONS.find((x) => x.code === deleteReasonCode);
       await api.projects.delete(deleteConfirm.id, {
         reasonCode: deleteReasonCode,
-        reasonLabel: selectedReason?.label || 'None of the above',
+        reasonLabel: selectedReason?.label || undefined,
         details: deleteDetailsText.trim() || undefined,
       });
       setProjects((prev) => prev.filter((p) => p.id !== deleteConfirm.id));
@@ -737,8 +940,8 @@ export default function ProjectsPage() {
     if (!deactivateConfirm) return;
     setDeactivating(true);
     try {
-      await api.projects.sleep(deactivateConfirm.id);
-      toast.success('Project deactivated. A request with its API key activates it again.');
+      await api.projects.deactivate(deactivateConfirm.id);
+      toast.success('Project deactivated');
       setDeactivateConfirm(null);
       loadAll();
       loadDeactivatedProjects();
@@ -749,14 +952,14 @@ export default function ProjectsPage() {
     }
   }
 
-  // Shared by the deactivated list and by the row action: one state, one
-  // way back.
-  async function handleReactivate(id: string) {
+  // Shared by the deactivated list and by waking a sleeping project: the API
+  // accepts both, and only the wording differs.
+  async function handleReactivate(id: string, asleep = false) {
     setReactivatingId(id);
     try {
       await api.projects.reactivate(id);
       setDeactivatedProjects((prev) => prev.filter((p) => p.id !== id));
-      toast.success('Project activated');
+      toast.success(asleep ? 'Project woken' : 'Project reactivated');
       loadAll();
     } catch (err: any) {
       toast.error(err.message || 'Failed to reactivate project');
@@ -810,7 +1013,7 @@ export default function ProjectsPage() {
     if (ids.length === 0) return;
     setBulkDeactivating(true);
     try {
-      const results = await Promise.allSettled(ids.map((id) => api.projects.sleep(id)));
+      const results = await Promise.allSettled(ids.map((id) => api.projects.deactivate(id)));
       const ok = results.filter((r) => r.status === 'fulfilled').length;
       const failed = ids.length - ok;
       const idSet = new Set(ids);
@@ -842,11 +1045,11 @@ export default function ProjectsPage() {
       const selectedReason = DELETE_REASONS.find((x) => x.code === bulkDeleteReasonCode);
       await moveProjectsToTrash(ids, {
         reasonCode: bulkDeleteReasonCode,
-        reasonLabel: selectedReason?.label || 'None of the above',
+        reasonLabel: selectedReason?.label || undefined,
         details: bulkDeleteDetails.trim() || undefined,
       });
       setBulkDeleteConfirm(false);
-      setBulkDeleteReasonCode('none');
+      setBulkDeleteReasonCode('');
       setBulkDeleteDetails('');
       setBulkDeleteConfirmText('');
     } catch (err: any) {
@@ -991,6 +1194,14 @@ export default function ProjectsPage() {
     setCtxMenu({ x: e.clientX, y: e.clientY, project, sub: null });
   }
 
+  /** The visible "…" button opens the same menu as a right-click, under the button. */
+  function openProjectMenu(anchor: HTMLElement, project: ProjectListItem) {
+    const rect = anchor.getBoundingClientRect();
+    setCtxMenu((current) =>
+      current?.project.id === project.id ? null : { x: rect.left, y: rect.bottom + 4, project, sub: null },
+    );
+  }
+
   // ── Right-click handler (sidebar: folder or tag) ─────────────────────────────
   function handleSidebarContextMenu(
     e: React.MouseEvent,
@@ -1002,7 +1213,25 @@ export default function ProjectsPage() {
     setSidebarCtx({ type, item, x: e.clientX, y: e.clientY });
   }
 
-  const hasActiveFilter = !!(statusFilter || thisMonthOnly || selectedTags.length > 0);
+  const hasActiveFilter = !!(
+    statusFilter ||
+    thisMonthOnly ||
+    selectedTags.length > 0 ||
+    selectedFolder !== 'all' ||
+    createdByMe ||
+    searchQuery.trim()
+  );
+
+  /** "Clear all" resets every filter — it used to leave the folder filter on. */
+  function clearAllFilters() {
+    setStatusFilter(null);
+    setThisMonthOnly(false);
+    setSelectedTags([]);
+    setSelectedFolder('all');
+    setCreatedByMe(false);
+    setSearchQuery('');
+  }
+  const selectedFolderObj = selectedFolder !== 'all' ? folders.find((f) => f.id === selectedFolder) : undefined;
 
   const projectDragActive = activeProject !== null;
 
@@ -1032,13 +1261,32 @@ export default function ProjectsPage() {
 
           {/* Search */}
           <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                // Esc clears the search; a second Esc leaves the field.
+                if (e.key === 'Escape') {
+                  if (searchQuery) { e.preventDefault(); setSearchQuery(''); }
+                  else (e.target as HTMLInputElement).blur();
+                }
+              }}
               placeholder="Search projects…"
-              className="w-full rounded-lg border bg-background pl-9 pr-4 py-1.5 text-sm outline-none focus:ring-1 focus:ring-primary/50"
+              aria-label="Search projects"
+              className="w-full rounded-lg border bg-background pl-9 pr-9 py-1.5 text-sm outline-none focus:ring-1 focus:ring-primary/50"
             />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                aria-label="Clear search"
+                title="Clear search"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
 
           {/* Created by me filter */}
@@ -1154,7 +1402,7 @@ export default function ProjectsPage() {
                 variant="destructive"
                 size="sm"
                 onClick={() => {
-                  setBulkDeleteReasonCode('none');
+                  setBulkDeleteReasonCode('');
                   setBulkDeleteDetails('');
                   setBulkDeleteConfirmText('');
                   setBulkDeleteConfirm(true);
@@ -1171,18 +1419,37 @@ export default function ProjectsPage() {
         )}
 
         {/* ── Active filter pills ───────────────────────────────────────────────── */}
-        {hasActiveFilter && (
+        {hasActiveFilter && !inSpecialView && (
           <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b shrink-0">
+            {selectedFolderObj && (
+              <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border px-3 py-0.5 text-xs font-medium">
+                <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: selectedFolderObj.color }} />
+                <span className="truncate">Folder: {selectedFolderObj.name}</span>
+                <button onClick={() => setSelectedFolder('all')} aria-label="Remove folder filter"><X className="h-3 w-3" /></button>
+              </span>
+            )}
+            {searchQuery.trim() && (
+              <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border bg-primary/5 px-3 py-0.5 text-xs font-medium text-primary">
+                <span className="truncate">Search: &ldquo;{searchQuery.trim()}&rdquo;</span>
+                <button onClick={() => setSearchQuery('')} aria-label="Clear search"><X className="h-3 w-3" /></button>
+              </span>
+            )}
+            {createdByMe && (
+              <span className="inline-flex items-center gap-1.5 rounded-full border bg-primary/5 px-3 py-0.5 text-xs font-medium text-primary">
+                Created by me
+                <button onClick={() => setCreatedByMe(false)} aria-label="Remove created by me filter"><X className="h-3 w-3" /></button>
+              </span>
+            )}
             {statusFilter && (
               <span className="inline-flex items-center gap-1.5 rounded-full border bg-primary/5 px-3 py-0.5 text-xs font-medium text-primary">
                 Status: {statusFilter.charAt(0) + statusFilter.slice(1).toLowerCase()}
-                <button onClick={() => setStatusFilter(null)}><X className="h-3 w-3" /></button>
+                <button onClick={() => setStatusFilter(null)} aria-label="Remove status filter"><X className="h-3 w-3" /></button>
               </span>
             )}
             {thisMonthOnly && (
               <span className="inline-flex items-center gap-1.5 rounded-full border bg-primary/5 px-3 py-0.5 text-xs font-medium text-primary">
                 Created This Month
-                <button onClick={() => setThisMonthOnly(false)}><X className="h-3 w-3" /></button>
+                <button onClick={() => setThisMonthOnly(false)} aria-label="Remove created this month filter"><X className="h-3 w-3" /></button>
               </span>
             )}
             {selectedTags.map((tid) => {
@@ -1190,12 +1457,12 @@ export default function ProjectsPage() {
               return tag ? (
                 <span key={tid} className="inline-flex items-center gap-1.5 rounded-full border px-3 py-0.5 text-xs font-medium" style={{ color: tag.color, borderColor: tag.color + '44' }}>
                   {tag.name}
-                  <button onClick={() => setSelectedTags((prev) => prev.filter((t) => t !== tid))}><X className="h-3 w-3" /></button>
+                  <button onClick={() => setSelectedTags((prev) => prev.filter((t) => t !== tid))} aria-label={`Remove tag filter ${tag.name}`}><X className="h-3 w-3" /></button>
                 </span>
               ) : null;
             })}
             <button
-              onClick={() => { setStatusFilter(null); setThisMonthOnly(false); setSelectedTags([]); }}
+              onClick={clearAllFilters}
               className="text-xs text-muted-foreground hover:text-foreground transition-colors underline-offset-2 hover:underline"
             >
               Clear all
@@ -1223,9 +1490,9 @@ export default function ProjectsPage() {
             {/* Scrollable sidebar content */}
             <div className="flex-1 overflow-y-auto px-2 pb-4 space-y-0.5">
               <AllFolderDrop
-                active={selectedFolder === 'all'}
+                active={selectedFolder === 'all' && !inSpecialView}
                 count={projects.length}
-                onClick={() => setSelectedFolder('all')}
+                onClick={() => { leaveSpecialViews(); setSelectedFolder('all'); }}
                 dropHighlight={projectDragActive && dropTargetId === 'folder-none'}
               />
               <SortableContext items={folders.map((f) => f.id)} strategy={verticalListSortingStrategy}>
@@ -1233,11 +1500,12 @@ export default function ProjectsPage() {
                   <SortableFolderItem
                     key={folder.id}
                     folder={folder}
-                    active={selectedFolder === folder.id}
+                    teamName={isAllTeams ? teamNameById.get(folder.teamId) : undefined}
+                    active={selectedFolder === folder.id && !inSpecialView}
                     count={projects.filter((p) => p.folderId === folder.id).length}
-                    onClick={() => setSelectedFolder(folder.id)}
+                    onClick={() => { leaveSpecialViews(); setSelectedFolder(folder.id); }}
                     onEdit={() => { setFolderModal({ open: true, editing: folder }); setFolderName(folder.name); setFolderColor(folder.color); }}
-                    onDelete={() => deleteFolder(folder.id)}
+                    onDelete={() => void deleteFolder(folder)}
                     onContextMenu={(e) => handleSidebarContextMenu(e, 'folder', folder)}
                     dropHighlight={
                       projectDragActive &&
@@ -1264,15 +1532,17 @@ export default function ProjectsPage() {
                   <DraggableTag
                     key={tag.id}
                     tag={tag}
+                    teamName={isAllTeams ? teamNameById.get(tag.teamId) : undefined}
                     count={tagProjectCount[tag.id] ?? 0}
                     selected={selectedTags.includes(tag.id)}
-                    onToggle={() =>
+                    onToggle={() => {
+                      leaveSpecialViews();
                       setSelectedTags((prev) =>
                         prev.includes(tag.id) ? prev.filter((t) => t !== tag.id) : [...prev, tag.id]
-                      )
-                    }
+                      );
+                    }}
                     onEdit={() => { setTagModal({ open: true, editing: tag }); setTagName(tag.name); setTagColor(tag.color); }}
-                    onDelete={() => deleteTag(tag.id)}
+                    onDelete={() => void deleteTag(tag)}
                     onContextMenu={(e) => handleSidebarContextMenu(e, 'tag', tag)}
                     dropHighlight={
                       projectDragActive &&
@@ -1297,7 +1567,7 @@ export default function ProjectsPage() {
                 }}
               />
 
-              {/* Deactivated — paused projects, data kept, never purged */}
+              {/* Deactivated — frozen projects, off the plan quota, 14-day retention */}
               <DeactivatedZone
                 active={showDeactivated}
                 count={deactivatedProjects.length}
@@ -1311,7 +1581,7 @@ export default function ProjectsPage() {
           </aside>
 
           {/* ── Main content ──────────────────────────────────────────────────── */}
-          <main className="flex-1 overflow-y-auto">
+          <main ref={mainScrollRef} className="flex-1 overflow-y-auto">
             {showTrash ? (
               /* ── Trash view ────────────────────────────────────────────────────── */
               <div className="p-6">
@@ -1390,17 +1660,16 @@ export default function ProjectsPage() {
                             if (!raw) return 'Deleted';
                             const d = new Date(raw);
                             const deletedMs = d.getTime();
-                            const timeStr = d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
-                            const dateStr = d.toLocaleDateString('tr-TR', { day: '2-digit', month: 'short', year: 'numeric' });
+                            const when = formatDateTime(d);
                             const expiresAt = deletedMs + 24 * 60 * 60 * 1000;
                             const remaining = expiresAt - Date.now();
                             if (remaining <= 0) {
-                              return `Deleted ${dateStr} ${timeStr} · Retention ended — auto-removal within 1 hour (or refresh)`;
+                              return `Deleted ${when} · Retention ended — auto-removal within 1 hour (or refresh)`;
                             }
                             const hours = Math.floor(remaining / 3600000);
                             const mins = Math.floor((remaining % 3600000) / 60000);
                             const rem = hours > 0 ? `${hours}h ${mins}m left` : `${mins}m left`;
-                            return `Deleted ${dateStr} ${timeStr} · ${rem} until purge`;
+                            return `Deleted ${when} · ${rem} until purge`;
                           })()}
                         </p>
                         {canManage ? (
@@ -1455,10 +1724,11 @@ export default function ProjectsPage() {
                         role="tooltip"
                         className="pointer-events-none absolute left-1/2 top-full z-50 mt-2 hidden w-[min(24rem,calc(100vw-2rem))] -translate-x-1/2 rounded-md border bg-popover px-3 py-2 text-left text-xs leading-snug text-popover-foreground shadow-md group-hover:block group-focus-visible:block"
                       >
-                        Deactivated projects stop answering requests and close sign-in, with{' '}
-                        <span className="font-medium">all their data kept</span>. They are{' '}
-                        <span className="font-medium">never deleted</span>: activate one here, from its
-                        status badge, or simply send it a request with its API key.
+                        Deactivated projects are <span className="font-medium">frozen</span> — closed to
+                        use and their data preserved — and they{' '}
+                        <span className="font-medium">don&apos;t count against your plan&apos;s project
+                        limit</span>. They are <span className="font-medium">permanently removed after 14
+                        days</span> if not reactivated. Reactivating needs a free project slot on your plan.
                       </span>
                     </span>
                     <span className="text-sm text-muted-foreground">({deactivatedProjects.length})</span>
@@ -1475,21 +1745,16 @@ export default function ProjectsPage() {
                   <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
                     <PowerOff className="h-12 w-12 mb-3 opacity-30" />
                     <p className="text-sm font-medium">No deactivated projects</p>
-                    <p className="text-xs mt-1">Deactivate a project to pause it without deleting anything</p>
+                    <p className="text-xs mt-1">Deactivate a project to free a slot without deleting its data</p>
                   </div>
                 ) : (
                   <div className="basefyio-grid-row-hover grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
                     {deactivatedProjects.map((project) => {
                       const canManage = project.canManage !== false;
-                      const openProject = () => router.push(`/dashboard/projects/${project.id}`);
                       return (
                       <div
                         key={project.id}
-                        role="link"
-                        tabIndex={0}
-                        onClick={openProject}
-                        onKeyDown={(e) => { if (e.key === 'Enter') openProject(); }}
-                        className="group relative cursor-pointer rounded-xl border border-slate-300/40 bg-card p-4 hover:border-slate-400/60 transition-colors dark:border-slate-600/40"
+                        className="group relative rounded-xl border border-slate-300/40 bg-card p-4 hover:border-slate-400/60 transition-colors dark:border-slate-600/40"
                       >
                         <div className="flex items-start justify-between mb-2">
                           <div className="min-w-0 flex-1">
@@ -1514,23 +1779,30 @@ export default function ProjectsPage() {
                         <p className="text-[10px] text-muted-foreground/50 mb-3">
                           {(() => {
                             const raw = project.deactivatedAt ?? project.updatedAt;
-                            if (!raw) return 'Deactivated · data kept, activate any time';
+                            if (!raw) return 'Deactivated';
                             const d = new Date(raw);
-                            const dateStr = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-                            const timeStr = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-                            return `Deactivated ${dateStr} ${timeStr} · data kept, activate any time`;
+                            const when = formatDateTime(d);
+                            const expiresAt = d.getTime() + 14 * 24 * 60 * 60 * 1000;
+                            const remaining = expiresAt - Date.now();
+                            if (remaining <= 0) {
+                              return `Deactivated ${when} · Retention ended — auto-removal within 1 hour`;
+                            }
+                            const days = Math.floor(remaining / 86400000);
+                            const hours = Math.floor((remaining % 86400000) / 3600000);
+                            const rem = days > 0 ? `${days}d ${hours}h left` : `${hours}h left`;
+                            return `Deactivated ${when} · ${rem} until permanent deletion`;
                           })()}
                         </p>
-                        <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                          <button
-                            onClick={() => handleReactivate(project.id)}
-                            disabled={reactivatingId === project.id}
-                            className="flex items-center gap-1.5 rounded-lg bg-primary/10 text-primary px-3 py-1.5 text-xs font-medium hover:bg-primary/20 transition-colors disabled:opacity-50"
-                          >
-                            <Power className={`h-3 w-3 ${reactivatingId === project.id ? 'animate-pulse' : ''}`} />
-                            {reactivatingId === project.id ? 'Activating…' : 'Activate'}
-                          </button>
-                          {canManage && (
+                        {canManage ? (
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handleReactivate(project.id)}
+                              disabled={reactivatingId === project.id}
+                              className="flex items-center gap-1.5 rounded-lg bg-primary/10 text-primary px-3 py-1.5 text-xs font-medium hover:bg-primary/20 transition-colors disabled:opacity-50"
+                            >
+                              <Power className={`h-3 w-3 ${reactivatingId === project.id ? 'animate-pulse' : ''}`} />
+                              {reactivatingId === project.id ? 'Reactivating…' : 'Reactivate'}
+                            </button>
                             <button
                               onClick={() => setDeleteConfirm(project)}
                               className="flex items-center gap-1.5 rounded-lg bg-destructive/10 text-destructive px-3 py-1.5 text-xs font-medium hover:bg-destructive/20 transition-colors"
@@ -1538,9 +1810,12 @@ export default function ProjectsPage() {
                               <Trash2 className="h-3 w-3" />
                               Delete
                             </button>
-                          )}
-                          <span className="ml-auto text-[10px] text-muted-foreground/60">Open for details</span>
-                        </div>
+                          </div>
+                        ) : (
+                          <p className="text-[10px] text-muted-foreground/60">
+                            Only the team owner, an admin, or the project creator can reactivate this.
+                          </p>
+                        )}
                       </div>
                       );
                     })}
@@ -1584,12 +1859,13 @@ export default function ProjectsPage() {
               ) : filtered.length === 0 ? (
                 <EmptyState
                   onNew={() => setDialogOpen(true)}
-                  hasFilters={selectedFolder !== 'all' || selectedTags.length > 0 || !!searchQuery || !!statusFilter || thisMonthOnly}
+                  hasFilters={hasActiveFilter}
+                  onClearFilters={clearAllFilters}
                 />
               ) : (
                 viewMode === 'grid' ? (
                   <div className="basefyio-grid-row-hover grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-                    {filtered.map((project) => (
+                    {visibleProjects.map((project) => (
                       <DroppableProjectCard
                         key={project.id}
                         project={project}
@@ -1602,23 +1878,54 @@ export default function ProjectsPage() {
                         onMoveFolder={(fid) => moveToFolder(project.id, fid)}
                         onToggleTag={(tid) => toggleTag(project.id, tid)}
                         onContextMenu={(e) => handleContextMenu(e, project)}
+                        onOpenMenu={(el) => openProjectMenu(el, project)}
                       />
                     ))}
                   </div>
                 ) : (
-                  <div className="space-y-2">
-                    {filtered.map((project) => (
-                      <ProjectListRow
-                        key={project.id}
-                        project={project}
-                        isSelected={selectedProjects.has(project.id)}
-                        onOpen={() => openProject(project.id)}
-                        onSelect={() => toggleProjectSelection(project.id)}
-                        onContextMenu={(e) => handleContextMenu(e, project)}
-                      />
-                    ))}
+                  <div className="overflow-x-auto rounded-lg border bg-card">
+                    <table className="w-full text-sm">
+                      <thead className="border-b bg-muted/40 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                        <tr>
+                          <th scope="col" className="w-10 px-3 py-2"><span className="sr-only">Select</span></th>
+                          <th scope="col" className="px-3 py-2">Name</th>
+                          <th scope="col" className="hidden px-3 py-2 md:table-cell">Type</th>
+                          <th scope="col" className="hidden px-3 py-2 lg:table-cell">Folder</th>
+                          <th scope="col" className="hidden px-3 py-2 xl:table-cell">Tags</th>
+                          {isAllTeams && <th scope="col" className="hidden px-3 py-2 lg:table-cell">Team</th>}
+                          <th scope="col" className="hidden px-3 py-2 md:table-cell">Created</th>
+                          <th scope="col" className="hidden px-3 py-2 text-right sm:table-cell">Size</th>
+                          <th scope="col" className="px-3 py-2">Status</th>
+                          <th scope="col" className="w-10 px-2 py-2"><span className="sr-only">Actions</span></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {visibleProjects.map((project) => (
+                          <ProjectListRow
+                            key={project.id}
+                            project={project}
+                            showTeam={isAllTeams}
+                            isSelected={selectedProjects.has(project.id)}
+                            onOpen={() => openProject(project.id)}
+                            onSelect={() => toggleProjectSelection(project.id)}
+                            onContextMenu={(e) => handleContextMenu(e, project)}
+                            onOpenMenu={(el) => openProjectMenu(el, project)}
+                          />
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 )
+              )}
+              {!loading && hasMore && (
+                <div ref={loadMoreRef} className="mt-4 flex flex-col items-center gap-1">
+                  <Button variant="outline" size="sm" onClick={() => setVisibleCount((n) => n + PROJECTS_PAGE_SIZE)}>
+                    Show more
+                  </Button>
+                  <span className="text-xs text-muted-foreground">
+                    Showing {visibleProjects.length} of {filtered.length} projects
+                  </span>
+                </div>
               )}
             </div>
             </>
@@ -1697,7 +2004,7 @@ export default function ProjectsPage() {
           onMoveTeam={(team) => { setMoveTeamModal({ project: ctxMenu.project, targetTeam: team }); setCtxMenu(null); }}
           onEdit={() => { openEditModal(ctxMenu.project); setCtxMenu(null); }}
           onDeactivate={() => { setDeactivateConfirm(ctxMenu.project); setCtxMenu(null); }}
-          onWake={() => { handleReactivate(ctxMenu.project.id); setCtxMenu(null); }}
+          onWake={() => { handleReactivate(ctxMenu.project.id, true); setCtxMenu(null); }}
           onDelete={() => { setDeleteConfirm(ctxMenu.project); setCtxMenu(null); }}
         />
       )}
@@ -1724,8 +2031,8 @@ export default function ProjectsPage() {
             setSidebarCtx(null);
           }}
           onDelete={() => {
-            if (sidebarCtx.type === 'folder') deleteFolder((sidebarCtx.item as ProjectFolder).id);
-            else deleteTag((sidebarCtx.item as ProjectTag).id);
+            if (sidebarCtx.type === 'folder') void deleteFolder(sidebarCtx.item as ProjectFolder);
+            else void deleteTag(sidebarCtx.item as ProjectTag);
             setSidebarCtx(null);
           }}
           onClose={() => setSidebarCtx(null)}
@@ -1734,19 +2041,23 @@ export default function ProjectsPage() {
 
       {/* Folder modal */}
       {folderModal.open && (
-        <Modal title={folderModal.editing ? 'Edit Folder' : 'New Folder'} size="md" onClose={() => setFolderModal({ open: false })}>
+        <Modal title={folderModal.editing ? 'Edit Folder' : 'New Folder'} size="md" onClose={() => { if (!folderSaving) setFolderModal({ open: false }); }}>
           <input
             autoFocus value={folderName}
-            onChange={(e) => setFolderName(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && saveFolder()}
+            onChange={(e) => { setFolderName(e.target.value); if (folderNameError) setFolderNameError(null); }}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void saveFolder(); } }}
             placeholder="Folder name"
-            className="w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-primary/50 mb-3"
+            maxLength={64}
+            aria-label="Folder name"
+            aria-invalid={!!folderNameError}
+            className={`w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-primary/50 ${folderNameError ? 'border-destructive mb-1' : 'mb-3'}`}
           />
+          {folderNameError && <p role="alert" className="mb-3 text-xs text-destructive">{folderNameError}</p>}
           <ColorPicker value={folderColor} onChange={setFolderColor} />
           <div className="flex gap-2 mt-4">
-            <Button variant="outline" className="flex-1" onClick={() => setFolderModal({ open: false })}>Cancel</Button>
-            <Button className="flex-1 bg-brand-gradient text-white border-0 hover:opacity-90" onClick={saveFolder}>
-              {folderModal.editing ? 'Save' : 'Create'}
+            <Button variant="outline" className="flex-1" disabled={folderSaving} onClick={() => setFolderModal({ open: false })}>Cancel</Button>
+            <Button className="flex-1 bg-brand-gradient text-white border-0 hover:opacity-90" disabled={folderSaving} onClick={() => void saveFolder()}>
+              {folderSaving ? 'Saving…' : folderModal.editing ? 'Save' : 'Create'}
             </Button>
           </div>
         </Modal>
@@ -1754,19 +2065,23 @@ export default function ProjectsPage() {
 
       {/* Tag modal (create / edit) */}
       {tagModal.open && (
-        <Modal title={tagModal.editing ? 'Edit Tag' : 'New Tag'} size="md" onClose={() => setTagModal({ open: false })}>
+        <Modal title={tagModal.editing ? 'Edit Tag' : 'New Tag'} size="md" onClose={() => { if (!tagSaving) setTagModal({ open: false }); }}>
           <input
             autoFocus value={tagName}
-            onChange={(e) => setTagName(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && saveTag()}
+            onChange={(e) => { setTagName(e.target.value); if (tagNameError) setTagNameError(null); }}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void saveTag(); } }}
             placeholder="Tag name"
-            className="w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-primary/50 mb-3"
+            maxLength={64}
+            aria-label="Tag name"
+            aria-invalid={!!tagNameError}
+            className={`w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-primary/50 ${tagNameError ? 'border-destructive mb-1' : 'mb-3'}`}
           />
+          {tagNameError && <p role="alert" className="mb-3 text-xs text-destructive">{tagNameError}</p>}
           <ColorPicker value={tagColor} onChange={setTagColor} />
           <div className="flex gap-2 mt-4">
-            <Button variant="outline" className="flex-1" onClick={() => setTagModal({ open: false })}>Cancel</Button>
-            <Button className="flex-1 bg-brand-gradient text-white border-0 hover:opacity-90" onClick={saveTag}>
-              {tagModal.editing ? 'Save' : 'Create'}
+            <Button variant="outline" className="flex-1" disabled={tagSaving} onClick={() => setTagModal({ open: false })}>Cancel</Button>
+            <Button className="flex-1 bg-brand-gradient text-white border-0 hover:opacity-90" disabled={tagSaving} onClick={() => void saveTag()}>
+              {tagSaving ? 'Saving…' : tagModal.editing ? 'Save' : 'Create'}
             </Button>
           </div>
         </Modal>
@@ -1902,9 +2217,10 @@ export default function ProjectsPage() {
           <p className="text-sm font-semibold mb-3">&quot;{deactivateConfirm.name}&quot;</p>
           <div className="rounded-lg bg-slate-100 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 px-3 py-2 mb-4">
             <p className="text-xs text-slate-600 dark:text-slate-300">
-              The project stops answering requests and its users cannot sign in, but{' '}
-              <strong>nothing is deleted — ever</strong>. Activate it anytime from this list or its
-              status badge; a request carrying its API key activates it again as well.
+              The project is <strong>frozen</strong> — closed to use, but its data is kept. It{' '}
+              <strong>frees a slot on your plan</strong> so you can create another project. You can
+              reactivate it anytime (a free project slot is required). If left deactivated, it is{' '}
+              <strong>permanently deleted after 14 days</strong>.
             </p>
           </div>
           <div className="flex gap-2">
@@ -1941,8 +2257,9 @@ export default function ProjectsPage() {
           </div>
           <div className="rounded-lg bg-slate-100 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 px-3 py-2 mb-4">
             <p className="text-xs text-slate-600 dark:text-slate-300">
-              They stop answering requests and close sign-in, with <strong>all their data kept — nothing
-              is ever deleted</strong>. Activate any of them later from this list or its status badge.
+              They are <strong>frozen</strong> — closed to use, data kept — and <strong>free their plan
+              slots</strong>. Reactivate anytime; if left deactivated they are <strong>permanently deleted
+              after 14 days</strong>.
             </p>
           </div>
           <div className="flex gap-2">
@@ -1962,7 +2279,7 @@ export default function ProjectsPage() {
           title="Move to Trash"
           onClose={() => {
             setBulkDeleteConfirm(false);
-            setBulkDeleteReasonCode('none');
+            setBulkDeleteReasonCode('');
             setBulkDeleteDetails('');
             setBulkDeleteConfirmText('');
           }}
@@ -2036,7 +2353,7 @@ export default function ProjectsPage() {
               className="flex-1"
               onClick={() => {
                 setBulkDeleteConfirm(false);
-                setBulkDeleteReasonCode('none');
+                setBulkDeleteReasonCode('');
                 setBulkDeleteDetails('');
                 setBulkDeleteConfirmText('');
               }}
@@ -2088,60 +2405,146 @@ export default function ProjectsPage() {
   );
 }
 
+/** One row of the list view; the columns match the table header in ProjectsPage. */
 function ProjectListRow({
   project,
+  showTeam,
   isSelected,
   onOpen,
   onSelect,
   onContextMenu,
+  onOpenMenu,
 }: {
   project: ProjectListItem;
+  showTeam: boolean;
   isSelected: boolean;
   onOpen: () => void;
   onSelect: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
+  onOpenMenu: (anchor: HTMLElement) => void;
 }) {
+  const projectTags = project.tags ?? [];
   return (
-    <div
+    <tr
       onClick={onOpen}
       onContextMenu={onContextMenu}
-      className={`flex cursor-pointer items-center gap-3 rounded-lg border bg-card px-3 py-2 transition-colors hover:bg-accent/40 ${
-        isSelected ? 'ring-2 ring-primary border-primary/50' : ''
+      className={`cursor-pointer border-b transition-colors last:border-0 hover:bg-accent/40 ${
+        isSelected ? 'bg-primary/5' : ''
       }`}
     >
-      <span
-        onClick={(e) => {
-          e.stopPropagation();
-          onSelect();
-        }}
-        className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border-2 ${
-          isSelected ? 'bg-primary border-primary' : 'border-muted-foreground/30'
-        }`}
-      >
-        {isSelected && <Check className="h-2.5 w-2.5 text-white" />}
-      </span>
-      <Database className="h-4 w-4 shrink-0 text-primary" />
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium" title={project.name}>
-          {project.name}
-        </p>
-        <p className="truncate text-xs text-muted-foreground">
-          Created by {project.createdByName ?? 'Unknown'} - {formatDateTime(project.createdAt)} - Size: {formatSize(project.projectSizeBytes)}
-        </p>
-      </div>
-      {project.parentProjectId && (
-        <span
-          className="status-badge inline-flex items-center gap-1 bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400"
-          title={`Preview branch${project.branchName ? ` "${project.branchName}"` : ''} of another project`}
+      <td className="px-3 py-2 align-middle">
+        <button
+          type="button"
+          role="checkbox"
+          aria-checked={isSelected}
+          aria-label={`Select ${project.name}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onSelect();
+          }}
+          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border-2 ${
+            isSelected ? 'bg-primary border-primary' : 'border-muted-foreground/30'
+          }`}
         >
-          <GitBranch className="h-3 w-3" />
-          {project.branchName ?? 'Branch'}
-        </span>
+          {isSelected && <Check className="h-2.5 w-2.5 text-white" />}
+        </button>
+      </td>
+      <td className="max-w-0 px-3 py-2 align-middle">
+        <div className="flex min-w-0 items-center gap-2">
+          <Database className="h-4 w-4 shrink-0 text-primary" />
+          <div className="min-w-0">
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onOpen(); }}
+              className="block max-w-full truncate text-left font-medium hover:underline"
+              title={project.name}
+            >
+              {project.name}
+            </button>
+            <p className="truncate text-xs text-muted-foreground">
+              {project.slug}
+              {project.createdByName ? ` · by ${project.createdByName}` : ''}
+            </p>
+          </div>
+          {project.parentProjectId && (
+            <span
+              className="status-badge inline-flex shrink-0 items-center gap-1 bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400"
+              title={`Preview branch${project.branchName ? ` "${project.branchName}"` : ''} of another project`}
+            >
+              <GitBranch className="h-3 w-3" />
+              {project.branchName ?? 'Branch'}
+            </span>
+          )}
+        </div>
+      </td>
+      <td className="hidden whitespace-nowrap px-3 py-2 align-middle text-xs md:table-cell">
+        {project.databaseType === 'NOSQL' ? 'NoSQL' : 'PostgreSQL'}
+      </td>
+      <td className="hidden max-w-0 px-3 py-2 align-middle text-xs lg:table-cell">
+        {project.folder ? (
+          <span className="flex min-w-0 items-center gap-1.5" title={project.folder.name}>
+            <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: project.folder.color }} />
+            <span className="truncate">{project.folder.name}</span>
+          </span>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        )}
+      </td>
+      <td className="hidden px-3 py-2 align-middle xl:table-cell">
+        {projectTags.length > 0 ? (
+          <div className="flex flex-wrap gap-1">
+            {projectTags.slice(0, 3).map(({ tag }) => (
+              <span key={tag.id} className="tag-pill" style={{ color: tag.color, borderColor: tag.color + '44' }}>
+                {tag.name}
+              </span>
+            ))}
+            {projectTags.length > 3 && (
+              <span className="tag-pill text-muted-foreground border-muted-foreground/20">+{projectTags.length - 3}</span>
+            )}
+          </div>
+        ) : (
+          <span className="text-xs text-muted-foreground">—</span>
+        )}
+      </td>
+      {showTeam && (
+        <td className="hidden max-w-0 truncate px-3 py-2 align-middle text-xs lg:table-cell" title={project.teamName ?? undefined}>
+          {project.teamName ?? '—'}
+        </td>
       )}
-      <span className={`status-badge ${STATUS_COLORS[project.status] ?? 'status-pending'}`}>
-        {projectStatusLabel(project.status).toUpperCase()}
-      </span>
-    </div>
+      <td className="hidden whitespace-nowrap px-3 py-2 align-middle text-xs text-muted-foreground md:table-cell" title={formatDateTime(project.createdAt)}>
+        {formatDate(project.createdAt)}
+      </td>
+      <td className="hidden whitespace-nowrap px-3 py-2 text-right align-middle text-xs tabular-nums text-muted-foreground sm:table-cell">
+        {formatSize(project.projectSizeBytes)}
+      </td>
+      <td className="px-3 py-2 align-middle">
+        <span
+          className={`status-badge ${STATUS_COLORS[project.status] ?? 'status-pending'}`}
+          title={
+            project.status === 'PAUSED'
+              ? 'Asleep after a long quiet spell. Nothing was lost — the next request wakes it, or wake it from this row.'
+              : undefined
+          }
+        >
+          {project.status === 'PAUSED'
+            ? 'Asleep'
+            : project.status.charAt(0) + project.status.slice(1).toLowerCase()}
+        </span>
+      </td>
+      <td className="px-2 py-2 align-middle">
+        <button
+          type="button"
+          data-project-menu-trigger="true"
+          onClick={(e) => { e.stopPropagation(); onOpenMenu(e.currentTarget); }}
+          className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+          aria-label={`Actions for ${project.name}`}
+          aria-haspopup="menu"
+          title="Actions"
+        >
+          <MoreHorizontal className="h-4 w-4" />
+        </button>
+      </td>
+    </tr>
   );
 }
 
@@ -2162,6 +2565,7 @@ function BulkFolderMenu({
     document.addEventListener('mousedown', h);
     return () => document.removeEventListener('mousedown', h);
   }, []);
+  useEscapeKey(open, () => setOpen(false));
   return (
     <div ref={ref} className="relative">
       <button
@@ -2227,6 +2631,7 @@ function BulkTagMenu({
     document.addEventListener('mousedown', h);
     return () => document.removeEventListener('mousedown', h);
   }, []);
+  useEscapeKey(open, () => setOpen(false));
   return (
     <div ref={ref} className="relative">
       <button
@@ -2379,9 +2784,11 @@ function AllFolderDrop({
 
 // ── SortableFolderItem ────────────────────────────────────────────────────────
 function SortableFolderItem({
-  folder, active, count, onClick, onEdit, onDelete, onContextMenu, dropHighlight,
+  folder, teamName, active, count, onClick, onEdit, onDelete, onContextMenu, dropHighlight,
 }: {
   folder: ProjectFolder;
+  /** Shown under the name in the All Teams view, where folders of every team are listed together. */
+  teamName?: string;
   active: boolean;
   count: number;
   onClick: () => void;
@@ -2423,25 +2830,57 @@ function SortableFolderItem({
         <GripVertical className={`h-3 w-3 ${drop ? 'text-primary/40' : 'text-muted-foreground/30'}`} />
       </span>
       <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ background: folder.color }} />
-      <span className="flex-1 truncate">{folder.name}</span>
+      <span className="min-w-0 flex-1" title={teamName ? `${folder.name} — ${teamName}` : folder.name}>
+        <span className="block truncate">{folder.name}</span>
+        {teamName && (
+          <span className="block truncate text-[10px] font-normal text-muted-foreground">{teamName}</span>
+        )}
+      </span>
       <span className={`text-xs tabular-nums ${drop ? 'text-primary/80' : 'text-muted-foreground'}`}>{count}</span>
-      <span className="hidden group-hover:flex items-center gap-0.5">
-        <button onClick={(e) => { e.stopPropagation(); onEdit(); }} className="rounded p-0.5 hover:bg-muted">
+      <RowActions label={`folder "${folder.name}"`} onEdit={onEdit} onDelete={onDelete} />
+    </div>
+  );
+}
+
+/**
+ * Edit / delete buttons for a sidebar row. They float over the row's right
+ * edge instead of being inserted into it, so hovering never shifts the name or
+ * the count; deleting always asks first.
+ */
+function RowActions({ label, onEdit, onDelete }: { label: string; onEdit: () => void; onDelete: () => void }) {
+  return (
+    <span className="pointer-events-none absolute inset-y-0 right-1 flex items-center opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+      <span className="flex items-center gap-0.5 rounded-md bg-background/95 p-0.5 shadow-sm ring-1 ring-border">
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onEdit(); }}
+          className="rounded p-0.5 hover:bg-muted"
+          aria-label={`Edit ${label}`}
+          title="Edit"
+        >
           <Pencil className="h-3 w-3 text-muted-foreground" />
         </button>
-        <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="rounded p-0.5 hover:bg-destructive/10">
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          className="rounded p-0.5 hover:bg-destructive/10"
+          aria-label={`Delete ${label}`}
+          title="Delete"
+        >
           <Trash2 className="h-3 w-3 text-muted-foreground" />
         </button>
       </span>
-    </div>
+    </span>
   );
 }
 
 // ── DraggableTag ──────────────────────────────────────────────────────────────
 function DraggableTag({
-  tag, count, selected, onToggle, onEdit, onDelete, onContextMenu, dropHighlight,
+  tag, teamName, count, selected, onToggle, onEdit, onDelete, onContextMenu, dropHighlight,
 }: {
   tag: ProjectTag;
+  /** Shown under the name in the All Teams view. */
+  teamName?: string;
   count: number;
   selected: boolean;
   onToggle: () => void;
@@ -2484,19 +2923,17 @@ function DraggableTag({
         <GripVertical className={`h-3 w-3 ${drop ? 'text-primary/40' : 'text-muted-foreground/30'}`} />
       </span>
       <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ background: tag.color }} />
-      <span className="flex-1 truncate">{tag.name}</span>
+      <span className="min-w-0 flex-1" title={teamName ? `${tag.name} — ${teamName}` : tag.name}>
+        <span className="block truncate">{tag.name}</span>
+        {teamName && (
+          <span className="block truncate text-[10px] font-normal text-muted-foreground">{teamName}</span>
+        )}
+      </span>
       {drop
         ? <span className="text-[10px] text-primary font-medium shrink-0">+tag</span>
         : count > 0 && <span className="text-xs tabular-nums text-muted-foreground shrink-0">{count}</span>
       }
-      <span className="hidden group-hover:flex items-center gap-0.5">
-        <button onClick={(e) => { e.stopPropagation(); onEdit(); }} className="rounded p-0.5 hover:bg-muted">
-          <Pencil className="h-3 w-3 text-muted-foreground" />
-        </button>
-        <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="rounded p-0.5 hover:bg-destructive/10">
-          <Trash2 className="h-3 w-3 text-muted-foreground" />
-        </button>
-      </span>
+      <RowActions label={`tag "${tag.name}"`} onEdit={onEdit} onDelete={onDelete} />
     </div>
   );
 }
@@ -2542,7 +2979,7 @@ const SidebarContextMenu = React.forwardRef<HTMLDivElement, {
 // ── DroppableProjectCard ──────────────────────────────────────────────────────
 function DroppableProjectCard({
   project, folders, allTags, isSelected, hasSelection,
-  onOpen, onSelect, onMoveFolder, onToggleTag, onContextMenu,
+  onOpen, onSelect, onMoveFolder, onToggleTag, onContextMenu, onOpenMenu,
 }: {
   project: ProjectListItem;
   folders: ProjectFolder[];
@@ -2554,6 +2991,8 @@ function DroppableProjectCard({
   onMoveFolder: (folderId: string | null) => void;
   onToggleTag: (tagId: string) => void;
   onContextMenu: (e: React.MouseEvent) => void;
+  /** Opens the project menu (same as a right-click) under the "…" button. */
+  onOpenMenu: (anchor: HTMLElement) => void;
 }) {
   const { attributes, listeners, setNodeRef: setDragRef, transform, isDragging } = useDraggable({
     id: project.id,
@@ -2612,17 +3051,33 @@ function DroppableProjectCard({
             </span>
           )}
         </div>
-        {/* Checkbox – always visible, click to select */}
-        <span
-          onClick={(e) => { e.stopPropagation(); onSelect(); }}
-          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border-2 transition-colors cursor-pointer ${
-            isSelected
-              ? 'bg-primary border-primary'
-              : 'border-muted-foreground/30 bg-card hover:border-primary'
-          }`}
-        >
-          {isSelected && <Check className="h-2.5 w-2.5 text-white" />}
-        </span>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {/* Actions menu – the same menu a right-click opens */}
+          <button
+            type="button"
+            data-project-menu-trigger="true"
+            onPointerDown={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); onOpenMenu(e.currentTarget); }}
+            className="-my-1 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+            aria-label={`Actions for ${project.name}`}
+            aria-haspopup="menu"
+            title="Actions"
+          >
+            <MoreHorizontal className="h-4 w-4" />
+          </button>
+          {/* Checkbox – always visible, click to select */}
+          <span
+            onClick={(e) => { e.stopPropagation(); onSelect(); }}
+            className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border-2 transition-colors cursor-pointer ${
+              isSelected
+                ? 'bg-primary border-primary'
+                : 'border-muted-foreground/30 bg-card hover:border-primary'
+            }`}
+          >
+            {isSelected && <Check className="h-2.5 w-2.5 text-white" />}
+          </span>
+        </div>
       </div>
 
       {/* Name + description */}
@@ -2831,15 +3286,14 @@ const ContextMenu = React.forwardRef<HTMLDivElement, {
         )}
 
         <div className="my-1 h-px bg-border" />
-        {project.status === 'PAUSED' ? (
+        {project.status === 'PAUSED' && (
           <button onClick={onWake} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm hover:bg-accent transition-colors">
-            <Power className="h-3.5 w-3.5 text-teal-500" /> Activate project
-          </button>
-        ) : (
-          <button onClick={onDeactivate} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm hover:bg-accent transition-colors">
-            <PowerOff className="h-3.5 w-3.5 text-muted-foreground" /> Deactivate
+            <Power className="h-3.5 w-3.5 text-teal-500" /> Wake project
           </button>
         )}
+        <button onClick={onDeactivate} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm hover:bg-accent transition-colors">
+          <PowerOff className="h-3.5 w-3.5 text-muted-foreground" /> Deactivate
+        </button>
         <button onClick={onDelete} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-destructive hover:bg-destructive/10 transition-colors">
           <Trash2 className="h-3.5 w-3.5" /> Delete Project
         </button>
@@ -2849,7 +3303,15 @@ const ContextMenu = React.forwardRef<HTMLDivElement, {
 });
 
 // ── EmptyState ────────────────────────────────────────────────────────────────
-function EmptyState({ onNew, hasFilters }: { onNew: () => void; hasFilters: boolean }) {
+function EmptyState({
+  onNew,
+  hasFilters,
+  onClearFilters,
+}: {
+  onNew: () => void;
+  hasFilters: boolean;
+  onClearFilters?: () => void;
+}) {
   return (
     <div className="flex flex-col items-center justify-center py-20 text-center">
       <div className="h-14 w-14 rounded-2xl bg-brand-gradient flex items-center justify-center mb-4 shadow-md">
@@ -2862,6 +3324,11 @@ function EmptyState({ onNew, hasFilters }: { onNew: () => void; hasFilters: bool
       {!hasFilters && (
         <Button onClick={onNew} className="bg-brand-gradient text-white border-0 hover:opacity-90">
           <Plus className="mr-1.5 h-4 w-4" /> New Project
+        </Button>
+      )}
+      {hasFilters && onClearFilters && (
+        <Button variant="outline" onClick={onClearFilters}>
+          <X className="mr-1.5 h-4 w-4" /> Clear all filters
         </Button>
       )}
     </div>
@@ -2882,13 +3349,20 @@ function Modal({
   size?: 'sm' | 'md';
 }) {
   const maxW = size === 'md' ? 'max-w-md' : 'max-w-sm';
+  // Esc closes the dialog like its X button (e.g. "Move to team" ignored Esc).
+  useEscapeKey(true, () => onClose());
   return (
     <>
       <div className="fixed inset-0 z-50 bg-black/25" onClick={onClose} />
-      <div className={`fixed left-1/2 top-1/2 z-[51] -translate-x-1/2 -translate-y-1/2 w-full ${maxW} rounded-xl border bg-card p-5 shadow-xl`}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className={`fixed left-1/2 top-1/2 z-[51] -translate-x-1/2 -translate-y-1/2 w-full ${maxW} rounded-xl border bg-card p-5 shadow-xl`}
+      >
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-semibold text-base">{title}</h2>
-          <button onClick={onClose} className="rounded-md p-1 hover:bg-accent transition-colors">
+          <button onClick={onClose} className="rounded-md p-1 hover:bg-accent transition-colors" aria-label="Close">
             <X className="h-4 w-4 text-muted-foreground" />
           </button>
         </div>

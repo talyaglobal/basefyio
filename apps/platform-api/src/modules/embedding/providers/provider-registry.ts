@@ -1,4 +1,3 @@
-import { aiEnabled, AI_DISABLED_MESSAGE } from '../../../common/utils/ai-switch';
 import {
   EMBEDDING_PROVIDER_IDS,
   EmbeddingProvider,
@@ -23,6 +22,11 @@ import {
   COHERE_DEFAULT_MODEL,
   CohereEmbeddingProvider,
 } from './cohere.provider';
+import {
+  GEMINI_DEFAULT_ENDPOINT,
+  GEMINI_DEFAULT_MODEL,
+  GeminiEmbeddingProvider,
+} from './gemini.provider';
 
 export interface ProviderDisclosureText {
   /** Where the provider processes the text. `SELF_HOSTED` is replaced by the host region at runtime. */
@@ -109,6 +113,26 @@ export const PROVIDER_CATALOGUE: Record<EmbeddingProviderId, ProviderCatalogueEn
       selfHosted: false,
     },
   },
+  gemini: {
+    id: 'gemini',
+    name: 'Google Gemini',
+    defaultModel: GEMINI_DEFAULT_MODEL,
+    defaultEndpoint: GEMINI_DEFAULT_ENDPOINT,
+    requiresApiKey: true,
+    keyEnvVar: 'GEMINI_API_KEY',
+    supportsBaseUrl: true,
+    intentSensitive: true,
+    disclosure: {
+      // Google may process Gemini API requests in any country where it runs
+      // data centers; it does not commit to a single region.
+      dataRegion: { code: 'GLOBAL', label: 'Global (Google data centers)' },
+      retention:
+        'On the paid tier of the Gemini API, Google does not use prompts or responses to improve its products and keeps them only for a limited period to detect abuse. On the free tier, Google may use them to improve its products.',
+      policyUrl: 'https://ai.google.dev/gemini-api/terms',
+      usedForTraining: false,
+      selfHosted: false,
+    },
+  },
 };
 
 export const DEFAULT_PROVIDER: EmbeddingProviderId = 'openai';
@@ -167,8 +191,6 @@ export function isPrivateHost(url: string): boolean {
 
 /** Build a concrete provider; throws `auth` when a required key is missing. */
 export function createProvider(cfg: EmbeddingProviderConfig): EmbeddingProvider {
-  // Every embedding call — platform store or a project's own provider — goes through here.
-  if (!aiEnabled()) throw new Error(AI_DISABLED_MESSAGE);
   const entry = PROVIDER_CATALOGUE[cfg.provider];
   const model = cfg.model?.trim() || entry.defaultModel;
   if (entry.requiresApiKey && !cfg.apiKey) {
@@ -186,6 +208,8 @@ export function createProvider(cfg: EmbeddingProviderConfig): EmbeddingProvider 
       return new OllamaEmbeddingProvider(model, cfg.baseUrl, cfg.apiKey);
     case 'cohere':
       return new CohereEmbeddingProvider(model, cfg.apiKey!, cfg.baseUrl, cfg.dimensions);
+    case 'gemini':
+      return new GeminiEmbeddingProvider(model, cfg.apiKey!, cfg.baseUrl, cfg.dimensions);
   }
 }
 
@@ -235,6 +259,7 @@ export function resolvePlatformSettings(config: ConfigReader): PlatformEmbedding
     openai: str('openai.apiKey') || null,
     ollama: str('embedding.ollama.apiKey') || null,
     cohere: str('embedding.cohere.apiKey') || null,
+    gemini: str('embedding.gemini.apiKey') || null,
   };
   const ollamaBase = str('embedding.ollama.baseUrl') || null;
 

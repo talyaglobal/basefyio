@@ -1,5 +1,4 @@
 import { resolveMailBaseUrl } from '../mail-provider-env';
-import { aiEnabled } from '../common/utils/ai-switch';
 
 /** An optional integer env value: unset or blank means "not configured". */
 const optionalInt = (value: string | undefined): number | undefined => {
@@ -8,12 +7,7 @@ const optionalInt = (value: string | undefined): number | undefined => {
   return Number.isNaN(n) ? undefined : n;
 };
 
-export default () => {
-  // AI_ENABLED=false empties every hosted-model key below, so no feature can
-  // reach OpenAI, Anthropic, Cohere, fal.ai, ElevenLabs or a remote Ollama.
-  const AI = aiEnabled();
-  const aiKey = (value: string | undefined) => (AI ? value || '' : '');
-  return {
+export default () => ({
   port: parseInt(process.env.PORT || '4000', 10),
   appUrl: process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
 
@@ -40,14 +34,6 @@ export default () => {
     adminClientId: process.env.KEYCLOAK_ADMIN_CLIENT_ID || 'admin-cli',
     /** Comma- or space-separated extra post-logout redirect URIs for basefyio-platform (production domains, etc.) */
     postLogoutRedirectUrisExtra: process.env.KEYCLOAK_POST_LOGOUT_REDIRECT_URIS || '',
-    /**
-     * Readiness URL the health check probes. Empty = `<url>/health/ready`, which is
-     * where Keycloak 24 answers; from Keycloak 25 on, health lives on the management
-     * port (`http://keycloak:9000/health/ready`).
-     */
-    healthUrl: process.env.KEYCLOAK_HEALTH_URL || '',
-    /** Write the platform's SMTP settings into every realm, so Keycloak's own mail (password reset, verification) can leave. */
-    realmSmtp: process.env.KEYCLOAK_REALM_SMTP === 'true',
   },
 
   minio: {
@@ -156,18 +142,6 @@ export default () => {
 
   redis: {
     url: process.env.REDIS_URL || 'redis://localhost:6379',
-    // State that must never be evicted — queue bookkeeping, the cron lease,
-    // usage counters — lives on a `noeviction` instance when one is
-    // configured, and on the cache instance otherwise (one Redis still works).
-    queueUrl: process.env.REDIS_QUEUE_URL || process.env.REDIS_URL || 'redis://localhost:6379',
-  },
-
-  // The message bus (RabbitMQ behind the MessageBus port). Unset = inert: every
-  // producer is a no-op that says so, every consumer stays registered but idle.
-  messageBus: {
-    url: process.env.MESSAGE_BUS_URL || '',
-    // all | none | comma-separated queue names this process consumes.
-    consumers: process.env.BUS_CONSUMERS || 'all',
   },
 
   // The mailer speaks the Resend HTTP contract, but the provider behind it is
@@ -182,33 +156,8 @@ export default () => {
     replyTo: process.env.RESEND_REPLY_TO || 'support@basefyio.com',
   },
 
-  /**
-   * How platform mail leaves: `resend` (default — the Resend-compatible HTTP API
-   * configured above) or `smtp` (any SMTP server; the only option on a host
-   * without internet access).
-   */
-  mail: {
-    transport: (process.env.MAIL_TRANSPORT || 'resend').trim().toLowerCase(),
-    /** Sender for SMTP; empty = RESEND_FROM_EMAIL. Same format: `Name <address>`. */
-    from: process.env.MAIL_FROM || '',
-    smtp: {
-      host: process.env.SMTP_HOST || '',
-      port: parseInt(process.env.SMTP_PORT || '587', 10),
-      user: process.env.SMTP_USER || '',
-      password: process.env.SMTP_PASSWORD || '',
-      /** `starttls` (default, upgrade on 587) | `tls` (implicit, 465) | `none` (plain, trusted networks only). */
-      security: (process.env.SMTP_SECURE || 'starttls').trim().toLowerCase(),
-      /** Set to "false" to accept a self-signed server certificate. */
-      rejectUnauthorized: process.env.SMTP_TLS_REJECT_UNAUTHORIZED !== 'false',
-    },
-  },
-
-  ai: {
-    enabled: AI,
-  },
-
   openai: {
-    apiKey: aiKey(process.env.OPENAI_API_KEY),
+    apiKey: process.env.OPENAI_API_KEY || '',
   },
 
   /**
@@ -219,17 +168,17 @@ export default () => {
    */
   marketingAgency: {
     claude: {
-      apiKey: aiKey(process.env.ANTHROPIC_API_KEY),
+      apiKey: process.env.ANTHROPIC_API_KEY || '',
       model: process.env.ANTHROPIC_MODEL || 'claude-opus-5',
     },
     fal: {
-      apiKey: aiKey(process.env.FAL_KEY),
+      apiKey: process.env.FAL_KEY || '',
       imageModel: process.env.FAL_IMAGE_MODEL || 'fal-ai/flux/dev',
       videoModel:
         process.env.FAL_VIDEO_MODEL || 'fal-ai/kling-video/v1/standard/text-to-video',
     },
     elevenlabs: {
-      apiKey: aiKey(process.env.ELEVENLABS_API_KEY),
+      apiKey: process.env.ELEVENLABS_API_KEY || '',
       voiceId: process.env.ELEVENLABS_VOICE_ID || '',
       model: process.env.ELEVENLABS_MODEL || 'eleven_multilingual_v2',
     },
@@ -244,14 +193,14 @@ export default () => {
 
   embedding: {
     /** Set to "false" to disable all embedding / vector search without removing the module. */
-    enabled: AI && process.env.EMBEDDING_ENABLED !== 'false',
-    /** Embedding provider for the platform store: openai (default) | ollama | cohere. */
+    enabled: process.env.EMBEDDING_ENABLED !== 'false',
+    /** Embedding provider for the platform store: openai (default) | ollama | cohere | gemini. */
     provider: process.env.EMBEDDING_PROVIDER || 'openai',
     /** Model id at the provider. Empty = the provider's default (text-embedding-3-small for OpenAI). */
     model: process.env.EMBEDDING_MODEL || '',
     /** Custom endpoint for the platform provider (an OpenAI-compatible gateway, a remote Ollama). */
     baseUrl: process.env.EMBEDDING_BASE_URL || '',
-    /** Request-side output width for models that support it (OpenAI v3, Cohere v4). Empty = model default. */
+    /** Request-side output width for models that support it (OpenAI v3, Cohere v4, Gemini). Empty = model default. */
     dimensions: process.env.EMBEDDING_DIMENSIONS || '',
     /** Hard cap on daily embedding token usage to prevent runaway costs (default 1M). */
     maxDailyTokens: parseInt(process.env.EMBEDDING_MAX_DAILY_TOKENS || '1000000', 10),
@@ -272,12 +221,16 @@ export default () => {
     hostRegion: process.env.PLATFORM_REGION || '',
     ollama: {
       /** Shared with the agent module; a trailing /v1 is tolerated. */
-      baseUrl: aiKey(process.env.OLLAMA_BASE_URL),
+      baseUrl: process.env.OLLAMA_BASE_URL || '',
       /** Optional bearer token for an Ollama behind an authenticating proxy. */
-      apiKey: aiKey(process.env.OLLAMA_API_KEY),
+      apiKey: process.env.OLLAMA_API_KEY || '',
     },
     cohere: {
-      apiKey: aiKey(process.env.COHERE_API_KEY),
+      apiKey: process.env.COHERE_API_KEY || '',
+    },
+    gemini: {
+      /** Platform-level Google Gemini API key, used when a project selects Gemini without its own key. */
+      apiKey: process.env.GEMINI_API_KEY || '',
     },
   },
 
@@ -294,6 +247,7 @@ export default () => {
 
   stripe: {
     secretKey: process.env.STRIPE_SECRET_KEY || '',
+    publishableKey: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || '', // payment probe only
     webhookSecret: process.env.STRIPE_WEBHOOK_SECRET || '',
   },
 
@@ -377,6 +331,12 @@ export default () => {
     maxDocumentKb: parseInt(process.env.DATA_ENGINE_MAX_DOC_KB || '1024', 10),
     maxNestingDepth: parseInt(process.env.DATA_ENGINE_MAX_NESTING_DEPTH || '8', 10),
     maxArrayItems: parseInt(process.env.DATA_ENGINE_MAX_ARRAY_ITEMS || '1000', 10),
+    /**
+     * 'enforce' (default) validates every document write against its entity's
+     * field definitions; 'off' is the escape hatch that skips the field checks
+     * (size/depth/array limits still apply).
+     */
+    schemaValidation: process.env.DATA_ENGINE_SCHEMA_VALIDATION === 'off' ? 'off' : 'enforce',
   },
 
   /**
@@ -393,5 +353,4 @@ export default () => {
       process.env.CODEFYIO_SESSION_SECRET || process.env.CODEFYIO_JWT_SECRET || '',
     sessionTtlSeconds: parseInt(process.env.CODEFYIO_SESSION_TTL || '3600', 10),
   },
-};
-};
+});

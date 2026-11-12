@@ -77,6 +77,17 @@ const fakeCollection = {
     store.push(doc);
     return { insertedId: doc._id };
   },
+  insertMany: async (docs: FakeDoc[], options?: Record<string, unknown>) => {
+    record('insertMany', { docs, options });
+    store.push(...docs);
+    return { insertedCount: docs.length };
+  },
+  deleteMany: async (filter: Record<string, unknown>) => {
+    record('deleteMany', filter);
+    const before = store.length;
+    store = store.filter((d) => !matches(d, filter));
+    return { deletedCount: before - store.length };
+  },
   findOne: async (filter: Record<string, unknown>) => {
     record('findOne', filter);
     return store.find((d) => matches(d, filter)) ?? null;
@@ -302,5 +313,98 @@ describe('MongoDataEngine contract', () => {
     await expect(
       col.insert({ blob: 'x'.repeat(70 * 1024) }),
     ).rejects.toMatchObject({ code: 'DOCUMENT_TOO_LARGE' });
+  });
+});
+
+describe('MongoDataEngine — concurrency, restore, bulk and purge', () => {
+  let engine: MongoDataEngine;
+
+  beforeEach(() => {
+    store = [];
+    for (const key of Object.keys(calls)) delete calls[key];
+    engine = new MongoDataEngine(config);
+  });
+
+  it('If-Match is enforced atomically: the expected version is part of the write filter', async () => {
+    const col = engine.collection('p1', 'orders');
+    const created = await col.insert({ x: 1 });
+    const updated = await col.update(created._id, { x: 2 }, { ifMatch: 1 });
+    const { filter } = calls.findOneAndUpdate![0] as { filter: Record<string, unknown> };
+    expect(filter['envelope.version']).toBe(1);
+    expect(updated._version).toBe(2);
+
+    // A stale version (the QA case: If-Match 1 while the document is at 2) is a conflict.
+    await expect(col.update(created._id, { x: 3 }, { ifMatch: 1 })).rejects.toMatchObject({
+      code: 'CONCURRENCY_CONFLICT',
+      statusCode: 409,
+    });
+    await expect(col.replace(created._id, { x: 3 }, { ifMatch: 1 })).rejects.toMatchObject({ code: 'CONCURRENCY_CONFLICT' });
+    await expect(col.delete(created._id, { ifMatch: 1 })).rejects.toMatchObject({ code: 'CONCURRENCY_CONFLICT' });
+    expect((await col.get(created._id))?.x).toBe(2);
+  });
+
+  it('writes to a missing or deleted document are 404, not 500', async () => {
+    const col = engine.collection('p1', 'orders');
+    await expect(col.update('missing', { x: 1 })).rejects.toMatchObject({ code: 'DOCUMENT_NOT_FOUND', statusCode: 404 });
+    await expect(col.delete('missing')).rejects.toMatchObject({ code: 'DOCUMENT_NOT_FOUND' });
+
+    const created = await col.insert({ x: 1 });
+    await col.delete(created._id);
+    await expect(col.delete(created._id)).rejects.toMatchObject({ code: 'DOCUMENT_NOT_FOUND' });
+    await expect(col.update(created._id, { x: 2 })).rejects.toMatchObject({ code: 'DOCUMENT_NOT_FOUND' });
+  });
+
+  it('soft-deleted documents are readable with includeSoftDeleted and can be restored', async () => {
+    const col = engine.collection('p1', 'orders');
+    const created = await col.insert({ x: 1 });
+    await col.delete(created._id);
+
+    expect(await col.get(created._id)).toBeNull();
+    const deleted = await col.get(created._id, { includeSoftDeleted: true });
+    expect(deleted?._status).toBe('deleted');
+    expect(deleted?._deletedAt).not.toBeNull();
+    expect(await col.count(undefined, { includeSoftDeleted: true })).toBe(1);
+
+    const restored = await col.restore!(created._id);
+    expect(restored._status).toBe('active');
+    expect(restored._deletedAt).toBeNull();
+    expect(restored._version).toBe(3);
+    expect((await col.get(created._id))?.x).toBe(1);
+
+    await expect(col.restore!(created._id)).rejects.toMatchObject({ code: 'DOCUMENT_NOT_DELETED', statusCode: 409 });
+    await expect(col.restore!('missing')).rejects.toMatchObject({ code: 'DOCUMENT_NOT_FOUND' });
+  });
+
+  it('insertMany stores every document in one ordered call', async () => {
+    const col = engine.collection('p1', 'orders');
+    const docs = await col.insertMany!([{ n: 1 }, { n: 2 }], { userId: 'u1' });
+    expect(docs.map((d) => d.n)).toEqual([1, 2]);
+    expect(docs[0]._createdBy).toBe('u1');
+    const { options } = calls.insertMany![0] as { options: Record<string, unknown> };
+    expect(options).toEqual({ ordered: true });
+    expect(await col.count()).toBe(2);
+  });
+
+  it('purge removes every document of the entity only, deleted ones included', async () => {
+    const orders = engine.collection('p1', 'orders');
+    const other = engine.collection('p1', 'invoices');
+    const a = await orders.insert({ n: 1 });
+    await orders.insert({ n: 2 });
+    await orders.delete(a._id);
+    await other.insert({ n: 3 });
+
+    expect(await orders.purge!()).toBe(2);
+    expect(await orders.count(undefined, { includeSoftDeleted: true })).toBe(0);
+    expect(await other.count()).toBe(1);
+  });
+
+  it('query paging is deterministic: _id breaks ties', async () => {
+    const col = engine.collection('p1', 'orders');
+    await col.query({ entity: 'orders' });
+    await col.query({ entity: 'orders', sort: [{ path: { path: 'n', isArrayPath: false }, direction: 'asc' }] });
+    expect(calls['cursor.sort']).toEqual([
+      { 'envelope.createdAt': -1, _id: 1 },
+      { 'data.n': 1, _id: 1 },
+    ]);
   });
 });

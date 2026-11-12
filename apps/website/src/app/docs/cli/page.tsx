@@ -138,6 +138,39 @@ basefyio db execute --file query.sql
 # Inline
 basefyio db execute --query "SELECT * FROM users LIMIT 5"`}</code></pre>
 
+      <h3>basefyio db rotate-password</h3>
+      <p>
+        Generate a new password for the project&apos;s database user and print
+        the new connection strings. The old password stops working
+        immediately, so update every app that uses it. You are asked to type
+        the project name first; <code>--yes</code> skips the question in
+        scripts.
+      </p>
+      <pre><code>{`# Owner database user
+basefyio db rotate-password
+
+# Also rewrite .env in this directory
+basefyio db rotate-password --write-env
+
+# The read-only user instead
+basefyio db rotate-password --readonly`}</code></pre>
+
+      <h2>pgvector</h2>
+
+      <h3>basefyio pgvector</h3>
+      <p>
+        Enable, disable and inspect vector embeddings (pgvector) on a project
+        — the same switches as the AI / Embeddings page in the dashboard.
+        Disabling keeps the stored embeddings unless you pass{" "}
+        <code>--drop-data</code>.
+      </p>
+      <pre><code>{`basefyio pgvector status
+basefyio pgvector enable
+basefyio pgvector disable
+
+# Also delete the stored embeddings (asks you to type the project name)
+basefyio pgvector disable --drop-data`}</code></pre>
+
       <h2>Inspect</h2>
 
       <h3>basefyio inspect</h3>

@@ -5,17 +5,37 @@ import Link from 'next/link';
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Box, Database, DollarSign, HardDrive, RefreshCw, Users } from 'lucide-react';
 import { api } from '@/lib/api';
-import type { ConsoleOverview, ConsolePlanMix, ConsoleTopProject, StorageCategory } from '@/lib/console-types';
+import type {
+  ConsoleOverview,
+  ConsolePlanMix,
+  ConsoleTopProject,
+  RevenueState,
+  StorageCategory,
+} from '@/lib/console-types';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { formatBytes, formatCount, formatDate, formatUsd, monthLabel, timeAgo } from '@/components/console/format';
-import { ErrorState, PageHeader, Panel, Spinner, StatCard, StatusBadge, td, tdRight, th, thRight } from '@/components/console/ui';
+import {
+  ErrorState,
+  PageHeader,
+  Panel,
+  REVENUE_STATE_HINTS,
+  REVENUE_STATE_LABELS,
+  RevenueStateBadge,
+  Spinner,
+  StatCard,
+  StatusBadge,
+  td,
+  tdRight,
+  th,
+  thRight,
+} from '@/components/console/ui';
 import { DiskPanel } from '@/components/console/disk-panel';
 
 const CATEGORY_LABELS: Record<StorageCategory, string> = {
   project: 'Live projects',
   deleted_project: 'Deleted / deactivated projects',
-  platform: 'Platform buckets',
+  platform: 'Platform (backups, exports, uploads)',
   orphan: 'No owning project',
 };
 
@@ -25,6 +45,9 @@ const CATEGORY_COLORS: Record<StorageCategory, string> = {
   platform: 'bg-sky-500',
   orphan: 'bg-red-500',
 };
+
+/** Paid-plan states that are not counted, in the order worth chasing. */
+const NOT_COUNTED: RevenueState[] = ['past_due', 'lapsed', 'unbilled', 'frozen', 'trialing', 'incomplete'];
 
 export default function ConsoleOverviewPage() {
   const [data, setData] = useState<ConsoleOverview | null>(null);
@@ -55,6 +78,10 @@ export default function ConsoleOverviewPage() {
   const { counts, money, footprint } = data;
   const storage = footprint.storage;
   const margin = money.marginVsBillUsd;
+  const paidPlanTeams = money.paidPlanTeams ?? counts.payingTeams;
+  const notCounted = NOT_COUNTED.map((s) => ({ state: s, ...(money.revenueByState?.[s] ?? { teams: 0, listPriceUsd: 0 }) })).filter(
+    (s) => s.teams > 0,
+  );
 
   return (
     <>
@@ -70,16 +97,22 @@ export default function ConsoleOverviewPage() {
       />
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          label="Recurring revenue"
-          icon={DollarSign}
-          value={formatUsd(money.mrrUsd)}
-          hint={`${counts.payingTeams} paying of ${counts.teams} teams`}
-        />
+        <div title={money.revenueDefinition}>
+          <StatCard
+            label="Recurring revenue"
+            icon={DollarSign}
+            value={formatUsd(money.mrrUsd)}
+            hint={`${counts.payingTeams} paying of ${paidPlanTeams} on paid plans · ${counts.teams} teams`}
+          />
+        </div>
         <StatCard
           label="Infrastructure bill"
           value={formatUsd(money.actualMonthlyBillUsd)}
-          hint={`Projects use ${formatUsd(money.allocatedRawUsd)} of it this month`}
+          hint={
+            money.recoveryRatio > 1
+              ? `Usage model prices projects at ${formatUsd(money.allocatedRawUsd)} (${money.recoveryRatio}× the bill: projects share one host)`
+              : `Usage model prices projects at ${formatUsd(money.allocatedRawUsd)}`
+          }
         />
         <StatCard
           label="Margin vs bill"
@@ -96,13 +129,24 @@ export default function ConsoleOverviewPage() {
           label="Users"
           icon={Users}
           value={formatCount(counts.users)}
-          hint={`+${counts.usersLast30d} in 30 days · ${counts.activeUsersLast30d} signed in`}
+          hint={`+${counts.usersLast30d} in 30 days · ${counts.activeUsersLast30d} active in 30 days`}
         />
         <StatCard
           label="Projects"
           icon={Box}
           value={formatCount(counts.projects.active)}
-          hint={`${counts.projects.paused + counts.projects.deactivated} deactivated · ${counts.projects.deleted} deleted`}
+          hint={
+            <>
+              {`${counts.projects.paused} paused · ${counts.projects.deactivated} deactivated · ${counts.projects.deleted} in trash${
+                counts.projects.permanentlyDeletedLast30d != null
+                  ? ` · ${counts.projects.permanentlyDeletedLast30d} deleted for good (30 days)`
+                  : ''
+              }${counts.projects.previewBranches ? ` · ${counts.projects.previewBranches} preview branches` : ''} · `}
+              <Link href="/console/manage?tab=deletionReasons" prefetch={false} className="text-primary hover:underline">
+                deletion log
+              </Link>
+            </>
+          }
         />
         <StatCard
           label="Databases"
@@ -114,7 +158,7 @@ export default function ConsoleOverviewPage() {
           label="File storage"
           icon={HardDrive}
           value={formatBytes(storage.totalBytes || footprint.projectStorageBytes)}
-          hint={`${formatCount(storage.bucketCount)} buckets · ${formatBytes(footprint.bandwidthMonthBytes)} egress`}
+          hint={`${formatCount(storage.bucketCount)} buckets · ${formatBytes(footprint.bandwidthMonthBytes)} egress this month`}
         />
       </div>
 
@@ -148,7 +192,7 @@ export default function ConsoleOverviewPage() {
           title="Where file storage goes"
           description={storage.measuredAt ? `All buckets, measured ${timeAgo(storage.measuredAt)}` : 'Not measured yet'}
           actions={
-            <Link href="/console/storage" className="text-xs font-medium text-primary hover:underline">
+            <Link href="/console/storage" prefetch={false} className="text-xs font-medium text-primary hover:underline">
               Buckets
             </Link>
           }
@@ -193,11 +237,11 @@ export default function ConsoleOverviewPage() {
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <TopProjects
           title="Most expensive projects"
-          description="Our raw cost, projected to month end"
+          description="Modeled cost, projected to month end"
           rows={data.topByCost}
           metric={(p) => formatUsd(p.projectedRawUsd)}
           secondary={(p) => formatUsd(p.projectedPricedUsd)}
-          metricLabel="Our cost"
+          metricLabel="Modeled cost"
           secondaryLabel="Priced"
         />
         <TopProjects
@@ -211,33 +255,53 @@ export default function ConsoleOverviewPage() {
         />
       </div>
 
-      <Panel className="mt-4" title="Plan mix" description="Click a plan to see its teams" flush>
+      <Panel
+        className="mt-4"
+        title="Plan mix"
+        description="Select a plan to see its teams. Paying and revenue follow the recurring-revenue rules below."
+        flush
+      >
         <table className="w-full text-sm">
           <thead className="border-b bg-muted/40">
             <tr>
-              <th className={th}>Plan</th>
-              <th className={thRight}>Price</th>
-              <th className={thRight}>Teams</th>
-              <th className={thRight}>Paying</th>
-              <th className={thRight}>Monthly revenue</th>
+              <th className={th} scope="col">Plan</th>
+              <th className={thRight} scope="col">Price</th>
+              <th className={thRight} scope="col">Teams</th>
+              <th className={thRight} scope="col">Paying</th>
+              <th className={thRight} scope="col">Recurring revenue</th>
             </tr>
           </thead>
           <tbody>
             {data.plans.map((p) => (
-              <tr
-                key={p.name}
-                onClick={() => setOpenPlan(p)}
-                className="cursor-pointer border-b last:border-0 hover:bg-muted/40"
-              >
-                <td className={`${td} font-medium text-primary`}>{p.displayName}</td>
+              <tr key={p.name} className="border-b last:border-0 hover:bg-muted/40">
+                <td className={td}>
+                  <button
+                    type="button"
+                    onClick={() => setOpenPlan(p)}
+                    className="font-medium text-primary hover:underline"
+                  >
+                    {p.displayName}
+                  </button>
+                </td>
                 <td className={tdRight}>{formatUsd(p.priceMonthlyUsd)}</td>
                 <td className={tdRight}>{p.teams}</td>
                 <td className={tdRight}>{p.paying}</td>
-                <td className={tdRight}>{formatUsd(p.paying * p.priceMonthlyUsd)}</td>
+                <td className={tdRight}>{formatUsd(p.revenueUsd ?? p.paying * p.priceMonthlyUsd)}</td>
               </tr>
             ))}
           </tbody>
         </table>
+        <div className="space-y-1 border-t px-4 py-3 text-xs text-muted-foreground">
+          {money.revenueDefinition && <p>{money.revenueDefinition}</p>}
+          {notCounted.length > 0 && (
+            <p>
+              Not counted:{' '}
+              {notCounted
+                .map((s) => `${s.teams} ${REVENUE_STATE_LABELS[s.state].toLowerCase()} (${formatUsd(s.listPriceUsd)})`)
+                .join(' · ')}
+            </p>
+          )}
+        </div>
       </Panel>
 
       <PlanTeamsDialog plan={openPlan} onClose={() => setOpenPlan(null)} />
@@ -247,9 +311,10 @@ export default function ConsoleOverviewPage() {
 
 function PlanTeamsDialog({ plan, onClose }: { plan: ConsolePlanMix | null; onClose: () => void }) {
   const cost = plan?.teamList.reduce((s, t) => s + t.projectedRawUsd, 0) ?? 0;
+  const now = Date.now();
   return (
     <Dialog open={!!plan} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[85vh] max-w-5xl overflow-hidden p-0">
+      <DialogContent className="max-h-[85vh] max-w-6xl overflow-hidden p-0">
         {plan && (
           <div className="flex max-h-[85vh] flex-col">
             <DialogHeader className="border-b px-6 py-4">
@@ -257,50 +322,67 @@ function PlanTeamsDialog({ plan, onClose }: { plan: ConsolePlanMix | null; onClo
                 {plan.displayName} · {plan.teams} {plan.teams === 1 ? 'team' : 'teams'}
               </DialogTitle>
               <DialogDescription>
-                {formatUsd(plan.priceMonthlyUsd)} a month · {plan.paying} paying · their projects cost us{' '}
+                {formatUsd(plan.priceMonthlyUsd)} a month · {plan.paying} paying ·{' '}
+                {formatUsd(plan.revenueUsd ?? 0)} recurring revenue · their projects&apos; modeled cost{' '}
                 {formatUsd(cost)} this month, projected
               </DialogDescription>
             </DialogHeader>
             <div className="overflow-auto">
-              <table className="w-full whitespace-nowrap text-sm">
+              <table className="w-full text-sm">
                 <thead className="sticky top-0 border-b bg-muted">
                   <tr>
-                    <th className={th}>Team</th>
-                    <th className={th}>Owner</th>
-                    <th className={th}>Status</th>
-                    <th className={thRight}>Projects</th>
-                    <th className={thRight}>Members</th>
-                    <th className={thRight}>Footprint</th>
-                    <th className={thRight}>Our cost</th>
-                    <th className={thRight}>On plan since</th>
-                    <th className={thRight}>Renews</th>
+                    <th className={th} scope="col">Team</th>
+                    <th className={th} scope="col">Owner</th>
+                    <th className={th} scope="col">Billing</th>
+                    <th className={thRight} scope="col">Projects · members</th>
+                    <th className={thRight} scope="col">Footprint</th>
+                    <th className={thRight} scope="col">Modeled cost</th>
+                    <th className={thRight} scope="col">On plan since</th>
+                    <th className={thRight} scope="col">Renews</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {plan.teamList.map((t) => (
-                    <tr key={t.id} className="border-b last:border-0 hover:bg-muted/40">
-                      <td className={td}>
-                        <Link
-                          href={`/console/projects?q=${encodeURIComponent(t.name)}`}
-                          className="font-medium hover:underline"
-                          title="Show this team's projects"
+                  {plan.teamList.map((t) => {
+                    const overdue = !!t.currentPeriodEnd && new Date(t.currentPeriodEnd).getTime() < now;
+                    return (
+                      <tr key={t.id} className="border-b last:border-0 hover:bg-muted/40">
+                        <td className={`${td} max-w-[220px]`}>
+                          <Link
+                            href={`/console/projects?q=${encodeURIComponent(t.name)}`}
+                            prefetch={false}
+                            className="block truncate font-medium hover:underline"
+                            title={`Show ${t.name}'s projects`}
+                          >
+                            {t.name}
+                          </Link>
+                          <div className="truncate text-xs text-muted-foreground">{t.slug}</div>
+                        </td>
+                        <td className={`${td} max-w-[220px] truncate text-muted-foreground`} title={t.ownerEmail ?? ''}>
+                          {t.ownerEmail ?? '—'}
+                        </td>
+                        <td className={td}>
+                          <div className="flex flex-wrap items-center gap-1">
+                            {t.revenueState ? <RevenueStateBadge state={t.revenueState} /> : <StatusBadge status={t.status} />}
+                            {t.revenueState && t.status !== 'ACTIVE' && <StatusBadge status={t.status} />}
+                          </div>
+                        </td>
+                        <td className={`${tdRight} whitespace-nowrap`}>
+                          {t.projects} · {t.members}
+                        </td>
+                        <td className={`${tdRight} whitespace-nowrap`}>{t.footprintBytes ? formatBytes(t.footprintBytes) : '—'}</td>
+                        <td className={`${tdRight} whitespace-nowrap font-medium`}>
+                          {t.projectedRawUsd ? formatUsd(t.projectedRawUsd) : '—'}
+                        </td>
+                        <td className={`${tdRight} whitespace-nowrap text-muted-foreground`}>{formatDate(t.subscribedAt)}</td>
+                        <td
+                          className={`${tdRight} whitespace-nowrap ${overdue ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground'}`}
+                          title={overdue ? REVENUE_STATE_HINTS.lapsed : undefined}
                         >
-                          {t.name}
-                        </Link>
-                        <div className="text-xs text-muted-foreground">{t.slug}</div>
-                      </td>
-                      <td className={`${td} text-muted-foreground`}>{t.ownerEmail ?? '—'}</td>
-                      <td className={td}>
-                        <StatusBadge status={t.status} />
-                      </td>
-                      <td className={tdRight}>{t.projects}</td>
-                      <td className={tdRight}>{t.members}</td>
-                      <td className={tdRight}>{t.footprintBytes ? formatBytes(t.footprintBytes) : '—'}</td>
-                      <td className={`${tdRight} font-medium`}>{t.projectedRawUsd ? formatUsd(t.projectedRawUsd) : '—'}</td>
-                      <td className={`${tdRight} text-muted-foreground`}>{formatDate(t.subscribedAt)}</td>
-                      <td className={`${tdRight} text-muted-foreground`}>{formatDate(t.currentPeriodEnd)}</td>
-                    </tr>
-                  ))}
+                          {t.currentPeriodEnd ? (overdue ? `Overdue since ${formatDate(t.currentPeriodEnd)}` : formatDate(t.currentPeriodEnd)) : '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -336,16 +418,16 @@ function TopProjects({
         <table className="w-full text-sm">
           <thead className="border-b bg-muted/40">
             <tr>
-              <th className={th}>Project</th>
-              <th className={thRight}>{secondaryLabel}</th>
-              <th className={thRight}>{metricLabel}</th>
+              <th className={th} scope="col">Project</th>
+              <th className={thRight} scope="col">{secondaryLabel}</th>
+              <th className={thRight} scope="col">{metricLabel}</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((p) => (
               <tr key={p.id} className="border-b last:border-0 hover:bg-muted/40">
                 <td className={td}>
-                  <Link href={`/console/projects/${p.id}`} className="font-medium hover:underline">
+                  <Link href={`/console/projects/${p.id}`} prefetch={false} className="font-medium hover:underline">
                     {p.name}
                   </Link>
                   <div className="text-xs text-muted-foreground">{p.teamName}</div>

@@ -5,6 +5,7 @@ import {
   Delete,
   Get,
   Param,
+  Query,
   Body,
   HttpCode,
   UseGuards,
@@ -17,6 +18,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { TenantEmbeddingService } from './tenant-embedding.service';
 import { SetEmbeddingProviderDto } from './dto/set-embedding-provider.dto';
+import { SetEmbeddingApiKeyDto } from './dto/set-embedding-api-key.dto';
 import { assertProjectTeamMember } from './tenant-embedding.access';
 
 @Controller('projects/:projectId/embeddings')
@@ -48,27 +50,53 @@ export class TenantEmbeddingController {
     return { message: 'pgvector enabled', projectId };
   }
 
-  /** Disable pgvector for the project (tables are preserved). */
+  /**
+   * Disable pgvector for the project. The embedding tables are kept unless
+   * `?dropData=true`, which also drops the platform-managed kb_embeddings and
+   * kb_embeddings_store tables (409 EMBEDDING_TABLES_IN_USE when the
+   * customer's own objects depend on them).
+   */
   @Delete('enable')
   async disable(
     @Param('projectId') projectId: string,
+    @Query('dropData') dropData: string | undefined,
     @CurrentUser() user: JwtPayload,
   ) {
     await this.assertTeamMember(projectId, user.sub);
-    await this.tenantEmbedding.disablePgvector(projectId);
-    return { message: 'pgvector disabled', projectId };
+    const { dataDropped } = await this.tenantEmbedding.disablePgvector(projectId, {
+      dropData: dropData === 'true' || dropData === '1',
+    });
+    return {
+      message: dataDropped ? 'pgvector disabled and embedding data deleted' : 'pgvector disabled',
+      projectId,
+      dataDropped,
+    };
   }
 
-  /** Set or clear the per-project API key for the selected embedding provider. */
+  /**
+   * Set or clear the per-project API key for the selected embedding provider.
+   * A key is tested with one tiny embedding request before it is stored; see
+   * TenantEmbeddingService.setEmbeddingApiKey for the error codes.
+   */
   @Post('api-key')
   async setApiKey(
     @Param('projectId') projectId: string,
-    @Body() body: { apiKey: string | null },
+    @Body() body: SetEmbeddingApiKeyDto,
     @CurrentUser() user: JwtPayload,
   ) {
     await this.assertTeamMember(projectId, user.sub);
-    await this.tenantEmbedding.setEmbeddingApiKey(projectId, body.apiKey);
-    return { message: body.apiKey ? 'API key set' : 'API key cleared' };
+    const { verified, warning } = await this.tenantEmbedding.setEmbeddingApiKey(
+      projectId,
+      body.apiKey ?? null,
+      {
+        ...(body.provider !== undefined ? { provider: body.provider } : {}),
+        model: body.model,
+        baseUrl: body.baseUrl,
+        skipValidation: body.skipValidation === true,
+      },
+    );
+    const set = !!body.apiKey?.trim();
+    return { message: set ? 'API key set' : 'API key cleared', verified, warning };
   }
 
   /** Providers the project may choose from, and which platform keys exist. */

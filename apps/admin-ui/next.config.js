@@ -12,6 +12,8 @@ const nextConfig = {
   // (bookmarks, emails already sent, OAuth callbacks) must keep working.
   async redirects() {
     return [
+      // The sign-up page is /signup; /register is the name people guess.
+      { source: '/register', destination: '/signup', permanent: false },
       { source: '/dashboard/management', destination: '/dashboard/admin', permanent: false },
       {
         source: '/dashboard/management/:path*',

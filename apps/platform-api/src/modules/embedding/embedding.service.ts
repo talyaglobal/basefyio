@@ -169,14 +169,7 @@ export class EmbeddingService {
   enqueueJob(jobs: EmbedJob[], priority = 10, delayMs = 0): void {
     const payload: EmbeddingJobPayload = { jobs };
     this.queue
-      // Finished jobs are trimmed: without this every executed statement left
-      // a completed job behind in Redis for the life of the instance.
-      .add('embed', payload, {
-        priority,
-        delay: delayMs,
-        removeOnComplete: { age: 3600, count: 1000 },
-        removeOnFail: { age: 86_400 },
-      })
+      .add('embed', payload, { priority, delay: delayMs })
       .catch((err) =>
         this.logger.warn('Failed to enqueue embedding job', err?.message),
       );

@@ -19,6 +19,7 @@ export type {
 export {
   DataEngineError,
   DocumentNotFoundError,
+  DocumentNotDeletedError,
   ConcurrencyError,
   EntityNotFoundError,
   SchemaValidationError,
@@ -44,6 +45,7 @@ export type {
   ProviderCapabilities,
   VectorCapabilities,
   WriteOpts,
+  ReadOpts,
   Page,
   DataEngineEvent,
   DataEngineEventType,
@@ -156,6 +158,14 @@ export {
   assertSafePath,
 } from './query/filter-object';
 
+export {
+  normalizeFilterInput,
+  normalizeSortInput,
+  normalizeSelectInput,
+  isFilterAst,
+  MAX_SORT_FIELDS,
+} from './query/request-input';
+
 // ── Validation / Schema Compiler ───────────────────────────
 
 export {
@@ -163,6 +173,18 @@ export {
   findReservedFieldConflicts,
   findViewerStateInDocument,
 } from './validation/schema';
+
+export {
+  assertDocumentBody,
+  stripEnvelopeFields,
+  checkDocumentLimits,
+  validateDocument,
+  normalizeEntityFields,
+  InvalidDocumentError,
+  DocumentLimitError,
+  EntityDefinitionError,
+} from './validation/document';
+export type { DocumentLimits, ValidationMode } from './validation/document';
 
 // ── Provider Factory ───────────────────────────────────────
 

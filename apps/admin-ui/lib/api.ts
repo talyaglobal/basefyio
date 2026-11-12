@@ -1,14 +1,14 @@
-import type { TechDocPage, TechDocSummary } from '@/lib/techdocs-types';
 import { getAccessToken, getRefreshToken, setTokens, clearTokens } from './auth';
+import { openTicketedEventSource } from './ticketed-event-source';
 import type { ConsoleOverview, ConsoleProjectDetail, ConsoleProjectList, ConsoleStorage, ConsoleDisk } from './console-types';
 import type { ConsoleAlertFeed } from './console-alert-types';
-import type { ConsoleStatus, PublicStatus, IncidentView, IncidentInput } from './platform-status-types';
-import type { CapacityOverview, CapacityHistoryPoint, CapacityBenchmarkRun, SimulationInput, SimulationResult } from './capacity-types';
 import type { RlsMutationOptions, RlsMutationResult, RlsPoliciesOverview, RlsPolicyInput } from './rls-policies';
 import type {
   EmbeddingDisclosure,
   EmbeddingProviderCatalogue,
   EmbeddingStatus,
+  SetEmbeddingApiKeyOptions,
+  SetEmbeddingApiKeyResult,
   SetEmbeddingProviderBody,
   SetEmbeddingProviderResult,
 } from './embeddings';
@@ -29,12 +29,6 @@ import type {
   ExportJobResult,
   ImportJobProgressEvent,
   PendingInvite,
-  FeatureFlags,
-  FeatureFlagManagement,
-  Organization,
-  OrganizationKind,
-  OrganizationOverview,
-  OrganizationProject,
   Project,
   ProjectActivityItem,
   ProjectArchiveImportResponse,
@@ -50,13 +44,14 @@ import type {
   ProjectListItem,
   RealmInfo,
   RealmUser,
-  ProjectApiKeys,
   RealmUserDetail,
   RealmSession,
   RealmSessionFull,
   MfaUser,
   RealmPolicies,
   SqlResult,
+  SqlHistoryEntry,
+  SqlSnippet,
   StorageBucket,
   StorageObject,
   SupabaseImportRequest,
@@ -71,6 +66,7 @@ import type {
   DataImportProgress,
   DataImportResult,
   DataImportJobStatus,
+  DataImportEncoding,
   DataQueryCapabilities,
   DataQueryResult,
   SavedDataQueryItem,
@@ -138,6 +134,23 @@ async function parseOkJsonBody<T>(res: Response): Promise<T> {
  *  must resolve into the caller's error path instead of spinning forever. */
 const REQUEST_TIMEOUT_MS = 65_000;
 
+/** `code` carried by errors for requests that never reached the server. */
+export const NETWORK_ERROR_CODE = 'NETWORK_ERROR';
+
+function networkError(): Error & { code: string; status: number } {
+  const err = new Error(
+    'Could not reach the server. Check your connection and try again.',
+  ) as Error & { code: string; status: number };
+  err.code = NETWORK_ERROR_CODE;
+  err.status = 0;
+  return err;
+}
+
+/** True for an error thrown because the request never reached the server. */
+export function isNetworkError(err: unknown): boolean {
+  return (err as { code?: string } | null)?.code === NETWORK_ERROR_CODE;
+}
+
 async function request<T>(
   path: string,
   options: RequestInit = {},
@@ -160,9 +173,16 @@ async function request<T>(
     });
   } catch (err: any) {
     if (err?.name === 'AbortError') {
+      // A caller that passed its own signal (e.g. a cancel button) aborted on
+      // purpose; let it see its own AbortError rather than a timeout message.
+      if (options.signal?.aborted) throw err;
       throw new Error('Request timed out — the server may be restarting. Try again shortly.');
     }
-    throw err;
+    // fetch() rejects with a bare TypeError ("Failed to fetch") when the
+    // request never reached the server: offline, DNS, a dropped connection.
+    // Say that in words, and mark it so pages can offer a retry instead of
+    // reading the failure as an empty result.
+    throw networkError();
   } finally {
     clearTimeout(timeout);
   }
@@ -270,8 +290,87 @@ async function request<T>(
   return parseOkJsonBody<T>(res);
 }
 
+/**
+ * Trade the refresh token for a new access token after a 401. Same rules as
+ * request(): a rejected refresh (400/401) clears the session and goes to
+ * /login; a transient failure returns null and logs nobody out.
+ */
+async function refreshAccessToken(): Promise<string | null> {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) return null;
+  let refreshRes: Response;
+  try {
+    refreshRes = await fetch('/api/proxy/auth/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    });
+  } catch {
+    return null;
+  }
+  if (refreshRes.ok) {
+    const tokens: AuthTokens = await parseOkJsonBody<AuthTokens>(refreshRes);
+    setTokens(tokens);
+    return tokens.accessToken;
+  }
+  if (refreshRes.status === 400 || refreshRes.status === 401) {
+    clearTokens();
+    if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+      window.location.assign('/login');
+    }
+    throw new Error('Session expired');
+  }
+  return null;
+}
+
+/**
+ * fetch() with the access token in the Authorization header, refreshing once
+ * on 401. For streams, downloads and uploads that cannot go through
+ * request() — and so that tokens never have to travel in a URL.
+ */
+export async function authorizedFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  const send = (token: string | null | undefined) =>
+    fetch(url, {
+      ...init,
+      headers: {
+        ...((init.headers as Record<string, string> | undefined) ?? {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
+  const res = await send(getAccessToken());
+  if (res.status !== 401) return res;
+  const fresh = await refreshAccessToken();
+  return fresh ? send(fresh) : res;
+}
+
+/** Error from a failed proxy response, using the server's message when there is one. */
+export async function responseError(res: Response, fallback: string): Promise<Error & { status?: number }> {
+  const body = (await res.json().catch(() => ({}))) as { message?: string | string[] };
+  const message = Array.isArray(body.message) ? body.message.join(' ') : body.message;
+  const err = new Error(message || `${fallback}: ${res.status}`) as Error & { status?: number };
+  err.status = res.status;
+  return err;
+}
+
+/** Filename from a Content-Disposition header. */
+function dispositionFilename(res: Response, fallback: string): string {
+  const cd = res.headers.get('content-disposition') || '';
+  const match = cd.match(/filename="?([^";]+)"?/i);
+  return match?.[1] || fallback;
+}
+
 export const api = {
   auth: {
+    /**
+     * Single-use ticket for one event stream (see lib/ticketed-event-source.ts):
+     * the stream URL carries this instead of the access token.
+     */
+    streamTicket(path: string) {
+      return request<{ ticket: string; expiresIn: number }>('/auth/stream-ticket', {
+        method: 'POST',
+        body: JSON.stringify({ path }),
+      });
+    },
     signup(data: { email: string; password: string; firstName?: string; lastName?: string; planName?: string }) {
       return request<{ message: string }>('/auth/signup', {
         method: 'POST',
@@ -615,76 +714,6 @@ export const api = {
     },
   },
 
-  /** Runtime feature flags; public read, root-console write. */
-  features: {
-    all() {
-      return request<FeatureFlags>('/features');
-    },
-    /** The flags as the signed-in user sees them (a flag can be on for a few people before everyone). */
-    me() {
-      return request<FeatureFlags>('/features/me');
-    },
-    management() {
-      return request<FeatureFlagManagement>('/features/management');
-    },
-    set(name: keyof FeatureFlags, enabled: boolean) {
-      return request<FeatureFlags>('/features/management', {
-        method: 'PATCH',
-        body: JSON.stringify({ name, enabled }),
-      });
-    },
-    setUsers(name: keyof FeatureFlags, userIds: string[]) {
-      return request<FeatureFlagManagement['users']>('/features/management/users', {
-        method: 'PATCH',
-        body: JSON.stringify({ name, userIds }),
-      });
-    },
-  },
-
-  /** Organizations by public id (an organization is a team row; `/teams` keeps working). */
-  organizations: {
-    list() {
-      return request<Organization[]>('/organizations');
-    },
-    kinds() {
-      return request<OrganizationKind[]>('/organizations/kinds');
-    },
-    create(body: { name: string; kind?: OrganizationKind; planName?: string; successUrl?: string; cancelUrl?: string }) {
-      return request<{
-        organization: OrganizationOverview;
-        checkoutRequired: { planName: string } | null;
-        checkoutUrl: string | null;
-      }>('/organizations', { method: 'POST', body: JSON.stringify(body) });
-    },
-    get(id: string) {
-      return request<OrganizationOverview>(`/organizations/${encodeURIComponent(id)}`);
-    },
-    update(
-      id: string,
-      body: { name?: string; kind?: OrganizationKind; description?: string | null; websiteUrl?: string | null; logoUrl?: string | null },
-    ) {
-      return request<OrganizationOverview>(`/organizations/${encodeURIComponent(id)}`, {
-        method: 'PATCH',
-        body: JSON.stringify(body),
-      });
-    },
-    switchTo(id: string) {
-      return request<{ teamId: string }>(`/organizations/${encodeURIComponent(id)}/switch`, { method: 'POST' });
-    },
-    projects(id: string) {
-      return request<OrganizationProject[]>(`/organizations/${encodeURIComponent(id)}/projects`);
-    },
-    members(id: string) {
-      return request<TeamMember[]>(`/organizations/${encodeURIComponent(id)}/members`);
-    },
-    invites(id: string) {
-      return request<PendingInvite[]>(`/organizations/${encodeURIComponent(id)}/invites`);
-    },
-    billing(id: string) {
-      return request<any>(`/organizations/${encodeURIComponent(id)}/billing`);
-    },
-  },
-
   teams: {
     list() {
       return request<Team[]>('/teams');
@@ -753,11 +782,14 @@ export const api = {
         body: JSON.stringify({ userId: newOwnerUserId }),
       });
     },
-    sendInvite(teamId: string, usernameOrEmail: string) {
+    sendInvite(teamId: string, usernameOrEmail: string, role?: 'ADMIN' | 'MEMBER') {
       return request<{ message: string }>(`/teams/${teamId}/invites`, {
         method: 'POST',
-        body: JSON.stringify({ usernameOrEmail }),
+        body: JSON.stringify(role ? { usernameOrEmail, role } : { usernameOrEmail }),
       });
+    },
+    leaveTeam(teamId: string) {
+      return request<{ message: string }>(`/teams/${teamId}/leave`, { method: 'POST' });
     },
     listTeamInvites(teamId: string) {
       return request<PendingInvite[]>(`/teams/${teamId}/invites`);
@@ -792,7 +824,9 @@ export const api = {
       return request<ProjectListItem[]>(`/projects?teamId=${teamId}`);
     },
     get(id: string) {
-      return request<Project>(`/projects/${id}`);
+      // Page loads never need the credentials; the Connection page fetches them
+      // from /connect when it is opened.
+      return request<Project>(`/projects/${id}?secrets=omit`);
     },
     listActivity(id: string, opts: { page?: number; limit?: number } = {}) {
       const limit = opts.limit ?? 50;
@@ -867,11 +901,6 @@ export const api = {
     },
     reactivate(id: string) {
       return request<{ message: string }>(`/projects/${id}/reactivate`, {
-        method: 'POST',
-      });
-    },
-    sleep(id: string) {
-      return request<{ message: string }>(`/projects/${id}/sleep`, {
         method: 'POST',
       });
     },
@@ -982,14 +1011,21 @@ export const api = {
         body: JSON.stringify(data),
       });
     },
+    /**
+     * Upload an export ZIP. With onUploadProgress the upload goes through
+     * XMLHttpRequest so the dialog can show a real percentage (fetch() cannot
+     * report upload progress). confirmProjectName is the typed confirmation for
+     * an overwrite; the server checks it against the target's name.
+     */
     async importFromExportZip(data: {
       file: File;
       teamId: string;
       nameMode: 'existing' | 'new';
       newProjectName?: string;
       existingProjectId?: string;
+      confirmProjectName?: string;
+      onUploadProgress?: (loaded: number, total: number) => void;
     }) {
-      const token = getAccessToken();
       const form = new FormData();
       form.append('file', data.file);
       form.append('teamId', data.teamId);
@@ -999,19 +1035,47 @@ export const api = {
       }
       if (data.existingProjectId?.trim()) {
         form.append('existingProjectId', data.existingProjectId.trim());
+        if (data.confirmProjectName !== undefined) {
+          form.append('confirmProjectName', data.confirmProjectName);
+        }
       }
 
-      const res = await fetch('/api/proxy/projects/import-export-zip', {
-        method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        body: form,
-      });
-
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error((body as { message?: string }).message || `ZIP import failed: ${res.status}`);
+      const url = '/api/proxy/projects/import-export-zip';
+      if (!data.onUploadProgress) {
+        const res = await authorizedFetch(url, { method: 'POST', body: form });
+        if (!res.ok) throw await responseError(res, 'ZIP import failed');
+        return (await res.json()) as ProjectArchiveImportResponse;
       }
-      return (await res.json()) as ProjectArchiveImportResponse;
+
+      const onProgress = data.onUploadProgress;
+      const send = (token: string | null | undefined) =>
+        new Promise<{ status: number; body: string }>((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open('POST', url);
+          if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+          xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable) onProgress(e.loaded, e.total);
+          };
+          xhr.onload = () => resolve({ status: xhr.status, body: xhr.responseText });
+          xhr.onerror = () => reject(networkError());
+          xhr.send(form);
+        });
+      let res = await send(getAccessToken());
+      if (res.status === 401) {
+        const fresh = await refreshAccessToken();
+        if (fresh) res = await send(fresh);
+      }
+      let body: any = {};
+      try {
+        body = res.body ? JSON.parse(res.body) : {};
+      } catch {
+        body = { message: res.body.slice(0, 200) };
+      }
+      if (res.status < 200 || res.status >= 300) {
+        const message = Array.isArray(body?.message) ? body.message.join(' ') : body?.message;
+        throw new Error(message || `ZIP import failed: ${res.status}`);
+      }
+      return body as ProjectArchiveImportResponse;
     },
     validateSupabase(supabaseUrl: string, serviceRoleKey: string) {
       return request<SupabaseValidateResult>('/projects/import-supabase/validate', {
@@ -1066,9 +1130,12 @@ export const api = {
         onState?: (state: string) => void;
       },
     ): EventSource {
-      const token = getAccessToken();
-      const url = `/api/proxy/projects/${projectId}/export/jobs/${jobId}/events${token ? `?token=${encodeURIComponent(token)}` : ''}`;
-      const es = new EventSource(url);
+      const es = openTicketedEventSource({
+        proxyPath: `/api/proxy/projects/${projectId}/export/jobs/${jobId}/events`,
+        apiPath: `/api/projects/${projectId}/export/jobs/${jobId}/events`,
+        mint: (path) => api.auth.streamTicket(path),
+        legacy: { param: 'token', token: getAccessToken },
+      });
 
       es.addEventListener('state', (e) => {
         try {
@@ -1173,11 +1240,44 @@ export const api = {
         newProjectName?: string;
         existingProjectId?: string;
         kind?: 'manual' | 'auto';
+        /** Typed confirmation for an overwrite; must equal the project's name. */
+        confirmProjectName?: string;
       },
     ) {
       return request<ProjectArchiveImportResponse>(`/projects/${projectId}/backups/restore`, {
         method: 'POST',
         body: JSON.stringify(data),
+      });
+    },
+    /** "Back up now": same content and retention as a nightly backup. Follow the job like an export. */
+    runBackupNow(projectId: string) {
+      return request<{ jobId: string }>(`/projects/${projectId}/backups/run`, { method: 'POST' });
+    },
+    /** Download one stored archive as a plain ZIP (decrypted when stored encrypted). */
+    async downloadCloudBackup(
+      projectId: string,
+      objectKey: string,
+      kind: 'manual' | 'auto' = 'manual',
+    ): Promise<{ blob: Blob; filename: string }> {
+      const qs = new URLSearchParams({ objectKey, kind }).toString();
+      const res = await authorizedFetch(`/api/proxy/projects/${projectId}/backups/download?${qs}`);
+      if (!res.ok) throw await responseError(res, 'Download failed');
+      return {
+        blob: await res.blob(),
+        filename: dispositionFilename(res, objectKey.split('/').pop() || 'backup.zip'),
+      };
+    },
+    /** Delete a manual export or an on-demand backup (nightly backups expire on their own). */
+    deleteCloudBackup(projectId: string, objectKey: string, kind: 'manual' | 'auto' = 'manual') {
+      const qs = new URLSearchParams({ objectKey, kind }).toString();
+      return request<{ deleted: string }>(`/projects/${projectId}/backups/archive?${qs}`, {
+        method: 'DELETE',
+      });
+    },
+    /** Take this project's point-in-time snapshot now (runs in the background). */
+    takePitrSnapshot(projectId: string) {
+      return request<{ started: boolean; message: string }>(`/projects/${projectId}/pitr/snapshot`, {
+        method: 'POST',
       });
     },
     /** Off-site copy state, local encryption and restore-verification verdicts for the Backup page. */
@@ -1214,10 +1314,12 @@ export const api = {
         onState?: (state: string) => void;
       },
     ): EventSource {
-      const token = getAccessToken();
-      const url = `/api/proxy/projects/import-supabase/jobs/${jobId}/events${token ? `?token=${encodeURIComponent(token)}` : ''}`;
-
-      const es = new EventSource(url);
+      const es = openTicketedEventSource({
+        proxyPath: `/api/proxy/projects/import-supabase/jobs/${jobId}/events`,
+        apiPath: `/api/projects/import-supabase/jobs/${jobId}/events`,
+        mint: (path) => api.auth.streamTicket(path),
+        legacy: { param: 'token', token: getAccessToken },
+      });
 
       es.addEventListener('state', (e) => {
         try {
@@ -1301,12 +1403,19 @@ export const api = {
     },
     createTable(projectId: string, data: {
       name: string;
-      columns: { name: string; type: string; nullable: boolean; isPrimary: boolean; defaultValue?: string }[];
+      columns: { name: string; type: string; nullable: boolean; isPrimary: boolean; defaultValue?: string; isUnique?: boolean }[];
     }) {
-      return request<{ message: string; sql: string }>(`/projects/${projectId}/tables`, {
+      return request<{ message: string; sql: string; name?: string }>(`/projects/${projectId}/tables`, {
         method: 'POST',
         body: JSON.stringify(data),
       });
+    },
+    renameTable(projectId: string, tableName: string, name: string, schema?: string) {
+      const qs = schema ? `?schema=${encodeURIComponent(schema)}` : '';
+      return request<{ message: string; name: string; schema?: string }>(
+        `/projects/${projectId}/tables/${encodeURIComponent(tableName)}${qs}`,
+        { method: 'PUT', body: JSON.stringify({ name }) },
+      );
     },
     dropTable(projectId: string, tableName: string) {
       return request<{ message: string }>(`/projects/${projectId}/tables/${tableName}`, {
@@ -1346,11 +1455,22 @@ export const api = {
         body: JSON.stringify(data),
       });
     },
-    updateRow(projectId: string, tableName: string, pkWhere: Record<string, unknown>, data: Record<string, unknown>, schema?: string) {
+    /**
+     * `expectedVersion` is the row's `_bf_xmin` as it was read: the update then
+     * fails with 409 (code ROW_CHANGED) if someone changed the row since.
+     */
+    updateRow(
+      projectId: string,
+      tableName: string,
+      pkWhere: Record<string, unknown>,
+      data: Record<string, unknown>,
+      schema?: string,
+      expectedVersion?: string,
+    ) {
       const qs = schema ? `?schema=${encodeURIComponent(schema)}` : '';
       return request<Record<string, unknown>>(`/projects/${projectId}/tables/${tableName}/rows${qs}`, {
         method: 'PUT',
-        body: JSON.stringify({ pkWhere, data }),
+        body: JSON.stringify(expectedVersion ? { pkWhere, data, expectedVersion } : { pkWhere, data }),
       });
     },
     deleteRow(projectId: string, tableName: string, pkWhere: Record<string, unknown>, schema?: string) {
@@ -1367,7 +1487,7 @@ export const api = {
       });
     },
     editColumn(projectId: string, tableName: string, columnName: string, changes: { name?: string; type?: string; nullable?: boolean; defaultValue?: string | null; isUnique?: boolean }) {
-      return request<{ message: string }>(`/projects/${projectId}/tables/${tableName}/columns/${columnName}`, {
+      return request<{ message: string; name?: string }>(`/projects/${projectId}/tables/${tableName}/columns/${columnName}`, {
         method: 'PUT',
         body: JSON.stringify(changes),
       });
@@ -1468,13 +1588,42 @@ export const api = {
         { method: 'POST', body: JSON.stringify({ fieldPath }) },
       );
     },
+    listCollectionIndexes(projectId: string, collectionName: string) {
+      return request<import('./types').CollectionIndexInfo[]>(
+        `/projects/${projectId}/collections/${encodeURIComponent(collectionName)}/indexes`,
+      );
+    },
+    dropCollectionIndex(projectId: string, collectionName: string, indexName: string) {
+      return request<{ message: string }>(
+        `/projects/${projectId}/collections/${encodeURIComponent(collectionName)}/indexes/${encodeURIComponent(indexName)}`,
+        { method: 'DELETE' },
+      );
+    },
 
     // ── Data Engine ──────────────────────────────────────
     dataEngineHealth(projectId: string) {
       return request<import('./types').DataEngineHealth>(`/v1/projects/${projectId}/data-engine/health`);
     },
-    listEntityDefinitions(projectId: string) {
-      return request<import('./types').EntityDefinitionInfo[]>(`/v1/projects/${projectId}/entities`);
+    listEntityDefinitions(projectId: string, opts: { withCounts?: boolean } = {}) {
+      return request<import('./types').EntityDefinitionInfo[]>(
+        `/v1/projects/${projectId}/entities${opts.withCounts ? '?withCounts=true' : ''}`,
+      );
+    },
+    updateEntityDefinition(
+      projectId: string,
+      entityName: string,
+      data: { displayName?: string; description?: string | null; fields?: unknown[] },
+    ) {
+      return request<import('./types').EntityDefinitionInfo>(
+        `/v1/projects/${projectId}/entities/${encodeURIComponent(entityName)}`,
+        { method: 'PATCH', body: JSON.stringify(data) },
+      );
+    },
+    deleteEntityDefinition(projectId: string, entityName: string, force = false) {
+      return request<{ deleted: boolean; entity: string; documentsRemoved: number }>(
+        `/v1/projects/${projectId}/entities/${encodeURIComponent(entityName)}${force ? '?force=true' : ''}`,
+        { method: 'DELETE' },
+      );
     },
     createEntityDefinition(projectId: string, data: { logicalName: string; displayName: string; fields: unknown[]; description?: string }) {
       return request<import('./types').EntityDefinitionInfo>(`/v1/projects/${projectId}/entities`, {
@@ -1488,13 +1637,20 @@ export const api = {
     dataEngineDocuments(
       projectId: string,
       entityName: string,
-      opts: { filter?: Record<string, unknown>; sort?: unknown[]; limit?: number; offset?: number } = {},
+      opts: {
+        filter?: Record<string, unknown>;
+        sort?: unknown[];
+        limit?: number;
+        offset?: number;
+        includeSoftDeleted?: boolean;
+      } = {},
     ) {
       const params = new URLSearchParams();
       if (opts.filter && Object.keys(opts.filter).length > 0) params.set('filter', JSON.stringify(opts.filter));
       if (opts.sort && opts.sort.length > 0) params.set('sort', JSON.stringify(opts.sort));
       if (opts.limit !== undefined) params.set('limit', String(opts.limit));
       if (opts.offset !== undefined) params.set('offset', String(opts.offset));
+      if (opts.includeSoftDeleted) params.set('includeSoftDeleted', 'true');
       const qs = params.toString();
       return request<import('./types').DataEnginePage>(
         `/v1/projects/${projectId}/data/${encodeURIComponent(entityName)}${qs ? `?${qs}` : ''}`,
@@ -1506,6 +1662,13 @@ export const api = {
         { method: 'POST', body: JSON.stringify(doc) },
       );
     },
+    /** Bulk insert (max 1000 per call); every document is validated before any is written. */
+    insertDataEngineDocuments(projectId: string, entityName: string, docs: Record<string, unknown>[]) {
+      return request<import('./types').DataEngineDoc[]>(
+        `/v1/projects/${projectId}/data/${encodeURIComponent(entityName)}`,
+        { method: 'POST', body: JSON.stringify(docs) },
+      );
+    },
     getDataEngineDocument(projectId: string, entityName: string, docId: string) {
       return request<import('./types').DataEngineDoc>(
         `/v1/projects/${projectId}/data/${encodeURIComponent(entityName)}/${docId}`,
@@ -1515,6 +1678,29 @@ export const api = {
       return request<import('./types').DataEngineDoc>(
         `/v1/projects/${projectId}/data/${encodeURIComponent(entityName)}/${docId}`,
         { method: 'PATCH', body: JSON.stringify(patch) },
+      );
+    },
+    /** Full replacement; with ifMatch the write fails (409) if the document changed since it was read. */
+    replaceDataEngineDocument(
+      projectId: string,
+      entityName: string,
+      docId: string,
+      doc: Record<string, unknown>,
+      ifMatch?: number,
+    ) {
+      return request<import('./types').DataEngineDoc>(
+        `/v1/projects/${projectId}/data/${encodeURIComponent(entityName)}/${docId}`,
+        {
+          method: 'PUT',
+          body: JSON.stringify(doc),
+          ...(ifMatch !== undefined ? { headers: { 'If-Match': `"${ifMatch}"` } } : {}),
+        },
+      );
+    },
+    restoreDataEngineDocument(projectId: string, entityName: string, docId: string) {
+      return request<import('./types').DataEngineDoc>(
+        `/v1/projects/${projectId}/data/${encodeURIComponent(entityName)}/${docId}/restore`,
+        { method: 'POST' },
       );
     },
     deleteDataEngineDocument(projectId: string, entityName: string, docId: string) {
@@ -1571,36 +1757,24 @@ export const api = {
         { method: 'POST' },
       );
     },
-    /** API keys: the anon key, the service key masked (revealable until first used), secret keys. */
-    apiKeys(projectId: string) {
-      return request<ProjectApiKeys>(`/projects/${projectId}/api-keys`);
-    },
-    revealServiceKey(projectId: string) {
-      return request<{ serviceKey: string }>(`/projects/${projectId}/api-keys/service/reveal`, { method: 'POST' });
-    },
-    rotateAnonKey(projectId: string) {
-      return request<{ anonKey: string }>(`/projects/${projectId}/api-keys/anon/rotate`, { method: 'POST' });
-    },
-    rotateServiceKey(projectId: string) {
-      return request<{ serviceKey: string }>(`/projects/${projectId}/api-keys/service/rotate`, { method: 'POST' });
-    },
-    createSecretKey(projectId: string, name: string) {
-      return request<{ id: string; name: string; key: string; hint: string }>(`/projects/${projectId}/api-keys/secret`, {
-        method: 'POST',
-        body: JSON.stringify({ name }),
-      });
-    },
-    revokeSecretKey(projectId: string, keyId: string) {
-      return request<{ revoked: true }>(`/projects/${projectId}/api-keys/secret/${keyId}`, { method: 'DELETE' });
-    },
-    /** A page of the project's users; `search` matches e-mail, username, first and last name. */
     realmUsers(projectId: string, opts: { search?: string; first?: number; max?: number } = {}) {
-      const q = new URLSearchParams();
-      if (opts.search) q.set('search', opts.search);
-      if (opts.first) q.set('first', String(opts.first));
-      if (opts.max) q.set('max', String(opts.max));
-      const qs = q.toString();
-      return request<RealmUser[]>(`/projects/${projectId}/auth/users${qs ? `?${qs}` : ''}`);
+      const qs = new URLSearchParams();
+      if (opts.search) qs.set('search', opts.search);
+      if (opts.first !== undefined) qs.set('first', String(opts.first));
+      if (opts.max !== undefined) qs.set('max', String(opts.max));
+      const q = qs.toString();
+      return request<RealmUser[]>(`/projects/${projectId}/auth/users${q ? `?${q}` : ''}`);
+    },
+    countRealmUsers(projectId: string, search?: string) {
+      const q = search ? `?search=${encodeURIComponent(search)}` : '';
+      return request<{ count: number }>(`/projects/${projectId}/auth/users/count${q}`);
+    },
+    /** Try email settings (saved, or the unsaved ones in `settings`) by sending a test message. */
+    testAuthEmail(projectId: string, body: { to?: string; settings?: Record<string, unknown> }) {
+      return request<{ ok: boolean; provider: string; to: string; error?: string }>(
+        `/projects/${projectId}/auth/config/email/test`,
+        { method: 'POST', body: JSON.stringify(body) },
+      );
     },
     createRealmUser(projectId: string, data: { email: string; password: string; firstName?: string; lastName?: string }) {
       return request<{ message: string }>(`/projects/${projectId}/auth/users`, {
@@ -1717,12 +1891,12 @@ export const api = {
     },
 
     /**
-     * Generic CSV/XLSX → table import. Wizard flow:
+     * Generic CSV/XLSX/JSON → table import. Wizard flow:
      *   1. inspectDataImport(file)      — upload + preview + auto-detect schema
      *   2. startDataImport(plan)        — kicks off the background job
      *   3. streamDataImportEvents()     — SSE progress (preferred) OR
      *      getDataImportStatus()        — poll
-     *   4. downloadDataImportErrors()   — URL for bad-rows CSV after completion
+     *   4. fetchDataImportErrors()      — bad-rows CSV after completion
      */
     /**
      * Request a presigned PUT URL for direct-to-MinIO upload. Use this for
@@ -1741,7 +1915,12 @@ export const api = {
      */
     inspectStagedDataImport(
       projectId: string,
-      args: { sourceKey: string; filename: string; firstRowIsHeader?: boolean },
+      args: {
+        sourceKey: string;
+        filename: string;
+        firstRowIsHeader?: boolean;
+        encoding?: DataImportEncoding | 'auto';
+      },
     ) {
       return request<DataImportInspectResult>(
         `/projects/${projectId}/data-imports/inspect-staged`,
@@ -1751,22 +1930,19 @@ export const api = {
     async inspectDataImport(
       projectId: string,
       file: File,
-      opts: { firstRowIsHeader?: boolean } = {},
+      opts: { firstRowIsHeader?: boolean; encoding?: DataImportEncoding | 'auto' } = {},
     ): Promise<DataImportInspectResult> {
-      const token = getAccessToken();
       const fd = new FormData();
       fd.append('file', file);
-      const qs =
-        opts.firstRowIsHeader === false ? '?firstRowIsHeader=false' : '';
-      const res = await fetch(`/api/proxy/projects/${projectId}/data-imports/inspect${qs}`, {
+      const params = new URLSearchParams();
+      if (opts.firstRowIsHeader === false) params.set('firstRowIsHeader', 'false');
+      if (opts.encoding && opts.encoding !== 'auto') params.set('encoding', opts.encoding);
+      const qs = params.toString() ? `?${params.toString()}` : '';
+      const res = await authorizedFetch(`/api/proxy/projects/${projectId}/data-imports/inspect${qs}`, {
         method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: fd,
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error((body as { message?: string }).message || `Import inspect failed: ${res.status}`);
-      }
+      if (!res.ok) throw await responseError(res, 'Import inspect failed');
       return res.json();
     },
     startDataImport(projectId: string, plan: DataImportPlan) {
@@ -1780,6 +1956,12 @@ export const api = {
         `/projects/${projectId}/data-imports/jobs/${jobId}/status`,
       );
     },
+    /**
+     * Live progress for an import job. Read with fetch() so the access token
+     * goes in the Authorization header — an EventSource can only carry it in
+     * the URL, where it ends up in proxy and server logs. If the stream drops
+     * before the job finishes, it falls back to polling the status endpoint.
+     */
     streamDataImportEvents(
       projectId: string,
       jobId: string,
@@ -1788,32 +1970,101 @@ export const api = {
         onCompleted: (data: DataImportResult) => void;
         onFailed: (error: string) => void;
         onState?: (state: string) => void;
-        onError?: (event: Event) => void;
+        onError?: (error: unknown) => void;
       },
-    ): EventSource {
-      const token = getAccessToken();
-      const url = `/api/proxy/projects/${projectId}/data-imports/jobs/${jobId}/events${token ? `?token=${encodeURIComponent(token)}` : ''}`;
-      const es = new EventSource(url);
-      es.addEventListener('state', (e) => {
-        try { callbacks.onState?.(JSON.parse((e as MessageEvent).data).state); } catch {}
-      });
-      es.addEventListener('progress', (e) => {
-        try { callbacks.onProgress(JSON.parse((e as MessageEvent).data)); } catch {}
-      });
-      es.addEventListener('completed', (e) => {
-        try { callbacks.onCompleted(JSON.parse((e as MessageEvent).data)); } catch {
-          callbacks.onFailed('Import completed, response parse failed');
+    ): { close: () => void } {
+      const controller = new AbortController();
+      let closed = false;
+      let finished = false;
+      const handle = (event: string, raw: string) => {
+        let data: any;
+        try {
+          data = JSON.parse(raw);
+        } catch {
+          return;
         }
-        es.close();
-      });
-      es.addEventListener('failed', (e) => {
-        try { callbacks.onFailed(JSON.parse((e as MessageEvent).data).error || 'Import failed'); } catch {
-          callbacks.onFailed('Import failed');
+        if (event === 'state') callbacks.onState?.(data?.state);
+        else if (event === 'progress') callbacks.onProgress(data);
+        else if (event === 'completed') {
+          finished = true;
+          controller.abort();
+          callbacks.onCompleted(data);
+        } else if (event === 'failed') {
+          finished = true;
+          controller.abort();
+          callbacks.onFailed(data?.error || 'Import failed');
         }
-        es.close();
-      });
-      es.onerror = (e) => callbacks.onError?.(e);
-      return es;
+      };
+
+      const poll = async () => {
+        while (!closed && !finished) {
+          try {
+            const status = await api.projects.getDataImportStatus(projectId, jobId);
+            if (closed || finished) return;
+            callbacks.onState?.(status.state);
+            if (status.progress && typeof status.progress === 'object') {
+              callbacks.onProgress(status.progress as DataImportProgress);
+            }
+            if (status.state === 'completed') {
+              finished = true;
+              callbacks.onCompleted((status.result ?? {}) as DataImportResult);
+              return;
+            }
+            if (status.state === 'failed') {
+              finished = true;
+              callbacks.onFailed(status.failedReason || 'Import failed');
+              return;
+            }
+          } catch (err) {
+            callbacks.onError?.(err);
+          }
+          await new Promise((r) => setTimeout(r, 2000));
+        }
+      };
+
+      void (async () => {
+        try {
+          const res = await authorizedFetch(
+            `/api/proxy/projects/${projectId}/data-imports/jobs/${jobId}/events`,
+            { headers: { Accept: 'text/event-stream' }, signal: controller.signal },
+          );
+          if (!res.ok || !res.body) throw await responseError(res, 'Progress stream failed');
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+          while (!closed && !finished) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            let sep = buffer.indexOf('\n\n');
+            while (sep >= 0) {
+              const frame = buffer.slice(0, sep);
+              buffer = buffer.slice(sep + 2);
+              let event = 'message';
+              const data: string[] = [];
+              for (const line of frame.split('\n')) {
+                if (line.startsWith('event:')) event = line.slice(6).trim();
+                else if (line.startsWith('data:')) data.push(line.slice(5).trim());
+              }
+              if (data.length) handle(event, data.join('\n'));
+              sep = buffer.indexOf('\n\n');
+            }
+          }
+        } catch (err: any) {
+          if (closed || finished || err?.name === 'AbortError') return;
+          callbacks.onError?.(err);
+        }
+        // The stream ended without a final event (proxy timeout, network
+        // blip): keep following the job by polling.
+        if (!closed && !finished) await poll();
+      })();
+
+      return {
+        close: () => {
+          closed = true;
+          controller.abort();
+        },
+      };
     },
     cancelDataImport(projectId: string, jobId: string) {
       return request<{ ok: boolean }>(
@@ -1821,9 +2072,17 @@ export const api = {
         { method: 'POST' },
       );
     },
-    /** URL for the bad-rows CSV; hand it to <a download>. */
+    /** Proxy URL of the bad-rows CSV. It needs the Authorization header — download it with fetchDataImportErrors. */
     downloadDataImportErrors(projectId: string, jobId: string): string {
       return `/api/proxy/projects/${projectId}/data-imports/jobs/${jobId}/errors`;
+    },
+    /** Download the bad-rows CSV of a finished import (row number, reason, raw row). */
+    async fetchDataImportErrors(projectId: string, jobId: string): Promise<{ blob: Blob; filename: string }> {
+      const res = await authorizedFetch(
+        `/api/proxy/projects/${projectId}/data-imports/jobs/${jobId}/errors`,
+      );
+      if (!res.ok) throw await responseError(res, 'Error report download failed');
+      return { blob: await res.blob(), filename: dispositionFilename(res, `import-${jobId}-errors.csv`) };
     },
   },
 
@@ -1840,7 +2099,7 @@ export const api = {
         body: JSON.stringify(data),
       });
     },
-    update(projectId: string, id: string, data: FlowInput) {
+    update(projectId: string, id: string, data: Partial<FlowInput>) {
       return request<Flow>(`/projects/${projectId}/flows/${id}`, {
         method: 'PATCH',
         body: JSON.stringify(data),
@@ -1862,8 +2121,31 @@ export const api = {
         body: JSON.stringify({ input }),
       });
     },
-    runs(projectId: string, id: string) {
-      return request<FlowRun[]>(`/projects/${projectId}/flows/${id}/runs`);
+    runs(projectId: string, id: string, page?: { limit?: number; before?: string }) {
+      const qs = new URLSearchParams();
+      if (page?.limit) qs.set('limit', String(page.limit));
+      if (page?.before) qs.set('before', page.before);
+      const suffix = qs.toString() ? `?${qs}` : '';
+      return request<FlowRun[]>(`/projects/${projectId}/flows/${id}/runs${suffix}`);
+    },
+    run(projectId: string, id: string, runId: string) {
+      return request<FlowRun>(`/projects/${projectId}/flows/${id}/runs/${runId}`);
+    },
+    rerun(projectId: string, id: string, runId: string) {
+      return request<{ runId: string; status: string }>(`/projects/${projectId}/flows/${id}/runs/${runId}/rerun`, {
+        method: 'POST',
+      });
+    },
+    rotateWebhook(projectId: string, id: string, body?: { secret?: string; keepUrl?: boolean }) {
+      return request<{ webhookUrl: string; secret?: string; secretSet?: boolean }>(
+        `/projects/${projectId}/flows/${id}/webhook/rotate`,
+        { method: 'POST', body: JSON.stringify(body ?? {}) },
+      );
+    },
+    revealWebhook(projectId: string, id: string) {
+      return request<{ webhookUrl: string; secret: string }>(`/projects/${projectId}/flows/${id}/webhook/reveal`, {
+        method: 'POST',
+      });
     },
   },
 
@@ -1947,6 +2229,10 @@ export const api = {
     },
     revoke(id: string) {
       return request<{ revoked: boolean }>(`/account/api-tokens/${id}`, { method: 'DELETE' });
+    },
+    /** Permanently delete a revoked token (an active one is refused). */
+    remove(id: string) {
+      return request<{ deleted: boolean }>(`/account/api-tokens/${id}/permanent`, { method: 'DELETE' });
     },
   },
 
@@ -2061,17 +2347,68 @@ export const api = {
     execute(
       projectId: string,
       query: string,
-      opts?: { page?: number; limit?: number; countTotal?: boolean },
+      opts?: {
+        page?: number;
+        limit?: number;
+        countTotal?: boolean;
+        /** Run in a read-only transaction (used when re-running to fetch a page). */
+        readOnly?: boolean;
+        /** Cap on rows of statements that cannot be paged (scripts, writes). */
+        maxRows?: number;
+        /** Skip `resultSets` when it would repeat `rows`. */
+        compact?: boolean;
+        /** Id for POST /sql/cancel. */
+        runId?: string;
+        signal?: AbortSignal;
+      },
     ) {
       return request<SqlResult>('/sql/execute', {
         method: 'POST',
+        signal: opts?.signal,
         body: JSON.stringify({
           projectId,
           query,
           page: opts?.page,
           limit: opts?.limit,
           countTotal: opts?.countTotal,
+          readOnly: opts?.readOnly,
+          maxRows: opts?.maxRows,
+          compact: opts?.compact,
+          runId: opts?.runId,
         }),
+      });
+    },
+    /** Cancel a statement this user started with `runId`. */
+    cancel(projectId: string, runId: string) {
+      return request<{ cancelled: boolean }>('/sql/cancel', {
+        method: 'POST',
+        body: JSON.stringify({ projectId, runId }),
+      });
+    },
+    /** The signed-in user's recent statements in this project. */
+    history(projectId: string, limit = 50) {
+      return request<SqlHistoryEntry[]>(
+        `/sql/history?projectId=${encodeURIComponent(projectId)}&limit=${limit}`,
+      );
+    },
+    listSnippets(projectId: string) {
+      return request<SqlSnippet[]>(`/sql/snippets?projectId=${encodeURIComponent(projectId)}`);
+    },
+    createSnippet(projectId: string, data: { name: string; query: string }) {
+      return request<SqlSnippet>('/sql/snippets', {
+        method: 'POST',
+        body: JSON.stringify({ projectId, ...data }),
+      });
+    },
+    updateSnippet(id: string, data: { name?: string; query?: string }) {
+      return request<SqlSnippet>(`/sql/snippets/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      });
+    },
+    deleteSnippet(id: string) {
+      return request<{ deleted: boolean }>(`/sql/snippets/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
       });
     },
   },
@@ -2261,10 +2598,12 @@ export const api = {
         body: JSON.stringify({ name, public: isPublic }),
       });
     },
+    /** The dashboard says "delete this bucket and all its files", so it always forces. */
     deleteBucket(projectId: string, bucketName: string) {
-      return request<{ message: string }>(`/projects/${projectId}/storage/buckets/${bucketName}`, {
-        method: 'DELETE',
-      });
+      return request<{ message: string }>(
+        `/projects/${projectId}/storage/buckets/${encodeURIComponent(bucketName)}?force=true`,
+        { method: 'DELETE' },
+      );
     },
     updateBucket(projectId: string, bucketName: string, isPublic: boolean) {
       return request<{ public: boolean }>(`/projects/${projectId}/storage/buckets/${bucketName}`, {
@@ -2272,9 +2611,41 @@ export const api = {
         body: JSON.stringify({ public: isPublic }),
       });
     },
-    listObjects(projectId: string, bucketName: string, prefix = '') {
-      const p = prefix ? `?prefix=${encodeURIComponent(prefix)}` : '';
-      return request<StorageObject[]>(`/projects/${projectId}/storage/buckets/${bucketName}/objects${p}`);
+    /** Per-bucket upload limits; null clears a limit, an empty list accepts any type. */
+    updateBucketLimits(
+      projectId: string,
+      bucketName: string,
+      limits: { fileSizeLimit?: number | null; allowedMimeTypes?: string[] | null },
+    ) {
+      return request<{ fileSizeLimit: number | null; allowedMimeTypes: string[] }>(
+        `/projects/${projectId}/storage/buckets/${encodeURIComponent(bucketName)}`,
+        { method: 'PATCH', body: JSON.stringify(limits) },
+      );
+    },
+    listObjects(
+      projectId: string,
+      bucketName: string,
+      prefix = '',
+      opts: { search?: string; recursive?: boolean } = {},
+    ) {
+      const q = new URLSearchParams();
+      if (prefix) q.set('prefix', prefix);
+      if (opts.search) q.set('search', opts.search);
+      if (opts.recursive) q.set('recursive', 'true');
+      const qs = q.toString();
+      return request<StorageObject[]>(`/projects/${projectId}/storage/buckets/${bucketName}/objects${qs ? `?${qs}` : ''}`);
+    },
+    copyObject(projectId: string, bucketName: string, from: string, to: string, overwrite = false) {
+      return request<{ from: string; to: string; copied: number }>(
+        `/projects/${projectId}/storage/buckets/${encodeURIComponent(bucketName)}/objects/copy`,
+        { method: 'POST', body: JSON.stringify({ from, to, overwrite }) },
+      );
+    },
+    renameObject(projectId: string, bucketName: string, from: string, to: string, overwrite = false) {
+      return request<{ from: string; to: string; moved: number }>(
+        `/projects/${projectId}/storage/buckets/${encodeURIComponent(bucketName)}/objects/rename`,
+        { method: 'POST', body: JSON.stringify({ from, to, overwrite }) },
+      );
     },
     async upload(projectId: string, bucketName: string, path: string, file: File) {
       const token = getAccessToken();
@@ -2443,6 +2814,49 @@ export const api = {
         body: JSON.stringify({ message, history, context }),
       });
     },
+    /** Run a read-only SQL block (422 AI_SQL_NEEDS_APPROVAL for anything that changes data). */
+    runSql(projectId: string, sql: string) {
+      return request<{ results: import('./ai-assistant').AiStatementResult[] }>('/ai/sql/run', {
+        method: 'POST',
+        body: JSON.stringify({ projectId, sql }),
+      });
+    },
+    /** Validate a SQL block that changes something and hold it for approval. */
+    propose(projectId: string, sql: string) {
+      return request<import('./ai-assistant').AiProposalEvent>('/ai/proposals', {
+        method: 'POST',
+        body: JSON.stringify({ projectId, sql }),
+      });
+    },
+    approve(proposalId: string) {
+      return request<import('./ai-assistant').AiApplyResult>(
+        `/ai/proposals/${encodeURIComponent(proposalId)}/approve`,
+        { method: 'POST' },
+      );
+    },
+    reject(proposalId: string) {
+      return request<{ rejected: boolean }>(`/ai/proposals/${encodeURIComponent(proposalId)}`, {
+        method: 'DELETE',
+      });
+    },
+    /** The project's own model and key for the assistant (the key itself is never returned). */
+    getSettings(projectId: string) {
+      return request<import('./ai-assistant').AiAssistantSettings>(`/projects/${projectId}/ai/assistant`);
+    },
+    saveSettings(
+      projectId: string,
+      body: { provider: string; model?: string; apiKey?: string; skipValidation?: boolean },
+    ) {
+      return request<{ settings: import('./ai-assistant').AiAssistantSettings; warning: string | null }>(
+        `/projects/${projectId}/ai/assistant`,
+        { method: 'PUT', body: JSON.stringify(body) },
+      );
+    },
+    clearSettings(projectId: string) {
+      return request<import('./ai-assistant').AiAssistantSettings>(`/projects/${projectId}/ai/assistant`, {
+        method: 'DELETE',
+      });
+    },
   },
 
   /**
@@ -2467,7 +2881,7 @@ export const api = {
       return request<{
         id: string;
         title: string | null;
-        messages: { id: string; role: string; content: string; createdAt: string }[];
+        messages: { id: string; role: string; content: string; meta?: unknown; createdAt: string }[];
       }>(`/ai/chat/sessions/${encodeURIComponent(id)}`);
     },
     createSession(teamId: string, projectId?: string, title?: string) {
@@ -2476,7 +2890,7 @@ export const api = {
         body: JSON.stringify({ teamId, projectId, title }),
       });
     },
-    appendMessages(id: string, messages: { role: string; content: string }[]) {
+    appendMessages(id: string, messages: { role: string; content: string; meta?: unknown }[]) {
       return request<{ appended: number }>(
         `/ai/chat/sessions/${encodeURIComponent(id)}/messages`,
         { method: 'POST', body: JSON.stringify({ messages }) },
@@ -2845,16 +3259,27 @@ export const api = {
         { method: 'POST' },
       );
     },
-    disable(projectId: string) {
-      return request<{ message: string; projectId: string }>(
-        `/projects/${projectId}/embeddings/enable`,
+    /**
+     * Turn pgvector off. The stored embeddings are kept unless `dropData`,
+     * which also deletes the embedding tables (409 EMBEDDING_TABLES_IN_USE when
+     * the project's own objects depend on them).
+     */
+    disable(projectId: string, opts: { dropData?: boolean } = {}) {
+      return request<{ message: string; projectId: string; dataDropped?: boolean }>(
+        `/projects/${projectId}/embeddings/enable${opts.dropData ? '?dropData=true' : ''}`,
         { method: 'DELETE' },
       );
     },
-    setApiKey(projectId: string, apiKey: string | null) {
-      return request<{ message: string }>(
+    /**
+     * Store (after a live test request) or clear the per-project key. Rejects
+     * with code EMBEDDING_API_KEY_REJECTED, EMBEDDING_API_KEY_TEST_FAILED or
+     * EMBEDDING_PROVIDER_UNREACHABLE; the last two may be retried with
+     * `skipValidation`.
+     */
+    setApiKey(projectId: string, apiKey: string | null, opts: SetEmbeddingApiKeyOptions = {}) {
+      return request<SetEmbeddingApiKeyResult>(
         `/projects/${projectId}/embeddings/api-key`,
-        { method: 'POST', body: JSON.stringify({ apiKey }) },
+        { method: 'POST', body: JSON.stringify({ apiKey, ...opts }) },
       );
     },
   },
@@ -2911,62 +3336,6 @@ export const api = {
     },
     refreshStorage() {
       return request<{ started: boolean }>('/admin/console/storage/refresh', { method: 'POST' });
-    },
-    /** The technical documentation pages (titles, sections, ages); bodies on request. */
-    techDocs() {
-      return request<TechDocSummary[]>('/admin/console/techdocs');
-    },
-    techDoc(slug: string) {
-      return request<TechDocPage>(`/admin/console/techdocs/${encodeURIComponent(slug)}`);
-    },
-  },
-
-  /** Availability measurement: the public status payload and the console's fuller view. */
-  platformStatus: {
-    public() {
-      return request<PublicStatus>('/platform-status/public');
-    },
-    console() {
-      return request<ConsoleStatus>('/platform-status/console');
-    },
-    createIncident(body: IncidentInput) {
-      return request<IncidentView>('/platform-status/incidents', { method: 'POST', body: JSON.stringify(body) });
-    },
-    updateIncident(id: string, body: Partial<IncidentInput> & { postmortem?: string | null }) {
-      return request<IncidentView>(`/platform-status/incidents/${encodeURIComponent(id)}`, {
-        method: 'PATCH',
-        body: JSON.stringify(body),
-      });
-    },
-    availability() {
-      return request<{ monthAvailabilityPct: number | null; statusUrl: string }>('/platform-status/availability');
-    },
-    createCanary() {
-      return request<{ projectId: string; anonKey: string; storageProbeUrl: string | null }>('/platform-status/canary', {
-        method: 'POST',
-      });
-    },
-  },
-
-  /** Capacity: what the platform carries, how much more fits, and the what-if simulation (root console). */
-  capacity: {
-    overview() {
-      return request<CapacityOverview>('/admin/capacity/overview');
-    },
-    history(days = 90) {
-      return request<CapacityHistoryPoint[]>(`/admin/capacity/model/history?days=${days}`);
-    },
-    simulate(input: SimulationInput) {
-      return request<SimulationResult>('/admin/capacity/simulate', { method: 'POST', body: JSON.stringify(input) });
-    },
-    benchmarks() {
-      return request<CapacityBenchmarkRun[]>('/admin/capacity/benchmarks');
-    },
-    saveScenario(name: string, input: SimulationInput) {
-      return request<{ saved: true }>('/admin/capacity/scenarios', { method: 'POST', body: JSON.stringify({ name, input }) });
-    },
-    scenarios() {
-      return request<Record<string, SimulationInput>>('/admin/capacity/scenarios');
     },
   },
 };

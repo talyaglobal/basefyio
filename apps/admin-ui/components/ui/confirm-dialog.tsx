@@ -18,6 +18,11 @@ export interface ConfirmOptions {
   confirmText?: string;
   cancelText?: string;
   destructive?: boolean;
+  /**
+   * For irreversible actions: the user has to type this exact text before
+   * the confirm button enables (e.g. the name of what is being deleted).
+   */
+  confirmPhrase?: string;
 }
 
 export interface PromptOptions {
@@ -76,6 +81,8 @@ export function ConfirmDialogHost() {
       setOpen(true);
       if (req.kind === 'prompt') {
         setInputValue(req.options.defaultValue ?? '');
+      } else if (req.options.confirmPhrase) {
+        setInputValue('');
       }
     };
     return () => {
@@ -97,6 +104,8 @@ export function ConfirmDialogHost() {
           const next = rest[0];
           if (next.kind === 'prompt') {
             setInputValue(next.options.defaultValue ?? '');
+          } else {
+            setInputValue('');
           }
         } else {
           setOpen(false);
@@ -116,7 +125,12 @@ export function ConfirmDialogHost() {
   const confirmText = options.confirmText ?? (isPrompt ? 'OK' : destructive ? 'Delete' : 'Confirm');
   const cancelText = options.cancelText ?? 'Cancel';
 
-  const handleConfirm = () => settle(isPrompt ? inputValue : true);
+  const confirmPhrase = !isPrompt ? (current.options as ConfirmOptions).confirmPhrase : undefined;
+  const phraseMatches = !confirmPhrase || inputValue.trim() === confirmPhrase;
+  const handleConfirm = () => {
+    if (!phraseMatches) return;
+    settle(isPrompt ? inputValue : true);
+  };
 
   return (
     <Dialog
@@ -129,7 +143,10 @@ export function ConfirmDialogHost() {
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           {options.description != null && (
-            <DialogDescription className="break-words">{options.description}</DialogDescription>
+            // overflow-wrap:anywhere rather than break-word: a long unbroken
+            // name (a 63-character table name) then wraps instead of widening
+            // the dialog and pushing its buttons out of view.
+            <DialogDescription className="[overflow-wrap:anywhere]">{options.description}</DialogDescription>
           )}
         </DialogHeader>
         {isPrompt && (
@@ -146,13 +163,35 @@ export function ConfirmDialogHost() {
             }}
           />
         )}
+        {confirmPhrase && (
+          <div className="space-y-1.5">
+            <label htmlFor="confirm-phrase" className="text-sm text-muted-foreground">
+              Type <span className="font-mono font-medium text-foreground [overflow-wrap:anywhere]">{confirmPhrase}</span> to
+              confirm
+            </label>
+            <Input
+              id="confirm-phrase"
+              autoFocus
+              autoComplete="off"
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleConfirm();
+                }
+              }}
+            />
+          </div>
+        )}
         <DialogFooter className="gap-2 sm:gap-0">
           <Button variant="outline" onClick={() => settle(isPrompt ? null : false)}>
             {cancelText}
           </Button>
           <Button
             variant={destructive ? 'destructive' : 'default'}
-            autoFocus={!isPrompt}
+            autoFocus={!isPrompt && !confirmPhrase}
+            disabled={!phraseMatches}
             onClick={handleConfirm}
           >
             {confirmText}

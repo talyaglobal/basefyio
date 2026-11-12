@@ -16,6 +16,7 @@ import {
 import { Request } from 'express';
 import { SkipThrottle } from '@nestjs/throttler';
 import { PublicCollectionApiService } from './public-collection-api.service';
+import { parseJsonQueryParam } from './nosql-filter.util';
 import { RlsContext } from './public-api.service';
 import { ApiKeyGuard, ApiKeyPayload } from '../../common/guards/api-key.guard';
 
@@ -40,9 +41,9 @@ export class PublicCollectionApiController {
     @Query('offset') offsetRaw?: string,
   ) {
     const payload = this.getPayload(req);
-    const filter = filterRaw ? JSON.parse(filterRaw) : undefined;
-    const sort = sortRaw ? JSON.parse(sortRaw) : undefined;
-    const project = projectRaw ? JSON.parse(projectRaw) : undefined;
+    const filter = parseJsonQueryParam(filterRaw, 'filter');
+    const sort = parseJsonQueryParam<Record<string, number>>(sortRaw, 'sort');
+    const project = parseJsonQueryParam<Record<string, 0 | 1>>(projectRaw, 'project');
     const limit = limitRaw ? parseInt(limitRaw, 10) : undefined;
     const offset = offsetRaw ? parseInt(offsetRaw, 10) : undefined;
 

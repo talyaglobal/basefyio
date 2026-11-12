@@ -16,7 +16,7 @@ import { Pool } from 'pg';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import * as crypto from 'crypto';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TENANT_EMBEDDING_QUEUE } from '../queue/queue.module';
 import {
@@ -55,6 +55,10 @@ const REEMBED_PAGE = 100;
 const REEMBED_STALE_MS = 10 * 60 * 1000;
 /** BullMQ job name on TENANT_EMBEDDING_QUEUE. */
 export const REEMBED_JOB = 'reembed';
+/** What a candidate API key is tested with — one short text, a few tokens. */
+const API_KEY_TEST_TEXT = 'basefyio API key check';
+/** A key test waits this long before the provider counts as unreachable. */
+const API_KEY_TEST_TIMEOUT_MS = 15_000;
 
 /** Serialize a JS number[] to the `[x,y,...]` literal PostgreSQL vector cast expects. */
 function toVectorLiteral(embedding: number[]): string {
@@ -209,26 +213,205 @@ export class TenantEmbeddingService {
   }
 
   /**
-   * Mark pgvector as disabled on a project. Does NOT drop tables — data is preserved
-   * in case the user re-enables later. API calls will be rejected while disabled.
+   * Mark pgvector as disabled on a project. API calls are rejected while it is
+   * disabled.
+   *
+   * By default nothing is dropped — the stored embeddings stay in place so a
+   * later re-enable picks them up again. With `dropData` the two
+   * platform-managed tables the bootstrap created (`kb_embeddings_store`, then
+   * `kb_embeddings`, together with their indexes and grants) are dropped first,
+   * in one transaction; the flag only flips once that succeeded. The `vector`
+   * and `pg_trgm` extensions are left installed on purpose: the project's own
+   * tables may use them, and an unused extension holds no data. Re-enabling
+   * runs the idempotent bootstrap again and recreates empty tables.
+   *
+   * The drop is not cascading: if the customer built a view or a foreign key
+   * on these tables, Postgres refuses and the error says what depends on them,
+   * rather than taking the customer's own objects down with ours.
    */
-  async disablePgvector(projectId: string): Promise<void> {
+  async disablePgvector(
+    projectId: string,
+    opts: { dropData?: boolean } = {},
+  ): Promise<{ dataDropped: boolean }> {
+    const dropData = opts.dropData === true;
+    if (dropData) {
+      const project = await this.getProject(projectId);
+      const state = this.reembedState(project);
+      if (
+        state &&
+        (state.status === 'RUNNING' || state.status === 'QUEUED') &&
+        Date.now() - Date.parse(state.updatedAt) < REEMBED_STALE_MS
+      ) {
+        throw new ConflictException({
+          code: 'EMBEDDING_REEMBED_RUNNING',
+          message: `A re-embed is in progress (${state.done}/${state.total}). Wait for it to finish before deleting the embedding data.`,
+        });
+      }
+
+      const adminPool = this.adminPoolForProjectDb(project.dbName);
+      const client = await adminPool.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query('DROP TABLE IF EXISTS "kb_embeddings_store"');
+        await client.query('DROP TABLE IF EXISTS "kb_embeddings"');
+        await client.query('COMMIT');
+      } catch (err: any) {
+        await client.query('ROLLBACK').catch(() => undefined);
+        // 2BP01 dependent_objects_still_exist: something of the customer's
+        // is built on top of these tables.
+        if (err?.code === '2BP01') {
+          throw new ConflictException({
+            code: 'EMBEDDING_TABLES_IN_USE',
+            message: `The embedding tables could not be deleted because other objects in your database depend on them${
+              err.detail ? ` (${String(err.detail).replace(/\s+/g, ' ').slice(0, 300)})` : ''
+            }. Remove those objects first, or disable pgvector and keep the data.`,
+          });
+        }
+        this.logger.error(
+          `Failed to drop embedding tables for project ${projectId}: ${err?.message}`,
+          err?.stack,
+        );
+        throw new InternalServerErrorException(
+          `Failed to delete the embedding data: ${err?.message ?? err}`,
+        );
+      } finally {
+        client.release();
+        await adminPool.end();
+      }
+      this.storeDimensionsCache.delete(projectId);
+    }
+
     await this.prisma.project.update({
       where: { id: projectId },
-      data: { pgvectorEnabled: false },
+      data: {
+        pgvectorEnabled: false,
+        // A re-embed record describes vectors that no longer exist.
+        ...(dropData ? { embeddingReembedState: Prisma.DbNull } : {}),
+      },
     });
-    this.logger.log(`pgvector disabled for project ${projectId}`);
+    this.logger.log(
+      `pgvector disabled for project ${projectId}${dropData ? ' (embedding tables dropped)' : ''}`,
+    );
+    return { dataDropped: dropData };
   }
 
-  /** Set a per-project provider API key (or clear it to fall back to the platform key). */
+  /**
+   * Set a per-project provider API key, or clear it (null / empty) to fall back
+   * to the platform key.
+   *
+   * A key is only stored after one tiny embedding request with it succeeded,
+   * so a typo or a key for the wrong provider is refused here instead of
+   * surfacing later as a failed store or search. The request goes to the
+   * provider the key is meant for: the one named in `opts.provider` when the
+   * dashboard is about to switch providers, otherwise the project's current
+   * configuration.
+   *
+   * - The provider rejected the key (401/403, Gemini's API_KEY_INVALID) → 400
+   *   `EMBEDDING_API_KEY_REJECTED`, nothing stored.
+   * - The test request was refused for another reason (unknown model, bad
+   *   endpoint) → 400 `EMBEDDING_API_KEY_TEST_FAILED`.
+   * - The provider could not be reached → 502 `EMBEDDING_PROVIDER_UNREACHABLE`.
+   * - Rate limit / exhausted quota → the key authenticated, so it is stored and
+   *   the answer carries a warning.
+   *
+   * `skipValidation` stores the key without the request; the dashboard offers
+   * it only for the last two refusals, never for a rejected key.
+   */
   async setEmbeddingApiKey(
     projectId: string,
-    apiKey: string | null,
-  ): Promise<void> {
+    apiKey: string | null | undefined,
+    opts: {
+      provider?: string | null;
+      model?: string | null;
+      baseUrl?: string | null;
+      skipValidation?: boolean;
+    } = {},
+  ): Promise<{ verified: boolean; warning: string | null }> {
+    const key = typeof apiKey === 'string' ? apiKey.trim() : '';
+    if (!key) {
+      await this.prisma.project.update({
+        where: { id: projectId },
+        data: { embeddingApiKey: null },
+      });
+      return { verified: false, warning: null };
+    }
+    if (/[\s\u0000-\u001f]/.test(key)) {
+      throw new BadRequestException({
+        code: 'EMBEDDING_API_KEY_INVALID_FORMAT',
+        message: 'An API key is a single line without spaces. Paste the key exactly as the provider shows it.',
+      });
+    }
+
+    const project = await this.getProject(projectId);
+    let candidate: ProjectRow = { ...project, embeddingApiKey: key };
+    if (opts.provider !== undefined) {
+      const providerId = opts.provider ?? null;
+      if (providerId !== null && !isEmbeddingProviderId(providerId)) {
+        throw new BadRequestException(
+          `provider must be one of ${EMBEDDING_PROVIDER_IDS.join(', ')} or null`,
+        );
+      }
+      const sameProvider = providerId === project.embeddingProvider;
+      const model = opts.model?.trim() || (sameProvider ? project.embeddingModel : null);
+      if (model && !/^[\w.:@/-]{1,120}$/.test(model)) {
+        throw new BadRequestException('model may only contain letters, digits, ".", ":", "@", "/", "-" and "_"');
+      }
+      const baseUrl = opts.baseUrl?.trim() || (sameProvider ? project.embeddingBaseUrl : null);
+      if (baseUrl && opts.baseUrl?.trim()) {
+        this.validateProjectBaseUrl(baseUrl, this.providers.settings().allowPrivateBaseUrl);
+      }
+      candidate = {
+        ...candidate,
+        embeddingProvider: providerId,
+        embeddingModel: providerId ? model : null,
+        embeddingBaseUrl: providerId ? baseUrl : null,
+      };
+    }
+
+    let verified = false;
+    let warning: string | null = null;
+    if (!opts.skipValidation) {
+      const resolved = this.providers.forProject(candidate);
+      const name = PROVIDER_CATALOGUE[resolved.config.provider].name;
+      try {
+        // Straight to the provider, not through probe(): the probe cache is
+        // keyed by endpoint and model, and would answer for the previous key.
+        await resolved.provider.embed([API_KEY_TEST_TEXT], {
+          intent: 'query',
+          signal: AbortSignal.timeout(API_KEY_TEST_TIMEOUT_MS),
+        });
+        verified = true;
+      } catch (err) {
+        const pe = err instanceof EmbeddingProviderError ? err : null;
+        const detail = err instanceof Error ? err.message : String(err);
+        if (pe?.kind === 'auth') {
+          throw new BadRequestException({
+            code: 'EMBEDDING_API_KEY_REJECTED',
+            message: `${name} rejected this API key. Check that it is a valid ${name} key and has not been revoked. (${detail})`,
+          });
+        }
+        if (pe?.kind === 'quota') {
+          verified = true;
+          warning = `${name} accepted the key but reported a rate limit or an exhausted quota: ${detail}`;
+        } else if (pe?.kind === 'input') {
+          throw new BadRequestException({
+            code: 'EMBEDDING_API_KEY_TEST_FAILED',
+            message: `${name} refused the test request, so the key could not be verified: ${detail}. Check the model and endpoint.`,
+          });
+        } else {
+          throw new BadGatewayException({
+            code: 'EMBEDDING_PROVIDER_UNREACHABLE',
+            message: `Could not reach ${name} to verify the key: ${detail}. Try again, or save it without verification.`,
+          });
+        }
+      }
+    }
+
     await this.prisma.project.update({
       where: { id: projectId },
-      data: { embeddingApiKey: apiKey },
+      data: { embeddingApiKey: key },
     });
+    return { verified, warning };
   }
 
   /* ──────────────── store embeddings ──────────────── */
@@ -638,7 +821,7 @@ export class TenantEmbeddingService {
     if (needsReembed && existingVectors > settings.reembedMaxRows) {
       throw new ConflictException({
         code: 'EMBEDDING_REEMBED_TOO_LARGE',
-        message: `This project holds ${existingVectors.toLocaleString('en-US')} vectors, above the re-embed limit of ${settings.reembedMaxRows.toLocaleString('en-US')} (EMBEDDING_REEMBED_MAX_ROWS). Delete embeddings by namespace first, or raise the limit on the server.`,
+        message: `This project holds ${existingVectors.toLocaleString('en-US')} vectors, above the re-embed limit of ${settings.reembedMaxRows.toLocaleString('en-US')}. Delete embeddings by namespace first, or ask the platform operator to raise the limit.`,
       });
     }
 
@@ -698,7 +881,7 @@ export class TenantEmbeddingService {
     if (total > max) {
       throw new ConflictException({
         code: 'EMBEDDING_REEMBED_TOO_LARGE',
-        message: `This project holds ${total.toLocaleString('en-US')} vectors, above the re-embed limit of ${max.toLocaleString('en-US')} (EMBEDDING_REEMBED_MAX_ROWS). Delete embeddings by namespace first, or raise the limit on the server.`,
+        message: `This project holds ${total.toLocaleString('en-US')} vectors, above the re-embed limit of ${max.toLocaleString('en-US')}. Delete embeddings by namespace first, or ask the platform operator to raise the limit.`,
       });
     }
 
@@ -995,8 +1178,10 @@ export class TenantEmbeddingService {
       throw new BadRequestException('baseUrl must not carry credentials; use the API key field');
     }
     if (!allowPrivate && (url.protocol !== 'https:' || isPrivateHost(baseUrl))) {
+      // Customers get the rule, not the server setting behind it (the operator
+      // switch is EMBEDDING_ALLOW_PRIVATE_BASE_URL, documented for operators).
       throw new BadRequestException(
-        'Project endpoints must be public https URLs. Set EMBEDDING_ALLOW_PRIVATE_BASE_URL=true on the server to allow private or plain-http hosts.',
+        'Project endpoints must be public https URLs. Private network or plain-http endpoints are not allowed on this server.',
       );
     }
   }

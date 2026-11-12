@@ -11,7 +11,7 @@ import { getSiteUrlFromRequest } from "@/lib/site-url";
 import "./globals.css";
 
 const defaultTitle =
-  "basefyio — database BaaS & REST API for Developers";
+  "basefyio — Backend-as-a-Service & REST API for Developers";
 const defaultDescription =
   "basefyio: hosted database, auth, storage, and auto REST API for developers. SDK, CLI, powerful query syntax. Ship backends in minutes.";
 

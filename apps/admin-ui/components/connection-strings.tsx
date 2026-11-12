@@ -17,7 +17,6 @@ import {
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { confirmDialog } from '@/components/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
-import { ApiKeysPanel } from '@/components/api-keys-panel';
 import {
   ChevronDown,
   ChevronRight,
@@ -32,6 +31,8 @@ import {
   Layers,
   Sparkles,
   RefreshCw,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 
 interface ConnectionStringsViewProps {
@@ -103,6 +104,26 @@ function rewriteLocalhostInPgUri(uri: string, replacementHost: string | null): s
   }
 }
 
+const MASK = '••••••••';
+
+/**
+ * Replace every occurrence of each secret (raw and URL-encoded, as it appears
+ * inside a connection URI) with a mask or a placeholder.
+ */
+function replaceSecrets(text: string, secrets: Array<[string, string]>): string {
+  let out = text;
+  for (const [secret, replacement] of secrets) {
+    if (!secret || secret.length < 4) continue;
+    out = out.split(secret).join(replacement);
+    const encoded = encodeURIComponent(secret);
+    if (encoded !== secret) out = out.split(encoded).join(replacement);
+  }
+  return out;
+}
+
+/** Frameworks whose env files end up in a browser or app bundle. */
+const CLIENT_SIDE_PRESETS: FrameworkPreset[] = ['vite', 'react-native'];
+
 function frameworkPresetLabel(preset: FrameworkPreset): string {
   switch (preset) {
     case 'nextjs':
@@ -144,6 +165,8 @@ function buildAiQuickConnectPrompt(
 ## 1) Environment variables (copy exactly — no quotes around values)
 ${envBlockOneLinePerVar}
 
+Secrets are NOT included in this prompt: \`YOUR_DB_PASSWORD\` and \`YOUR_SERVICE_ROLE_KEY\` are placeholders. Ask the user to put the real values into their \`.env\` themselves (basefyio dashboard → Connection → Show secrets). Never ask them to paste secrets into this chat.
+
 ## 2) Stack preset
 ${stack} (use the env names above; do not rename keys unless the framework strictly requires it).
 
@@ -173,11 +196,11 @@ ${stack} (use the env names above; do not rename keys unless the framework stric
 The user can also connect to their basefyio database from pgAdmin, DBeaver, DataGrip, TablePlus, or \`psql\` using the host, port, database, user, and password from DATABASE_URL. The database is always accessible — no VPN or tunnel needed.
 
 ## 6) Official documentation
-- Docs home: https://docs.basefyio.com
-- API reference: https://docs.basefyio.com/api
-- SDK: https://docs.basefyio.com/sdk
-- CLI: https://docs.basefyio.com/cli
-- External DB access: https://docs.basefyio.com/connect
+- Docs home: https://basefyio.com/docs
+- API reference: https://basefyio.com/docs/api
+- SDK: https://basefyio.com/docs/sdk
+- CLI: https://basefyio.com/docs/cli
+- External DB access: https://basefyio.com/docs/connect
 
 ## 7) CORS / CSP
 If the browser blocks the API origin, fix connect-src / CORS or use a same-origin proxy — do not change the basefyio URLs.
@@ -193,11 +216,14 @@ If the browser blocks the API origin, fix connect-src / CORS or use a same-origi
 function CopyBlock({
   label,
   value,
+  displayValue,
   icon: Icon,
   mono = true,
 }: {
   label: string;
   value: string;
+  /** What to show instead of the value (a masked secret); Copy still copies the value. */
+  displayValue?: string;
   icon?: React.ElementType;
   mono?: boolean;
 }) {
@@ -225,7 +251,7 @@ function CopyBlock({
       </div>
       <div className="px-4 py-3">
         <code className={`text-sm break-all ${mono ? 'font-mono' : ''}`}>
-          {value}
+          {displayValue ?? value}
         </code>
       </div>
     </div>
@@ -236,10 +262,13 @@ function CodeExample({
   label,
   language,
   code,
+  displayCode,
 }: {
   label: string;
   language: string;
   code: string;
+  /** Shown instead of the code (secrets masked); Copy still copies the code. */
+  displayCode?: string;
 }) {
   function copy() {
     navigator.clipboard.writeText(code);
@@ -268,7 +297,7 @@ function CodeExample({
       </div>
       <pre className="overflow-x-auto px-4 py-3">
         <code className="text-sm font-mono text-muted-foreground whitespace-pre">
-          {code}
+          {displayCode ?? code}
         </code>
       </pre>
     </div>
@@ -289,6 +318,8 @@ export function ConnectionStringsView({
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [readonlyBusy, setReadonlyBusy] = useState(false);
   const [limitBusy, setLimitBusy] = useState(false);
+  // Secrets are masked on screen until the user asks to see them; Copy always copies the real value.
+  const [revealSecrets, setRevealSecrets] = useState(false);
 
   useEffect(() => {
     api.projects
@@ -333,7 +364,7 @@ export function ConnectionStringsView({
 const { data, count } = await res.json();`;
 
   const insertExample = `curl -X POST '${conn.restUrl}/your_table' \\
-  -H 'apikey: <your-secret-key>' \\
+  -H 'apikey: ${conn.serviceKey}' \\
   -H 'Content-Type: application/json' \\
   -H 'Prefer: return=representation' \\
   -d '{"name": "example", "value": 42}'`;
@@ -357,8 +388,6 @@ datasource db {
     DIRECT_URL: directUrl,
     NEXT_PUBLIC_BASEFYIO_URL: restBaseUrl,
     NEXT_PUBLIC_BASEFYIO_ANON_KEY: conn.anonKey,
-    // The real key, so the copied .env works as it is. Only unprefixed variables carry it,
-    // which Vite (VITE_*) and Expo (EXPO_PUBLIC_*) never put into a browser bundle.
     BASEFYIO_SERVICE_ROLE_KEY: conn.serviceKey,
     PROJECT_ID: projectId,
   } as const;
@@ -372,21 +401,18 @@ datasource db {
       DIRECT_URL: baseVars.DIRECT_URL,
       PROJECT_ID: baseVars.PROJECT_ID,
     },
+    // Client-side apps get the public URL and anon key only: an env file
+    // next to a browser or mobile bundle is one rename away from shipping the
+    // service role key or the database password to every user.
     vite: {
       VITE_BASEFYIO_URL: baseVars.NEXT_PUBLIC_BASEFYIO_URL,
       VITE_BASEFYIO_ANON_KEY: baseVars.NEXT_PUBLIC_BASEFYIO_ANON_KEY,
-      BASEFYIO_SERVICE_ROLE_KEY: baseVars.BASEFYIO_SERVICE_ROLE_KEY,
-      DATABASE_URL: baseVars.DATABASE_URL,
-      DIRECT_URL: baseVars.DIRECT_URL,
-      PROJECT_ID: baseVars.PROJECT_ID,
+      VITE_BASEFYIO_PROJECT_ID: baseVars.PROJECT_ID,
     },
     'react-native': {
       EXPO_PUBLIC_BASEFYIO_URL: baseVars.NEXT_PUBLIC_BASEFYIO_URL,
       EXPO_PUBLIC_BASEFYIO_ANON_KEY: baseVars.NEXT_PUBLIC_BASEFYIO_ANON_KEY,
-      BASEFYIO_SERVICE_ROLE_KEY: baseVars.BASEFYIO_SERVICE_ROLE_KEY,
-      DATABASE_URL: baseVars.DATABASE_URL,
-      DIRECT_URL: baseVars.DIRECT_URL,
-      PROJECT_ID: baseVars.PROJECT_ID,
+      EXPO_PUBLIC_BASEFYIO_PROJECT_ID: baseVars.PROJECT_ID,
     },
     node: {
       BASEFYIO_URL: baseVars.NEXT_PUBLIC_BASEFYIO_URL,
@@ -405,21 +431,20 @@ datasource db {
   const rawJsonContent = JSON.stringify(selectedVars, null, 2);
   const rawEditorContent = rawEditorFormat === 'env' ? rawEnvContent : rawJsonContent;
 
-  // On screen the secrets are masked; Copy puts the real values on the clipboard.
-  const hideSecrets = (text: string) =>
-    [conn.serviceKey, conn.password]
-      .filter((secret): secret is string => !!secret && secret.length >= 8)
-      .reduce((out, secret) => out.split(secret).join(`${secret.slice(0, 6)}••••••••`), text);
-  const shownEditorContent = hideSecrets(rawEditorContent);
-
-  // The prompt is pasted into a third-party assistant: it never carries the secrets themselves.
-  const promptEnvContent = [conn.serviceKey, conn.password]
-    .filter((secret): secret is string => !!secret && secret.length >= 8)
-    .reduce(
-      (out, secret) => out.split(secret).join(secret === conn.serviceKey ? '<your-secret-key>' : '<db-password>'),
+  // Masks for the screen, placeholders for the AI prompt (which never carries a secret).
+  const secretPairs = (replacement: (kind: 'password' | 'serviceKey') => string): Array<[string, string]> => [
+    [conn.password, replacement('password')],
+    [conn.serviceKey, replacement('serviceKey')],
+    ...(conn.readonly?.password ? [[conn.readonly.password, replacement('password')] as [string, string]] : []),
+  ];
+  const hide = (text: string) => (revealSecrets ? text : replaceSecrets(text, secretPairs(() => MASK)));
+  const aiQuickConnectPrompt = buildAiQuickConnectPrompt(
+    replaceSecrets(
       rawEnvContent,
-    );
-  const aiQuickConnectPrompt = buildAiQuickConnectPrompt(promptEnvContent, framework);
+      secretPairs((kind) => (kind === 'password' ? 'YOUR_DB_PASSWORD' : 'YOUR_SERVICE_ROLE_KEY')),
+    ),
+    framework,
+  );
 
   const passwordValidation =
     nextPassword.length === 0
@@ -499,7 +524,19 @@ datasource db {
 
   return (
     <div className="space-y-8">
-      <h1 className="text-2xl font-bold tracking-tight">Connection</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold tracking-tight">Connection</h1>
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-2"
+          onClick={() => setRevealSecrets((v) => !v)}
+          aria-pressed={revealSecrets}
+        >
+          {revealSecrets ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          {revealSecrets ? 'Hide secrets' : 'Show secrets'}
+        </Button>
+      </div>
       <div className="inline-flex rounded-lg border bg-muted/40 p-1">
         <button
           type="button"
@@ -597,6 +634,14 @@ datasource db {
             </div>
           </div>
 
+          {CLIENT_SIDE_PRESETS.includes(framework) && (
+            <p className="text-xs text-muted-foreground">
+              {frameworkPresetLabel(framework)} builds run in the browser or on the device, so this
+              file holds only the public URL and anon key. Keep the service role key and the database
+              URL on a server — choose Node.js to get those.
+            </p>
+          )}
+
           <div className="rounded-lg border bg-muted/10">
             <div className="flex items-center justify-between border-b px-4 py-2">
               <p className="text-sm font-medium">
@@ -607,7 +652,7 @@ datasource db {
                 size="sm"
                 onClick={() => {
                   navigator.clipboard.writeText(rawEditorContent);
-                  toast.success(`${rawEditorFormat.toUpperCase()} copied with its values — keep it out of version control`);
+                  toast.success(`Copy ${rawEditorFormat.toUpperCase()}`);
                 }}
               >
                 <Copy className="mr-1.5 h-3.5 w-3.5" />
@@ -616,7 +661,7 @@ datasource db {
             </div>
             <pre className="max-h-[420px] overflow-auto px-4 py-3">
               <code className="whitespace-pre text-sm text-emerald-400">
-                {shownEditorContent}
+                {hide(rawEditorContent)}
               </code>
             </pre>
           </div>
@@ -632,8 +677,8 @@ datasource db {
                     AI prompt for quick connect
                   </h3>
                   <p className="mt-0.5 text-xs text-violet-800/90 dark:text-violet-200/80">
-                    Copy into your AI assistant. Wraps the exact ENV block above (byte-identical
-                    values) plus instructions on auth via basefyio-js, migrations, REST/fetch
+                    Copy into your AI assistant. Wraps the ENV block above with secrets replaced by
+                    placeholders, plus instructions on auth via basefyio-js, migrations, REST/fetch
                     fallback, CORS/CSP, and safe handling of secrets.
                   </p>
                 </div>
@@ -659,8 +704,8 @@ datasource db {
               </pre>
             </div>
             <p className="border-t border-violet-200/60 px-4 py-2 text-[11px] text-violet-800/80 dark:border-violet-900/50 dark:text-violet-300/80">
-              This text includes database passwords and API keys. Only paste into tools you
-              trust; do not share in public channels.
+              This prompt contains no database password or service role key — fill those into
+              your .env yourself. It still includes your project URL and public anon key.
             </p>
           </div>
         </section>
@@ -683,7 +728,7 @@ datasource db {
           <ul className="mt-1.5 list-inside list-disc text-blue-700 dark:text-blue-300 space-y-1">
             <li><strong>pgAdmin:</strong> Add Server → Connection tab → paste Host, Port, Database, Username, Password below</li>
             <li><strong>DBeaver:</strong> New Connection → select PostgreSQL → paste Host, Port, Database, Username, Password</li>
-            <li><strong>Terminal:</strong> <code className="rounded bg-blue-100 dark:bg-blue-900 px-1 text-xs">psql &quot;{conn.poolerUri}&quot;</code></li>
+            <li><strong>Terminal:</strong> <code className="rounded bg-blue-100 dark:bg-blue-900 px-1 text-xs">psql &quot;{hide(conn.poolerUri)}&quot;</code></li>
           </ul>
         </div>
       </section>
@@ -700,6 +745,7 @@ datasource db {
         <CopyBlock
           label="Pooler Connection URI"
           value={conn.poolerUri}
+          displayValue={hide(conn.poolerUri)}
           icon={Link2}
         />
         <div className="basefyio-grid-row-hover grid gap-3 sm:grid-cols-2">
@@ -715,7 +761,7 @@ datasource db {
           />
           <CopyBlock label="Database" value={conn.database} icon={Database} />
           <CopyBlock label="User" value={conn.user} icon={Database} />
-          <CopyBlock label="Password" value={conn.password} icon={Key} />
+          <CopyBlock label="Password" value={conn.password} displayValue={hide(conn.password)} icon={Key} />
           <CopyBlock label="Project ID" value={projectId} icon={Database} />
         </div>
         {conn.canResetDbPassword && (
@@ -794,7 +840,7 @@ datasource db {
             </div>
           </DialogContent>
         </Dialog>
-        <CodeExample label="Prisma" language="prisma" code={prismaExample} />
+        <CodeExample label="Prisma" language="prisma" code={prismaExample} displayCode={hide(prismaExample)} />
       </section>
 
       {/* Read-only access */}
@@ -810,10 +856,10 @@ datasource db {
         </p>
         {conn.readonly ? (
           <>
-            <CopyBlock label="Read-only Pooler URI" value={conn.readonly.poolerUri} icon={Link2} />
+            <CopyBlock label="Read-only Pooler URI" value={conn.readonly.poolerUri} displayValue={hide(conn.readonly.poolerUri)} icon={Link2} />
             <div className="basefyio-grid-row-hover grid gap-3 sm:grid-cols-2">
               <CopyBlock label="Read-only User" value={conn.readonly.user} icon={Database} />
-              <CopyBlock label="Read-only Password" value={conn.readonly.password} icon={Key} />
+              <CopyBlock label="Read-only Password" value={conn.readonly.password} displayValue={hide(conn.readonly.password)} icon={Key} />
             </div>
             {conn.canResetDbPassword && (
               <div className="flex flex-wrap gap-2">
@@ -915,6 +961,7 @@ datasource db {
             label="Insert (curl with service key)"
             language="bash"
             code={insertExample}
+            displayCode={hide(insertExample)}
           />
         </div>
 
@@ -993,15 +1040,16 @@ datasource db {
           <Key className="h-5 w-5" />
           API Keys
         </h2>
-        <ApiKeysPanel
-          projectId={projectId}
-          // A rotated key changes the .env block and the snippets above: load them again.
-          onKeysChanged={() => {
-            api.projects
-              .connect(projectId)
-              .then(setConn)
-              .catch((err) => toast.error(err.message));
-          }}
+        <CopyBlock
+          label="Anon Key (public, read-only)"
+          value={conn.anonKey}
+          icon={Key}
+        />
+        <CopyBlock
+          label="Service Key (secret, full access)"
+          value={conn.serviceKey}
+          displayValue={hide(conn.serviceKey)}
+          icon={Key}
         />
         <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm dark:border-red-800 dark:bg-red-950">
           <p className="font-medium text-red-800 dark:text-red-200">
@@ -1024,7 +1072,7 @@ datasource db {
           Direct connection without pooler. Only use if you are inside the same
           network.
         </p>
-        <CopyBlock label="Direct URI" value={conn.uri} icon={Link2} />
+        <CopyBlock label="Direct URI" value={conn.uri} displayValue={hide(conn.uri)} icon={Link2} />
 
       </section>
       </>

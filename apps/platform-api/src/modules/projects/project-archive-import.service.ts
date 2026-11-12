@@ -19,6 +19,52 @@ const execFileAsync = promisify(execFile);
 
 type ZipImportMode = 'existing' | 'new';
 
+/**
+ * Entries a project export can contain. An archive with none of them is not
+ * an export — an empty ZIP used to "import" into a blank project.
+ */
+const EXPORT_MARKERS = [
+  'manifest.json',
+  'project.json',
+  'database/dump.sql',
+  'auth/users.json',
+  'storage/buckets.json',
+];
+
+const NOT_AN_EXPORT =
+  'This ZIP is not a basefyio project export: it has no manifest.json, project.json or database/dump.sql. ' +
+  'Use a ZIP downloaded from Backup & Export.';
+
+/** A ZIP starts with a local file header (PK\x03\x04) or, when empty, an end record (PK\x05\x06). */
+export function looksLikeZipArchive(buf: Buffer): boolean {
+  return (
+    buf.length >= 4 &&
+    buf[0] === 0x50 &&
+    buf[1] === 0x4b &&
+    ((buf[2] === 0x03 && buf[3] === 0x04) || (buf[2] === 0x05 && buf[3] === 0x06))
+  );
+}
+
+/**
+ * Where the export lives inside the archive: '' when its files are at the
+ * root, or the single top-level folder that holds them (an export that was
+ * unzipped and zipped again usually gains one). Null when the archive holds
+ * no export at all.
+ */
+export function findExportRoot(entryNames: string[]): string | null {
+  const names = entryNames
+    .map((n) => n.replace(/\\/g, '/').replace(/^\.\//, ''))
+    .filter((n) => n && !n.endsWith('/'));
+  const has = (prefix: string) => EXPORT_MARKERS.some((m) => names.includes(prefix + m));
+  if (has('')) return '';
+  const tops = new Set(names.map((n) => (n.includes('/') ? n.split('/')[0] : '')));
+  if (tops.size === 1) {
+    const [top] = [...tops];
+    if (top && has(`${top}/`)) return `${top}/`;
+  }
+  return null;
+}
+
 @Injectable()
 export class ProjectArchiveImportService {
   constructor(
@@ -35,6 +81,7 @@ export class ProjectArchiveImportService {
       nameMode?: ZipImportMode;
       newProjectName?: string;
       existingProjectId?: string;
+      confirmProjectName?: string;
     },
   ) {
     if (!file?.buffer?.length) {
@@ -51,6 +98,12 @@ export class ProjectArchiveImportService {
       nameMode?: ZipImportMode;
       newProjectName?: string;
       existingProjectId?: string;
+      /**
+       * Optional typed confirmation for an overwrite. When sent, it must
+       * equal the target project's name, so a stale or mistaken selection in
+       * the dashboard cannot overwrite a different project.
+       */
+      confirmProjectName?: string;
     },
   ) {
     if (!zipBuffer?.length) {
@@ -65,10 +118,42 @@ export class ProjectArchiveImportService {
     await mkdir(extractDir, { recursive: true });
 
     try {
-      const zip = new AdmZip(zipBuffer);
-      zip.extractAllTo(extractDir, true);
+      // Check the archive before anything is created or overwritten: a file
+      // that is not a ZIP used to surface as a 500 with the library's raw
+      // message, and an empty ZIP created an empty project.
+      if (!looksLikeZipArchive(zipBuffer)) {
+        throw new BadRequestException(
+          'This file is not a ZIP archive. Choose the .zip file downloaded from Backup & Export.',
+        );
+      }
+      let zip: AdmZip;
+      let root: string | null;
+      try {
+        zip = new AdmZip(zipBuffer);
+        root = findExportRoot(zip.getEntries().map((e) => e.entryName));
+      } catch {
+        throw new BadRequestException(
+          'This ZIP archive is damaged or uses an unsupported format. Download the export again and retry.',
+        );
+      }
+      if (root === null) throw new BadRequestException(NOT_AN_EXPORT);
 
-      const metadataPath = join(extractDir, 'project.json');
+      if (body.existingProjectId?.trim() && body.confirmProjectName !== undefined) {
+        const target = await this.projectsService.getProjectForSupabaseImport(
+          body.existingProjectId.trim(),
+          userId,
+        );
+        if (body.confirmProjectName.trim() !== target.name.trim()) {
+          throw new BadRequestException(
+            `The confirmation does not match the project name "${target.name}". Nothing was changed.`,
+          );
+        }
+      }
+
+      zip.extractAllTo(extractDir, true);
+      const exportDir = root ? join(extractDir, root) : extractDir;
+
+      const metadataPath = join(exportDir, 'project.json');
       let exportedName = 'Imported Project';
       if (existsSync(metadataPath)) {
         const parsed = JSON.parse(await readFile(metadataPath, 'utf8')) as {
@@ -101,19 +186,19 @@ export class ProjectArchiveImportService {
 
       const warnings: string[] = [];
 
-      const dumpPath = join(extractDir, 'database', 'dump.sql');
+      const dumpPath = join(exportDir, 'database', 'dump.sql');
       if (existsSync(dumpPath)) {
         await this.restoreDatabaseDump(project, dumpPath);
       } else {
         warnings.push('database/dump.sql not found in archive, database restore skipped.');
       }
 
-      const authUsersPath = join(extractDir, 'auth', 'users.json');
+      const authUsersPath = join(exportDir, 'auth', 'users.json');
       if (existsSync(authUsersPath)) {
         await this.restoreAuthUsers(project.keycloakRealm, authUsersPath, warnings);
       }
 
-      const storageRoot = join(extractDir, 'storage');
+      const storageRoot = join(exportDir, 'storage');
       const bucketsPath = join(storageRoot, 'buckets.json');
       if (existsSync(storageRoot) && existsSync(bucketsPath)) {
         await this.restoreStorage(project.id, storageRoot, bucketsPath, warnings);

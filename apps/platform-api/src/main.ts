@@ -2,46 +2,34 @@
 // environment once, when it is first required.
 import './mail-provider-env';
 import { NestFactory } from '@nestjs/core';
-import type { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe, RequestMethod } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { json, urlencoded, NextFunction, Request, Response } from 'express';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { BigIntSerializationInterceptor } from './common/interceptors/bigint-serialization.interceptor';
-import { drainState } from './common/utils/drain-state';
-import { RealtimeStreamService } from './common/realtime/realtime-stream.service';
-import { RealtimeDataService } from './modules/realtime-data/realtime-data.service';
-import {
-  STORAGE_REQUEST_TIMEOUT_MS,
-  isFormBody,
-  isJsonBody,
-  rewriteSupabasePaths,
-} from './common/middleware/supabase-paths.middleware';
+
+/**
+ * Answer a body the parser could not read — malformed JSON, or one over the
+ * size limit — with the same JSON error shape as every other error, instead of
+ * Express' default HTML page.
+ */
+function bodyParseErrorHandler(err: any, _req: Request, res: Response, next: NextFunction) {
+  const type = typeof err?.type === 'string' ? err.type : '';
+  if (!type.startsWith('entity.') && !(err instanceof SyntaxError)) return next(err);
+  const status = typeof err.status === 'number' && err.status >= 400 && err.status < 500 ? err.status : 400;
+  const message =
+    type === 'entity.too.large'
+      ? 'Request body is too large'
+      : type === 'entity.parse.failed' || err instanceof SyntaxError
+        ? 'Malformed JSON in request body'
+        : 'The request body could not be read';
+  res.status(status).json({ statusCode: status, message, timestamp: new Date().toISOString() });
+}
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true });
-
-  // How many proxies stand between the client and this process: Traefik is
-  // one, a load balancer in front of it makes two. Express then derives
-  // `req.ip` from the right-most X-Forwarded-For hop a trusted proxy did not
-  // add, which is what the rate limiters, sign-in audit and realtime keys use.
-  app.set('trust proxy', trustedProxyHops());
-
-  // Supabase-compatible paths (`/auth/v1/…` at the root, `/api/p/<projectId>/…`),
-  // before anything reads the URL — see the middleware for the shapes.
-  app.use(rewriteSupabasePaths);
-
-  // Nest's own parsers keep req.rawBody (the app was created with rawBody: true); registering
-  // express.json() here instead made Nest skip its parser, and the Stripe webhook, which verifies
-  // the signature over the raw bytes, could never see a body.
-  //
-  // A storage upload (`POST|PUT /storage/v1/object/<bucket>/<path>`) is the file itself,
-  // streamed; when the file happens to be JSON the parser would swallow it before the
-  // route could stream it to the store. The `type` predicate leaves those bodies alone;
-  // the object routes that do take JSON (list, sign, move, copy, upload/sign) keep it.
-  app.useBodyParser('json', { limit: '10mb', type: isJsonBody });
-  app.useBodyParser('urlencoded', { extended: true, limit: '10mb', type: isFormBody });
+  const app = await NestFactory.create(AppModule, { rawBody: true });
 
   app.use(
     helmet({
@@ -81,44 +69,26 @@ async function bootstrap() {
       'Authorization',
       'apikey',
       'x-project-id',
-      'x-bf-project',
       'prefer',
       'x-client-info',
       'x-supabase-api-version',
-      // postgrest-js: schema selection, ranges, retries
-      'accept-profile',
-      'content-profile',
+      // Optimistic concurrency on Data Engine documents (send back the ETag).
+      'If-Match',
+      // Paging the REST data API by header (`Range: 0-24`).
       'range',
       'range-unit',
-      'x-retry-count',
-      // storage-js: upsert, cache hints, resumable uploads
-      'x-upsert',
-      'cache-control',
-      'tus-resumable',
-      'upload-length',
-      'upload-metadata',
-      'upload-offset',
-      'x-signature',
-      'x-metadata',
     ],
-    exposedHeaders: [
-      'Content-Range',
-      'X-Total-Count',
-      'Link',
-      'Preference-Applied',
-      'Location',
-      'X-Supabase-Api-Version',
-      'Upload-Offset',
-      'Upload-Length',
-      'Tus-Resumable',
-      // storage-js downloads: size, cache validation, file name, partial content
-      'Content-Length',
-      'ETag',
-      'Content-Disposition',
-      'Accept-Ranges',
-    ],
+    exposedHeaders: ['Content-Range', 'X-Total-Count', 'ETag', 'Preference-Applied', 'Range-Unit'],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   });
+
+  // Body parsers come after CORS on purpose. A body that fails to parse ends
+  // the request inside the parser; registered first, it answered before the
+  // CORS headers were set, so a browser saw only "Failed to fetch" and could
+  // not read the error at all.
+  app.use(json({ limit: '10mb' }));
+  app.use(urlencoded({ extended: true, limit: '10mb' }));
+  app.use(bodyParseErrorHandler);
 
   // The Codefyio marketplace adapter is served at the root `/_codefyio/*`
   // (per its spec), so it is excluded from the global `/api` prefix.
@@ -140,59 +110,8 @@ async function bootstrap() {
   const config = app.get(ConfigService);
   const port = config.get<number>('PORT', 4000);
 
-  // Stopping without dropping anyone. The signal first marks the process as
-  // draining — registered before Nest's own hook so the readiness route says
-  // 503 before the listener closes — then Nest closes the server and lets the
-  // requests in flight finish, and a deadline below Docker's 30 s grace
-  // period (`stop_grace_period` in both compose files) makes sure a stuck
-  // stream can never turn a restart into a kill.
-  for (const signal of ['SIGTERM', 'SIGINT'] as const) {
-    process.once(signal, () => {
-      drainState.start();
-      const server = app.getHttpServer();
-      server.closeIdleConnections?.();
-      // Streams are never idle, so they would hold the server open until the
-      // deadline; tell their clients to reconnect elsewhere and end them now.
-      const dashboardStreams = RealtimeStreamService.closeAllForDrain();
-      let customerStreams = 0;
-      try {
-        customerStreams = app.get(RealtimeDataService, { strict: false }).closeAllForDrain();
-      } catch {
-        /* module not loaded in this build */
-      }
-      if (dashboardStreams + customerStreams > 0) {
-        console.log(`Draining: asked ${dashboardStreams + customerStreams} realtime stream(s) to reconnect`);
-      }
-      setTimeout(() => process.exit(0), DRAIN_DEADLINE_MS).unref();
-    });
-  }
-  app.enableShutdownHooks();
-
   await app.listen(port);
-
-  // Longer than the proxy's idle timeout, so the proxy is never the one to
-  // see a connection the API closed first (a race that surfaces as random
-  // 502s under load).
-  const server = app.getHttpServer();
-  server.keepAliveTimeout = 65_000;
-  server.headersTimeout = 66_000;
-  // How long a client may take to send a whole request. Node applies one value
-  // to every request, and a storage upload of a few hundred megabytes over a
-  // slow link takes far longer than the two minutes everything else should. So
-  // the server allows an upload's worth, and every request that is not one gets
-  // the old bound back from rewriteSupabasePaths: it must arrive within two
-  // minutes, while its response may still take as long as it needs.
-  server.requestTimeout = STORAGE_REQUEST_TIMEOUT_MS;
-
   console.log(`Platform API running on http://localhost:${port}`);
-}
-
-/** Below Docker's 30 s grace period, with room for the exit itself. */
-const DRAIN_DEADLINE_MS = 25_000;
-
-function trustedProxyHops(): number {
-  const n = Number.parseInt(process.env.TRUSTED_PROXY_HOPS ?? '1', 10);
-  return Number.isFinite(n) && n >= 0 ? n : 1;
 }
 
 bootstrap();

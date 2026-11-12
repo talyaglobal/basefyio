@@ -73,6 +73,10 @@ model User {
   notifyBrowserPush     Boolean   @default(false) @map("notify_browser_push")
   lastLoginFingerprint  String?   @map("last_login_fingerprint")
   lastLoginAt           DateTime? @map("last_login_at")
+  /// Last time the user's session was used (profile load or token refresh),
+  /// throttled to one write an hour. lastLoginAt only moves on a fresh sign-in,
+  /// which a long-lived session never repeats.
+  lastSeenAt            DateTime? @map("last_seen_at")
   // Mirror of "has an authenticator enrolled in Keycloak"; Keycloak stays the
   // source of truth and the mirror is healed at every sign-in.
   mfaEnrolledAt         DateTime? @map("mfa_enrolled_at")
@@ -107,24 +111,6 @@ model RolePermission {
   @@map("role_permissions")
 }
 
-/// What kind of organization a team is. PERSONAL is the one every user gets;
-/// the rest are what a customer picks when creating another.
-enum OrganizationKind {
-  PERSONAL
-  COMPANY
-  STARTUP
-  AGENCY
-  EDUCATION
-  NONPROFIT
-  OPEN_SOURCE
-  OTHER
-}
-
-/// An organization. The table and the API path keep the older name "team":
-/// projects, members, roles, subscription, billing, usage and the workspace
-/// address all hang off it, and every user already has a personal one, so a
-/// second entity would only duplicate that. Outwardly everything says
-/// organization; `publicId` is its random, stable address in the dashboard.
 model Team {
   id                String        @id @default(uuid())
   name              String
@@ -132,17 +118,6 @@ model Team {
   personalForUserId String?       @unique @map("personal_for_user_id")
   accountStatus     AccountStatus @default(ACTIVE) @map("account_status")
   createdAt         DateTime      @default(now()) @map("created_at")
-
-  /// 20 lowercase base-36 characters from 16 random bytes: opaque,
-  /// unguessable, stable — the organization's URL. Null only for a row the
-  /// backfill has not reached yet; every new row gets one.
-  publicId               String?          @unique @map("public_id") @db.VarChar(24)
-  kind                   OrganizationKind @default(COMPANY)
-  description            String?          @db.VarChar(512)
-  websiteUrl             String?          @map("website_url") @db.VarChar(512)
-  logoUrl                String?          @map("logo_url") @db.VarChar(1024)
-  /// When the silent migration of an existing account ran for this row.
-  organizationMigratedAt DateTime?        @map("organization_migrated_at")
 
   // Two-factor policy: members must sign in with an authenticator; enforced at
   // each member's next sign-in, never against a live session.
@@ -159,6 +134,12 @@ model Team {
   vercelOAuthTeamId String? @map("vercel_oauth_team_id")
   vercelOAuthUser   String? @map("vercel_oauth_user")
 
+  // Workspace address: <subdomain>.<base domain> answers this team's API and
+  // database host. Chosen by the team; null = none claimed. Independent of
+  // `slug`, which is generated from the name and may not be DNS-safe.
+  subdomain          String?   @unique @db.VarChar(63)
+  subdomainUpdatedAt DateTime? @map("subdomain_updated_at")
+
   personalForUser            User?                       @relation("PersonalTeam", fields: [personalForUserId], references: [id])
   activeForUsers             User[]                      @relation("ActiveTeam")
   members                    TeamMember[]
@@ -173,8 +154,24 @@ model Team {
   billingAccount             BillingAccount?
   rolePermissions            TeamRolePermission[]
   provisioningCredentialRefs ProvisioningCredentialRef[]
+  subdomainHolds             TeamSubdomainHold[]
 
   @@map("teams")
+}
+
+/// A workspace address a team gave up. Until `expiresAt` it keeps answering for
+/// that team, so apps still pointed at it do not break the moment it changes,
+/// and no other team can claim it in the meantime.
+model TeamSubdomainHold {
+  subdomain  String   @id @db.VarChar(63)
+  teamId     String   @map("team_id")
+  releasedAt DateTime @default(now()) @map("released_at")
+  expiresAt  DateTime @map("expires_at")
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@index([teamId])
+  @@map("team_subdomain_holds")
 }
 
 model TeamMember {
@@ -230,6 +227,8 @@ model TeamInvite {
   invitedEmail  String?      @map("invited_email")
   invitedById   String       @map("invited_by_id")
   status        InviteStatus @default(PENDING)
+  /// Role the invitee joins with (OWNER is never granted by invite).
+  role          TeamMemberRole @default(MEMBER)
   createdAt     DateTime     @default(now()) @map("created_at")
 
   team        Team  @relation(fields: [teamId], references: [id], onDelete: Cascade)
@@ -254,10 +253,6 @@ model Project {
   keycloakRealm     String              @map("keycloak_realm")
   anonKey           String              @map("anon_key")
   serviceKey        String              @map("service_key")
-  /// When the service_role key last authenticated a request (updated at most every 5 min).
-  /// The dashboard reveals the key only while this is null: once an application uses it, the
-  /// UI keeps it hidden and offers rotation or a new secret key instead.
-  serviceKeyLastUsedAt DateTime?        @map("service_key_last_used_at")
   teamId            String              @map("team_id")
   createdBy         String?             @map("created_by")
   importSource      String              @default("MANUAL") @map("import_source")
@@ -286,18 +281,6 @@ model Project {
   /// When RLS roles (anon / authenticated / service_role) and auth.* helpers
   /// were installed into the project DB. Null = not yet bootstrapped.
   rlsBootstrappedAt DateTime?           @map("rls_bootstrapped_at")
-  /// How the Supabase-compatible storage facade (`/api/storage/v1`) authorises
-  /// object access: `presets` applies the StoragePolicy access rules; `rls`
-  /// evaluates the project's own policies on `storage.objects` under the
-  /// caller's role. Imports from Supabase that copied storage policies are
-  /// set to `rls`.
-  storageAuthz      String              @default("presets") @map("storage_authz")
-  /// Whether the Supabase-compatible surfaces serve this project: `/api/auth/v1`,
-  /// `/api/storage/v1`, the storage catalog kept in its database, and the GoTrue claim
-  /// mappers. Off by default; a ROOT turns it on per project
-  /// (`PATCH /api/admin/console/projects/:id/supabase-compat`).
-  supabaseCompat    Boolean             @default(false) @map("supabase_compat")
-  secretKeys        ProjectSecretKey[]
 
   // Folder
   folderId String? @map("folder_id")
@@ -337,6 +320,7 @@ model Project {
   folder              ProjectFolder?          @relation(fields: [folderId], references: [id], onDelete: SetNull)
   tags                ProjectTagAssignment[]
   sqlAuditLogs        SqlAuditLog[]
+  sqlSnippets         SqlSnippet[]
   authConfig          ProjectAuthConfig?
   activityLogs        ProjectActivityLog[]
   infrastructure      ProjectInfrastructure?
@@ -364,7 +348,6 @@ model Project {
   realtimeBindings RealtimeBinding[]
   usage            ProjectUsage?
   userMfa          ProjectUserMfa[]
-  importedPasswordHashes ImportedPasswordHash[]
 
   // Preview branches
   /// The project this one was branched from. Null = ordinary project.
@@ -382,9 +365,33 @@ model Project {
 
   backupVerifications BackupVerification[]
 
+  /// The project's own model and key for the dashboard AI assistant, if set.
+  aiAssistantSettings ProjectAiAssistantSettings?
+
+  /// Who may reach the database from outside (TLS, address allow list).
+  dbAccessPolicy ProjectDbAccessPolicy?
+
   @@unique([parentProjectId, branchName])
   @@index([parentProjectId])
   @@map("projects")
+}
+
+/// External database access rules for one project, enforced by the pooler
+/// through its host-based authentication file. No row = any address with the
+/// password, which is how every database has always been reachable.
+model ProjectDbAccessPolicy {
+  projectId    String   @id @map("project_id")
+  /// Refuse a connection that does not negotiate TLS.
+  requireTls   Boolean  @default(false) @map("require_tls")
+  /// Addresses allowed to connect, as normalised CIDR blocks. Empty = any.
+  allowedCidrs String[] @default([]) @map("allowed_cidrs")
+  updatedBy    String?  @map("updated_by")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("project_db_access_policies")
 }
 
 /// Per-table/collection opt-in for public realtime change events
@@ -417,6 +424,32 @@ model ProjectActivityLog {
 
   @@index([projectId, createdAt(sort: Desc)])
   @@map("project_activity_logs")
+}
+
+/// One row per project deletion step (moved to trash, deleted permanently,
+/// purged after the retention window). Deliberately NOT linked to Project:
+/// the activity log cascades away with a permanently deleted project, and the
+/// deletion record has to outlive it.
+model ProjectDeletionRecord {
+  id              String   @id @default(uuid())
+  projectId       String   @map("project_id")
+  projectName     String   @map("project_name")
+  teamId          String?  @map("team_id")
+  teamName        String?  @map("team_name")
+  userId          String?  @map("user_id")
+  /// trashed | permanent | purged
+  kind            String   @db.VarChar(20)
+  isBranch        Boolean  @default(false) @map("is_branch")
+  reasonCode      String?  @map("reason_code")
+  reasonLabel     String?  @map("reason_label")
+  details         String?  @db.Text
+  /// The PROJECT_DELETED activity row this mirrors, while that row still exists.
+  activityLogId   String?  @map("activity_log_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt(sort: Desc)])
+  @@index([projectId])
+  @@map("project_deletion_records")
 }
 
 model ProjectFolder {
@@ -562,34 +595,6 @@ model ProjectUserMfa {
   @@map("project_user_mfa")
 }
 
-/// A password hash carried over from an imported auth provider. Keycloak cannot
-/// verify the provider's bcrypt hashes, so each one waits here until its owner
-/// signs in with the old password: the attempt is checked against the hash, and
-/// on a match the password is handed to Keycloak and the hash is dropped.
-/// Pending while settledAt is null.
-model ImportedPasswordHash {
-  id             String    @id @default(uuid())
-  projectId      String    @map("project_id")
-  /// The same id in Keycloak and at the source: the import preserves it.
-  keycloakUserId String    @map("keycloak_user_id")
-  /// Lowercased, so a failed sign-in can look for a pending hash without asking Keycloak.
-  email          String
-  /// The source's hash, encrypted at rest when DB_CRED_ENC_KEY is set. Null once settled.
-  passwordHash   String?   @map("password_hash")
-  source         String    @default("supabase")
-  /// When the hash stopped mattering: adopted by a sign-in, or superseded by a
-  /// password set in Keycloak since (a reset, an administrator).
-  settledAt      DateTime? @map("settled_at")
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
-
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-
-  @@unique([projectId, keycloakUserId])
-  @@index([projectId, email])
-  @@map("imported_password_hashes")
-}
-
 model SqlAuditLog {
   id        String   @id @default(uuid())
   projectId String   @map("project_id")
@@ -605,6 +610,25 @@ model SqlAuditLog {
   @@index([projectId])
   @@index([userId])
   @@map("sql_audit_logs")
+}
+
+/// A saved query in a project's SQL editor. Shared with the project's team:
+/// every member can open and run it; its author or a team owner/admin can
+/// change or delete it.
+model SqlSnippet {
+  id        String   @id @default(uuid())
+  projectId String   @map("project_id")
+  /// Who saved it (platform user id).
+  userId    String   @map("user_id")
+  name      String   @db.VarChar(120)
+  query     String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("sql_snippets")
 }
 
 enum FeedbackType {
@@ -698,6 +722,8 @@ model FeedbackComment {
   parentCommentId String?   @map("parent_comment_id")
   createdAt       DateTime  @default(now()) @map("created_at")
   editedAt        DateTime? @map("edited_at")
+  /// Set instead of deleting a comment that has replies, so the replies keep their thread.
+  deletedAt       DateTime? @map("deleted_at")
 
   feedback      Feedback          @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
   user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -942,6 +968,8 @@ model AuditLog {
   @@index([actorUserId, createdAt(sort: Desc)])
   @@index([action, createdAt(sort: Desc)])
   @@index([traceId])
+  // Newest-first keyset pagination of the root audit list (created_at, id).
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
   @@map("audit_logs")
 }
 
@@ -1735,23 +1763,6 @@ model ManagementDoc {
   @@map("management_doc")
 }
 
-/// A page of the root console's technical documentation (admin.<domain>/console/techdocs).
-/// Written by the techdocs sync script over SQL — the pages name hosts, volumes and
-/// container names, so they never pass through the public repository — and read-only
-/// for the console. updated_at is set by the writer, not by Prisma.
-model TechDoc {
-  slug         String   @id @db.VarChar(80)
-  title        String   @db.VarChar(200)
-  section      String   @db.VarChar(80)
-  sortOrder    Int      @default(999) @map("sort_order")
-  summary      String   @default("") @db.VarChar(500)
-  body         String
-  sourceCommit String?  @map("source_commit") @db.VarChar(40)
-  updatedAt    DateTime @default(now()) @map("updated_at")
-
-  @@map("tech_docs")
-}
-
 /// Project automation flow: a trigger + an ordered list of actions.
 model Flow {
   id        String   @id @default(uuid())
@@ -1760,6 +1771,13 @@ model Flow {
   enabled   Boolean  @default(true)
   trigger   Json
   actions   Json
+  /// Run limits (timeouts, retries, concurrency). Null means the defaults.
+  options   Json?
+  /// Public id in the flow's own webhook URL (/api/hooks/flows/:webhookId).
+  webhookId     String? @unique @map("webhook_id")
+  /// Secret a webhook caller proves with; AES-256-GCM encrypted (field-crypto).
+  /// Never returned by list/get — only on creation, rotation or an explicit reveal.
+  webhookSecret String? @map("webhook_secret")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -1781,10 +1799,20 @@ model FlowRun {
   startedAt  DateTime? @map("started_at")
   finishedAt DateTime? @map("finished_at")
   createdAt  DateTime  @default(now()) @map("created_at")
+  /// What started the run: manual | api | webhook | schedule | rerun. Null on runs before this existed.
+  source     String?
+  /// One run per key: a schedule tick writes `schedule:<flowId>:<minute>` so two
+  /// replicas firing the same tick produce one run.
+  dedupeKey  String?   @unique @map("dedupe_key")
+  /// The run this one re-runs, when started from "Run again".
+  retryOfId  String?   @map("retry_of_id")
+  /// Trigger context: webhook request headers/query, the scheduled tick.
+  meta       Json?
 
   flow Flow @relation(fields: [flowId], references: [id], onDelete: Cascade)
 
   @@index([flowId])
+  @@index([flowId, createdAt])
   @@index([projectId])
   @@map("flow_run")
 }
@@ -1818,9 +1846,27 @@ model Blueprint {
   updatedAt          DateTime        @updatedAt @map("updated_at")
 
   versions ApplicationVersion[]
+  source   BlueprintSource?
 
   @@index([teamId])
   @@map("blueprint")
+}
+
+/// The spreadsheet rows a Blueprint was built from, kept so "Generate tables"
+/// can load them into the generated tables. Replaced on every re-sync and
+/// deleted with the blueprint.
+model BlueprintSource {
+  id          String   @id @default(uuid())
+  blueprintId String   @unique @map("blueprint_id")
+  /// [{ table, sheet, headers, rows }] — one entry per data-model table.
+  sheets      Json
+  rowCount    Int      @default(0) @map("row_count")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  blueprint Blueprint @relation(fields: [blueprintId], references: [id], onDelete: Cascade)
+
+  @@map("blueprint_source")
 }
 
 /// Append-only history of approved ApplicationModel edits for a Blueprint.
@@ -2016,12 +2062,34 @@ model AiChatMessage {
   sessionId String   @map("session_id")
   role      String   @db.VarChar(16)
   content   String   @db.Text
+  /// Structured parts of an assistant turn the text alone cannot carry: query
+  /// result tables, change proposals and their verified outcome. Null for
+  /// plain turns and for every turn written before it existed.
+  meta      Json?
   createdAt DateTime @default(now()) @map("created_at")
 
   session AiChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@index([sessionId, createdAt])
   @@map("ai_chat_messages")
+}
+
+/// A project's own model and API key for the dashboard AI assistant. Without
+/// a row the assistant runs on the platform's key. The key is encrypted at
+/// rest (field-crypto, DB_CRED_ENC_KEY) and never returned to the dashboard.
+model ProjectAiAssistantSettings {
+  projectId String   @id @map("project_id")
+  /// openai | gemini | anthropic
+  provider  String   @db.VarChar(32)
+  model     String   @db.VarChar(120)
+  apiKey    String   @map("api_key") @db.Text
+  updatedBy String?  @map("updated_by")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("project_ai_assistant_settings")
 }
 
 // ── Backups: restore verification + off-site copies ──────────────────────────
@@ -2153,6 +2221,24 @@ model StoragePolicy {
   @@map("storage_policies")
 }
 
+/// Upload limits a project sets on one bucket. No row = only the platform-wide
+/// ceilings apply (STORAGE_MAX_UPLOAD_MB, STORAGE_MAX_RESUMABLE_MB).
+model StorageBucketSettings {
+  id               String   @id @default(uuid())
+  projectId        String   @map("project_id")
+  /// Logical bucket name as the project sees it.
+  bucket           String
+  /// Largest object accepted, in bytes; null = the platform ceiling.
+  fileSizeLimit    BigInt?  @map("file_size_limit")
+  /// MIME types accepted ("image/png" or "image/*"); empty = any type.
+  allowedMimeTypes String[] @default([]) @map("allowed_mime_types")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@unique([projectId, bucket])
+  @@map("storage_bucket_settings")
+}
+
 /// Something the platform operator has to see: an automatic volume growth, a
 /// restore refused for lack of disk, a self-healing action. Shown in the root
 /// console as a red badge until a root user acknowledges it.
@@ -2175,203 +2261,4 @@ model PlatformAlert {
 
   @@index([acknowledgedAt, occurredAt(sort: Desc)])
   @@map("platform_alerts")
-}
-
-// ── Platform status (WP-1a): probes, roll-ups, incidents, deploy markers ──────
-
-enum PlatformIncidentStatus {
-  INVESTIGATING
-  IDENTIFIED
-  MONITORING
-  RESOLVED
-}
-
-enum PlatformIncidentImpact {
-  NONE
-  MINOR
-  MAJOR
-  CRITICAL
-}
-
-/// One probe result from one vantage point. Kept 90 days; the SLO windows keep the history.
-model PlatformProbeSample {
-  id         BigInt   @id @default(autoincrement())
-  ts         DateTime
-  /// api | dashboard | auth | database | storage | realtime
-  probe      String   @db.VarChar(40)
-  /// "internal" (the API itself) or the external monitor's name
-  vantage    String   @db.VarChar(40)
-  ok         Boolean
-  latencyMs  Int?     @map("latency_ms")
-  statusCode Int?     @map("status_code")
-  detail     String?  @db.VarChar(300)
-
-  @@index([probe, ts])
-  @@index([ts])
-  @@map("platform_probe_samples")
-}
-
-/// Per day and probe: minutes observed, minutes down (majority of vantage points failing), p95 latency, error rate.
-model PlatformSloWindow {
-  id           String   @id @default(uuid())
-  day          DateTime @db.Date
-  probe        String   @db.VarChar(40)
-  totalMinutes Int      @map("total_minutes")
-  downMinutes  Int      @map("down_minutes")
-  p95LatencyMs Int?     @map("p95_latency_ms")
-  errorRatePct Float?   @map("error_rate_pct")
-  updatedAt    DateTime @updatedAt @map("updated_at")
-
-  @@unique([day, probe])
-  @@map("platform_slo_windows")
-}
-
-/// One row per calendar month and probe: the month's availability as the
-/// status page's history shows it. Recomputed every five minutes while the
-/// month runs; closed_at is set once the month has ended and the figure is final.
-model PlatformSloMonth {
-  id              String    @id @default(uuid())
-  /// First day of the month, UTC.
-  month           DateTime  @db.Date
-  probe           String    @db.VarChar(40)
-  totalMinutes    Int       @map("total_minutes")
-  downMinutes     Int       @map("down_minutes")
-  availabilityPct Float?    @map("availability_pct")
-  targetPct       Float     @map("target_pct")
-  /// The worst daily p95 of the month.
-  p95LatencyMs    Int?      @map("p95_latency_ms")
-  /// Incidents that started in the month, maintenance excluded.
-  incidentCount   Int       @default(0) @map("incident_count")
-  closedAt        DateTime? @map("closed_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
-
-  @@unique([month, probe])
-  @@map("platform_slo_months")
-}
-
-/// Someone who asked for incident mail on the status page. Confirmed through
-/// the link in the first mail; every mail carries an unsubscribe link.
-model PlatformStatusSubscriber {
-  id             String    @id @default(uuid())
-  email          String    @unique @db.VarChar(320)
-  token          String    @unique @db.VarChar(64)
-  confirmedAt    DateTime? @map("confirmed_at")
-  unsubscribedAt DateTime? @map("unsubscribed_at")
-  lastNotifiedAt DateTime? @map("last_notified_at")
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
-
-  @@map("platform_status_subscribers")
-}
-
-model PlatformIncident {
-  id              String                 @id @default(uuid())
-  title           String                 @db.VarChar(300)
-  status          PlatformIncidentStatus @default(INVESTIGATING)
-  impact          PlatformIncidentImpact @default(MINOR)
-  /// Probe names (api, auth, …) the incident affects.
-  components      String[]
-  startedAt       DateTime               @map("started_at")
-  resolvedAt      DateTime?              @map("resolved_at")
-  /// [{ ts, status, text }], oldest first.
-  updates         Json                   @default("[]")
-  postmortem      String?                @db.Text
-  /// Announced maintenance: its minutes do not count against the SLO.
-  excludedFromSlo Boolean                @default(false) @map("excluded_from_slo")
-  /// "sli-down:<probe>" while an auto-opened incident is open; cleared on resolve.
-  autoKey         String?                @unique @map("auto_key") @db.VarChar(80)
-  /// "system" for auto-opened incidents, else the ROOT user id.
-  createdBy       String?                @map("created_by")
-  createdAt       DateTime               @default(now()) @map("created_at")
-  updatedAt       DateTime               @updatedAt @map("updated_at")
-
-  @@index([startedAt(sort: Desc)])
-  @@map("platform_incidents")
-}
-
-/// A deploy, as the workflow reports it: explains a probe blip without excusing it.
-model PlatformDeployMarker {
-  id        String   @id @default(uuid())
-  imageTag  String   @map("image_tag") @db.VarChar(80)
-  startedAt DateTime @default(now()) @map("started_at")
-  note      String?  @db.VarChar(300)
-
-  @@index([startedAt(sort: Desc)])
-  @@map("platform_deploy_markers")
-}
-
-// ── Capacity (WP-2): samples, roll-ups, model snapshots, benchmark runs ───────
-
-/// One row per minute from the sampler: every number it could read, as JSON. Kept 30 days.
-model CapacitySample {
-  id         BigInt   @id @default(autoincrement())
-  ts         DateTime
-  instanceId String   @map("instance_id") @db.VarChar(80)
-  metrics    Json
-
-  @@index([ts])
-  @@map("capacity_samples")
-}
-
-/// Hourly means of the samples, kept for good.
-model CapacityRollup {
-  id      String   @id @default(uuid())
-  hour    DateTime @unique
-  metrics Json
-
-  @@map("capacity_rollups")
-}
-
-/// The capacity model's answer, stored hourly so the runway trend is visible.
-model CapacityModelSnapshot {
-  id       String   @id @default(uuid())
-  ts       DateTime
-  snapshot Json
-
-  @@index([ts(sort: Desc)])
-  @@map("capacity_model_snapshots")
-}
-
-enum CapacityBenchmarkStatus {
-  PENDING
-  RUNNING
-  DONE
-  FAILED
-}
-
-/// A load-test run (k6 outside the product) and its curve.
-model CapacityBenchmarkRun {
-  id          String                  @id @default(uuid())
-  scenario    String                  @db.VarChar(40)
-  target      String                  @db.VarChar(40)
-  status      CapacityBenchmarkStatus @default(PENDING)
-  startedAt   DateTime                @default(now()) @map("started_at")
-  finishedAt  DateTime?               @map("finished_at")
-  params      Json?
-  result      Json?
-  triggeredBy String?                 @map("triggered_by")
-
-  @@index([startedAt(sort: Desc)])
-  @@map("capacity_benchmark_runs")
-}
-
-/// Additional server-side keys of a project (`bf_secret_…`), with service_role rights. Only a
-/// SHA-256 of the key is stored: the full value is shown once, when it is created. Several can be
-/// valid at once (rotation without downtime); revoking one takes effect on the next request.
-model ProjectSecretKey {
-  id         String    @id @default(uuid())
-  projectId  String    @map("project_id")
-  name       String
-  keyHash    String    @unique @map("key_hash")
-  /// The first characters and the last four, for recognising a key without revealing it.
-  prefix     String
-  last4      String    @map("last4")
-  createdBy  String?   @map("created_by")
-  createdAt  DateTime  @default(now()) @map("created_at")
-  lastUsedAt DateTime? @map("last_used_at")
-  revokedAt  DateTime? @map("revoked_at")
-  project    Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-
-  @@index([projectId])
-  @@map("project_secret_keys")
 }

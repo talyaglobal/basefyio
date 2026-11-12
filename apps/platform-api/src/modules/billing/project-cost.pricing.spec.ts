@@ -79,7 +79,7 @@ describe('priceProject', () => {
     expect(close(db.rawUsd, 10 * 0.057 * (360 / HOURS_PER_MONTH), 1e-4)).toBe(true);
     // Full-period projection: 744 h worth.
     expect(close(db.projectedRawUsd, 10 * 0.057 * (744 / HOURS_PER_MONTH), 1e-4)).toBe(true);
-    expect(db.detail).toBe('10.00 GB');
+    expect(db.detail).toBe('10.00 GiB');
     expect(r.computeTier).toBe('Medium');
   });
 

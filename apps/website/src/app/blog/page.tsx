@@ -15,7 +15,7 @@ const DESCRIPTION =
 export async function generateMetadata(): Promise<Metadata> {
   return buildMetadata({
     path: "/blog",
-    title: TITLE,
+    title: "Blog — Backend Guides & Tutorials",
     description: DESCRIPTION,
     keywords: ["basefyio blog", "backend tutorials", "database guides"],
   });

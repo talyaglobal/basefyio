@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { ApiTokensService } from './api-tokens.service';
 import { generateToken, hashToken, isPlatformToken } from './platform-token.util';
 
@@ -83,39 +83,68 @@ describe('ApiTokensService', () => {
   });
 });
 
-describe('ApiTokensService — revocation is final (feedback #8)', () => {
-  const tokenRow = (status: string) => ({ id: 't1', status });
+describe('ApiTokensService — revocation is final', () => {
+  function withToken(row: { status: string; expiresAt?: Date | null }) {
+    const prisma = makePrisma({
+      platformApiToken: {
+        findFirst: jest.fn().mockResolvedValue({ id: 't1', expiresAt: null, ...row }),
+        updateMany: jest.fn().mockResolvedValue({ count: row.status === 'active' ? 1 : 0 }),
+        deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    });
+    return { prisma, svc: new ApiTokensService(prisma) };
+  }
 
-  it('refuses to roll a revoked token, which used to bring it back to active', async () => {
-    const prisma = makePrisma({ platformApiToken: { findFirst: jest.fn().mockResolvedValue(tokenRow('revoked')) } });
-    const svc = new ApiTokensService(prisma);
-    await expect(svc.roll('u1', 't1')).rejects.toThrow(/revoked/);
+  it('refuses to roll a revoked token and never writes', async () => {
+    const { prisma, svc } = withToken({ status: 'revoked' });
+    await expect(svc.roll('u1', 't1')).rejects.toBeInstanceOf(ConflictException);
+    expect(prisma.platformApiToken.updateMany).not.toHaveBeenCalled();
     expect(prisma.platformApiToken.update).not.toHaveBeenCalled();
   });
 
   it('refuses to edit a revoked token', async () => {
-    const prisma = makePrisma({ platformApiToken: { findFirst: jest.fn().mockResolvedValue(tokenRow('revoked')) } });
-    await expect(new ApiTokensService(prisma).update('u1', 't1', { name: 'again' })).rejects.toThrow(/revoked/);
-    expect(prisma.platformApiToken.update).not.toHaveBeenCalled();
+    const { prisma, svc } = withToken({ status: 'revoked' });
+    await expect(svc.update('u1', 't1', { name: 'again' })).rejects.toBeInstanceOf(ConflictException);
+    expect(prisma.platformApiToken.updateMany).not.toHaveBeenCalled();
   });
 
-  it('still rolls an active token: new secret, status stays active', async () => {
-    const update = jest.fn().mockResolvedValue({ id: 't1', status: 'active' });
-    const prisma = makePrisma({ platformApiToken: { findFirst: jest.fn().mockResolvedValue(tokenRow('active')), update } });
-    const res = await new ApiTokensService(prisma).roll('u1', 't1');
-    expect(res.token).toMatch(/^bf_pat_/);
-    expect(update.mock.calls[0][0].data.status).toBe('active');
+  it('rolls an active token without touching its status, guarded on status=active', async () => {
+    const { prisma, svc } = withToken({ status: 'active' });
+    const r = await svc.roll('u1', 't1');
+    expect(r.token.startsWith('bf_pat_')).toBe(true);
+    const call = prisma.platformApiToken.updateMany.mock.calls[0][0];
+    expect(call.where).toEqual({ id: 't1', userId: 'u1', status: 'active' });
+    expect(call.data).not.toHaveProperty('status');
   });
 
-  it('revokes an active token, and removes an already revoked one from the list', async () => {
-    const del = jest.fn().mockResolvedValue({});
-    const active = makePrisma({ platformApiToken: { findFirst: jest.fn().mockResolvedValue(tokenRow('active')), delete: del } });
-    await expect(new ApiTokensService(active).revoke('u1', 't1')).resolves.toEqual({ revoked: true });
-    expect(active.platformApiToken.update).toHaveBeenCalledWith({ where: { id: 't1' }, data: { status: 'revoked' } });
-    expect(del).not.toHaveBeenCalled();
+  it('loses the race to a concurrent revoke instead of reviving the token', async () => {
+    const { prisma, svc } = withToken({ status: 'active' });
+    prisma.platformApiToken.updateMany.mockResolvedValueOnce({ count: 0 });
+    await expect(svc.roll('u1', 't1')).rejects.toBeInstanceOf(ConflictException);
+  });
 
-    const revoked = makePrisma({ platformApiToken: { findFirst: jest.fn().mockResolvedValue(tokenRow('revoked')), delete: del } });
-    await expect(new ApiTokensService(revoked).revoke('u1', 't1')).resolves.toEqual({ removed: true });
-    expect(del).toHaveBeenCalledWith({ where: { id: 't1' } });
+  it('refuses to roll an expired token', async () => {
+    const { svc } = withToken({ status: 'active', expiresAt: new Date(Date.now() - 1000) });
+    await expect(svc.roll('u1', 't1')).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('deletes only a revoked token', async () => {
+    const active = withToken({ status: 'active' });
+    await expect(active.svc.remove('u1', 't1')).rejects.toBeInstanceOf(ConflictException);
+    expect(active.prisma.platformApiToken.deleteMany).not.toHaveBeenCalled();
+
+    const revoked = withToken({ status: 'revoked' });
+    await expect(revoked.svc.remove('u1', 't1')).resolves.toEqual({ deleted: true });
+    expect(revoked.prisma.platformApiToken.deleteMany.mock.calls[0][0].where).toEqual({
+      id: 't1',
+      userId: 'u1',
+      status: { not: 'active' },
+    });
+  });
+
+  it('a token owned by someone else is not found', async () => {
+    const prisma = makePrisma({ platformApiToken: { findFirst: jest.fn().mockResolvedValue(null) } });
+    const svc = new ApiTokensService(prisma);
+    await expect(svc.roll('u2', 't1')).rejects.toBeInstanceOf(NotFoundException);
   });
 });

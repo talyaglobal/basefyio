@@ -35,6 +35,7 @@ const SERVICE_BY_DEFAULT: Array<[string, string]> = [
   ['owner-level documents with no RLS', 'modules/projects/collection.controller.ts'],
   ['entity DDL and provisioning side effects', 'modules/data-engine/data-engine.controller.ts'],
   ['an arbitrary query DSL on the owner pool', 'modules/data-query/data-query.controller.ts'],
+  ['saved queries run on the owner pool', 'modules/data-query/data-views.controller.ts'],
   ['automations that make outbound requests', 'modules/flows/flows.controller.ts'],
   ['billed embedding calls over the whole corpus', 'modules/rag/rag.controller.ts'],
   ['threads with no per-user ownership check', 'modules/agent/agent.controller.ts'],

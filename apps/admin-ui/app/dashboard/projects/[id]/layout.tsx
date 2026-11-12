@@ -5,7 +5,6 @@ import { useParams, usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Cookies from 'js-cookie';
 import { toast } from 'sonner';
-import { confirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
 import type { Project } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -15,6 +14,7 @@ import { useDashboard } from '@/app/dashboard/layout';
 import { ContextHelpPanel } from '@/components/context-help-panel';
 import { subscribebasefyioRealtime, isRealtimePhase1Enabled } from '@/lib/basefyio-realtime';
 import type { RealtimeEventEnvelope } from '@/lib/realtime-types';
+import { TrashedProjectActivity } from '@/components/trashed-project-activity';
 import {
   Book,
   BrainCircuit,
@@ -140,6 +140,8 @@ export default function ProjectLayout({
   const router = useRouter();
   const [project, setProject] = useState<Project | null>(null);
   const [projectLoading, setProjectLoading] = useState(true);
+  // The project exists but is in the trash: show its history instead of bouncing away.
+  const [trashed, setTrashed] = useState(false);
   const { activeTeamId, setActiveTeamId } = useDashboard();
 
   // The navbar's team selector must always reflect the OPEN project's team —
@@ -276,43 +278,6 @@ export default function ProjectLayout({
     return () => { unsubscribe?.(); };
   }, [id, projectLoading, project, refreshProject, router]);
 
-  // A deactivated project answers nothing until someone activates it. Opening
-  // it is the moment to ask — never to decide: "not now" keeps it deactivated
-  // for this browser session, and the status badge on the overview offers the
-  // same choice whenever they are ready.
-  const offerWake = useCallback(
-    async (name: string) => {
-      const key = `basefyio_sleep_prompt:${id}`;
-      try {
-        if (sessionStorage.getItem(key)) return;
-      } catch {
-        // storage unavailable: ask every time
-      }
-      const yes = await confirmDialog({
-        title: 'This project is deactivated',
-        description: `"${name}" had no requests for a while, so it was deactivated. Nothing was deleted. Do you want to activate it now?`,
-        confirmText: 'Yes, activate it',
-        cancelText: 'No, not now',
-      });
-      if (!yes) {
-        try {
-          sessionStorage.setItem(key, '1');
-        } catch {
-          // ignore
-        }
-        return;
-      }
-      try {
-        await api.projects.reactivate(id);
-        await refreshProject();
-        toast.success('Project is active again');
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : 'Failed to activate the project');
-      }
-    },
-    [id, refreshProject],
-  );
-
   useEffect(() => {
     if (!id) return;
     let cancelled = false;
@@ -322,7 +287,6 @@ export default function ProjectLayout({
       try {
         const proj = await api.projects.get(id);
         if (!cancelled) setProject(proj);
-        if (!cancelled && proj.status === 'PAUSED') void offerWake(proj.name);
       } catch (err) {
         console.error('[ProjectLayout] Failed to load project:', id, err);
         try {
@@ -334,6 +298,16 @@ export default function ProjectLayout({
         } catch (recErr) {
           console.error('[ProjectLayout] Recovery also failed:', recErr);
         }
+        // A trashed project still answers its activity feed to team members.
+        try {
+          await api.projects.listActivity(id, { page: 1, limit: 1 });
+          if (!cancelled) {
+            setTrashed(true);
+            return;
+          }
+        } catch {
+          // Not in the trash either (or not ours): fall through.
+        }
         if (!cancelled) {
           toast.error('Failed to load project');
           router.push('/dashboard/projects');
@@ -344,7 +318,7 @@ export default function ProjectLayout({
     })();
 
     return () => { cancelled = true; };
-  }, [id, router, recoverProjectWithTeamSwitch, offerWake]);
+  }, [id, router, recoverProjectWithTeamSwitch]);
 
   if (projectLoading) {
     return (
@@ -352,6 +326,14 @@ export default function ProjectLayout({
         <div className="flex h-64 items-center justify-center">
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
         </div>
+      </ProjectProvider>
+    );
+  }
+
+  if (!project && trashed) {
+    return (
+      <ProjectProvider project={null} loading={false}>
+        <TrashedProjectActivity projectId={id} />
       </ProjectProvider>
     );
   }
@@ -381,11 +363,19 @@ export default function ProjectLayout({
         isResizing && 'select-none',
       )}
     >
+      {/* In Auto mode the page keeps the rail's width and the expanded sidebar
+          floats over the content, so hovering it no longer shifts the page. */}
+      <div
+        className="relative h-full shrink-0"
+        style={{ width: sidebarMode === 'auto' ? SIDEBAR_COLLAPSED_PX : asideWidthPx }}
+      >
       <aside
         className={cn(
           'h-full shrink-0',
           'border-r bg-card flex flex-col overflow-hidden',
           'transition-[width] duration-200 ease-out motion-reduce:transition-none',
+          sidebarMode === 'auto' && 'absolute inset-y-0 left-0 z-30',
+          sidebarMode === 'auto' && sidebarExpanded && 'shadow-xl',
         )}
         style={{ width: asideWidthPx }}
         onMouseEnter={handleAsideEnter}
@@ -585,6 +575,7 @@ export default function ProjectLayout({
           />
         )}
       </aside>
+      </div>
 
       <div className="h-full min-h-0 min-w-0 flex-1 flex relative">
         <main

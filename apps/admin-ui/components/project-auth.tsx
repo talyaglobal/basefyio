@@ -1,23 +1,35 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
-import { createPortal } from 'react-dom';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
 import { confirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
 import { useLiveProjectRefresh } from '@/lib/use-live-refresh';
 import type { RealmInfo, RealmUser, RealmUserDetail, RealmSession, RealmSessionFull, MfaUser, RealmPolicies, ProjectAuthConfig } from '@/lib/types';
+import {
+  DEFAULT_PASSWORD_RULES,
+  isValidEmail,
+  normalizePhone,
+  passwordChecks,
+  PASSWORD_MIN_LENGTH_BOUNDS,
+  POLICY_BOUNDS,
+  rangeError,
+  TOKEN_LIFESPAN_BOUNDS,
+  type PasswordRules,
+} from '@/lib/project-auth-rules';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import * as DialogPrimitive from '@radix-ui/react-dialog';
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
+  DialogOverlay,
   DialogTitle,
 } from '@/components/ui/dialog';
 import {
@@ -35,7 +47,6 @@ import {
   Pencil,
   Plus,
   RefreshCw,
-  Search,
   RotateCcw,
   Server,
   Settings,
@@ -60,34 +71,72 @@ interface ProjectAuthProps {
 
 type TabId = 'users' | 'sessions' | 'mfa' | 'policies' | 'settings' | 'providers' | 'email';
 
+const USERS_PAGE_SIZE = 50;
+
 export function ProjectAuth({ projectId }: ProjectAuthProps) {
   const [activeTab, setActiveTab] = useState<TabId>('users');
   const [realm, setRealm] = useState<RealmInfo | null>(null);
   const [users, setUsers] = useState<RealmUser[]>([]);
+  const [userTotal, setUserTotal] = useState(0);
+  const [userSearch, setUserSearch] = useState('');
+  const [userPage, setUserPage] = useState(0);
+  const [usersLoading, setUsersLoading] = useState(false);
   const [config, setConfig] = useState<ProjectAuthConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [repairing, setRepairing] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
 
+  // The search box and the pager drive the user list server-side, so a realm
+  // with thousands of users is searchable and every page is reachable.
+  const userQuery = useRef({ search: '', page: 0 });
+  userQuery.current = { search: userSearch.trim(), page: userPage };
+
+  const loadUsers = useCallback(async () => {
+    const { search, page } = userQuery.current;
+    setUsersLoading(true);
+    try {
+      const [u, c] = await Promise.all([
+        api.projects.realmUsers(projectId, { search: search || undefined, first: page * USERS_PAGE_SIZE, max: USERS_PAGE_SIZE }),
+        api.projects.countRealmUsers(projectId, search || undefined),
+      ]);
+      setUsers(u);
+      setUserTotal(c.count);
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to load users');
+    } finally {
+      setUsersLoading(false);
+    }
+  }, [projectId]);
+
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [r, u, c] = await Promise.all([
+      const [r, c] = await Promise.all([
         api.projects.realmInfo(projectId),
-        api.projects.realmUsers(projectId, { max: USERS_PAGE }),
         api.projects.getAuthConfig(projectId),
       ]);
       setRealm(r);
-      setUsers(u);
       setConfig(c);
       setLoadError(null);
+      await loadUsers();
     } catch (err: any) {
       setLoadError(err?.message || 'Failed to load authentication');
     } finally {
       setLoading(false);
     }
-  }, [projectId]);
+  }, [projectId, loadUsers]);
+
+  // Refetch the page when the search settles or the page changes.
+  const firstUserLoad = useRef(true);
+  useEffect(() => {
+    if (firstUserLoad.current) {
+      firstUserLoad.current = false;
+      return;
+    }
+    const t = setTimeout(() => void loadUsers(), 300);
+    return () => clearTimeout(t);
+  }, [userSearch, userPage, loadUsers]);
 
   const repairRealm = useCallback(async () => {
     setRepairing(true);
@@ -132,6 +181,11 @@ export function ProjectAuth({ projectId }: ProjectAuthProps) {
   useEffect(() => {
     loadAll();
   }, [loadAll]);
+
+  const refreshUsers = useCallback(async () => {
+    await loadUsers();
+    api.projects.realmInfo(projectId).then(setRealm).catch(() => undefined);
+  }, [projectId, loadUsers]);
 
   if (loading) {
     return (
@@ -222,8 +276,8 @@ export function ProjectAuth({ projectId }: ProjectAuthProps) {
           <div className="rounded-lg border bg-card p-4">
             <div className="text-sm text-muted-foreground">SDK Auth Endpoints</div>
             <div className="mt-2 space-y-1 text-sm">
-              <p>Signup: <Badge variant="outline" className="ml-1 font-mono text-xs">POST /rest/v1/auth/signup</Badge></p>
-              <p>Signin: <Badge variant="outline" className="ml-1 font-mono text-xs">POST /rest/v1/auth/signin</Badge></p>
+              <p>Signup: <Badge variant="outline" className="ml-1 font-mono text-xs">POST /api/rest/v1/auth/signup</Badge></p>
+              <p>Signin: <Badge variant="outline" className="ml-1 font-mono text-xs">POST /api/rest/v1/auth/signin</Badge></p>
             </div>
           </div>
         </div>
@@ -253,16 +307,27 @@ export function ProjectAuth({ projectId }: ProjectAuthProps) {
       {activeTab === 'users' && (
         <UsersTab
           users={users}
-          total={realm?.userCount ?? null}
+          total={userTotal}
+          page={userPage}
+          pageSize={USERS_PAGE_SIZE}
+          search={userSearch}
+          loading={usersLoading}
+          onSearch={(s) => { setUserSearch(s); setUserPage(0); }}
+          onPage={setUserPage}
           projectId={projectId}
-          onRefresh={loadAll}
+          onRefresh={refreshUsers}
         />
       )}
       {activeTab === 'sessions' && <SessionsTab projectId={projectId} />}
       {activeTab === 'mfa' && <MfaTab projectId={projectId} />}
       {activeTab === 'policies' && <PoliciesTab projectId={projectId} />}
       {activeTab === 'settings' && config && (
-        <SettingsTab projectId={projectId} config={config} onSaved={setConfig} />
+        <SettingsTab
+          projectId={projectId}
+          config={config}
+          onSaved={setConfig}
+          onOpenPolicies={() => setActiveTab('policies')}
+        />
       )}
       {activeTab === 'providers' && config && (
         <ProvidersTab projectId={projectId} config={config} onSaved={setConfig} />
@@ -275,88 +340,47 @@ export function ProjectAuth({ projectId }: ProjectAuthProps) {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         projectId={projectId}
-        onCreated={loadAll}
+        onCreated={refreshUsers}
       />
     </div>
   );
 }
 
 /* ────────────────────────────────────────────────────── Users Tab */
-/** Users fetched per request; the sign-in server answers at most this many at a time. */
-const USERS_PAGE = 100;
-
 function UsersTab({
-  users: firstPage,
+  users,
   total,
+  page,
+  pageSize,
+  search,
+  loading,
+  onSearch,
+  onPage,
   projectId,
   onRefresh,
 }: {
   users: RealmUser[];
-  total: number | null;
+  total: number;
+  page: number;
+  pageSize: number;
+  search: string;
+  loading: boolean;
+  onSearch: (s: string) => void;
+  onPage: (p: number) => void;
   projectId: string;
-  onRefresh: () => void;
+  onRefresh: () => void | Promise<void>;
 }) {
-  // The search runs on the server, over every user of the project — not only the page shown.
-  const [query, setQuery] = useState('');
-  const [results, setResults] = useState<RealmUser[] | null>(null);
-  const [more, setMore] = useState<RealmUser[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const term = query.trim();
-
-  useEffect(() => {
-    setMore([]);
-    if (!term) {
-      setResults(null);
-      return;
-    }
-    let cancelled = false;
-    setSearching(true);
-    const timer = setTimeout(() => {
-      api.projects
-        .realmUsers(projectId, { search: term, max: USERS_PAGE })
-        .then((r) => !cancelled && setResults(r))
-        .catch((err: any) => !cancelled && toast.error(err?.message || 'Search failed'))
-        .finally(() => !cancelled && setSearching(false));
-    }, 300);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [term, projectId]);
-
-  const base = term ? results ?? [] : firstPage;
-  const users = [...base, ...more];
-  const fullPage = base.length > 0 && (base.length + more.length) % USERS_PAGE === 0;
-  const hasMore = term ? fullPage : fullPage && (total == null || users.length < total);
-
-  async function loadMore() {
-    setLoadingMore(true);
-    try {
-      const next = await api.projects.realmUsers(projectId, {
-        search: term || undefined,
-        first: users.length,
-        max: USERS_PAGE,
-      });
-      setMore((m) => [...m, ...next]);
-    } catch (err: any) {
-      toast.error(err?.message || 'Could not load more users');
-    } finally {
-      setLoadingMore(false);
-    }
-  }
-
   const [editingUser, setEditingUser] = useState<RealmUser | null>(null);
   const [resetingUser, setResetingUser] = useState<RealmUser | null>(null);
   const [viewingUser, setViewingUser] = useState<RealmUser | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   async function handleDelete(userId: string, email: string) {
-    if (!(await confirmDialog({ title: 'Delete user', description: `Delete user "${email}"?`, destructive: true }))) return;
+    if (!(await confirmDialog({ title: 'Delete user', description: `Delete user "${email}"? Their sessions end and the account cannot be restored.`, confirmText: 'Delete user', destructive: true }))) return;
     try {
       await api.projects.deleteRealmUser(projectId, userId);
       toast.success('User deleted');
-      onRefresh();
+      await onRefresh();
     } catch (err: any) {
       toast.error(err.message);
     }
@@ -368,48 +392,42 @@ function UsersTab({
     setTimeout(() => setCopiedId((c) => (c === id ? null : c)), 1500);
   }
 
-  if (firstPage.length === 0 && !term) {
-    return (
-      <div className="flex h-40 flex-col items-center justify-center rounded-lg border border-dashed">
-        <Users className="mb-3 h-10 w-10 text-muted-foreground/50" />
-        <p className="font-medium">No users yet</p>
-        <p className="text-sm text-muted-foreground">
-          Users can sign up via SDK or be added manually above.
-        </p>
-      </div>
-    );
-  }
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  const from = total === 0 ? 0 : page * pageSize + 1;
+  const to = Math.min(total, page * pageSize + users.length);
 
   return (
     <>
-      <div className="mb-3 flex flex-wrap items-center gap-3">
-        <div className="relative w-full sm:max-w-sm">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search by e-mail, name or username"
-            aria-label="Search users"
-            className="pl-8"
-          />
-        </div>
-        <span className="text-xs text-muted-foreground" aria-live="polite">
-          {searching
-            ? 'Searching…'
-            : term
-              ? `${users.length}${hasMore ? '+' : ''} matching`
-              : total != null
-                ? `Showing ${users.length} of ${total}`
-                : `${users.length} users`}
-        </span>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <Input
+          value={search}
+          onChange={(e) => onSearch(e.target.value)}
+          placeholder="Search by email or name…"
+          aria-label="Search users"
+          className="max-w-sm"
+        />
+        <p className="text-xs text-muted-foreground" aria-live="polite">
+          {loading ? 'Loading…' : total === 0 ? 'No users' : `${from}–${to} of ${total.toLocaleString('en-US')} user${total === 1 ? '' : 's'}`}
+        </p>
       </div>
 
-      {term && !searching && users.length === 0 ? (
-        <div className="rounded-md border px-4 py-8 text-center text-sm text-muted-foreground">
-          No users match “{term}”.
-        </div>
+      {users.length === 0 && !loading ? (
+        search.trim() ? (
+          <div className="flex h-32 flex-col items-center justify-center rounded-lg border border-dashed">
+            <p className="font-medium">No users match &quot;{search.trim()}&quot;</p>
+            <p className="text-sm text-muted-foreground">Try part of the email address or name.</p>
+          </div>
+        ) : (
+          <div className="flex h-40 flex-col items-center justify-center rounded-lg border border-dashed">
+            <Users className="mb-3 h-10 w-10 text-muted-foreground/50" />
+            <p className="font-medium">No users yet</p>
+            <p className="text-sm text-muted-foreground">
+              Users can sign up via SDK or be added manually above.
+            </p>
+          </div>
+        )
       ) : (
-      <div className="rounded-md border overflow-x-auto">
+      <div className={`rounded-md border overflow-x-auto ${loading ? 'opacity-60' : ''}`}>
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b bg-muted/50">
@@ -435,6 +453,11 @@ function UsersTab({
                     {u.isAnonymous && (
                       <Badge variant="outline" className="text-[10px] uppercase" title="Created by anonymous sign-in; no real email">
                         Anonymous
+                      </Badge>
+                    )}
+                    {u.mfaEnrollmentRequired && (
+                      <Badge variant="outline" className="text-[10px] uppercase" title="This user must enroll an authenticator">
+                        MFA required
                       </Badge>
                     )}
                   </div>
@@ -469,16 +492,16 @@ function UsersTab({
                 </td>
                 <td className="px-4 py-2 text-right" onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center justify-end gap-1">
-                    <Button variant="ghost" size="icon" className="h-8 w-8" title="View details" onClick={() => setViewingUser(u)}>
+                    <Button variant="ghost" size="icon" className="h-8 w-8" title="View details" aria-label="View details" onClick={() => setViewingUser(u)}>
                       <Eye className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8" title="Edit user" onClick={() => setEditingUser(u)}>
+                    <Button variant="ghost" size="icon" className="h-8 w-8" title="Edit user" aria-label="Edit user" onClick={() => setEditingUser(u)}>
                       <Pencil className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8" title="Reset password" onClick={() => setResetingUser(u)}>
+                    <Button variant="ghost" size="icon" className="h-8 w-8" title="Reset password" aria-label="Reset password" onClick={() => setResetingUser(u)}>
                       <KeyRound className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" title="Delete user" onClick={() => handleDelete(u.id, u.email)}>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" title="Delete user" aria-label="Delete user" onClick={() => handleDelete(u.id, u.email)}>
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
@@ -490,24 +513,25 @@ function UsersTab({
       </div>
       )}
 
-      {hasMore && (
-        <div className="mt-3 flex justify-center">
-          <Button variant="outline" size="sm" onClick={loadMore} disabled={loadingMore}>
-            {loadingMore ? 'Loading…' : 'Load more'}
-          </Button>
+      {pageCount > 1 && (
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs text-muted-foreground">Page {page + 1} of {pageCount}</p>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" disabled={page === 0 || loading} onClick={() => onPage(page - 1)}>Previous</Button>
+            <Button variant="outline" size="sm" disabled={page + 1 >= pageCount || loading} onClick={() => onPage(page + 1)}>Next</Button>
+          </div>
         </div>
       )}
 
-      {viewingUser && (
-        <UserDetailDrawer
-          user={viewingUser}
-          projectId={projectId}
-          onClose={() => setViewingUser(null)}
-          onEdit={() => { setEditingUser(viewingUser); setViewingUser(null); }}
-          onReset={() => { setResetingUser(viewingUser); setViewingUser(null); }}
-          onDeleted={() => { setViewingUser(null); onRefresh(); }}
-        />
-      )}
+      <UserDetailDrawer
+        user={viewingUser}
+        projectId={projectId}
+        onClose={() => setViewingUser(null)}
+        onEdit={() => { setEditingUser(viewingUser); setViewingUser(null); }}
+        onReset={() => { setResetingUser(viewingUser); setViewingUser(null); }}
+        onDeleted={() => { setViewingUser(null); void onRefresh(); }}
+        onChanged={() => void onRefresh()}
+      />
 
       {editingUser && (
         <EditUserDialog
@@ -515,7 +539,7 @@ function UsersTab({
           user={editingUser}
           projectId={projectId}
           onOpenChange={(o) => { if (!o) setEditingUser(null); }}
-          onSaved={() => { setEditingUser(null); onRefresh(); }}
+          onSaved={() => { setEditingUser(null); void onRefresh(); }}
         />
       )}
 
@@ -533,6 +557,11 @@ function UsersTab({
 }
 
 /* ──────────────────────────────────────────── User Detail Drawer */
+/**
+ * A side panel built on the dialog primitive, so it stacks like every other
+ * dialog: a confirmation opened from it appears above it, Esc closes the
+ * topmost layer, and focus stays inside while it is open.
+ */
 function UserDetailDrawer({
   user,
   projectId,
@@ -540,162 +569,210 @@ function UserDetailDrawer({
   onEdit,
   onReset,
   onDeleted,
+  onChanged,
 }: {
-  user: RealmUser;
+  user: RealmUser | null;
   projectId: string;
   onClose: () => void;
   onEdit: () => void;
   onReset: () => void;
   onDeleted: () => void;
+  onChanged: () => void;
 }) {
   const [detail, setDetail] = useState<RealmUserDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const userId = user?.id ?? null;
+  // Set once the user is deleted, so nothing refetches a record that is gone.
+  const deletedRef = useRef(false);
 
   const load = useCallback(async () => {
+    if (!userId || deletedRef.current) return;
     setLoading(true);
     try {
-      setDetail(await api.projects.realmUserDetail(projectId, user.id));
+      setDetail(await api.projects.realmUserDetail(projectId, userId));
     } catch (err: any) {
       toast.error(err.message || 'Failed to load user');
     } finally {
       setLoading(false);
     }
-  }, [projectId, user.id]);
+  }, [projectId, userId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    deletedRef.current = false;
+    setDetail(null);
+    if (userId) void load();
+  }, [userId, load]);
 
-  async function act(fn: () => Promise<any>, ok: string) {
+  async function act(fn: () => Promise<any>, ok: string, opts: { notify?: boolean } = {}) {
     setBusy(true);
-    try { await fn(); toast.success(ok); await load(); }
+    try {
+      await fn();
+      toast.success(ok);
+      await load();
+      if (opts.notify) onChanged();
+    }
     catch (err: any) { toast.error(err.message); }
     finally { setBusy(false); }
   }
 
+  async function remove() {
+    if (!user) return;
+    if (!(await confirmDialog({ title: 'Delete user', description: `Delete user "${user.email}"? Their sessions end and the account cannot be restored.`, confirmText: 'Delete user', destructive: true }))) return;
+    setBusy(true);
+    try {
+      await api.projects.deleteRealmUser(projectId, user.id);
+      deletedRef.current = true;
+      toast.success('User deleted');
+      onDeleted();
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const sessions = detail?.sessions || [];
+  const mfaRequired = !!detail?.mfa?.enrollmentRequired;
 
-  return createPortal(
-    <div className="fixed inset-0 z-[9999] flex justify-end" role="dialog" aria-modal="true">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative h-full w-full max-w-md overflow-y-auto border-l bg-background shadow-xl">
-        <div className="flex items-center justify-between border-b px-5 py-4">
-          <div className="min-w-0">
-            <h2 className="truncate text-base font-semibold">{[user.firstName, user.lastName].filter(Boolean).join(' ') || user.email}</h2>
-            <p className="truncate text-xs text-muted-foreground">{user.email}</p>
-          </div>
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onClose}><X className="h-4 w-4" /></Button>
-        </div>
-
-        {loading || !detail ? (
-          <div className="flex h-40 items-center justify-center">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-          </div>
-        ) : (
-          <div className="space-y-6 p-5">
-            {/* Overview */}
-            <section className="space-y-2 text-sm">
-              <DetailRow label="User UID" value={
-                <button type="button" className="flex items-center gap-1 font-mono text-xs hover:text-foreground"
-                  onClick={() => { navigator.clipboard.writeText(detail.id); toast.success('Copied'); }}>
-                  {detail.id} <Copy className="h-3 w-3" />
-                </button>
-              } />
-              <DetailRow label="Email confirmed" value={detail.emailVerified
-                ? <span className="text-emerald-600 dark:text-emerald-400">Yes</span>
-                : <span className="text-amber-600 dark:text-amber-400">No</span>} />
-              <DetailRow label="Phone" value={detail.phoneNumber || '—'} />
-              {detail.phoneNumber && (
-                <DetailRow label="Phone verified" value={detail.phoneVerified
-                  ? <span className="text-emerald-600 dark:text-emerald-400">Yes</span>
-                  : <span className="text-amber-600 dark:text-amber-400">No</span>} />
-              )}
-              <DetailRow label="Status" value={detail.enabled ? 'Active' : 'Disabled'} />
-              <DetailRow label="Created" value={fmtTs(detail.createdTimestamp)} />
-              <DetailRow label="Last signed in" value={fmtTs(detail.lastSignIn)} />
-              <DetailRow label="Active sessions" value={String(detail.sessionCount)} />
-            </section>
-
-            {/* Providers */}
-            <section>
-              <h3 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Sign-in providers</h3>
-              <div className="flex flex-wrap gap-2">
-                {detail.providers.map((p) => (
-                  <Badge key={p} variant="secondary" className="capitalize">{p}</Badge>
-                ))}
+  return (
+    <DialogPrimitive.Root open={!!user} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogPrimitive.Portal>
+      <DialogOverlay className="bg-black/40" />
+      <DialogPrimitive.Content className="fixed inset-y-0 right-0 z-50 h-full w-full max-w-md overflow-y-auto border-l bg-background shadow-xl focus:outline-none">
+        {user && (
+          <>
+            <div className="flex items-center justify-between border-b px-5 py-4">
+              <div className="min-w-0">
+                <DialogTitle className="truncate text-base font-semibold">
+                  {[user.firstName, user.lastName].filter(Boolean).join(' ') || user.email}
+                </DialogTitle>
+                <DialogDescription className="truncate text-xs">{user.email}</DialogDescription>
               </div>
-            </section>
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onClose} aria-label="Close user details"><X className="h-4 w-4" /></Button>
+            </div>
 
-            {/* Actions */}
-            <section className="grid grid-cols-2 gap-2">
-              <Button variant="outline" size="sm" onClick={onEdit}><Pencil className="mr-2 h-3.5 w-3.5" />Edit</Button>
-              <Button variant="outline" size="sm" onClick={onReset}><KeyRound className="mr-2 h-3.5 w-3.5" />Set password</Button>
-              <Button variant="outline" size="sm" disabled={busy}
-                onClick={() => act(() => api.projects.sendRealmUserRecovery(projectId, user.id), 'Recovery email sent')}>
-                <Mail className="mr-2 h-3.5 w-3.5" />Send recovery
-              </Button>
-              <Button variant="outline" size="sm" disabled={busy}
-                onClick={() => act(() => api.projects.sendRealmUserVerification(projectId, user.id), 'Verification email sent')}>
-                <Mail className="mr-2 h-3.5 w-3.5" />Send verify
-              </Button>
-              <Button variant="outline" size="sm" className="col-span-2" disabled={busy}
-                onClick={() => act(() => api.projects.requireRealmUserMfa(projectId, user.id, true), 'User must set up MFA at next login')}>
-                <ShieldCheck className="mr-2 h-3.5 w-3.5" />Require MFA enrollment
-              </Button>
-            </section>
+            {loading || !detail ? (
+              <div className="flex h-40 items-center justify-center">
+                <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              </div>
+            ) : (
+              <div className="space-y-6 p-5">
+                {/* Overview */}
+                <section className="space-y-2 text-sm">
+                  <DetailRow label="User UID" value={
+                    <button type="button" className="flex items-center gap-1 font-mono text-xs hover:text-foreground"
+                      onClick={() => { navigator.clipboard.writeText(detail.id); toast.success('Copied'); }}>
+                      {detail.id} <Copy className="h-3 w-3" />
+                    </button>
+                  } />
+                  <DetailRow label="Email confirmed" value={detail.emailVerified
+                    ? <span className="text-emerald-600 dark:text-emerald-400">Yes</span>
+                    : <span className="text-amber-600 dark:text-amber-400">No</span>} />
+                  <DetailRow label="Phone" value={detail.phoneNumber || '—'} />
+                  {detail.phoneNumber && (
+                    <DetailRow label="Phone verified" value={detail.phoneVerified
+                      ? <span className="text-emerald-600 dark:text-emerald-400">Yes</span>
+                      : <span className="text-amber-600 dark:text-amber-400">No</span>} />
+                  )}
+                  <DetailRow label="Status" value={detail.enabled ? 'Active' : 'Disabled'} />
+                  <DetailRow label="MFA" value={
+                    detail.mfa?.enrolled
+                      ? <span className="text-emerald-600 dark:text-emerald-400">Enrolled</span>
+                      : mfaRequired
+                        ? <span className="text-amber-600 dark:text-amber-400">Required, not enrolled yet</span>
+                        : 'Not required'
+                  } />
+                  <DetailRow label="Created" value={fmtTs(detail.createdTimestamp)} />
+                  <DetailRow label="Last signed in" value={fmtTs(detail.lastSignIn)} />
+                  <DetailRow label="Active sessions" value={String(detail.sessionCount)} />
+                </section>
 
-            {/* Sessions */}
-            <section>
-              <div className="mb-2 flex items-center justify-between">
-                <h3 className="text-xs font-semibold uppercase text-muted-foreground">Sessions</h3>
-                {sessions.length > 0 && (
-                  <Button variant="ghost" size="sm" className="h-7 text-xs text-destructive" disabled={busy}
-                    onClick={() => act(() => api.projects.logoutRealmUser(projectId, user.id), 'Signed out of all sessions')}>
-                    <LogOut className="mr-1 h-3.5 w-3.5" />Sign out all
+                {/* Providers */}
+                <section>
+                  <h3 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Sign-in providers</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {detail.providers.map((p) => (
+                      <Badge key={p} variant="secondary" className="capitalize">{p}</Badge>
+                    ))}
+                  </div>
+                </section>
+
+                {/* Actions */}
+                <section className="grid grid-cols-2 gap-2">
+                  <Button variant="outline" size="sm" onClick={onEdit}><Pencil className="mr-2 h-3.5 w-3.5" />Edit</Button>
+                  <Button variant="outline" size="sm" onClick={onReset}><KeyRound className="mr-2 h-3.5 w-3.5" />Set password</Button>
+                  <Button variant="outline" size="sm" disabled={busy}
+                    onClick={() => act(() => api.projects.sendRealmUserRecovery(projectId, user.id), 'Recovery email sent')}>
+                    <Mail className="mr-2 h-3.5 w-3.5" />Send recovery
                   </Button>
-                )}
-              </div>
-              {sessions.length === 0 ? (
-                <p className="rounded-md border border-dashed px-3 py-4 text-center text-xs text-muted-foreground">No active sessions</p>
-              ) : (
-                <div className="space-y-2">
-                  {sessions.map((s: RealmSession) => (
-                    <div key={s.id} className="flex items-center justify-between rounded-md border px-3 py-2 text-xs">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-1.5 font-medium">
-                          <Globe className="h-3.5 w-3.5 text-muted-foreground" />{s.ipAddress || 'unknown IP'}
-                          {s.location && <span className="font-normal text-muted-foreground">· {s.location}</span>}
-                        </div>
-                        <div className="mt-0.5 flex items-center gap-1.5 text-muted-foreground">
-                          <Monitor className="h-3 w-3" />
-                          {(s.clients || []).join(', ') || '—'} · last {fmtTs(s.lastAccess)}
-                        </div>
-                      </div>
-                      <Button variant="ghost" size="sm" className="h-7 text-xs text-destructive" disabled={busy}
-                        onClick={() => act(() => api.projects.revokeRealmUserSession(projectId, user.id, s.id), 'Session revoked')}>
-                        Revoke
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
+                  <Button variant="outline" size="sm" disabled={busy}
+                    onClick={() => act(() => api.projects.sendRealmUserVerification(projectId, user.id), 'Verification email sent')}>
+                    <Mail className="mr-2 h-3.5 w-3.5" />Send verify
+                  </Button>
+                  {mfaRequired ? (
+                    <Button variant="outline" size="sm" className="col-span-2" disabled={busy}
+                      onClick={() => act(() => api.projects.requireRealmUserMfa(projectId, user.id, false), 'MFA requirement withdrawn', { notify: true })}>
+                      <ShieldCheck className="mr-2 h-3.5 w-3.5" />Withdraw MFA requirement
+                    </Button>
+                  ) : (
+                    <Button variant="outline" size="sm" className="col-span-2" disabled={busy}
+                      onClick={() => act(() => api.projects.requireRealmUserMfa(projectId, user.id, true), 'User must set up MFA at next sign-in', { notify: true })}>
+                      <ShieldCheck className="mr-2 h-3.5 w-3.5" />Require MFA enrollment
+                    </Button>
+                  )}
+                </section>
 
-            {/* Danger */}
-            <section className="border-t pt-4">
-              <Button variant="destructive" size="sm" className="w-full" disabled={busy}
-                onClick={async () => {
-                  if (!(await confirmDialog({ title: 'Delete user', description: `Delete user "${user.email}"?`, destructive: true }))) return;
-                  await act(() => api.projects.deleteRealmUser(projectId, user.id), 'User deleted');
-                  onDeleted();
-                }}>
-                <Trash2 className="mr-2 h-3.5 w-3.5" />Delete user
-              </Button>
-            </section>
-          </div>
+                {/* Sessions */}
+                <section>
+                  <div className="mb-2 flex items-center justify-between">
+                    <h3 className="text-xs font-semibold uppercase text-muted-foreground">Sessions</h3>
+                    {sessions.length > 0 && (
+                      <Button variant="ghost" size="sm" className="h-7 text-xs text-destructive" disabled={busy}
+                        onClick={() => act(() => api.projects.logoutRealmUser(projectId, user.id), 'Signed out of all sessions')}>
+                        <LogOut className="mr-1 h-3.5 w-3.5" />Sign out all
+                      </Button>
+                    )}
+                  </div>
+                  {sessions.length === 0 ? (
+                    <p className="rounded-md border border-dashed px-3 py-4 text-center text-xs text-muted-foreground">No active sessions</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {sessions.map((s: RealmSession) => (
+                        <div key={s.id} className="flex items-center justify-between rounded-md border px-3 py-2 text-xs">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5 font-medium">
+                              <Globe className="h-3.5 w-3.5 text-muted-foreground" />{s.ipAddress || 'unknown IP'}
+                              {s.location && <span className="font-normal text-muted-foreground">· {s.location}</span>}
+                            </div>
+                            <div className="mt-0.5 flex items-center gap-1.5 text-muted-foreground">
+                              <Monitor className="h-3 w-3" />
+                              {(s.clients || []).join(', ') || '—'} · last {fmtTs(s.lastAccess)}
+                            </div>
+                          </div>
+                          <Button variant="ghost" size="sm" className="h-7 text-xs text-destructive" disabled={busy}
+                            onClick={() => act(() => api.projects.revokeRealmUserSession(projectId, user.id, s.id), 'Session revoked')}>
+                            Revoke
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
+
+                {/* Danger */}
+                <section className="border-t pt-4">
+                  <Button variant="destructive" size="sm" className="w-full" disabled={busy} onClick={() => void remove()}>
+                    <Trash2 className="mr-2 h-3.5 w-3.5" />Delete user
+                  </Button>
+                </section>
+              </div>
+            )}
+          </>
         )}
-      </div>
-    </div>,
-    document.body,
+      </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
   );
 }
 
@@ -854,42 +931,112 @@ function MfaTab({ projectId }: { projectId: string }) {
 }
 
 /* ──────────────────────────────────────────────────────── Policies Tab */
+type PolicyForm = {
+  bruteForceProtected: boolean;
+  permanentLockout: boolean;
+  failureFactor: string;
+  waitIncrementSeconds: string;
+  maxFailureWaitSeconds: string;
+  accessTokenLifespanSeconds: string;
+  minLength: string;
+  historyCount: string;
+  expiryDays: string;
+  requireUppercase: boolean;
+  requireLowercase: boolean;
+  requireDigits: boolean;
+  requireSpecial: boolean;
+};
+
+function policyForm(p: RealmPolicies): PolicyForm {
+  return {
+    bruteForceProtected: p.bruteForceProtected,
+    permanentLockout: p.permanentLockout,
+    failureFactor: String(p.failureFactor),
+    waitIncrementSeconds: String(p.waitIncrementSeconds),
+    maxFailureWaitSeconds: String(p.maxFailureWaitSeconds),
+    accessTokenLifespanSeconds: String(p.accessTokenLifespanSeconds ?? 1800),
+    minLength: String(p.password.minLength),
+    historyCount: String(p.password.historyCount),
+    expiryDays: String(p.password.expiryDays),
+    requireUppercase: p.password.requireUppercase,
+    requireLowercase: p.password.requireLowercase,
+    requireDigits: p.password.requireDigits,
+    requireSpecial: p.password.requireSpecial,
+  };
+}
+
+/** Field → message for every value the server would refuse; empty when the form can be saved. */
+function policyErrors(f: PolicyForm): Partial<Record<keyof PolicyForm, string>> {
+  const e: Partial<Record<keyof PolicyForm, string>> = {};
+  const check = (k: keyof PolicyForm, label: string, bounds: { min: number; max: number }) => {
+    const msg = rangeError(f[k] as string, label, bounds);
+    if (msg) e[k] = msg;
+  };
+  check('minLength', 'Minimum length', PASSWORD_MIN_LENGTH_BOUNDS);
+  check('historyCount', 'Password history', POLICY_BOUNDS.historyCount);
+  check('expiryDays', 'Expiry', POLICY_BOUNDS.expiryDays);
+  check('accessTokenLifespanSeconds', 'Token lifetime', TOKEN_LIFESPAN_BOUNDS);
+  if (f.bruteForceProtected) {
+    check('failureFactor', 'Max login failures', POLICY_BOUNDS.failureFactor);
+    check('waitIncrementSeconds', 'Wait increment', POLICY_BOUNDS.waitIncrementSeconds);
+    check('maxFailureWaitSeconds', 'Max wait', POLICY_BOUNDS.maxFailureWaitSeconds);
+    if (!e.waitIncrementSeconds && !e.maxFailureWaitSeconds && Number(f.maxFailureWaitSeconds) < Number(f.waitIncrementSeconds)) {
+      e.maxFailureWaitSeconds = 'Max wait must be at least the wait increment';
+    }
+  }
+  return e;
+}
+
 function PoliciesTab({ projectId }: { projectId: string }) {
-  const [pol, setPol] = useState<RealmPolicies | null>(null);
+  const [form, setForm] = useState<PolicyForm | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     api.projects.getAuthPolicies(projectId)
-      .then(setPol)
+      .then((p) => setForm(policyForm(p)))
       .catch((err) => toast.error(err.message))
       .finally(() => setLoading(false));
   }, [projectId]);
 
+  if (loading || !form) {
+    return <div className="flex h-32 items-center justify-center"><div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div>;
+  }
+
+  const errors = policyErrors(form);
+  const invalid = Object.keys(errors).length > 0;
+  const set = (patch: Partial<PolicyForm>) => setForm({ ...form, ...patch });
+
   async function save() {
-    if (!pol) return;
+    if (!form || invalid) return;
     setSaving(true);
     try {
       const updated = await api.projects.updateAuthPolicies(projectId, {
-        bruteForceProtected: pol.bruteForceProtected,
-        permanentLockout: pol.permanentLockout,
-        failureFactor: pol.failureFactor,
-        waitIncrementSeconds: pol.waitIncrementSeconds,
-        maxFailureWaitSeconds: pol.maxFailureWaitSeconds,
-        password: pol.password,
+        bruteForceProtected: form.bruteForceProtected,
+        ...(form.bruteForceProtected
+          ? {
+              permanentLockout: form.permanentLockout,
+              failureFactor: Number(form.failureFactor),
+              waitIncrementSeconds: Number(form.waitIncrementSeconds),
+              maxFailureWaitSeconds: Number(form.maxFailureWaitSeconds),
+            }
+          : {}),
+        accessTokenLifespanSeconds: Number(form.accessTokenLifespanSeconds),
+        password: {
+          minLength: Number(form.minLength),
+          historyCount: Number(form.historyCount),
+          expiryDays: Number(form.expiryDays),
+          requireUppercase: form.requireUppercase,
+          requireLowercase: form.requireLowercase,
+          requireDigits: form.requireDigits,
+          requireSpecial: form.requireSpecial,
+        },
       });
-      setPol(updated);
+      setForm(policyForm(updated));
       toast.success('Policies saved');
     } catch (err: any) { toast.error(err.message); }
     finally { setSaving(false); }
   }
-
-  if (loading || !pol) {
-    return <div className="flex h-32 items-center justify-center"><div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div>;
-  }
-
-  const set = (patch: Partial<RealmPolicies>) => setPol({ ...pol, ...patch });
-  const setPw = (patch: Partial<RealmPolicies['password']>) => setPol({ ...pol, password: { ...pol.password, ...patch } });
 
   return (
     <div className="space-y-6">
@@ -898,18 +1045,24 @@ function PoliciesTab({ projectId }: { projectId: string }) {
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-sm font-semibold">Brute-force protection</h3>
-            <p className="text-xs text-muted-foreground">Temporarily lock accounts after repeated failed logins.</p>
+            <p className="text-xs text-muted-foreground">Temporarily lock an account after repeated failed sign-ins. Only failures count.</p>
           </div>
-          <Toggle checked={pol.bruteForceProtected} onChange={(v) => set({ bruteForceProtected: v })} />
+          <Toggle checked={form.bruteForceProtected} onChange={(v) => set({ bruteForceProtected: v })} label="Brute-force protection" />
         </div>
-        {pol.bruteForceProtected && (
+        {!form.bruteForceProtected && (
+          <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <p>Recommended: turn this on. Without it, passwords can be guessed with unlimited attempts. New projects start with it on (10 failures, a lockout growing from 1 to 15 minutes).</p>
+          </div>
+        )}
+        {form.bruteForceProtected && (
           <div className="grid gap-4 sm:grid-cols-2">
-            <NumField label="Max login failures" value={pol.failureFactor} onChange={(v) => set({ failureFactor: v })} />
-            <NumField label="Wait increment (seconds)" value={pol.waitIncrementSeconds} onChange={(v) => set({ waitIncrementSeconds: v })} />
-            <NumField label="Max wait (seconds)" value={pol.maxFailureWaitSeconds} onChange={(v) => set({ maxFailureWaitSeconds: v })} />
+            <NumField label="Max login failures" value={form.failureFactor} error={errors.failureFactor} hint={`${POLICY_BOUNDS.failureFactor.min}–${POLICY_BOUNDS.failureFactor.max}`} onChange={(v) => set({ failureFactor: v })} />
+            <NumField label="Wait increment (seconds)" value={form.waitIncrementSeconds} error={errors.waitIncrementSeconds} onChange={(v) => set({ waitIncrementSeconds: v })} />
+            <NumField label="Max wait (seconds)" value={form.maxFailureWaitSeconds} error={errors.maxFailureWaitSeconds} onChange={(v) => set({ maxFailureWaitSeconds: v })} />
             <div className="flex items-center justify-between rounded-md border px-3 py-2">
               <span className="text-sm">Permanent lockout</span>
-              <Toggle checked={pol.permanentLockout} onChange={(v) => set({ permanentLockout: v })} />
+              <Toggle checked={form.permanentLockout} onChange={(v) => set({ permanentLockout: v })} label="Permanent lockout" />
             </div>
           </div>
         )}
@@ -919,32 +1072,55 @@ function PoliciesTab({ projectId }: { projectId: string }) {
       <div className="rounded-lg border p-6 space-y-4">
         <div>
           <h3 className="text-sm font-semibold">Password policy</h3>
-          <p className="text-xs text-muted-foreground">Complexity rules enforced when users set a password.</p>
+          <p className="text-xs text-muted-foreground">
+            The one place password rules are set. They apply to SDK sign-up, password resets and users you add here.
+          </p>
         </div>
         <div className="grid gap-4 sm:grid-cols-3">
-          <NumField label="Minimum length" value={pol.password.minLength} onChange={(v) => setPw({ minLength: v })} />
-          <NumField label="Password history (remembered)" value={pol.password.historyCount} onChange={(v) => setPw({ historyCount: v })} />
-          <NumField label="Expiry (days, 0 = never)" value={pol.password.expiryDays} onChange={(v) => setPw({ expiryDays: v })} />
+          <NumField label="Minimum length" value={form.minLength} error={errors.minLength} hint={`${PASSWORD_MIN_LENGTH_BOUNDS.min}–${PASSWORD_MIN_LENGTH_BOUNDS.max} characters`} onChange={(v) => set({ minLength: v })} />
+          <NumField label="Password history (remembered)" value={form.historyCount} error={errors.historyCount} hint="0 = off" onChange={(v) => set({ historyCount: v })} />
+          <NumField label="Expiry (days)" value={form.expiryDays} error={errors.expiryDays} hint="0 = never" onChange={(v) => set({ expiryDays: v })} />
         </div>
         <div className="grid gap-2 sm:grid-cols-2">
-          <CheckRow label="Require uppercase letter" checked={pol.password.requireUppercase} onChange={(v) => setPw({ requireUppercase: v })} />
-          <CheckRow label="Require lowercase letter" checked={pol.password.requireLowercase} onChange={(v) => setPw({ requireLowercase: v })} />
-          <CheckRow label="Require digit" checked={pol.password.requireDigits} onChange={(v) => setPw({ requireDigits: v })} />
-          <CheckRow label="Require special character" checked={pol.password.requireSpecial} onChange={(v) => setPw({ requireSpecial: v })} />
+          <CheckRow label="Require uppercase letter" checked={form.requireUppercase} onChange={(v) => set({ requireUppercase: v })} />
+          <CheckRow label="Require lowercase letter" checked={form.requireLowercase} onChange={(v) => set({ requireLowercase: v })} />
+          <CheckRow label="Require digit" checked={form.requireDigits} onChange={(v) => set({ requireDigits: v })} />
+          <CheckRow label="Require special character" checked={form.requireSpecial} onChange={(v) => set({ requireSpecial: v })} />
         </div>
       </div>
 
-      <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save policies'}</Button>
+      {/* Sessions */}
+      <div className="rounded-lg border p-6 space-y-4">
+        <div>
+          <h3 className="text-sm font-semibold">Sessions</h3>
+          <p className="text-xs text-muted-foreground">
+            How long an access token stays valid. The SDK refreshes it automatically before it expires.
+          </p>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <NumField
+            label="Access token lifetime (seconds)"
+            value={form.accessTokenLifespanSeconds}
+            error={errors.accessTokenLifespanSeconds}
+            hint={`${TOKEN_LIFESPAN_BOUNDS.min}–${TOKEN_LIFESPAN_BOUNDS.max} (5 minutes to 24 hours)`}
+            onChange={(v) => set({ accessTokenLifespanSeconds: v })}
+          />
+        </div>
+      </div>
+
+      <Button onClick={save} disabled={saving || invalid}>{saving ? 'Saving…' : 'Save policies'}</Button>
+      {invalid && <p className="text-xs text-destructive">Fix the highlighted fields to save.</p>}
     </div>
   );
 }
 
-function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label?: string }) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
+      aria-label={label}
       onClick={() => onChange(!checked)}
       className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${checked ? 'bg-primary' : 'bg-input'}`}
     >
@@ -953,11 +1129,36 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
   );
 }
 
-function NumField({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+function NumField({
+  label,
+  value,
+  onChange,
+  error,
+  hint,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  error?: string;
+  hint?: string;
+}) {
+  const id = `num-${label.replace(/\W+/g, '-').toLowerCase()}`;
   return (
     <div className="space-y-1">
-      <Label className="text-xs">{label}</Label>
-      <Input type="number" value={value} onChange={(e) => onChange(Number(e.target.value) || 0)} />
+      <Label htmlFor={id} className="text-xs">{label}</Label>
+      <Input
+        id={id}
+        type="number"
+        inputMode="numeric"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        aria-invalid={!!error}
+        aria-describedby={error || hint ? `${id}-msg` : undefined}
+        className={error ? 'border-destructive focus-visible:ring-destructive' : undefined}
+      />
+      {(error || hint) && (
+        <p id={`${id}-msg`} className={`text-xs ${error ? 'text-destructive' : 'text-muted-foreground'}`}>{error || hint}</p>
+      )}
     </div>
   );
 }
@@ -1356,30 +1557,33 @@ function SettingsTab({
   projectId,
   config,
   onSaved,
+  onOpenPolicies,
 }: {
   projectId: string;
   config: ProjectAuthConfig;
   onSaved: (c: ProjectAuthConfig) => void;
+  onOpenPolicies: () => void;
 }) {
   const [selfSignup, setSelfSignup] = useState(config.allowSignup);
   const [emailVerification, setEmailVerification] = useState(config.requireEmailVerify);
-  const [minPwLen, setMinPwLen] = useState(String(config.minPasswordLength));
-  const [tokenExpiry, setTokenExpiry] = useState(String(config.tokenExpirySeconds));
   const [allowAnonymous, setAllowAnonymous] = useState(config.allowAnonymous ?? false);
   const [enforceMfa, setEnforceMfa] = useState(config.mfaEnforceEnrollment ?? false);
   const [saving, setSaving] = useState(false);
 
+  // Only what changed is sent, so this tab never writes back a value another
+  // tab (or another person) saved in the meantime.
+  const changes: Partial<ProjectAuthConfig> = {};
+  if (selfSignup !== config.allowSignup) changes.allowSignup = selfSignup;
+  if (emailVerification !== config.requireEmailVerify) changes.requireEmailVerify = emailVerification;
+  if (allowAnonymous !== (config.allowAnonymous ?? false)) changes.allowAnonymous = allowAnonymous;
+  if (enforceMfa !== (config.mfaEnforceEnrollment ?? false)) changes.mfaEnforceEnrollment = enforceMfa;
+  const dirty = Object.keys(changes).length > 0;
+
   async function handleSave() {
+    if (!dirty) return;
     setSaving(true);
     try {
-      const updated = await api.projects.updateAuthConfig(projectId, {
-        allowSignup: selfSignup,
-        requireEmailVerify: emailVerification,
-        minPasswordLength: parseInt(minPwLen, 10) || 6,
-        tokenExpirySeconds: parseInt(tokenExpiry, 10) || 1800,
-        allowAnonymous,
-        mfaEnforceEnrollment: enforceMfa,
-      });
+      const updated = await api.projects.updateAuthConfig(projectId, changes);
       onSaved(updated);
       toast.success('Settings saved');
     } catch (err: any) {
@@ -1436,21 +1640,15 @@ function SettingsTab({
         />
       </div>
 
-      <div className="rounded-lg border p-6 space-y-4">
-        <h3 className="flex items-center gap-2 text-sm font-semibold">
-          <Shield className="h-4 w-4 text-muted-foreground" />
-          Password Policy
-        </h3>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-1.5">
-            <Label>Minimum length</Label>
-            <Input type="number" value={minPwLen} onChange={(e) => setMinPwLen(e.target.value)} min={6} max={128} />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Token expiry (seconds)</Label>
-            <Input type="number" value={tokenExpiry} onChange={(e) => setTokenExpiry(e.target.value)} min={300} />
-          </div>
-        </div>
+      <div className="flex items-start gap-3 rounded-lg border p-4 text-sm">
+        <Shield className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+        <p className="text-muted-foreground">
+          Password rules, brute-force protection and the access-token lifetime are set in one place:{' '}
+          <button type="button" onClick={onOpenPolicies} className="font-medium text-primary underline-offset-2 hover:underline">
+            Policies
+          </button>
+          .
+        </p>
       </div>
 
       <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-200">
@@ -1458,8 +1656,8 @@ function SettingsTab({
         <p>Settings are saved per-project. Changes will take effect immediately for new auth requests.</p>
       </div>
 
-      <Button onClick={handleSave} disabled={saving}>
-        {saving ? 'Saving...' : 'Save Settings'}
+      <Button onClick={handleSave} disabled={saving || !dirty}>
+        {saving ? 'Saving...' : dirty ? 'Save Settings' : 'No changes'}
       </Button>
     </div>
   );
@@ -1475,7 +1673,10 @@ function EmailTab({
   config: ProjectAuthConfig;
   onSaved: (c: ProjectAuthConfig) => void;
 }) {
-  const [provider, setProvider] = useState(config.emailProvider || '');
+  // A host saved without a provider (older configs) is still sent through SMTP,
+  // so show it as Custom SMTP rather than as the platform default.
+  const savedProvider = config.emailProvider || (config.smtpHost ? 'smtp' : '');
+  const [provider, setProvider] = useState(savedProvider);
   const [smtpHost, setSmtpHost] = useState(config.smtpHost || '');
   const [smtpPort, setSmtpPort] = useState(String(config.smtpPort || 587));
   const [smtpUser, setSmtpUser] = useState(config.smtpUser || '');
@@ -1488,6 +1689,107 @@ function EmailTab({
   const [sesSecretKey, setSesSecretKey] = useState('');
   const [sesRegion, setSesRegion] = useState(config.sesRegion || 'us-east-1');
   const [saving, setSaving] = useState(false);
+  const [showErrors, setShowErrors] = useState(false);
+  const [testTo, setTestTo] = useState('');
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  /** Required fields for the chosen provider; a saved secret counts as filled. */
+  const providerErrors: Record<string, string> = {};
+  if (provider) {
+    if (!senderEmail.trim()) providerErrors.senderEmail = 'Sender email is required with your own provider';
+    else if (!isValidEmail(senderEmail)) providerErrors.senderEmail = 'Enter a valid email address';
+  }
+  if (provider === 'smtp') {
+    if (!smtpHost.trim()) providerErrors.smtpHost = 'SMTP host is required';
+    else if (/\s|\/|:/.test(smtpHost.trim())) providerErrors.smtpHost = 'Enter a host name such as smtp.example.com';
+    const portErr = rangeError(smtpPort, 'Port', { min: 1, max: 65535 });
+    if (portErr) providerErrors.smtpPort = portErr;
+    if (!smtpUser.trim()) providerErrors.smtpUser = 'Username is required';
+    if (!smtpPass && !config.smtpPass) providerErrors.smtpPass = 'Password is required';
+  }
+  if (provider === 'resend' && !resendApiKey && !config.resendApiKey) providerErrors.resendApiKey = 'API key is required';
+  if (provider === 'sendgrid' && !sendgridApiKey && !config.sendgridApiKey) providerErrors.sendgridApiKey = 'API key is required';
+  if (provider === 'ses') {
+    if (!sesAccessKey && !config.sesAccessKey) providerErrors.sesAccessKey = 'Access key is required';
+    if (!sesSecretKey && !config.sesSecretKey) providerErrors.sesSecretKey = 'Secret key is required';
+  }
+  const providerInvalid = Object.keys(providerErrors).length > 0;
+  const fieldError = (k: string) => (showErrors ? providerErrors[k] : undefined);
+
+  /** The provider part of the form, as the API expects it. */
+  function providerPayload(): Record<string, any> {
+    const payload: Record<string, any> = { emailProvider: provider || null };
+    if (!provider) {
+      payload.senderEmail = null;
+      payload.senderName = null;
+      return payload;
+    }
+    payload.senderEmail = senderEmail.trim() || null;
+    payload.senderName = senderName.trim() || null;
+    if (provider === 'smtp') {
+      payload.smtpHost = smtpHost.trim() || null;
+      payload.smtpPort = parseInt(smtpPort, 10);
+      payload.smtpUser = smtpUser.trim() || null;
+      if (smtpPass) payload.smtpPass = smtpPass;
+    }
+    if (provider === 'resend' && resendApiKey) payload.resendApiKey = resendApiKey;
+    if (provider === 'sendgrid' && sendgridApiKey) payload.sendgridApiKey = sendgridApiKey;
+    if (provider === 'ses') {
+      if (sesAccessKey) payload.sesAccessKey = sesAccessKey;
+      if (sesSecretKey) payload.sesSecretKey = sesSecretKey;
+      payload.sesRegion = sesRegion;
+    }
+    return payload;
+  }
+
+  async function saveProvider() {
+    if (providerInvalid) {
+      setShowErrors(true);
+      return;
+    }
+    setSaving(true);
+    try {
+      const updated = await api.projects.updateAuthConfig(projectId, providerPayload());
+      onSaved(updated);
+      setSmtpPass(''); setResendApiKey(''); setSendgridApiKey('');
+      setSesAccessKey(''); setSesSecretKey('');
+      setShowErrors(false);
+      toast.success(provider ? 'Email provider settings saved' : 'Emails now go out through the platform email service');
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function sendTest() {
+    if (providerInvalid) {
+      setShowErrors(true);
+      return;
+    }
+    if (testTo.trim() && !isValidEmail(testTo)) {
+      setTestResult({ ok: false, message: 'Enter a valid recipient address, or leave it empty to use your own.' });
+      return;
+    }
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await api.projects.testAuthEmail(projectId, {
+        to: testTo.trim() || undefined,
+        settings: providerPayload(),
+      });
+      setTestResult(
+        res.ok
+          ? { ok: true, message: `Test email sent to ${res.to}. Check the inbox (and the spam folder).` }
+          : { ok: false, message: res.error || 'The test email could not be sent.' },
+      );
+    } catch (err: any) {
+      setTestResult({ ok: false, message: err.message || 'The test email could not be sent.' });
+    } finally {
+      setTesting(false);
+    }
+  }
 
   const [editingTemplate, setEditingTemplate] = useState<{
     key: string;
@@ -1621,11 +1923,12 @@ function EmailTab({
         </p>
 
         <div className="space-y-1.5">
-          <Label>Provider</Label>
+          <Label htmlFor="email-provider">Provider</Label>
           <select
+            id="email-provider"
             className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             value={provider}
-            onChange={(e) => setProvider(e.target.value)}
+            onChange={(e) => { setProvider(e.target.value); setTestResult(null); }}
           >
             <option value="">Platform Default (basefyio)</option>
             <option value="smtp">Custom SMTP</option>
@@ -1637,54 +1940,47 @@ function EmailTab({
 
         {provider === 'smtp' && (
           <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label>SMTP Host</Label>
-              <Input placeholder="smtp.example.com" value={smtpHost} onChange={(e) => setSmtpHost(e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>SMTP Port</Label>
-              <Input placeholder="587" value={smtpPort} onChange={(e) => setSmtpPort(e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Username</Label>
-              <Input placeholder="user@example.com" value={smtpUser} onChange={(e) => setSmtpUser(e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Password</Label>
-              <Input type="password" placeholder={config.smtpPass ? '••••••••  (saved)' : 'Enter password'} value={smtpPass} onChange={(e) => setSmtpPass(e.target.value)} />
-            </div>
+            <FormField id="smtp-host" label="SMTP Host *" error={fieldError('smtpHost')}>
+              <Input id="smtp-host" placeholder="smtp.example.com" value={smtpHost} onChange={(e) => setSmtpHost(e.target.value)} aria-invalid={!!fieldError('smtpHost')} />
+            </FormField>
+            <FormField id="smtp-port" label="SMTP Port *" error={fieldError('smtpPort')} hint="587 (STARTTLS) or 465 (TLS)">
+              <Input id="smtp-port" inputMode="numeric" placeholder="587" value={smtpPort} onChange={(e) => setSmtpPort(e.target.value)} aria-invalid={!!fieldError('smtpPort')} />
+            </FormField>
+            <FormField id="smtp-user" label="Username *" error={fieldError('smtpUser')}>
+              <Input id="smtp-user" placeholder="user@example.com" value={smtpUser} onChange={(e) => setSmtpUser(e.target.value)} aria-invalid={!!fieldError('smtpUser')} autoComplete="off" />
+            </FormField>
+            <FormField id="smtp-pass" label="Password *" error={fieldError('smtpPass')} hint={config.smtpPass ? 'Leave empty to keep the saved password' : undefined}>
+              <Input id="smtp-pass" type="password" placeholder={config.smtpPass ? '••••••••  (saved)' : 'Enter password'} value={smtpPass} onChange={(e) => setSmtpPass(e.target.value)} aria-invalid={!!fieldError('smtpPass')} autoComplete="new-password" />
+            </FormField>
           </div>
         )}
 
         {provider === 'resend' && (
-          <div className="space-y-1.5">
-            <Label>Resend API Key</Label>
-            <Input type="password" placeholder={config.resendApiKey ? '••••••••  (saved)' : 're_xxxx...'} value={resendApiKey} onChange={(e) => setResendApiKey(e.target.value)} />
+          <FormField id="resend-key" label="Resend API Key *" error={fieldError('resendApiKey')}>
+            <Input id="resend-key" type="password" placeholder={config.resendApiKey ? '••••••••  (saved)' : 're_xxxx...'} value={resendApiKey} onChange={(e) => setResendApiKey(e.target.value)} aria-invalid={!!fieldError('resendApiKey')} autoComplete="off" />
             <p className="text-xs text-muted-foreground">Get your API key from <a href="https://resend.com/api-keys" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">resend.com/api-keys</a></p>
-          </div>
+          </FormField>
         )}
 
         {provider === 'sendgrid' && (
-          <div className="space-y-1.5">
-            <Label>SendGrid API Key</Label>
-            <Input type="password" placeholder={config.sendgridApiKey ? '••••••••  (saved)' : 'SG.xxxx...'} value={sendgridApiKey} onChange={(e) => setSendgridApiKey(e.target.value)} />
+          <FormField id="sendgrid-key" label="SendGrid API Key *" error={fieldError('sendgridApiKey')}>
+            <Input id="sendgrid-key" type="password" placeholder={config.sendgridApiKey ? '••••••••  (saved)' : 'SG.xxxx...'} value={sendgridApiKey} onChange={(e) => setSendgridApiKey(e.target.value)} aria-invalid={!!fieldError('sendgridApiKey')} autoComplete="off" />
             <p className="text-xs text-muted-foreground">Get your API key from <a href="https://app.sendgrid.com/settings/api_keys" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">SendGrid Settings</a></p>
-          </div>
+          </FormField>
         )}
 
         {provider === 'ses' && (
           <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label>Access Key</Label>
-              <Input type="password" placeholder={config.sesAccessKey ? '••••••••  (saved)' : 'AKIA...'} value={sesAccessKey} onChange={(e) => setSesAccessKey(e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Secret Key</Label>
-              <Input type="password" placeholder={config.sesSecretKey ? '••••••••  (saved)' : 'Enter secret key'} value={sesSecretKey} onChange={(e) => setSesSecretKey(e.target.value)} />
-            </div>
+            <FormField id="ses-access" label="Access Key *" error={fieldError('sesAccessKey')}>
+              <Input id="ses-access" type="password" placeholder={config.sesAccessKey ? '••••••••  (saved)' : 'AKIA...'} value={sesAccessKey} onChange={(e) => setSesAccessKey(e.target.value)} aria-invalid={!!fieldError('sesAccessKey')} autoComplete="off" />
+            </FormField>
+            <FormField id="ses-secret" label="Secret Key *" error={fieldError('sesSecretKey')}>
+              <Input id="ses-secret" type="password" placeholder={config.sesSecretKey ? '••••••••  (saved)' : 'Enter secret key'} value={sesSecretKey} onChange={(e) => setSesSecretKey(e.target.value)} aria-invalid={!!fieldError('sesSecretKey')} autoComplete="off" />
+            </FormField>
             <div className="space-y-1.5 sm:col-span-2">
-              <Label>Region</Label>
+              <Label htmlFor="ses-region">Region</Label>
               <select
+                id="ses-region"
                 className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 value={sesRegion}
                 onChange={(e) => setSesRegion(e.target.value)}
@@ -1704,62 +2000,56 @@ function EmailTab({
         )}
 
         {provider && (
-          <>
-            <div className="grid gap-4 sm:grid-cols-2 pt-2 border-t">
-              <div className="space-y-1.5">
-                <Label>Sender Email</Label>
-                <Input placeholder="noreply@yourapp.com" value={senderEmail} onChange={(e) => setSenderEmail(e.target.value)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Sender Name</Label>
-                <Input placeholder="My App" value={senderName} onChange={(e) => setSenderName(e.target.value)} />
-              </div>
-            </div>
-
-            <Button
-              disabled={saving}
-              onClick={async () => {
-                setSaving(true);
-                try {
-                  const payload: Record<string, any> = {
-                    emailProvider: provider || null,
-                    senderEmail: senderEmail || null,
-                    senderName: senderName || null,
-                  };
-                  if (provider === 'smtp') {
-                    payload.smtpHost = smtpHost || null;
-                    payload.smtpPort = parseInt(smtpPort, 10) || 587;
-                    payload.smtpUser = smtpUser || null;
-                    if (smtpPass) payload.smtpPass = smtpPass;
-                  }
-                  if (provider === 'resend' && resendApiKey) payload.resendApiKey = resendApiKey;
-                  if (provider === 'sendgrid' && sendgridApiKey) payload.sendgridApiKey = sendgridApiKey;
-                  if (provider === 'ses') {
-                    if (sesAccessKey) payload.sesAccessKey = sesAccessKey;
-                    if (sesSecretKey) payload.sesSecretKey = sesSecretKey;
-                    payload.sesRegion = sesRegion;
-                  }
-                  const updated = await api.projects.updateAuthConfig(projectId, payload);
-                  onSaved(updated);
-                  setSmtpPass(''); setResendApiKey(''); setSendgridApiKey('');
-                  setSesAccessKey(''); setSesSecretKey('');
-                  toast.success('Email provider settings saved');
-                } catch (err: any) {
-                  toast.error(err.message);
-                } finally {
-                  setSaving(false);
-                }
-              }}
-            >
-              {saving ? 'Saving...' : 'Save Email Settings'}
-            </Button>
-          </>
+          <div className="grid gap-4 sm:grid-cols-2 pt-2 border-t">
+            <FormField id="sender-email" label="Sender Email *" error={fieldError('senderEmail')} hint="An address on a domain your provider is allowed to send for">
+              <Input id="sender-email" placeholder="noreply@yourapp.com" value={senderEmail} onChange={(e) => setSenderEmail(e.target.value)} aria-invalid={!!fieldError('senderEmail')} />
+            </FormField>
+            <FormField id="sender-name" label="Sender Name">
+              <Input id="sender-name" placeholder="My App" value={senderName} onChange={(e) => setSenderName(e.target.value)} />
+            </FormField>
+          </div>
         )}
 
         {!provider && (
           <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-200">
             <Info className="h-4 w-4 shrink-0" />
-            <p>Emails are sent using basefyio&apos;s built-in service. Select a provider above to use your own.</p>
+            <p>
+              Emails are sent using basefyio&apos;s built-in service.
+              {savedProvider ? ' Save to switch back to it; the saved SMTP settings are removed.' : ' Select a provider above to use your own.'}
+            </p>
+          </div>
+        )}
+
+        {showErrors && providerInvalid && (
+          <p className="text-xs text-destructive">Fill in the highlighted fields — an incomplete provider would stop every verification and password-reset email.</p>
+        )}
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Button disabled={saving || (!provider && !savedProvider)} onClick={() => void saveProvider()}>
+            {saving ? 'Saving...' : 'Save Email Settings'}
+          </Button>
+          <div className="flex flex-1 flex-wrap items-center justify-end gap-2">
+            <Input
+              value={testTo}
+              onChange={(e) => setTestTo(e.target.value)}
+              placeholder="Send test to (default: your email)"
+              aria-label="Test email recipient"
+              className="h-9 max-w-xs"
+            />
+            <Button variant="outline" disabled={testing} onClick={() => void sendTest()}>
+              {testing ? 'Sending…' : 'Send test email'}
+            </Button>
+          </div>
+        </div>
+        {testResult && (
+          <div
+            role="status"
+            className={`rounded-md border p-3 text-sm ${testResult.ok
+              ? 'border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200'
+              : 'border-red-300 bg-red-50 text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200'}`}
+          >
+            {testResult.message}
+            {!testResult.ok && provider && <span className="block text-xs opacity-80">Nothing was saved. The test uses the values in the form.</span>}
           </div>
         )}
       </div>
@@ -1861,11 +2151,11 @@ function TemplateEditorDialog({
   const previewVars: Record<string, string> = {
     '{{otp}}': '482917',
     '{{project_name}}': 'My App',
-    '{{verify_url}}': 'https://api.basefyio.com/rest/v1/auth/verify-email-callback?otp=482917',
+    '{{verify_url}}': 'https://api.basefyio.com/api/rest/v1/auth/verify-email-callback?otp=482917',
     '{{email}}': 'user@example.com',
-    '{{invite_url}}': 'https://api.basefyio.com/rest/v1/auth/invite-callback?otp=482917',
-    '{{magic_link_url}}': 'https://api.basefyio.com/rest/v1/auth/magic-link-callback?otp=482917',
-    '{{confirm_url}}': 'https://api.basefyio.com/rest/v1/auth/change-email-callback?otp=482917',
+    '{{invite_url}}': 'https://api.basefyio.com/api/rest/v1/auth/invite-callback?otp=482917',
+    '{{magic_link_url}}': 'https://api.basefyio.com/api/rest/v1/auth/magic-link-callback?otp=482917',
+    '{{confirm_url}}': 'https://api.basefyio.com/api/rest/v1/auth/change-email-callback?otp=482917',
     '{{new_email}}': 'newemail@example.com',
   };
 
@@ -2086,6 +2376,103 @@ const { data: user } = await client.auth.getUser()`;
   );
 }
 
+/* ────────────────────────────────────────────────────── Form helpers */
+function FormField({
+  id,
+  label,
+  error,
+  hint,
+  children,
+}: {
+  id: string;
+  label: string;
+  error?: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={id}>{label}</Label>
+      {children}
+      {error ? (
+        <p className="text-xs text-destructive" role="alert">{error}</p>
+      ) : hint ? (
+        <p className="text-xs text-muted-foreground">{hint}</p>
+      ) : null}
+    </div>
+  );
+}
+
+/** The project's effective password rules, loaded once a dialog that needs them opens. */
+function usePasswordRules(projectId: string, active: boolean): PasswordRules {
+  const [rules, setRules] = useState<PasswordRules>(DEFAULT_PASSWORD_RULES);
+  useEffect(() => {
+    if (!active) return;
+    let cancelled = false;
+    api.projects.getAuthPolicies(projectId)
+      .then((p) => { if (!cancelled) setRules(p.password); })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [projectId, active]);
+  return rules;
+}
+
+function PasswordChecklist({ password, rules }: { password: string; rules: PasswordRules }) {
+  return (
+    <ul className="space-y-0.5 text-xs" aria-label="Password requirements">
+      {passwordChecks(rules).map((c) => {
+        const ok = c.test(password);
+        return (
+          <li key={c.label} className={ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}>
+            {ok ? '✓' : '•'} {c.label}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function PasswordField({
+  id,
+  label,
+  value,
+  onChange,
+  rules,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  rules: PasswordRules;
+}) {
+  const [show, setShow] = useState(false);
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={id}>{label}</Label>
+      <div className="relative">
+        <Input
+          id={id}
+          type={show ? 'text' : 'password'}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          autoComplete="new-password"
+          className="pr-10"
+        />
+        <button
+          type="button"
+          onClick={() => setShow((v) => !v)}
+          aria-label={show ? 'Hide password' : 'Show password'}
+          aria-pressed={show}
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+        >
+          {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+        </button>
+      </div>
+      <PasswordChecklist password={value} rules={rules} />
+    </div>
+  );
+}
+
 /* ────────────────────────────────────────────────────── Edit User Dialog */
 function EditUserDialog({
   open,
@@ -2100,21 +2487,45 @@ function EditUserDialog({
   onOpenChange: (o: boolean) => void;
   onSaved: () => void;
 }) {
-  const [form, setForm] = useState({
+  const initial = {
     firstName: user.firstName || '',
     lastName: user.lastName || '',
     email: user.email || '',
     enabled: user.enabled ?? true,
     phoneNumber: user.phoneNumber || '',
     phoneVerified: user.phoneVerified ?? false,
-  });
+  };
+  const [form, setForm] = useState(initial);
   const [saving, setSaving] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+
+  const phone = normalizePhone(form.phoneNumber);
+  const errors: Record<string, string> = {};
+  if (!form.email.trim()) errors.email = 'Email is required';
+  else if (!isValidEmail(form.email)) errors.email = 'Enter a valid email address, e.g. name@example.com';
+  if (phone === null) errors.phoneNumber = 'Use international format: + country code and number, e.g. +15550100100';
+  if (form.phoneVerified && phone === '') errors.phoneNumber = 'Enter a number before marking it verified';
+  const show = (k: string) => (submitted || (form as any)[k] !== (initial as any)[k] ? errors[k] : undefined);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    setSubmitted(true);
+    if (Object.keys(errors).length) return;
+    // Send only what changed, normalised the way the server stores it.
+    const changes: Record<string, unknown> = {};
+    if (form.firstName.trim() !== initial.firstName) changes.firstName = form.firstName.trim();
+    if (form.lastName.trim() !== initial.lastName) changes.lastName = form.lastName.trim();
+    if (form.email.trim() !== initial.email) changes.email = form.email.trim();
+    if (form.enabled !== initial.enabled) changes.enabled = form.enabled;
+    if ((phone ?? '') !== initial.phoneNumber) changes.phoneNumber = phone ?? '';
+    if (form.phoneVerified !== initial.phoneVerified) changes.phoneVerified = form.phoneVerified;
+    if (Object.keys(changes).length === 0) {
+      onOpenChange(false);
+      return;
+    }
     setSaving(true);
     try {
-      await api.projects.updateRealmUser(projectId, user.id, form);
+      await api.projects.updateRealmUser(projectId, user.id, changes);
       toast.success('User updated');
       onSaved();
     } catch (err: any) {
@@ -2133,46 +2544,36 @@ function EditUserDialog({
             Update user details for <span className="font-medium">{user.email}</span>
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-3">
+        <form onSubmit={handleSubmit} className="space-y-3" noValidate>
           <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="eu-first">First Name</Label>
-              <Input
-                id="eu-first"
-                value={form.firstName}
-                onChange={(e) => setForm((p) => ({ ...p, firstName: e.target.value }))}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="eu-last">Last Name</Label>
-              <Input
-                id="eu-last"
-                value={form.lastName}
-                onChange={(e) => setForm((p) => ({ ...p, lastName: e.target.value }))}
-              />
-            </div>
+            <FormField id="eu-first" label="First Name">
+              <Input id="eu-first" value={form.firstName} onChange={(e) => setForm((p) => ({ ...p, firstName: e.target.value }))} />
+            </FormField>
+            <FormField id="eu-last" label="Last Name">
+              <Input id="eu-last" value={form.lastName} onChange={(e) => setForm((p) => ({ ...p, lastName: e.target.value }))} />
+            </FormField>
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="eu-email">Email *</Label>
+          <FormField id="eu-email" label="Email *" error={show('email')}>
             <Input
               id="eu-email"
               type="email"
               value={form.email}
               onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))}
-              required
+              aria-invalid={!!show('email')}
             />
-          </div>
+          </FormField>
           <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="eu-phone">Phone</Label>
+            <FormField id="eu-phone" label="Phone" error={show('phoneNumber')} hint="International format, e.g. +15550100100">
               <Input
                 id="eu-phone"
                 value={form.phoneNumber}
                 onChange={(e) => setForm((p) => ({ ...p, phoneNumber: e.target.value }))}
-                placeholder="+1 555 0100"
+                placeholder="+1 555 010 0100"
+                inputMode="tel"
+                aria-invalid={!!show('phoneNumber')}
               />
-            </div>
-            <label className="flex items-end justify-between gap-2 pb-1">
+            </FormField>
+            <label className="flex items-end justify-between gap-2 pb-6">
               <span className="text-sm">Phone verified</span>
               <input
                 type="checkbox"
@@ -2191,6 +2592,7 @@ function EditUserDialog({
               type="button"
               role="switch"
               aria-checked={form.enabled}
+              aria-label="Account enabled"
               onClick={() => setForm((p) => ({ ...p, enabled: !p.enabled }))}
               className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
                 form.enabled ? 'bg-primary' : 'bg-input'
@@ -2224,15 +2626,13 @@ function ResetPasswordDialog({
   onDone: () => void;
 }) {
   const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
   const [saving, setSaving] = useState(false);
+  const rules = usePasswordRules(projectId, open);
+  const meetsPolicy = passwordChecks(rules).every((c) => c.test(password));
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (password.length < 6) {
-      toast.error('Password must be at least 6 characters');
-      return;
-    }
+    if (!meetsPolicy) return;
     setSaving(true);
     try {
       await api.projects.resetRealmUserPassword(projectId, user.id, password);
@@ -2256,32 +2656,10 @@ function ResetPasswordDialog({
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-3">
-          <div className="space-y-1.5">
-            <Label htmlFor="rp-pass">New Password *</Label>
-            <div className="relative">
-              <Input
-                id="rp-pass"
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                minLength={6}
-                placeholder="Min. 6 characters"
-                className="pr-10"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword((v) => !v)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                tabIndex={-1}
-              >
-                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            </div>
-          </div>
+          <PasswordField id="rp-pass" label="New Password *" value={password} onChange={setPassword} rules={rules} />
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button type="submit" disabled={saving}>{saving ? 'Resetting...' : 'Reset Password'}</Button>
+            <Button type="submit" disabled={saving || !meetsPolicy}>{saving ? 'Resetting...' : 'Reset Password'}</Button>
           </DialogFooter>
         </form>
       </DialogContent>
@@ -2299,30 +2677,42 @@ function CreateUserDialog({
   open: boolean;
   onOpenChange: (o: boolean) => void;
   projectId: string;
-  onCreated: () => void;
+  onCreated: () => void | Promise<void>;
 }) {
-  const [form, setForm] = useState({
-    email: '',
-    password: '',
-    firstName: '',
-    lastName: '',
-  });
-  const [showPassword, setShowPassword] = useState(false);
+  const empty = { email: '', password: '', firstName: '', lastName: '' };
+  const [form, setForm] = useState(empty);
   const [saving, setSaving] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const rules = usePasswordRules(projectId, open);
 
-  function update(field: string, value: string) {
+  function update(field: keyof typeof empty, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }));
   }
 
+  const emailError = !form.email.trim()
+    ? 'Email is required'
+    : !isValidEmail(form.email)
+      ? 'Enter a valid email address, e.g. name@example.com'
+      : undefined;
+  const meetsPolicy = passwordChecks(rules).every((c) => c.test(form.password));
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    setSubmitted(true);
+    if (emailError || !meetsPolicy) return;
     setSaving(true);
     try {
-      await api.projects.createRealmUser(projectId, form);
+      await api.projects.createRealmUser(projectId, {
+        email: form.email.trim(),
+        password: form.password,
+        firstName: form.firstName.trim() || undefined,
+        lastName: form.lastName.trim() || undefined,
+      });
       toast.success('User created');
-      setForm({ email: '', password: '', firstName: '', lastName: '' });
+      setForm(empty);
+      setSubmitted(false);
       onOpenChange(false);
-      onCreated();
+      await onCreated();
     } catch (err: any) {
       toast.error(err.message);
     } finally {
@@ -2331,7 +2721,7 @@ function CreateUserDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(o) => { if (!o) { setForm(empty); setSubmitted(false); } onOpenChange(o); }}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Create User</DialogTitle>
@@ -2340,46 +2730,29 @@ function CreateUserDialog({
             The user will have emailVerified: true (admin-created).
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-3">
+        <form onSubmit={handleSubmit} className="space-y-3" noValidate>
           <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="cu-first">First Name</Label>
-              <Input id="cu-first" value={form.firstName} onChange={(e) => update('firstName', e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="cu-last">Last Name</Label>
-              <Input id="cu-last" value={form.lastName} onChange={(e) => update('lastName', e.target.value)} />
-            </div>
+            <FormField id="cu-first" label="First Name">
+              <Input id="cu-first" value={form.firstName} onChange={(e) => update('firstName', e.target.value)} placeholder="Optional" />
+            </FormField>
+            <FormField id="cu-last" label="Last Name">
+              <Input id="cu-last" value={form.lastName} onChange={(e) => update('lastName', e.target.value)} placeholder="Optional" />
+            </FormField>
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="cu-email">Email *</Label>
-            <Input id="cu-email" type="email" value={form.email} onChange={(e) => update('email', e.target.value)} required />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="cu-pass">Password *</Label>
-            <div className="relative">
-              <Input
-                id="cu-pass"
-                type={showPassword ? 'text' : 'password'}
-                value={form.password}
-                onChange={(e) => update('password', e.target.value)}
-                required
-                minLength={6}
-                className="pr-10"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword((v) => !v)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                tabIndex={-1}
-              >
-                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            </div>
-          </div>
+          <FormField id="cu-email" label="Email *" error={submitted || form.email ? emailError : undefined}>
+            <Input
+              id="cu-email"
+              type="email"
+              value={form.email}
+              onChange={(e) => update('email', e.target.value)}
+              aria-invalid={!!(submitted && emailError)}
+              autoComplete="off"
+            />
+          </FormField>
+          <PasswordField id="cu-pass" label="Password *" value={form.password} onChange={(v) => update('password', v)} rules={rules} />
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button type="submit" disabled={saving}>{saving ? 'Creating...' : 'Create User'}</Button>
+            <Button type="submit" disabled={saving || !!emailError || !meetsPolicy}>{saving ? 'Creating...' : 'Create User'}</Button>
           </DialogFooter>
         </form>
       </DialogContent>

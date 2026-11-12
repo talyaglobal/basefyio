@@ -1,24 +1,17 @@
 import type { Metadata } from "next";
-import { withAbsoluteSiteUrls } from "@/lib/absolute-site-metadata";
-import { getAppPortalUrl } from "@/lib/site-url";
-import { docsPath } from "@/lib/public-hosts";
+import { docsMetadata } from "../docs-metadata";
+import { getAppPortalUrl, getPublicApiUrl } from "@/lib/site-url";
 
 const pageDescription =
-  "Add authentication to your app with basefyio: email & password, email verification, password reset, magic links, and social login (Google, GitHub) — via the SDK or REST API.";
+  "Add authentication to your app with basefyio: email and password, verification, password reset, magic links, MFA and Google or GitHub sign-in.";
 
 export async function generateMetadata(): Promise<Metadata> {
-  return withAbsoluteSiteUrls("/docs/auth", {
-    title: "Authentication",
-    description: pageDescription,
-    openGraph: {
-      title: "Authentication | basefyio Docs",
-      description: pageDescription,
-    },
-  });
+  return docsMetadata("/docs/auth", "Authentication", pageDescription);
 }
 
 export default function AuthDocs() {
   const appUrl = getAppPortalUrl();
+  const apiUrl = getPublicApiUrl();
 
   return (
     <div>
@@ -29,7 +22,7 @@ export default function AuthDocs() {
         These are <em>not</em> the same as your basefyio dashboard account: your
         customers sign up and sign in to <em>your</em> application, and basefyio
         issues them JSON Web Tokens (JWTs) you can use to protect data with{" "}
-        <a href={docsPath("/docs/security")}>Row-Level Security</a>.
+        <a href="/docs/security">Row-Level Security</a>.
       </p>
       <p>
         You get email &amp; password, email verification, password reset, magic
@@ -107,7 +100,7 @@ const { unsubscribe } = bf.auth.onAuthStateChange((event, session) => {
       <pre><code>{`const { error } = await bf.auth.verifyEmail('482917')`}</code></pre>
 
       {/* ── Password reset ─────────────────────────────── */}
-      <h2 id="password-reset">Password reset</h2>
+      <h2>Password reset</h2>
       <p>Send a reset code to the user&apos;s email, then set a new password with that code:</p>
       <pre><code>{`// 1. Email the user a reset code
 await bf.auth.forgotPassword('jane@example.com')
@@ -175,80 +168,52 @@ const tokens = bf.auth.handleProviderCallback()  // reads the URL, stores the se
         already exists is rejected.
       </p>
 
-      {/* ── Imported users ─────────────────────────────── */}
-      <h2 id="imported-users">Users imported from Supabase</h2>
-      <p>
-        When a project is imported from Supabase, its users come along with the
-        same user ids they had there. Rows that reference{" "}
-        <code>auth.users</code> and policies that compare against{" "}
-        <code>auth.uid()</code> keep matching the same people, so a signed-in user
-        sees exactly the data they saw before.
-      </p>
-      <p>
-        Give the import your Supabase <strong>database password</strong>{" "}
-        (Supabase → Settings → Database) and passwords come along too: users
-        sign in with the email and password they already use, with no reset and
-        no email from you. The first successful <code>bf.auth.signIn</code> checks
-        the password against the one stored at Supabase and keeps it from then on.
-        Without the database password, accounts and ids still arrive, but each
-        user has to reset their password before signing in.
-      </p>
-      <ul>
-        <li>
-          Email confirmation, bans and sign-up dates carry over. Users without an
-          email address (phone-only or anonymous) are not imported.
-        </li>
-        <li>
-          A user who signed in with Google or another provider at Supabase signs
-          in the same way here once the provider is enabled for the project.
-        </li>
-        <li>
-          If the project&apos;s password rules are stricter than Supabase&apos;s,
-          a user whose old password falls short gets the error code{" "}
-          <code>password_reset_required</code> and can choose a new one through
-          the <a href="#password-reset">password reset</a> flow.
-        </li>
-        <li>
-          A sync run later adds users created at Supabase since the import and
-          brings over passwords that changed there, for users who have not signed
-          in here yet.
-        </li>
-      </ul>
-
       {/* ── REST API ───────────────────────────────────── */}
       <h2>REST API</h2>
       <p>
         Not using JavaScript? Every method maps to a REST endpoint under{" "}
-        <code>/rest/v1/auth/</code>. Send your anon key as the{" "}
-        <code>apikey</code> header (or <code>?apikey=</code> query param).
+        <code>{`${apiUrl}/api/rest/v1/auth/`}</code>. Send your anon key in the{" "}
+        <code>apikey</code> header.
       </p>
-      <table>
+      <p>
+        Keep the key out of URLs. The API accepts the anon key as an{" "}
+        <code>?apikey=</code> query parameter only for links and{" "}
+        <code>EventSource</code> streams, which cannot set headers, and refuses
+        the service key there altogether: URLs end up in server logs, browser
+        history and <code>Referer</code> headers.
+      </p>
+      <div className="docs-table"><table>
         <thead>
           <tr><th>Method &amp; path</th><th>Body</th><th>Purpose</th></tr>
         </thead>
         <tbody>
-          <tr><td><code>POST /rest/v1/auth/signup</code></td><td><code>{`{ email, password, firstName?, lastName? }`}</code></td><td>Create a user, return tokens</td></tr>
-          <tr><td><code>POST /rest/v1/auth/signin</code></td><td><code>{`{ email, password }`}</code></td><td>Sign in, return tokens</td></tr>
-          <tr><td><code>POST /rest/v1/auth/verify-email</code></td><td><code>{`{ otp }`}</code></td><td>Confirm an email code</td></tr>
-          <tr><td><code>POST /rest/v1/auth/forgot-password</code></td><td><code>{`{ email }`}</code></td><td>Email a reset code</td></tr>
-          <tr><td><code>POST /rest/v1/auth/reset-password</code></td><td><code>{`{ otp, newPassword }`}</code></td><td>Set a new password</td></tr>
-          <tr><td><code>POST /rest/v1/auth/magic-link</code></td><td><code>{`{ email }`}</code></td><td>Email a magic-link code</td></tr>
-          <tr><td><code>POST /rest/v1/auth/magic-link/verify</code></td><td><code>{`{ otp }`}</code></td><td>Exchange code for tokens</td></tr>
-          <tr><td><code>POST /rest/v1/auth/refresh</code></td><td><code>{`{ refreshToken }`}</code></td><td>Refresh the access token</td></tr>
-          <tr><td><code>GET /rest/v1/auth/me</code></td><td>—</td><td>Current user (Bearer token)</td></tr>
-          <tr><td><code>GET /rest/v1/auth/signin/:provider</code></td><td>—</td><td>Start a social-login redirect</td></tr>
+          <tr><td><code>POST /api/rest/v1/auth/signup</code></td><td><code>{`{ email, password, firstName?, lastName? }`}</code></td><td>Create a user, return tokens</td></tr>
+          <tr><td><code>POST /api/rest/v1/auth/signin</code></td><td><code>{`{ email, password }`}</code></td><td>Sign in, return tokens</td></tr>
+          <tr><td><code>POST /api/rest/v1/auth/verify-email</code></td><td><code>{`{ otp }`}</code></td><td>Confirm an email code</td></tr>
+          <tr><td><code>POST /api/rest/v1/auth/forgot-password</code></td><td><code>{`{ email }`}</code></td><td>Email a reset code</td></tr>
+          <tr><td><code>POST /api/rest/v1/auth/reset-password</code></td><td><code>{`{ otp, newPassword }`}</code></td><td>Set a new password</td></tr>
+          <tr><td><code>POST /api/rest/v1/auth/magic-link</code></td><td><code>{`{ email }`}</code></td><td>Email a magic-link code</td></tr>
+          <tr><td><code>POST /api/rest/v1/auth/magic-link/verify</code></td><td><code>{`{ otp }`}</code></td><td>Exchange code for tokens</td></tr>
+          <tr><td><code>POST /api/rest/v1/auth/refresh</code></td><td><code>{`{ refreshToken }`}</code></td><td>Refresh the access token</td></tr>
+          <tr><td><code>GET /api/rest/v1/auth/me</code></td><td>—</td><td>Current user (Bearer token)</td></tr>
+          <tr><td><code>GET /api/rest/v1/auth/signin/:provider</code></td><td>—</td><td>Start a social-login redirect</td></tr>
         </tbody>
-      </table>
-      <pre><code>{`curl -X POST "https://api.basefyio.com/rest/v1/auth/signin" \\
+      </table></div>
+      <pre><code>{`curl -X POST "${apiUrl}/api/rest/v1/auth/signin" \\
   -H "apikey: YOUR_ANON_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"email":"jane@example.com","password":"a-strong-password"}'`}</code></pre>
+      <p>
+        The complete list — anonymous sign-in, MFA, email change, re-authentication
+        and invitations included — is in the{" "}
+        <a href="/docs/api#auth">API reference</a>.
+      </p>
 
       {/* ── Securing data ──────────────────────────────── */}
       <h2>Using the token to protect data</h2>
       <p>
         Send the user&apos;s access token with your data requests and basefyio
-        evaluates your <a href={docsPath("/docs/security")}>Row-Level Security</a> policies as
+        evaluates your <a href="/docs/security">Row-Level Security</a> policies as
         that user — so people only ever read and write the rows they&apos;re
         allowed to. The SDK attaches the token automatically once the user is
         signed in.

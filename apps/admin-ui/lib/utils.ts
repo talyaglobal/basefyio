@@ -34,24 +34,3 @@ export function projectStatusBadgeClass(status: string | null | undefined): stri
       return '';
   }
 }
-
-/**
- * The one word the product uses for each project status, everywhere a status
- * is shown: Active, Deactivated, Deleted. The enum value `PAUSED` is an
- * internal identifier for the deactivated state; customers never read it.
- * Legacy `DEACTIVATED` rows read the same word — they are the same thing.
- */
-export function projectStatusLabel(status: string | null | undefined): string {
-  switch (status) {
-    case 'ACTIVE':
-      return 'Active';
-    case 'PAUSED':
-      return 'Deactivated';
-    case 'DEACTIVATED':
-      return 'Deactivated';
-    case 'DELETED':
-      return 'Deleted';
-    default:
-      return status ? status.charAt(0) + status.slice(1).toLowerCase() : '';
-  }
-}

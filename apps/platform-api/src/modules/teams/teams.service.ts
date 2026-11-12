@@ -1,10 +1,12 @@
 import {
+  BadRequestException,
   Injectable,
   Logger,
   NotFoundException,
   ForbiddenException,
   ConflictException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import { QuotaService } from '../billing/quota.service';
@@ -13,14 +15,7 @@ import { BillingService } from '../billing/billing.service';
 import { RealtimeEventsService } from '../../common/realtime/realtime-events.service';
 import { getDisplayName } from '../../common/utils/display-name';
 import { PlatformMfaService, mfaUnavailable } from '../auth/platform-mfa.service';
-import { OrganizationKind } from '@prisma/client';
-import {
-  ADMIN_DEFAULTS,
-  MEMBER_DEFAULTS,
-  PERM_KEYS,
-  ensureDefaultRolePermissions as seedDefaultRolePermissions,
-} from './role-permissions';
-import { newPublicId } from '../organizations/public-id';
+import { publicAvatarUrl } from '../auth/avatar-url.util';
 
 @Injectable()
 export class TeamsService {
@@ -34,6 +29,7 @@ export class TeamsService {
     private readonly billing: BillingService,
     private readonly realtime: RealtimeEventsService,
     private readonly mfa: PlatformMfaService,
+    private readonly config: ConfigService,
   ) {}
 
   private async teamUserIds(teamId: string): Promise<string[]> {
@@ -44,36 +40,41 @@ export class TeamsService {
     return members.map((m) => m.userId);
   }
 
-  /**
-   * A further organization for a user who already has a personal one. The
-   * personal organization itself is created at sign-up by
-   * OrganizationsCoreService, in one place.
-   */
-  async create(
-    name: string,
-    userId: string,
-    options: { kind?: OrganizationKind; suffixOnCollision?: boolean } = {},
-  ) {
-    let slug = name
+  async createPersonalTeam(userId: string, displayName: string, teamSlug: string) {
+    const team = await this.prisma.team.create({
+      data: {
+        name: `${displayName}'s Team`,
+        slug: teamSlug,
+        personalForUserId: userId,
+        members: {
+          create: { userId, role: 'OWNER' },
+        },
+      },
+    });
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { activeTeamId: team.id },
+    });
+
+    await this.ensureDefaultRolePermissions(team.id);
+    this.logger.log(`Personal team created for "${displayName}" (${team.id})`);
+    return team;
+  }
+
+  async create(name: string, userId: string) {
+    const slug = name
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-|-$/g, '');
 
     const existing = await this.prisma.team.findUnique({ where: { slug } });
-    if (existing) {
-      // /teams keeps its 409; the organization flow takes a short suffix
-      // instead, because two companies may well share a name.
-      if (!options.suffixOnCollision) throw new ConflictException('Team name already taken');
-      slug = `${slug}-${newPublicId().slice(0, 4)}`;
-    }
+    if (existing) throw new ConflictException('Team name already taken');
 
     const team = await this.prisma.team.create({
       data: {
         name,
         slug,
-        publicId: newPublicId(),
-        kind: options.kind ?? 'COMPANY',
-        organizationMigratedAt: new Date(),
         members: {
           create: { userId, role: 'OWNER' },
         },
@@ -101,7 +102,6 @@ export class TeamsService {
       include: {
         team: {
           include: {
-            subscription: { select: { plan: { select: { name: true, displayName: true } } } },
             _count: {
               select: {
                 members: true,
@@ -123,12 +123,6 @@ export class TeamsService {
       memberCount: m.team._count.members,
       projectCount: m.team._count.projects,
       requireMfa: m.team.requireMfa,
-      // Organization fields, additive: older clients ignore them.
-      publicId: m.team.publicId,
-      kind: m.team.kind,
-      plan: m.team.subscription?.plan
-        ? { name: m.team.subscription.plan.name, displayName: m.team.subscription.plan.displayName }
-        : null,
     }));
   }
 
@@ -217,18 +211,38 @@ export class TeamsService {
       email: m.user.email,
       firstName: m.user.firstName,
       lastName: m.user.lastName,
-      avatarUrl: m.user.avatarUrl,
+      // A link, not the inline image: inline photos made each member ~90 KB.
+      avatarUrl: publicAvatarUrl(m.user.id, m.user.avatarUrl, this.config.get<string>('publicApiUrl') || ''),
       role: m.role,
       joinedAt: m.createdAt,
     }));
   }
 
-  async sendInvite(teamId: string, ownerUserId: string, usernameOrEmail: string) {
-    await this.assertPermission(teamId, ownerUserId, 'canInviteMembers');
+  async sendInvite(
+    teamId: string,
+    ownerUserId: string,
+    usernameOrEmail: string,
+    role?: string,
+  ) {
+    const inviter = await this.assertPermission(teamId, ownerUserId, 'canInviteMembers');
+    const inviteRole = this.parseInviteRole(role);
+    // Making someone an admin is the owner's call everywhere else (role
+    // changes are owner-only), so an invite cannot be a back door to it.
+    if (inviteRole === 'ADMIN' && inviter.role !== 'OWNER') {
+      throw new ForbiddenException('Only the team owner can invite someone as an admin');
+    }
     await this.quota.assertCanInviteMember(teamId);
 
+    usernameOrEmail = (usernameOrEmail ?? '').trim();
+    if (!usernameOrEmail) {
+      throw new BadRequestException('Enter the email address to invite');
+    }
+
+    // Emails are compared case-insensitively: an account stored as
+    // "Name@Example.com" used to miss here and get an email-only
+    // "Not registered" invite although it already existed.
     const targetUser = await this.prisma.user.findFirst({
-      where: { email: usernameOrEmail.toLowerCase() },
+      where: { email: { equals: usernameOrEmail, mode: 'insensitive' } },
     });
 
     const team = await this.prisma.team.findUnique({
@@ -236,7 +250,7 @@ export class TeamsService {
       select: { name: true },
     });
 
-    const inviter = await this.prisma.user.findUnique({
+    const inviterUser = await this.prisma.user.findUnique({
       where: { id: ownerUserId },
       select: { email: true, firstName: true, lastName: true },
     });
@@ -261,16 +275,16 @@ export class TeamsService {
       if (existingInvite) {
         await this.prisma.teamInvite.update({
           where: { id: existingInvite.id },
-          data: { status: 'PENDING', invitedById: ownerUserId },
+          data: { status: 'PENDING', invitedById: ownerUserId, role: inviteRole },
         });
       } else {
         await this.prisma.teamInvite.create({
-          data: { teamId, invitedUserId: targetUser.id, invitedById: ownerUserId },
+          data: { teamId, invitedUserId: targetUser.id, invitedById: ownerUserId, role: inviteRole },
         });
       }
 
-      if (targetUser.email && team && inviter) {
-        const inviterDisplay = getDisplayName(inviter);
+      if (targetUser.email && team && inviterUser) {
+        const inviterDisplay = getDisplayName(inviterUser);
         const targetDisplay = getDisplayName({ ...targetUser, email: targetUser.email });
         this.email
           .sendTeamInvite(
@@ -315,20 +329,20 @@ export class TeamsService {
     if (existingEmailInvite) {
       await this.prisma.teamInvite.update({
         where: { id: existingEmailInvite.id },
-        data: { status: 'PENDING', invitedById: ownerUserId },
+        data: { status: 'PENDING', invitedById: ownerUserId, role: inviteRole },
       });
     } else {
       await this.prisma.teamInvite.create({
-        data: { teamId, invitedEmail: email, invitedById: ownerUserId },
+        data: { teamId, invitedEmail: email, invitedById: ownerUserId, role: inviteRole },
       });
     }
 
-    if (team && inviter) {
+    if (team && inviterUser) {
       this.email
         .sendTeamInvite(
           email,
           email.split('@')[0],
-          getDisplayName(inviter),
+          getDisplayName(inviterUser),
           team.name,
           true,
         )
@@ -349,6 +363,12 @@ export class TeamsService {
   }
 
   async listPendingInvites(userId: string) {
+    // Email-only invites sent before this account existed (or before it
+    // signed in with Google/GitHub, which never ran the sign-up linking) are
+    // attached here, so they show up for the person they were meant for.
+    const me = await this.prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
+    if (me?.email) await this.linkEmailInvitesToUser(me.email, userId);
+
     const invites = await this.prisma.teamInvite.findMany({
       where: { invitedUserId: userId, status: 'PENDING' },
       include: {
@@ -391,21 +411,71 @@ export class TeamsService {
   async listTeamInvites(teamId: string, userId: string) {
     await this.assertMember(teamId, userId);
 
-    const invites = await this.prisma.teamInvite.findMany({
-      where: { teamId, status: 'PENDING' },
-      include: {
-        invitedUser: { select: { id: true, email: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    const [invites, members] = await Promise.all([
+      this.prisma.teamInvite.findMany({
+        where: { teamId, status: 'PENDING' },
+        include: {
+          invitedUser: { select: { id: true, email: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.teamMember.findMany({
+        where: { teamId },
+        select: { userId: true, user: { select: { email: true } } },
+      }),
+    ]);
 
-    return invites.map((inv) => ({
-      ...inv,
-      invitedUser: inv.invitedUser ?? {
-        id: null,
-        email: inv.invitedEmail,
-      },
-    }));
+    const memberIds = new Set(members.map((m) => m.userId));
+    const memberEmails = new Set(members.map((m) => m.user.email.toLowerCase()));
+
+    // Email-only invites whose address now belongs to an account.
+    const emailOnly = invites.filter((inv) => !inv.invitedUser && inv.invitedEmail);
+    const registered = emailOnly.length
+      ? await this.prisma.user.findMany({
+          where: {
+            OR: emailOnly.map((inv) => ({
+              email: { equals: inv.invitedEmail as string, mode: 'insensitive' as const },
+            })),
+          },
+          select: { id: true, email: true },
+        })
+      : [];
+    const accountByEmail = new Map(registered.map((u) => [u.email.toLowerCase(), u]));
+
+    const stale: string[] = [];
+    const result: Array<
+      Omit<(typeof invites)[number], 'invitedUser'> & { invitedUser: { id: string | null; email: string | null } }
+    > = [];
+    for (const inv of invites) {
+      const email = (inv.invitedUser?.email ?? inv.invitedEmail ?? '').toLowerCase();
+      const account = inv.invitedUser ?? (email ? accountByEmail.get(email) : undefined);
+      // The person already joined (through another invite, or was added
+      // directly): the leftover invite is settled, not pending.
+      if ((account && memberIds.has(account.id)) || (email && memberEmails.has(email))) {
+        stale.push(inv.id);
+        continue;
+      }
+      result.push({
+        ...inv,
+        invitedUser: account
+          ? { id: account.id, email: account.email }
+          : { id: null, email: inv.invitedEmail },
+      });
+    }
+
+    if (stale.length) {
+      await this.prisma.teamInvite
+        .updateMany({ where: { id: { in: stale }, status: 'PENDING' }, data: { status: 'ACCEPTED' } })
+        .catch((err) => this.logger.warn(`Could not settle stale invites in team ${teamId}: ${err}`));
+    }
+    for (const inv of emailOnly) {
+      const account = accountByEmail.get((inv.invitedEmail ?? '').toLowerCase());
+      if (account && !memberIds.has(account.id)) {
+        await this.linkEmailInvitesToUser(account.email, account.id);
+      }
+    }
+
+    return result;
   }
 
   async acceptInvite(inviteId: string, userId: string) {
@@ -414,17 +484,45 @@ export class TeamsService {
     });
     if (!invite) throw new NotFoundException('Invite not found');
 
+    const alreadyMember = await this.prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId: invite.teamId, userId } },
+    });
+    const me = await this.prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
+
     await this.prisma.$transaction([
       this.prisma.teamInvite.update({
         where: { id: inviteId },
         data: { status: 'ACCEPTED' },
       }),
-      this.prisma.teamMember.create({
-        data: { teamId: invite.teamId, userId, role: 'MEMBER' },
+      // Any other pending invite to the same team for this person is settled too,
+      // so it does not linger as "Pending" next to the new member.
+      this.prisma.teamInvite.updateMany({
+        where: {
+          teamId: invite.teamId,
+          status: 'PENDING',
+          id: { not: inviteId },
+          OR: [
+            { invitedUserId: userId },
+            ...(me?.email ? [{ invitedEmail: { equals: me.email, mode: 'insensitive' as const } }] : []),
+          ],
+        },
+        data: { status: 'ACCEPTED' },
       }),
+      ...(alreadyMember
+        ? []
+        : [
+            this.prisma.teamMember.create({
+              data: {
+                teamId: invite.teamId,
+                userId,
+                // An invite never makes anyone an owner.
+                role: invite.role === 'ADMIN' ? 'ADMIN' : 'MEMBER',
+              },
+            }),
+          ]),
     ]);
 
-    this.usageService.incrementMemberCount(invite.teamId).catch(() => {});
+    if (!alreadyMember) this.usageService.incrementMemberCount(invite.teamId).catch(() => {});
     await this.realtime.publish({
       entityType: 'team_invite',
       action: 'invite_accepted',
@@ -643,22 +741,87 @@ export class TeamsService {
     return { id: team.id, name: team.name, deleted: true as const };
   }
 
+  /**
+   * Attach email-only invites to the account that now owns that address.
+   * One invite per team and user is allowed, so an invite for a team where the
+   * user already has one is left alone instead of failing the whole batch.
+   */
   async linkEmailInvitesToUser(email: string, userId: string): Promise<number> {
+    if (!email) return 0;
     const pending = await this.prisma.teamInvite.findMany({
-      where: { invitedEmail: email.toLowerCase(), status: 'PENDING', invitedUserId: null },
-    });
-
-    if (pending.length === 0) return 0;
-
-    await this.prisma.teamInvite.updateMany({
       where: {
-        id: { in: pending.map((i) => i.id) },
+        invitedEmail: { equals: email, mode: 'insensitive' },
+        status: 'PENDING',
+        invitedUserId: null,
       },
-      data: { invitedUserId: userId },
+      select: { id: true },
     });
 
-    this.logger.log(`Linked ${pending.length} email invite(s) to user ${userId} (${email})`);
-    return pending.length;
+    let linked = 0;
+    for (const inv of pending) {
+      try {
+        await this.prisma.teamInvite.update({ where: { id: inv.id }, data: { invitedUserId: userId } });
+        linked += 1;
+      } catch {
+        // (teamId, invitedUserId) already taken by another invite row — keep as is.
+      }
+    }
+
+    if (linked > 0) this.logger.log(`Linked ${linked} email invite(s) to user ${userId}`);
+    return linked;
+  }
+
+  /**
+   * A member leaves a team on their own. The owner cannot — the team would be
+   * left without one — and must transfer ownership or delete the team first.
+   */
+  async leaveTeam(teamId: string, userId: string) {
+    const membership = await this.assertMember(teamId, userId);
+    if (membership.role === 'OWNER') {
+      throw new ForbiddenException(
+        'The owner cannot leave the team. Transfer ownership to another member first, or delete the team.',
+      );
+    }
+
+    await this.prisma.teamMember.deleteMany({ where: { teamId, userId } });
+    this.usageService.decrementMemberCount(teamId).catch(() => {});
+
+    // Do not leave the user's active team pointing at a team they left.
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { activeTeamId: true },
+    });
+    if (user?.activeTeamId === teamId) {
+      const next = await this.prisma.teamMember.findFirst({
+        where: { userId },
+        orderBy: { createdAt: 'asc' },
+        select: { teamId: true },
+      });
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { activeTeamId: next?.teamId ?? null },
+      });
+    }
+
+    await this.realtime.publish({
+      entityType: 'team_member',
+      action: 'member_removed',
+      entityId: `${teamId}:${userId}`,
+      actorUserId: userId,
+      teamId,
+      userIds: [...(await this.teamUserIds(teamId)), userId],
+      payload: { targetUserId: userId, kind: 'left' },
+    });
+
+    this.logger.log(`User ${userId} left team ${teamId}`);
+    return { message: 'You left the team' };
+  }
+
+  private parseInviteRole(role: string | undefined): 'ADMIN' | 'MEMBER' {
+    if (role === undefined || role === null || role === '') return 'MEMBER';
+    const upper = String(role).toUpperCase();
+    if (upper === 'ADMIN' || upper === 'MEMBER') return upper;
+    throw new BadRequestException('Invite role must be ADMIN or MEMBER');
   }
 
   async assertMember(teamId: string, userId: string) {
@@ -724,11 +887,23 @@ export class TeamsService {
 
   // ── Role permissions CRUD (OWNER only) ──
 
-  // The flags and their defaults live in ./role-permissions, shared with the
-  // organization bootstrap and the backfill script.
-  private static PERM_KEYS = PERM_KEYS;
-  private static ADMIN_DEFAULTS: Record<string, boolean> = ADMIN_DEFAULTS;
-  private static MEMBER_DEFAULTS: Record<string, boolean> = MEMBER_DEFAULTS;
+  private static PERM_KEYS = [
+    'canRenameTeam', 'canInviteMembers', 'canRemoveMembers', 'canManageIntegrations',
+    'canCreateProjects', 'canDeleteProjects', 'canRestoreProjects', 'canMoveProjects',
+    'canViewBilling', 'canManageBilling',
+  ] as const;
+
+  private static ADMIN_DEFAULTS: Record<string, boolean> = {
+    canRenameTeam: true, canInviteMembers: true, canRemoveMembers: true, canManageIntegrations: true,
+    canCreateProjects: true, canDeleteProjects: true, canRestoreProjects: true, canMoveProjects: true,
+    canViewBilling: true, canManageBilling: false,
+  };
+
+  private static MEMBER_DEFAULTS: Record<string, boolean> = {
+    canRenameTeam: false, canInviteMembers: false, canRemoveMembers: false, canManageIntegrations: false,
+    canCreateProjects: true, canDeleteProjects: false, canRestoreProjects: false, canMoveProjects: false,
+    canViewBilling: false, canManageBilling: false,
+  };
 
   private pickPerms(row: Record<string, unknown>) {
     const result: Record<string, boolean> = {};
@@ -777,7 +952,13 @@ export class TeamsService {
 
   /** Ensure default permission rows exist for a team (called on team create). */
   async ensureDefaultRolePermissions(teamId: string) {
-    await seedDefaultRolePermissions(this.prisma, teamId);
+    for (const [role, defaults] of [['ADMIN', TeamsService.ADMIN_DEFAULTS], ['MEMBER', TeamsService.MEMBER_DEFAULTS]] as const) {
+      await this.prisma.teamRolePermission.upsert({
+        where: { teamId_role: { teamId, role: role as 'ADMIN' | 'MEMBER' } },
+        update: {},
+        create: { teamId, role: role as 'ADMIN' | 'MEMBER', ...defaults },
+      });
+    }
   }
 
   async updateMemberRole(

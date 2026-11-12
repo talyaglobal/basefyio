@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
@@ -57,7 +58,7 @@ export class FlowsController {
   update(
     @Param('projectId') projectId: string,
     @Param('id') id: string,
-    @Body() dto: FlowDefinitionInput,
+    @Body() dto: Partial<FlowDefinitionInput>,
     @CurrentUser() user?: JwtPayload,
   ) {
     return this.flows.update(projectId, id, dto, user?.sub);
@@ -100,12 +101,57 @@ export class FlowsController {
     return this.flows.trigger(projectId, id, body?.input, user?.sub);
   }
 
+  /** Newest first; `?limit=` (max 200) and `?before=<runId>` page further back. */
   @Get(':id/runs')
   runs(
     @Param('projectId') projectId: string,
     @Param('id') id: string,
+    @Query('limit') limit?: string,
+    @Query('before') before?: string,
     @CurrentUser() user?: JwtPayload,
   ) {
-    return this.flows.runs(projectId, id, user?.sub);
+    return this.flows.runs(projectId, id, user?.sub, { limit, before });
+  }
+
+  @Get(':id/runs/:runId')
+  run(
+    @Param('projectId') projectId: string,
+    @Param('id') id: string,
+    @Param('runId') runId: string,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    return this.flows.run(projectId, id, runId, user?.sub);
+  }
+
+  /** Start a new run with the same input as an earlier one. */
+  @Post(':id/runs/:runId/rerun')
+  rerun(
+    @Param('projectId') projectId: string,
+    @Param('id') id: string,
+    @Param('runId') runId: string,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    return this.flows.rerun(projectId, id, runId, user?.sub);
+  }
+
+  /** New webhook URL + generated secret, or `{ "secret": "…" }` to set your own. */
+  @Post(':id/webhook/rotate')
+  rotateWebhook(
+    @Param('projectId') projectId: string,
+    @Param('id') id: string,
+    @Body() body: { secret?: unknown; keepUrl?: unknown },
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    return this.flows.rotateWebhook(projectId, id, body, user?.sub);
+  }
+
+  /** The one read path that returns the webhook secret. */
+  @Post(':id/webhook/reveal')
+  revealWebhook(
+    @Param('projectId') projectId: string,
+    @Param('id') id: string,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    return this.flows.revealWebhookSecret(projectId, id, user?.sub);
   }
 }

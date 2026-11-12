@@ -2,7 +2,7 @@ services:
   # ── Infrastructure ───────────────────────────────────────
 
   postgres:
-    image: ${POSTGRES_IMAGE:-pgvector/pgvector:pg16}
+    image: pgvector/pgvector:pg16
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-kolaybase}
@@ -20,7 +20,7 @@ services:
       retries: 5
 
   keycloak:
-    image: ${KEYCLOAK_IMAGE:-quay.io/keycloak/keycloak:24.0}
+    image: quay.io/keycloak/keycloak:24.0
     restart: unless-stopped
     environment:
       KC_DB: postgres
@@ -49,7 +49,7 @@ services:
         condition: service_healthy
 
   redis:
-    image: ${REDIS_IMAGE:-redis:7-alpine}
+    image: redis:7-alpine
     restart: unless-stopped
     ports:
       - "127.0.0.1:${REDIS_PORT:-6379}:6379"
@@ -61,42 +61,8 @@ services:
       timeout: 3s
       retries: 5
 
-  # Durable state (job queues, the scheduled-job lease, usage counters) on an
-  # instance that never evicts; see docker-compose.prod.yml for why.
-  redis-queue:
-    image: ${REDIS_IMAGE:-redis:7-alpine}
-    restart: unless-stopped
-    command: redis-server --maxmemory 192mb --maxmemory-policy noeviction --appendonly yes --appendfsync everysec
-    volumes:
-      - redis_queue_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-
-
-  # ── Message bus (WP-5): RabbitMQ 4 — quorum work queues, retry queues, DLQs; WP-6 streams ──
-  # Inert for the API until MESSAGE_BUS_URL is set. Management UI only on the internal network.
-  rabbitmq:
-    image: ${RABBITMQ_IMAGE:-rabbitmq:4.4-management-alpine}
-    restart: always
-    hostname: rabbitmq
-    environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-basefyio}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-basefyio_bus}
-      RABBITMQ_DEFAULT_VHOST: /
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
-      interval: 15s
-      timeout: 10s
-      retries: 10
-      start_period: 60s
-
   minio:
-    image: ${MINIO_IMAGE:-minio/minio:latest}
+    image: minio/minio:latest
     restart: unless-stopped
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-kolaybase}
@@ -109,7 +75,7 @@ services:
       - minio_data:/data
 
   pgbouncer:
-    image: ${PGBOUNCER_IMAGE:-edoburu/pgbouncer:latest}
+    image: edoburu/pgbouncer:latest
     restart: unless-stopped
     ports:
       - "${PGBOUNCER_PORT:-6432}:6432"
@@ -130,7 +96,7 @@ services:
   #   docker compose --profile couchdb up -d couchdb
   # then set DATA_ENGINE_PROVIDER=couchdb and NOSQL_CONNSTR=http://couchdb:5984
   couchdb:
-    image: ${COUCHDB_IMAGE:-apache/couchdb:3}
+    image: apache/couchdb:3
     profiles: ["couchdb"]
     restart: unless-stopped
     ports:
@@ -148,7 +114,7 @@ services:
       start_period: 10s
 
   nosql:
-    image: ${COUCHBASE_IMAGE:-couchbase/server:community-7.6.2}
+    image: couchbase/server:community-7.6.2
     restart: unless-stopped
     ports:
       - "${NOSQL_MGMT_PORT:-8091}:8091"
@@ -167,7 +133,7 @@ services:
       start_period: 30s
 
   nosql-init:
-    image: ${CURL_IMAGE:-curlimages/curl:latest}
+    image: curlimages/curl:latest
     depends_on:
       nosql:
         condition: service_healthy
@@ -191,9 +157,6 @@ services:
       context: .
       dockerfile: apps/platform-api/Dockerfile
     restart: unless-stopped
-    # The API drains on SIGTERM (readiness goes 503, requests in flight
-    # finish, hard exit after 25 s); give it that long before the kill.
-    stop_grace_period: 30s
     environment:
       PORT: 4000
       DB_CRED_ENC_KEY: ${DB_CRED_ENC_KEY:-}
@@ -225,56 +188,8 @@ services:
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-basefyio <noreply@basefyio.com>}
       RESEND_REPLY_TO: ${RESEND_REPLY_TO:-support@basefyio.com}
-      # Platform mail over SMTP instead of the HTTP API (MAIL_TRANSPORT=smtp), the
-      # AI master switch, and Keycloak 25+ health; all default to today's behaviour.
-      MAIL_TRANSPORT: ${MAIL_TRANSPORT:-resend}
-      MAIL_FROM: ${MAIL_FROM:-}
-      SMTP_HOST: ${SMTP_HOST:-}
-      SMTP_PORT: ${SMTP_PORT:-587}
-      SMTP_USER: ${SMTP_USER:-}
-      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      SMTP_SECURE: ${SMTP_SECURE:-starttls}
-      SMTP_TLS_REJECT_UNAUTHORIZED: ${SMTP_TLS_REJECT_UNAUTHORIZED:-true}
-      KEYCLOAK_REALM_SMTP: ${KEYCLOAK_REALM_SMTP:-false}
-      KEYCLOAK_HEALTH_URL: ${KEYCLOAK_HEALTH_URL:-}
-      AI_ENABLED: ${AI_ENABLED:-true}
-      # Supabase-compatible surfaces (REST dialect, storage facade signing).
-      # REST_SUPABASE_COMPAT=off turns the PostgREST dialect off (auto|off|always).
-      REST_SUPABASE_COMPAT: ${REST_SUPABASE_COMPAT:-auto}
-      STORAGE_URL_SIGNING_SECRET: ${STORAGE_URL_SIGNING_SECRET:-}
-      STORAGE_SIGNED_URL_MAX_SECONDS: ${STORAGE_SIGNED_URL_MAX_SECONDS:-}
-      # The release this stack runs (scripts/install.sh writes it); reported by /api/health.
-      IMAGE_TAG: ${IMAGE_TAG:-}
       APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
       REDIS_URL: redis://redis:6379
-      # Durable state (job queues, the scheduled-job lease, usage counters)
-      # goes to the noeviction instance; unset it to keep everything on one.
-      REDIS_QUEUE_URL: ${REDIS_QUEUE_URL:-redis://redis-queue:6379}
-      TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-1}
-      SQL_QUERY_EMBEDDING: ${SQL_QUERY_EMBEDDING:-on}
-      # Which stage the product is in: "beta" puts the badge on e-mails and invoices and in /api/health.
-      RELEASE_STAGE: ${RELEASE_STAGE:-beta}
-      # How far the per-role permission flags reach: off | log (default; denials only logged) | enforce.
-      ORG_PERMISSIONS_ENFORCED: ${ORG_PERMISSIONS_ENFORCED:-log}
-      # Availability probes (leader only) and roll-ups; off = nothing runs, the status data stays empty.
-      PLATFORM_STATUS_ENABLED: ${PLATFORM_STATUS_ENABLED:-false}
-      PLATFORM_STATUS_PROBE_TOKEN: ${PLATFORM_STATUS_PROBE_TOKEN:-}
-      PLATFORM_DOMAIN: ${PLATFORM_DOMAIN:-${DOMAIN:-}}
-      PLATFORM_STATUS_CANARY_OWNER: ${PLATFORM_STATUS_CANARY_OWNER:-}
-      # Capacity sampler (leader only, every 60 s) and the token for uploaded benchmark results.
-      CAPACITY_SAMPLER_ENABLED: ${CAPACITY_SAMPLER_ENABLED:-false}
-      CAPACITY_BENCHMARK_TOKEN: ${CAPACITY_BENCHMARK_TOKEN:-}
-      # Admission control: off | log (default, counts only) | enforce (503/429 with Retry-After).
-      ADMISSION_MODE: ${ADMISSION_MODE:-log}
-      ADMISSION_MAX_INFLIGHT: ${ADMISSION_MAX_INFLIGHT:-200}
-      ADMISSION_MAX_WAITING: ${ADMISSION_MAX_WAITING:-400}
-      ADMISSION_MAX_WAIT_MS: ${ADMISSION_MAX_WAIT_MS:-1500}
-      ADMISSION_DASHBOARD_SHARE: ${ADMISSION_DASHBOARD_SHARE:-30}
-      # Message bus: unset keeps the bus inert; amqp://<user>:<password>@rabbitmq:5672 to use it.
-      MESSAGE_BUS_URL: ${MESSAGE_BUS_URL:-}
-      BUS_CONSUMERS: ${BUS_CONSUMERS:-all}
-      # Operator token that unlocks GET /api/metrics; unset = the scrape answers 401.
-      METRICS_TOKEN: ${METRICS_TOKEN:-}
       CORS_ORIGIN: "*"
       PGBOUNCER_HOST: pgbouncer
       PGBOUNCER_PORT: 6432
@@ -308,6 +223,7 @@ services:
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
       OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
       COHERE_API_KEY: ${COHERE_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       PLATFORM_REGION: ${PLATFORM_REGION:-}
       # Marketing agency (Claude copy, fal.ai visuals, ElevenLabs voice, Pubbler)
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -342,6 +258,7 @@ services:
       DATA_ENGINE_MAX_DOC_KB: ${DATA_ENGINE_MAX_DOC_KB:-1024}
       DATA_ENGINE_MAX_NESTING_DEPTH: ${DATA_ENGINE_MAX_NESTING_DEPTH:-8}
       DATA_ENGINE_MAX_ARRAY_ITEMS: ${DATA_ENGINE_MAX_ARRAY_ITEMS:-1000}
+      DATA_ENGINE_SCHEMA_VALIDATION: ${DATA_ENGINE_SCHEMA_VALIDATION:-enforce}
     ports:
       - "${PLATFORM_API_PORT:-4000}:4000"
     volumes:
@@ -363,7 +280,6 @@ services:
       dockerfile: Dockerfile
       args:
         NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:-}
-        NEXT_PUBLIC_RELEASE_STAGE: ${RELEASE_STAGE:-beta}
     restart: unless-stopped
     environment:
       API_INTERNAL_URL: http://platform-api:4000
@@ -381,7 +297,6 @@ services:
         NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3002}
         # Leave unset in .env to use default; an empty value here removes the tag from the build.
         NEXT_PUBLIC_GA_MEASUREMENT_ID: ${NEXT_PUBLIC_GA_MEASUREMENT_ID:-G-99MKTVXWZV}
-        NEXT_PUBLIC_RELEASE_STAGE: ${RELEASE_STAGE:-beta}
     restart: unless-stopped
     ports:
       - "${WEBSITE_PORT:-3002}:3000"
@@ -406,7 +321,7 @@ services:
   # here, so a proxy-less dev stack does not start trusting forwarded headers.
   # See docs/SELF_HOSTING_OFFLINE.md.
   traefik:
-    image: ${TRAEFIK_IMAGE:-traefik:v3.1}
+    image: traefik:v3.1
     profiles: ["tls"]
     restart: unless-stopped
     command:
@@ -434,8 +349,6 @@ services:
 volumes:
   postgres_data:
   redis_data:
-  redis_queue_data:
-  rabbitmq_data:
   minio_data:
   nosql_data:
   couchdb_data:

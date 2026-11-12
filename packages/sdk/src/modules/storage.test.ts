@@ -64,10 +64,12 @@ function bucket(http: never) {
 describe('getPublicUrl', () => {
   const { http } = fakeHttp(() => undefined);
 
-  it('without a transform is the plain download URL, unchanged', () => {
-    expect(bucket(http).getPublicUrl('folder/a b.png')).toBe(
-      'https://api.example.com/api/projects/project-1/storage/buckets/avatars/objects/download?path=folder%2Fa%20b.png',
+  it('without a transform is the public file route, which needs no key at all', () => {
+    const url = bucket(http).getPublicUrl('folder/a b.png');
+    expect(url).toBe(
+      'https://api.example.com/api/projects/project-1/storage/public/avatars?path=folder%2Fa%20b.png',
     );
+    expect(url).not.toContain('apikey');
   });
 
   it('with a transform points at the render route and carries the public key', () => {
@@ -249,5 +251,97 @@ describe('access rules', () => {
 
     expect((await client.removeBucketPolicy('avatars', 'private/')).data).toEqual({ removed: 1 });
     expect(calls[2]).toMatchObject({ method: 'DELETE', path: `${BASE}/policy?pathPrefix=private%2F` });
+  });
+});
+
+describe('objects', () => {
+  it('upload sends the contentType it was given, even for a Blob that has its own', async () => {
+    const { http, calls } = fakeHttp(() => ({ data: stored, response: new Response(null) }));
+    await bucket(http).upload('a/photo.jpg', new Blob([new Uint8Array([1, 2])], { type: 'application/octet-stream' }), {
+      contentType: 'image/jpeg',
+    });
+    const part = (calls[0].body as FormData).get('file') as File;
+    expect(part.type).toBe('image/jpeg');
+    expect(part.name).toBe('photo.jpg');
+    expect(calls[0].path).toBe(`${BASE}/objects?path=a%2Fphoto.jpg`);
+
+    const blob = new Blob([new Uint8Array([1])], { type: 'image/png' });
+    await bucket(http).upload('b.png', blob);
+    expect(((calls[1].body as FormData).get('file') as File).type).toBe('image/png');
+  });
+
+  it('createSignedUrl takes the lifetime as a number or as { expiresIn }', async () => {
+    const { http, calls } = fakeHttp(() => ({ url: 'https://s/x', expiresIn: 60 }));
+    await bucket(http).createSignedUrl('a.txt', 60);
+    await bucket(http).createSignedUrl('a.txt', { expiresIn: 120 });
+    await bucket(http).createSignedUrl('a.txt');
+    expect(calls.map((c) => c.path)).toEqual([
+      `${BASE}/objects/url?path=a.txt&expiry=60`,
+      `${BASE}/objects/url?path=a.txt&expiry=120`,
+      `${BASE}/objects/url?path=a.txt&expiry=3600`,
+    ]);
+  });
+
+  it('list passes its options as query parameters and nothing when there are none', async () => {
+    const { http, calls } = fakeHttp(() => []);
+    await bucket(http).list();
+    await bucket(http).list('docs/', { search: 'inv', sortBy: 'size', order: 'desc', limit: 50, offset: 100, recursive: true });
+    expect(calls[0].path).toBe(`${BASE}/objects`);
+    expect(calls[1].path).toBe(
+      `${BASE}/objects?prefix=docs%2F&recursive=true&search=inv&sortBy=size&order=desc&limit=50&offset=100`,
+    );
+  });
+
+  it('copy and move post their paths and overwrite', async () => {
+    const { http, calls } = fakeHttp((call) =>
+      call.path.endsWith('/copy') ? { from: 'a', to: 'b', copied: 1 } : { from: 'a', to: 'c', moved: 1 },
+    );
+    expect((await bucket(http).copy('a', 'b')).data).toEqual({ from: 'a', to: 'b', copied: 1 });
+    expect((await bucket(http).move('a', 'c', { overwrite: true })).data).toEqual({ from: 'a', to: 'c', moved: 1 });
+    expect(calls.map((c) => [c.method, c.path, JSON.parse(c.body as string)])).toEqual([
+      ['POST', `${BASE}/objects/copy`, { from: 'a', to: 'b', overwrite: false }],
+      ['POST', `${BASE}/objects/rename`, { from: 'a', to: 'c', overwrite: true }],
+    ]);
+  });
+
+  it('remove hands back what went and what was not there', async () => {
+    const answer = { message: 'Deleted 1 object(s); 1 not found', deleted: ['a'], notFound: ['b'] };
+    const { http } = fakeHttp(() => answer);
+    expect((await bucket(http).remove(['a', 'b'])).data).toEqual(answer);
+  });
+
+  it('fetchPublicUrl asks the API for the storage address', async () => {
+    const { http, calls } = fakeHttp(() => ({ public: true, url: 'https://storage.example.com/bf-x-avatars/a.png' }));
+    expect((await bucket(http).fetchPublicUrl('a.png')).data).toEqual({
+      public: true,
+      publicUrl: 'https://storage.example.com/bf-x-avatars/a.png',
+    });
+    expect(calls[0].path).toBe(`${BASE}/public-url?path=a.png`);
+  });
+});
+
+describe('buckets', () => {
+  it('deleteBucket forces only when asked to', async () => {
+    const { http, calls } = fakeHttp(() => ({ message: 'deleted' }));
+    const client = new StorageClient(http, 'project-1');
+    await client.deleteBucket('avatars');
+    await client.deleteBucket('avatars', { force: true });
+    expect(calls.map((c) => [c.method, c.path])).toEqual([
+      ['DELETE', BASE],
+      ['DELETE', `${BASE}?force=true`],
+    ]);
+  });
+
+  it('createBucket and updateBucket send upload limits only when given', async () => {
+    const { http, calls } = fakeHttp(() => ({}));
+    const client = new StorageClient(http, 'project-1');
+    await client.createBucket('avatars');
+    await client.createBucket('avatars', { public: true, fileSizeLimit: 1024, allowedMimeTypes: ['image/*'] });
+    await client.updateBucket('avatars', { fileSizeLimit: null });
+    expect(calls.map((c) => JSON.parse(c.body as string))).toEqual([
+      { name: 'avatars', public: false },
+      { name: 'avatars', public: true, fileSizeLimit: 1024, allowedMimeTypes: ['image/*'] },
+      { fileSizeLimit: null },
+    ]);
   });
 });

@@ -28,6 +28,7 @@ import {
 } from '../../common/decorators/current-user.decorator';
 import { ProjectActivityService } from './project-activity.service';
 import { ProjectArchiveImportService } from './project-archive-import.service';
+import { shouldOmitProjectSecrets, withoutProjectSecrets } from './project-secrets.util';
 
 @Controller('projects')
 @UseGuards(JwtAuthGuard)
@@ -41,11 +42,11 @@ export class ProjectsController {
     private readonly projectPitr: ProjectPitrService,
   ) {}
 
-  // Typed as the class itself, not an intersection: an intersection compiles
-  // to `Object` and the validation pipe silently skipped it, so nothing in
-  // the body was ever checked.
   @Post()
-  async create(@Body() body: CreateProjectDto, @CurrentUser() user: JwtPayload) {
+  async create(
+    @Body() body: CreateProjectDto & { teamId: string },
+    @CurrentUser() user: JwtPayload,
+  ) {
     return this.projectsService.create(body, user.sub);
   }
 
@@ -91,6 +92,8 @@ export class ProjectsController {
       nameMode?: 'existing' | 'new';
       newProjectName?: string;
       existingProjectId?: string;
+      /** Optional: when sent with existingProjectId it must equal that project's name. */
+      confirmProjectName?: string;
     },
     @UploadedFile() file: Express.Multer.File,
   ) {
@@ -285,12 +288,15 @@ export class ProjectsController {
     return this.projectActivity.listForProject(id, user.sub, { limit, page });
   }
 
+  /** `?secrets=omit` leaves the credentials out (see project-secrets.util.ts). */
   @Get(':id')
   async findOne(
     @Param('id') id: string,
     @CurrentUser() user: JwtPayload,
+    @Query('secrets') secrets?: string,
   ) {
-    return this.projectsService.findOne(id, user.sub);
+    const project = await this.projectsService.findOne(id, user.sub);
+    return shouldOmitProjectSecrets(secrets) ? withoutProjectSecrets(project) : project;
   }
 
   @Patch(':id')
@@ -409,14 +415,6 @@ export class ProjectsController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.projectsService.reactivate(id, user.sub);
-  }
-
-  @Post(':id/sleep')
-  async sleep(
-    @Param('id') id: string,
-    @CurrentUser() user: JwtPayload,
-  ) {
-    return this.projectsService.sleep(id, user.sub);
   }
 
   @Delete(':id/permanent')
@@ -587,6 +585,8 @@ export class ProjectsController {
       newProjectName?: string;
       existingProjectId?: string;
       kind?: 'manual' | 'auto';
+      /** Optional: for an overwrite it must equal the target project's name. */
+      confirmProjectName?: string;
     },
   ) {
     return this.projectExport.restoreCloudBackup(id, user.sub, body);
@@ -599,6 +599,18 @@ export class ProjectsController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.projectPitr.getRecoveryWindow(id, user.sub);
+  }
+
+  /**
+   * Take this project's point-in-time snapshot now instead of waiting for the
+   * nightly run, so recovery is available right away on a new project.
+   */
+  @Post(':id/pitr/snapshot')
+  async takePitrSnapshot(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.projectPitr.takeProjectSnapshotNow(id, user.sub);
   }
 
   /** Recover the project database to an exact instant inside the window. */

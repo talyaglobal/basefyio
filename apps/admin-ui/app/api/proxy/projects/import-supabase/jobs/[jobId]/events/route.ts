@@ -12,9 +12,14 @@ export async function GET(
 
   const token =
     request.headers.get('Authorization') ||
-    request.nextUrl.searchParams.get('token');
+    (request.nextUrl.searchParams.get('ticket') ? null : request.nextUrl.searchParams.get('token'));
 
-  const target = `${BACKEND_URL}/api/projects/import-supabase/jobs/${jobId}/events`;
+  // A single-use stream ticket goes to the API in the URL; it is spent on
+  // first use, so a copy in a log is worthless. `token` is the old way, kept
+  // for dashboards loaded before tickets existed.
+  const ticket = request.nextUrl.searchParams.get('ticket');
+  const base = `${BACKEND_URL}/api/projects/import-supabase/jobs/${jobId}/events`;
+  const target = ticket ? `${base}?ticket=${encodeURIComponent(ticket)}` : base;
 
   const upstream = await fetch(target, {
     headers: {

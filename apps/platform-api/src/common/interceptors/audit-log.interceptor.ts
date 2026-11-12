@@ -11,25 +11,68 @@ import { PrismaClient } from '@prisma/client';
 import { Observable, tap, catchError, throwError } from 'rxjs';
 import { AuditSinkService } from '../audit/audit-sink.service';
 import { toAuditEvent } from '../audit/audit-event';
+import {
+  clientIp,
+  describeHttpRequest,
+  shouldPersistHttpAudit,
+  statusFromError,
+  userAgent,
+} from '../audit/http-audit-classifier';
+import { ObservabilityService } from '../../modules/observability/observability.service';
+
+const KNOWN_ROLES = ['ROOT', 'ADMIN', 'USER'] as const;
+const ROLE_CACHE_TTL_MS = 5 * 60 * 1000;
+const ROLE_CACHE_MAX = 5000;
 
 @Injectable()
 export class AuditLogInterceptor implements NestInterceptor {
   private readonly logger = new Logger('AuditLog');
   private static readonly prisma = new PrismaClient();
+  /** userId → platform role, so a request does not cost a lookup each time. */
+  private static readonly roleCache = new Map<string, { role: string; at: number }>();
 
   /**
-   * The forwarder is optional so the interceptor still constructs on its own
-   * (tests, and the integration spec that overrides it). With no forwarder
-   * configured, `enqueue` is a no-op.
+   * The forwarder and the alert rules are optional so the interceptor still
+   * constructs on its own (tests, and the integration spec that overrides it).
    */
-  constructor(@Optional() private readonly auditSink?: AuditSinkService) {}
+  constructor(
+    @Optional() private readonly auditSink?: AuditSinkService,
+    @Optional() private readonly observability?: ObservabilityService,
+  ) {}
 
-  private getActorRole(user: any): string {
+  private roleFromClaims(user: any): string | null {
     const roles = Array.isArray(user?.roles) ? user.roles : [];
-    if (roles.includes('ROOT')) return 'ROOT';
-    if (roles.includes('ADMIN')) return 'ADMIN';
-    if (roles.includes('USER')) return 'USER';
-    return 'UNKNOWN';
+    for (const r of KNOWN_ROLES) if (roles.includes(r)) return r;
+    return null;
+  }
+
+  /**
+   * The platform role of a dashboard user or API-token owner.
+   *
+   * The JWT carries Keycloak realm roles (offline_access, default-roles-…),
+   * not the platform role, so every actor — ROOT included — was recorded as
+   * UNKNOWN. The role lives on the user row; it is cached briefly.
+   */
+  private async resolveActorRole(user: any): Promise<string> {
+    const fromClaims = this.roleFromClaims(user);
+    if (fromClaims) return fromClaims;
+    const id = typeof user?.sub === 'string' ? user.sub : '';
+    if (!id) return 'UNKNOWN';
+    const cache = AuditLogInterceptor.roleCache;
+    const hit = cache.get(id);
+    if (hit && Date.now() - hit.at < ROLE_CACHE_TTL_MS) return hit.role;
+    try {
+      const row = await AuditLogInterceptor.prisma.user.findUnique({
+        where: { id },
+        select: { role: true },
+      });
+      const role = row?.role ? String(row.role) : 'UNKNOWN';
+      if (cache.size >= ROLE_CACHE_MAX) cache.clear();
+      cache.set(id, { role, at: Date.now() });
+      return role;
+    } catch {
+      return 'UNKNOWN';
+    }
   }
 
   /**
@@ -67,70 +110,94 @@ export class AuditLogInterceptor implements NestInterceptor {
     };
   }
 
-  private normalizeResourceType(url: string): string {
-    const clean = (url || '').split('?')[0];
-    const parts = clean.split('/').filter(Boolean);
-    if (parts.length === 0) return 'system';
-    if (parts[0] === 'api' && parts[1]) return parts[1];
-    return parts[0];
-  }
-
   private async persistAudit(input: {
     traceId: string;
     actorUserId: string;
-    actorRole: string;
-    action: string;
-    resourceType: string;
+    actorRole: string | Promise<string>;
+    method: string;
+    path: string;
+    routePattern: string | null;
+    params: Record<string, unknown> | null;
+    statusCode: number;
     success: boolean;
     latencyMs: number;
-    metadataJson?: Record<string, unknown>;
+    body?: unknown;
+    responseBody?: unknown;
+    ip: string | null;
+    userAgent: string | null;
+    authMethod: string;
+    apiTokenId?: string | null;
+    keyProjectId?: string | null;
   }) {
-    const path = (input.metadataJson?.url as string | undefined) || '';
-    const method = (input.metadataJson?.method as string | undefined) || '';
-    const statusCode = input.metadataJson?.statusCode as number | undefined;
-
-    const beforeSnapshot: Prisma.InputJsonValue = {
-      audit: 'basefyio.http',
-      snapshot: 'before',
-      note: 'HTTP access audit: no domain entity diff; request context is recorded in After.',
-      action: input.action,
-      resourceType: input.resourceType,
-    };
-
-    const afterSnapshot: Prisma.InputJsonValue = {
-      audit: 'basefyio.http',
-      snapshot: 'after',
-      method,
-      path,
-      statusCode: statusCode ?? null,
-      latencyMs: input.latencyMs,
+    const actorRole = await input.actorRole;
+    const action = `${input.method} ${input.path}`;
+    const d = describeHttpRequest({
+      method: input.method,
+      path: input.path,
+      routePattern: input.routePattern,
+      params: input.params,
+      statusCode: input.statusCode,
       success: input.success,
-    };
+      body: input.body,
+      responseBody: input.responseBody,
+    });
+    const projectId = d.projectId ?? input.keyProjectId ?? null;
 
+    const persist = shouldPersistHttpAudit(input.method, input.path, input.success);
     let row: { id: string; createdAt: Date } | null = null;
-    try {
-      row = await AuditLogInterceptor.prisma.auditLog.create({
-        data: {
-          traceId: input.traceId,
-          actorUserId: input.actorUserId,
-          actorRole: input.actorRole,
-          action: input.action,
-          resourceType: input.resourceType,
-          resourceId: null,
-          severity: input.success ? 'LOW' : 'HIGH',
-          success: input.success,
-          beforeJson: beforeSnapshot,
-          afterJson: afterSnapshot,
-          metadataJson: {
-            latencyMs: input.latencyMs,
-            method: input.metadataJson?.method,
-            url: input.metadataJson?.url,
-            statusCode: input.metadataJson?.statusCode,
-          } as Prisma.InputJsonValue,
-        },
-      });
-    } catch (err: any) {
-      this.logger.warn(`Failed to persist audit log: ${err?.message || err}`);
+    if (persist) {
+      const beforeSnapshot: Prisma.InputJsonValue = {
+        audit: 'basefyio.http',
+        snapshot: 'before',
+        note: 'Recorded from the HTTP request; the fields changed are listed in After.',
+        event: d.event,
+        action,
+        resourceType: d.resourceType,
+        resourceId: d.resourceId,
+      };
+      const afterSnapshot: Prisma.InputJsonValue = {
+        audit: 'basefyio.http',
+        snapshot: 'after',
+        event: d.event,
+        method: input.method,
+        path: input.path,
+        statusCode: input.statusCode,
+        latencyMs: input.latencyMs,
+        success: input.success,
+        ...(d.fields ? { fields: d.fields } : {}),
+        ...(d.changes ? { changes: d.changes as Prisma.InputJsonValue } : {}),
+      };
+      try {
+        row = await AuditLogInterceptor.prisma.auditLog.create({
+          data: {
+            traceId: input.traceId,
+            actorUserId: input.actorUserId,
+            actorRole,
+            action,
+            resourceType: d.resourceType,
+            resourceId: d.resourceId,
+            severity: d.severity,
+            success: input.success,
+            beforeJson: beforeSnapshot,
+            afterJson: afterSnapshot,
+            metadataJson: {
+              latencyMs: input.latencyMs,
+              method: input.method,
+              url: input.path,
+              statusCode: input.statusCode,
+              event: d.event,
+              route: input.routePattern,
+              projectId,
+              ip: input.ip,
+              userAgent: input.userAgent,
+              authMethod: input.authMethod,
+              ...(input.apiTokenId ? { apiTokenId: input.apiTokenId } : {}),
+            } as Prisma.InputJsonValue,
+          },
+        });
+      } catch (err: any) {
+        this.logger.warn(`Failed to persist audit log: ${err?.message || err}`);
+      }
     }
 
     // Forwarded whether or not the row was written: when the database is the
@@ -143,24 +210,80 @@ export class AuditLogInterceptor implements NestInterceptor {
           source: 'http',
           traceId: input.traceId,
           actorUserId: input.actorUserId,
-          actorRole: input.actorRole,
-          action: input.action,
-          resourceType: input.resourceType,
-          resourceId: null,
-          severity: input.success ? 'LOW' : 'HIGH',
+          actorRole,
+          action,
+          resourceType: d.resourceType,
+          resourceId: d.resourceId,
+          severity: d.severity,
           success: input.success,
           latencyMs: input.latencyMs,
-          method,
-          path,
-          statusCode: statusCode ?? null,
+          method: input.method,
+          path: input.path,
+          statusCode: input.statusCode,
+          event: d.event,
+          projectId,
+          ip: input.ip,
+          userAgent: input.userAgent,
         }),
       );
     } catch (err: any) {
       this.logger.warn(`Failed to forward audit event: ${err?.message || err}`);
     }
+
+    if (row && this.observability) {
+      try {
+        await this.observability.evaluateHttpAuditAlerts({
+          auditLogId: row.id,
+          actorUserId: input.actorUserId,
+          method: input.method,
+          path: input.path,
+          statusCode: input.statusCode,
+          success: input.success,
+          severity: d.severity,
+          event: d.event,
+        });
+      } catch (err: any) {
+        this.logger.warn(`Audit alert evaluation failed: ${err?.message || err}`);
+      }
+    }
+  }
+
+  /**
+   * Calls `done` with the status the client actually received.
+   *
+   * The interceptor runs before the response is written: on an error the
+   * exception filter sets the status afterwards, so `response.statusCode` still
+   * held the route's default 200/201 and every failure was stored with it. A
+   * real HTTP response reports its final status on `finish`; anything else
+   * (tests, non-HTTP adapters) falls back to the status derived here.
+   */
+  private whenResponseDone(
+    response: any,
+    fallbackStatus: number,
+    done: (statusCode: number, fromWire: boolean) => void,
+  ) {
+    let called = false;
+    const once = (statusCode: number, fromWire: boolean) => {
+      if (called) return;
+      called = true;
+      done(statusCode, fromWire);
+    };
+    const canListen =
+      response && typeof response.once === 'function' && !response.writableFinished;
+    if (!canListen) {
+      once(fallbackStatus, false);
+      return;
+    }
+    response.once('finish', () => once(Number(response.statusCode) || fallbackStatus, true));
+    response.once('close', () =>
+      once(response.headersSent ? Number(response.statusCode) || fallbackStatus : fallbackStatus, response.headersSent),
+    );
   }
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
+    if (typeof context.getType === 'function' && context.getType() !== 'http') {
+      return next.handle();
+    }
     const request = context.switchToHttp().getRequest();
     const response = context.switchToHttp().getResponse();
     const { method, url, user } = request;
@@ -168,52 +291,57 @@ export class AuditLogInterceptor implements NestInterceptor {
     const actorUserId = user?.sub ?? keyActor?.actorUserId;
     const shouldAudit = method !== 'OPTIONS' && !!actorUserId;
     const traceId = request?.traceId || 'unknown';
-    const actorRole = user?.sub ? this.getActorRole(user) : (keyActor?.actorRole ?? 'UNKNOWN');
-    const resourceType = this.normalizeResourceType(url);
-    const action = `${method} ${url.split('?')[0]}`;
+    const path = String(url || '').split('?')[0];
     const now = Date.now();
 
+    // One row per request, even if a handler's observable emits more than once.
+    let recorded = false;
+    const record = (success: boolean, fallbackStatus: number, responseBody?: unknown) => {
+      if (!shouldAudit || recorded) return;
+      recorded = true;
+      const actorRole = user?.sub
+        ? this.resolveActorRole(user)
+        : Promise.resolve(keyActor?.actorRole ?? 'UNKNOWN');
+      this.whenResponseDone(response, fallbackStatus, (statusCode, fromWire) => {
+        void this.persistAudit({
+          traceId,
+          actorUserId: actorUserId as string,
+          actorRole,
+          method,
+          path,
+          routePattern: typeof request?.route?.path === 'string' ? request.route.path : null,
+          params: request?.params ?? null,
+          statusCode,
+          // A handler that writes its own response (@Res) can answer 4xx
+          // without throwing; the status on the wire is the truth.
+          success: success && (!fromWire || statusCode < 400),
+          latencyMs: Date.now() - now,
+          body: request?.body,
+          responseBody,
+          ip: clientIp(request),
+          userAgent: userAgent(request),
+          authMethod: request?.platformToken
+            ? 'api_token'
+            : user?.sub
+              ? 'session'
+              : (keyActor?.actorRole ?? 'unknown').toLowerCase(),
+          apiTokenId: request?.platformToken?.id ?? null,
+          keyProjectId: keyActor?.projectId ?? null,
+        }).catch((err) => this.logger.warn(`Audit write failed: ${err?.message || err}`));
+      });
+    };
+
     return next.handle().pipe(
-      tap(() => {
+      tap((body) => {
         const duration = Date.now() - now;
+        // The path only: a query string can carry a stream credential.
         this.logger.log(
-          `${method} ${url} — user=${actorUserId ?? 'anonymous'} — ${duration}ms`,
+          `${method} ${path} — user=${actorUserId ?? 'anonymous'} — ${duration}ms`,
         );
-        if (shouldAudit) {
-          void this.persistAudit({
-            traceId,
-            actorUserId: actorUserId as string,
-            actorRole,
-            action,
-            resourceType,
-            success: true,
-            latencyMs: duration,
-            metadataJson: {
-              method,
-              url: url.split('?')[0],
-              statusCode: response?.statusCode,
-            },
-          });
-        }
+        record(true, Number(response?.statusCode) || 200, body);
       }),
       catchError((err) => {
-        const duration = Date.now() - now;
-        if (shouldAudit) {
-          void this.persistAudit({
-            traceId,
-            actorUserId: actorUserId as string,
-            actorRole,
-            action,
-            resourceType,
-            success: false,
-            latencyMs: duration,
-            metadataJson: {
-              method,
-              url: url.split('?')[0],
-              statusCode: response?.statusCode,
-            },
-          });
-        }
+        record(false, statusFromError(err));
         return throwError(() => err);
       }),
     );

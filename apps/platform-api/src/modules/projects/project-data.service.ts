@@ -3,8 +3,11 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
+  ConflictException,
+  HttpException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { createHash } from 'crypto';
 import { Pool, PoolClient } from 'pg';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RealtimeDataService } from '../realtime-data/realtime-data.service';
@@ -13,6 +16,7 @@ import {
   getPgbouncerClientEndpoints,
   getPostgresDirectClientEndpoints,
 } from './postgres-uri.util';
+import { isPgError, toUserFacingPgError } from './pg-user-error.util';
 
 export interface TableInfo {
   name: string;
@@ -26,6 +30,77 @@ export interface ColumnInfo {
   nullable: boolean;
   defaultValue: string | null;
   isPrimary: boolean;
+  /** A single-column UNIQUE constraint or unique index covers this column. */
+  isUnique?: boolean;
+}
+
+/**
+ * Postgres keeps at most 63 bytes of an identifier (NAMEDATALEN - 1) and
+ * silently truncates longer ones — a 76-character table name was created under
+ * its first 63 characters while the dashboard kept using the full name.
+ */
+export const MAX_IDENTIFIER_LENGTH = 63;
+
+/**
+ * Columns the data editor carries on every row for its own use: the physical
+ * row id (edits on tables without a primary key) and the row version (xmin, to
+ * notice that someone else changed the row). Never shown, never written.
+ */
+export const INTERNAL_ROW_FIELDS = ['_bf_ctid', '_bf_xmin'] as const;
+
+/** Thrown with 409 when a row changed since the editor read it. */
+export const ROW_CHANGED_CODE = 'ROW_CHANGED';
+
+/** Matched with ILIKE as they are. */
+const SEARCH_TEXT_TYPES = new Set(['text', 'character varying', 'character', 'name']);
+
+/**
+ * Read as text first. `uuid` used to sit with the text types and be matched
+ * with ILIKE directly — Postgres has no `uuid ~~* text` operator, so every
+ * search on a table with a uuid column (the common `id uuid` key) failed with
+ * a 500. Enums, citext and other extension types (USER-DEFINED) are cast too.
+ */
+const SEARCH_CAST_TYPES = new Set([
+  'uuid',
+  'integer', 'bigint', 'smallint', 'numeric', 'real', 'double precision', 'money',
+  'date', 'timestamp without time zone', 'timestamp with time zone',
+  'time without time zone', 'time with time zone', 'interval',
+  'boolean', 'inet', 'cidr', 'macaddr', 'USER-DEFINED',
+]);
+
+/**
+ * The WHERE clause of a data-editor search: an OR of ILIKEs over every column
+ * that reads as text, against parameter `$paramIndex`. json/jsonb, bytea and
+ * arrays are skipped — expensive to render as text and rarely what a free-text
+ * search is after. No searchable column means no match rather than a scan.
+ */
+export function searchWhereClause(
+  columns: { column_name: string; data_type: string }[],
+  paramIndex: number,
+): string {
+  const clauses: string[] = [];
+  for (const c of columns) {
+    const col = `t."${c.column_name.replace(/"/g, '""')}"`;
+    if (SEARCH_TEXT_TYPES.has(c.data_type)) clauses.push(`${col} ILIKE $${paramIndex}`);
+    else if (SEARCH_CAST_TYPES.has(c.data_type)) clauses.push(`${col}::text ILIKE $${paramIndex}`);
+  }
+  return clauses.length ? `WHERE (${clauses.join(' OR ')})` : 'WHERE FALSE';
+}
+
+/** A row without the editor's internal fields, for consumers outside the editor. */
+export function withoutInternalFields<T extends Record<string, unknown> | undefined>(row: T): T {
+  if (!row) return row;
+  const copy = { ...row } as Record<string, unknown>;
+  for (const k of INTERNAL_ROW_FIELDS) delete copy[k];
+  return copy as T;
+}
+
+/** A constraint name derived from a table and column, kept within 63 bytes. */
+function constraintName(table: string, column: string, suffix: string): string {
+  const name = `${table}_${column}_${suffix}`;
+  if (name.length <= MAX_IDENTIFIER_LENGTH) return name;
+  const hash = createHash('sha1').update(name).digest('hex').slice(0, 8);
+  return `${name.slice(0, MAX_IDENTIFIER_LENGTH - 9)}_${hash}`;
 }
 
 export interface ForeignKeyInfo {
@@ -51,10 +126,7 @@ export class ProjectDataService {
     opts?: { statementTimeoutMs?: number },
   ): Promise<{ pool: Pool; project: any }> {
     const project = await this.prisma.project.findFirst({
-      // A sleeping project is still there. The dashboard may browse it while
-      // it sleeps; waking is the customer's explicit choice, never a side
-      // effect of a read.
-      where: { id: projectId, status: { in: ['ACTIVE', 'PAUSED'] } },
+      where: { id: projectId, status: 'ACTIVE' },
     });
     if (!project) throw new NotFoundException('Project not found');
 
@@ -269,16 +341,22 @@ export class ProjectDataService {
           c.data_type AS type,
           (c.is_nullable = 'YES') AS nullable,
           c.column_default AS "defaultValue",
-          COALESCE(tc.constraint_type = 'PRIMARY KEY', false) AS "isPrimary"
+          -- From pg_index rather than a join on the constraint views: a column
+          -- that is in the primary key and also in a foreign key or unique
+          -- constraint used to come back twice.
+          EXISTS (
+            SELECT 1 FROM pg_index i
+             WHERE i.indrelid = a.attrelid AND i.indisprimary AND a.attnum = ANY (i.indkey)
+          ) AS "isPrimary",
+          EXISTS (
+            SELECT 1 FROM pg_index i
+             WHERE i.indrelid = a.attrelid AND i.indisunique AND NOT i.indisprimary
+               AND i.indnatts = 1 AND i.indpred IS NULL AND i.indkey[0] = a.attnum
+          ) AS "isUnique"
         FROM information_schema.columns c
-        LEFT JOIN information_schema.key_column_usage kcu
-          ON kcu.table_name = c.table_name
-          AND kcu.column_name = c.column_name
-          AND kcu.table_schema = c.table_schema
-        LEFT JOIN information_schema.table_constraints tc
-          ON tc.constraint_name = kcu.constraint_name
-          AND tc.table_schema = kcu.table_schema
-          AND tc.constraint_type = 'PRIMARY KEY'
+        JOIN pg_attribute a
+          ON a.attrelid = format('%I.%I', c.table_schema, c.table_name)::regclass
+         AND a.attname = c.column_name
         WHERE c.table_name = $1
           AND c.table_schema = $2
         ORDER BY c.ordinal_position
@@ -310,6 +388,8 @@ export class ProjectDataService {
     // Cap the page size at the project's configured per-table row limit
     // (plan-gated). Never below 1 — a misconfigured 0 would break the grid.
     const cap = Math.max(1, (project as { maxRowsPerTable?: number }).maxRowsPerTable ?? 1000);
+    page = Number.isFinite(page) && page >= 1 ? Math.floor(page) : 1;
+    limit = Number.isFinite(limit) && limit >= 1 ? Math.floor(limit) : 50;
     if (limit > cap) limit = cap;
     const client = await pool.connect();
     const offset = (page - 1) * limit;
@@ -328,22 +408,11 @@ export class ProjectDataService {
       // The filter input in the Table Editor used to slice the already-loaded
       // page client-side, which on a 1.5M-row table meant 99.99% of rows were
       // never even considered. Now we push the query to Postgres so it scans
-      // the whole table — but smartly.
-      //
-      // First attempt used `to_jsonb(t) + jsonb_each_text` to search every
-      // column without enumerating names. Correct, but on 1.5M+ rows it
-      // tripped the 15s statement_timeout because building the jsonb per row
-      // is expensive. New approach: pre-fetch the column list and build a
-      // direct OR-of-ILIKEs against the text-shaped columns. Postgres can
-      // plan this against indexes when present, and even without indexes the
-      // seq scan is dramatically cheaper than the jsonb path.
+      // the whole table — but smartly: an OR of ILIKEs over the columns that
+      // can be read as text, built from the column list.
       let where = '';
       const params: any[] = [];
       if (trimmedSearch) {
-        // Find text-ish columns (cheap meta query). Anything we can cast to
-        // text — i.e. everything except blobs/json — is fair game. We accept
-        // text/character_varying/character/citext directly, and CAST other
-        // types to text so the user can also find numbers, dates, etc.
         const colMeta = await client.query<{ column_name: string; data_type: string }>(
           `SELECT column_name, data_type
              FROM information_schema.columns
@@ -351,72 +420,45 @@ export class ProjectDataService {
              ORDER BY ordinal_position`,
           [schema, tableName],
         );
-        const TEXT_TYPES = new Set([
-          'text', 'character varying', 'character', 'citext', 'name', 'uuid',
-        ]);
-        const NUMERIC_TYPES = new Set([
-          'integer', 'bigint', 'smallint', 'numeric', 'real', 'double precision',
-          'date', 'timestamp without time zone', 'timestamp with time zone',
-          'time without time zone', 'time with time zone',
-          'boolean',
-        ]);
         params.push(`%${trimmedSearch}%`);
-        const orClauses: string[] = [];
-        for (const c of colMeta.rows) {
-          const safe = c.column_name.replace(/"/g, '""');
-          if (TEXT_TYPES.has(c.data_type)) {
-            orClauses.push(`t."${safe}" ILIKE $${params.length}`);
-          } else if (NUMERIC_TYPES.has(c.data_type)) {
-            // CAST is fast; the planner can still parallelise the seq scan.
-            orClauses.push(`t."${safe}"::text ILIKE $${params.length}`);
-          }
-          // Skip jsonb / bytea / arrays — these are expensive and rarely the
-          // target of a user's free-text search.
-        }
-        if (orClauses.length > 0) {
-          where = `WHERE (${orClauses.join(' OR ')})`;
-        } else {
-          // No searchable columns — return empty result rather than scanning.
-          where = 'WHERE FALSE';
-        }
+        where = searchWhereClause(colMeta.rows, params.length);
       }
 
       const fromClause = `FROM ${qualified} t`;
 
       // Counting filtered rows on a multi-million-row table is the part that
-      // makes the user wait, and they almost never care about the exact total
-      // when searching ("there are 4,321 matches" vs "many matches" is the
-      // same UX). We skip COUNT for search and just signal "approx" so the UI
-      // can render "X+ rows" or "many rows". For unfiltered listings we still
-      // do an exact COUNT — that's the number the sidebar badge needs.
+      // makes the user wait. For a search we count at most 10,000 matches and
+      // flag the total as approximate; the grid pages on with `hasMore`
+      // rather than stopping at the last "known" page.
       let total: number;
       let totalIsApprox: boolean;
       if (trimmedSearch) {
-        // Quick bounded count: only count up to 1000 matches. If we hit 1000,
-        // it's "1000+". This stays well below the timeout even on huge tables.
-        const boundedCountSql = `SELECT COUNT(*)::int AS total FROM (SELECT 1 ${fromClause} ${where} LIMIT 1001) sub`;
+        const boundedCountSql = `SELECT COUNT(*)::int AS total FROM (SELECT 1 ${fromClause} ${where} LIMIT 10001) sub`;
         // Bump per-statement timeout for this query — searches are exploratory.
         await client.query(`SET LOCAL statement_timeout = '60s'`);
         const c = await client.query(boundedCountSql, params);
         const raw = c.rows[0].total as number;
-        totalIsApprox = raw > 1000;
-        total = totalIsApprox ? 1000 : raw;
+        totalIsApprox = raw > 10000;
+        total = totalIsApprox ? 10000 : raw;
       } else {
         const c = await client.query(`SELECT COUNT(*)::int AS total ${fromClause}`);
         total = c.rows[0].total as number;
         totalIsApprox = false;
       }
 
-      // For searches we already raised statement_timeout to 60s above; the
-      // SET LOCAL persists for the rest of the transaction (the pg pool gives
-      // us an implicit transaction per checkout). For unfiltered listings the
-      // default 15s timeout is plenty.
-
-      // Sort: if the caller requested a column-level sort, validate the
-      // column name against the actual table columns (to block injection)
-      // and append ORDER BY. We resolve columns via information_schema once
-      // per request — cheap, and we already opened a client.
-      let orderClause = '';
+      // Order. Without an ORDER BY, LIMIT/OFFSET pages come from wherever a
+      // (synchronized, possibly parallel) sequential scan happens to start, so
+      // the same page returned different rows on every request and an edited
+      // row jumped to the end. Pages are now ordered by the primary key — an
+      // index scan, cheap at any size — and a column sort gets the key as a
+      // tie-breaker. A table with no primary key is read in physical order
+      // from its first block (sync scans and parallel workers off for this
+      // transaction), which is stable for as long as the rows do not move,
+      // without sorting the whole table on every page.
+      const pkColumns = await this.primaryKeyColumns(client, schema, tableName);
+      const quoted = (c: string) => `t."${c.replace(/"/g, '""')}"`;
+      let order: string[] = [];
+      let orderedBy: string[] = [];
       if (orderBy) {
         const colCheck = await client.query(
           `SELECT column_name FROM information_schema.columns
@@ -428,9 +470,23 @@ export class ProjectDataService {
           const dir = orderDir === 'desc' ? 'DESC' : 'ASC';
           // NULLS LAST keeps the same intent for both directions: real values
           // first, empties at the end. Postgres defaults differ per direction.
-          orderClause = `ORDER BY t."${orderBy}" ${dir} NULLS LAST`;
+          const keyRest = pkColumns.filter((c) => c !== orderBy);
+          order = [
+            `${quoted(orderBy)} ${dir} NULLS LAST`,
+            ...(pkColumns.length ? keyRest.map((c) => `${quoted(c)} ASC`) : ['t.ctid ASC']),
+          ];
+          orderedBy = [orderBy, ...keyRest];
         }
       }
+      if (!order.length && pkColumns.length) {
+        order = pkColumns.map((c) => `${quoted(c)} ASC`);
+        orderedBy = pkColumns;
+      }
+      if (!order.length) {
+        await client.query('SET LOCAL synchronize_seqscans = off');
+        await client.query('SET LOCAL max_parallel_workers_per_gather = 0');
+      }
+      const orderClause = order.length ? `ORDER BY ${order.join(', ')}` : '';
 
       // Raise timeout for filtered queries — ILIKE on 1M+ rows needs more than 15s
       if (trimmedSearch) {
@@ -440,50 +496,77 @@ export class ProjectDataService {
       const limitParamIdx = params.length + 1;
       const offsetParamIdx = params.length + 2;
       const dataResult = await client.query(
-        // Carry the physical row id so the UI can edit/delete rows on tables that
-        // have no primary key (legacy DBs). It's not in the columns metadata, so
-        // the grid never renders it.
-        `SELECT t.*, t.ctid::text AS "_bf_ctid" ${fromClause} ${where} ${orderClause} LIMIT $${limitParamIdx} OFFSET $${offsetParamIdx}`,
-        [...params, limit, offset],
+        // Carry the physical row id (edits on tables with no primary key) and
+        // the row version (to notice a concurrent edit). Both stay out of
+        // `fields`, so the grid never shows them. One extra row tells whether
+        // another page exists when the total is only an estimate.
+        `SELECT t.*, t.ctid::text AS "_bf_ctid", t.xmin::text AS "_bf_xmin" ${fromClause} ${where} ${orderClause} LIMIT $${limitParamIdx} OFFSET $${offsetParamIdx}`,
+        [...params, limit + 1, offset],
       );
 
       await client.query('COMMIT');
 
+      const hasMore = dataResult.rows.length > limit;
+      const rows = hasMore ? dataResult.rows.slice(0, limit) : dataResult.rows;
       return {
-        rows: dataResult.rows,
-        fields: dataResult.fields?.map((f) => ({
-          name: f.name,
-          dataTypeId: f.dataTypeID,
-        })),
+        rows,
+        fields: dataResult.fields
+          ?.filter((f) => !(INTERNAL_ROW_FIELDS as readonly string[]).includes(f.name))
+          .map((f) => ({
+            name: f.name,
+            dataTypeId: f.dataTypeID,
+          })),
         total,
         totalIsApprox,
         page,
         limit,
         totalPages: Math.max(1, Math.ceil(total / limit)),
+        /** Another page follows (reliable even when `total` is approximate). */
+        hasMore,
+        /** The columns that order this page, for the grid to show. */
+        orderedBy,
         // Reported rather than assumed, so the grid can say that what it
         // shows is not what a policy-bound caller would see.
         rlsBypassed,
       };
     } catch (err) {
       await client.query('ROLLBACK').catch(() => {});
-      throw err;
+      throw toUserFacingPgError(err, { prefix: 'Could not load rows' });
     } finally {
       client.release();
       await pool.end();
     }
   }
 
+  /** Primary key columns of a table, in key order. */
+  private async primaryKeyColumns(client: PoolClient, schema: string, table: string): Promise<string[]> {
+    const r = await client.query<{ name: string }>(
+      `SELECT a.attname AS name
+         FROM pg_index i
+         JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY (i.indkey)
+        WHERE i.indrelid = format('%I.%I', $1::text, $2::text)::regclass AND i.indisprimary
+        ORDER BY array_position(i.indkey::int2[], a.attnum)`,
+      [schema, table],
+    );
+    return r.rows.map((x) => x.name);
+  }
+
   async createTable(
     projectId: string,
     ownerId: string | undefined,
     tableName: string,
-    columns: { name: string; type: string; nullable: boolean; isPrimary: boolean; defaultValue?: string }[],
+    columns: {
+      name: string;
+      type: string;
+      nullable: boolean;
+      isPrimary: boolean;
+      defaultValue?: string;
+      isUnique?: boolean;
+    }[],
   ) {
-    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableName)) {
-      throw new BadRequestException('Invalid table name');
-    }
+    this.validateNewName(tableName, 'table');
 
-    if (!columns.length) {
+    if (!Array.isArray(columns) || !columns.length) {
       throw new BadRequestException('At least one column is required');
     }
 
@@ -499,11 +582,14 @@ export class ProjectDataService {
     ];
 
     const primaryCols = columns.filter((c) => c.isPrimary);
+    const seen = new Set<string>();
 
     const colDefs = columns.map((col) => {
-      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(col.name)) {
-        throw new BadRequestException(`Invalid column name: ${col.name}`);
+      this.validateNewName(col.name, 'column');
+      if (seen.has(col.name)) {
+        throw new BadRequestException(`Column "${col.name}" appears more than once`);
       }
+      seen.add(col.name);
       if (!ALLOWED_TYPES.includes(col.type)) {
         throw new BadRequestException(`Unsupported column type: ${col.type}`);
       }
@@ -518,6 +604,8 @@ export class ProjectDataService {
           def += ` DEFAULT '${safe}'`;
         }
       }
+      // A primary key is unique already; a second constraint would only cost space.
+      if (col.isUnique && !col.isPrimary) def += ' UNIQUE';
       return def;
     });
 
@@ -532,10 +620,59 @@ export class ProjectDataService {
     const client = await pool.connect();
 
     try {
+      // Said in words before Postgres answers 'relation "x" already exists'.
+      const taken = await client.query(
+        `SELECT c.relkind FROM pg_class c
+           JOIN pg_namespace n ON n.oid = c.relnamespace
+          WHERE n.nspname = current_schema() AND c.relname = $1
+          LIMIT 1`,
+        [tableName],
+      );
+      if (taken.rowCount) {
+        const kind = taken.rows[0].relkind === 'r' || taken.rows[0].relkind === 'p' ? 'A table' : 'Another object';
+        throw new ConflictException(`${kind} named "${tableName}" already exists. Choose another name.`);
+      }
       await client.query(sql);
-      return { message: `Table "${tableName}" created`, sql };
+      return { message: `Table "${tableName}" created`, sql, name: tableName };
     } catch (err: any) {
-      throw new BadRequestException(`Failed to create table: ${err.message}`);
+      throw this.dataError(err, 'Failed to create table');
+    } finally {
+      client.release();
+      await pool.end();
+    }
+  }
+
+  /**
+   * Rename a table (and nothing else). Policies, indexes, foreign keys and
+   * grants follow the table in Postgres; the REST path changes with the name.
+   */
+  async renameTable(
+    projectId: string,
+    ownerId: string | undefined,
+    tableName: string,
+    newName: string,
+    schemaName?: string,
+  ) {
+    this.validateTableName(tableName);
+    this.validateNewName(newName, 'table');
+    if (newName === tableName) return { message: 'Name unchanged', name: tableName };
+
+    const { pool } = await this.getProjectPool(projectId, ownerId);
+    const client = await pool.connect();
+    try {
+      const schema = await this.resolveSchema(client, tableName, schemaName);
+      const taken = await client.query(
+        `SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+          WHERE n.nspname = $1 AND c.relname = $2 LIMIT 1`,
+        [schema, newName],
+      );
+      if (taken.rowCount) {
+        throw new ConflictException(`A table or other object named "${newName}" already exists in "${schema}".`);
+      }
+      await client.query(`ALTER TABLE "${schema}"."${tableName}" RENAME TO "${newName}"`);
+      return { message: `Table "${tableName}" renamed to "${newName}"`, name: newName, schema };
+    } catch (err: any) {
+      throw this.dataError(err, 'Failed to rename table');
     } finally {
       client.release();
       await pool.end();
@@ -543,9 +680,7 @@ export class ProjectDataService {
   }
 
   async dropTable(projectId: string, ownerId: string | undefined, tableName: string) {
-    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableName)) {
-      throw new BadRequestException('Invalid table name');
-    }
+    this.validateTableName(tableName);
 
     const { pool } = await this.getProjectPool(projectId, ownerId);
     const client = await pool.connect();
@@ -553,6 +688,8 @@ export class ProjectDataService {
     try {
       await client.query(`DROP TABLE IF EXISTS "${tableName}" CASCADE`);
       return { message: `Table "${tableName}" dropped` };
+    } catch (err: any) {
+      throw toUserFacingPgError(err, { prefix: 'Failed to drop table' });
     } finally {
       client.release();
       await pool.end();
@@ -572,31 +709,44 @@ export class ProjectDataService {
     try {
       const schema = await this.resolveSchema(client, tableName, schemaName);
       const qualified = `"${schema}"."${tableName}"`;
-      const keys = Object.keys(data).filter((k) => data[k] !== undefined && data[k] !== '');
-      if (!keys.length) throw new BadRequestException('No data provided');
+      const keys = Object.keys(data ?? {}).filter(
+        (k) =>
+          data[k] !== undefined &&
+          data[k] !== '' &&
+          !(INTERNAL_ROW_FIELDS as readonly string[]).includes(k),
+      );
       for (const k of keys) this.validateColumnName(k);
 
-      const cols = keys.map((k) => `"${k}"`).join(', ');
-      const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
-      const values = keys.map((k) => data[k] === null || data[k] === 'NULL' ? null : data[k]);
+      const values = keys.map((k) => (data[k] === null || data[k] === 'NULL' ? null : data[k]));
 
       await client.query('SET LOCAL row_security = off');
+      // Nothing filled in is a row of defaults, which is a valid insert; a
+      // required column without a default then says which one it is.
+      const insert = keys.length
+        ? `INSERT INTO ${qualified} (${keys.map((k) => `"${k}"`).join(', ')}) VALUES (${keys.map((_, i) => `$${i + 1}`).join(', ')})`
+        : `INSERT INTO ${qualified} DEFAULT VALUES`;
       const result = await client.query(
-        `INSERT INTO ${qualified} (${cols}) VALUES (${placeholders}) RETURNING *`,
+        `${insert} RETURNING *, ctid::text AS "_bf_ctid", xmin::text AS "_bf_xmin"`,
         values,
       );
       this.realtimeData.publishChange(projectId, {
-        type: 'INSERT', kind: 'table', entity: tableName, new: result.rows[0],
+        type: 'INSERT', kind: 'table', entity: tableName, new: withoutInternalFields(result.rows[0]),
       });
       return result.rows[0];
     } catch (err: any) {
-      throw new BadRequestException(`Insert failed: ${err.message}`);
+      throw this.dataError(err, 'Insert failed');
     } finally {
       client.release();
       await pool.end();
     }
   }
 
+  /**
+   * Update one row. `expectedVersion` is the row's xmin as the editor read it
+   * (`_bf_xmin`): when given, the update only applies if nobody changed the
+   * row since — otherwise 409 ROW_CHANGED, and the caller decides whether to
+   * reload or overwrite. Without it the update behaves as it always did.
+   */
   async updateRow(
     projectId: string,
     ownerId: string | undefined,
@@ -604,6 +754,7 @@ export class ProjectDataService {
     pkWhere: Record<string, unknown>,
     data: Record<string, unknown>,
     schemaName?: string,
+    expectedVersion?: string,
   ) {
     const { pool } = await this.getProjectPool(projectId, ownerId);
     const client = await pool.connect();
@@ -611,7 +762,9 @@ export class ProjectDataService {
     try {
       const schema = await this.resolveSchema(client, tableName, schemaName);
       const qualified = `"${schema}"."${tableName}"`;
-      const setCols = Object.keys(data);
+      const setCols = Object.keys(data ?? {}).filter(
+        (k) => !(INTERNAL_ROW_FIELDS as readonly string[]).includes(k),
+      );
       if (!setCols.length) throw new BadRequestException('No data to update');
       for (const k of setCols) this.validateColumnName(k);
 
@@ -623,36 +776,81 @@ export class ProjectDataService {
 
       let whereClause: string;
       let whereValues: unknown[];
-      if (pkWhere._bf_ctid != null) {
+      const byCtid = pkWhere?._bf_ctid != null;
+      if (byCtid) {
         // Physical-row-id update — works on tables with no primary key.
         whereClause = `ctid = $${paramIdx++}::tid`;
         whereValues = [pkWhere._bf_ctid];
       } else {
-        const whereCols = Object.keys(pkWhere);
+        const whereCols = Object.keys(pkWhere ?? {}).filter(
+          (k) => !(INTERNAL_ROW_FIELDS as readonly string[]).includes(k),
+        );
         if (!whereCols.length) throw new BadRequestException('No primary key provided');
         for (const k of whereCols) this.validateColumnName(k);
         whereClause = whereCols.map((k) => `"${k}" IS NOT DISTINCT FROM $${paramIdx++}`).join(' AND ');
         whereValues = whereCols.map((k) => pkWhere[k]);
       }
+      const versionClause =
+        typeof expectedVersion === 'string' && /^\d+$/.test(expectedVersion)
+          ? ` AND xmin::text = $${paramIdx++}`
+          : '';
+      const versionValues = versionClause ? [expectedVersion] : [];
 
       await client.query('SET LOCAL row_security = off');
       const result = await client.query(
-        `UPDATE ${qualified} SET ${setClause} WHERE ${whereClause} RETURNING *`,
-        [...setValues, ...whereValues],
+        `UPDATE ${qualified} SET ${setClause} WHERE ${whereClause}${versionClause} RETURNING *, ctid::text AS "_bf_ctid", xmin::text AS "_bf_xmin"`,
+        [...setValues, ...whereValues, ...versionValues],
       );
 
-      if (result.rowCount === 0) throw new NotFoundException('Row not found');
+      if (result.rowCount === 0) {
+        if (versionClause && !byCtid) {
+          // Tell "someone else changed it" apart from "it is gone".
+          const offset = setValues.length;
+          const stillThere = await client.query(
+            `SELECT 1 FROM ${qualified} WHERE ${whereClause.replace(/\$(\d+)/g, (_, n) => `$${Number(n) - offset}`)} LIMIT 1`,
+            whereValues,
+          );
+          if (stillThere.rowCount) {
+            throw new ConflictException({
+              code: ROW_CHANGED_CODE,
+              message:
+                'Someone else changed this row after you opened it. Reload to see the current values, or save again to overwrite them.',
+            });
+          }
+        }
+        throw new NotFoundException(
+          byCtid
+            ? 'Row not found — it was changed or deleted after you loaded it. Reload to see the current data.'
+            : 'Row not found — it may have been deleted. Reload to see the current data.',
+        );
+      }
       this.realtimeData.publishChange(projectId, {
-        type: 'UPDATE', kind: 'table', entity: tableName, new: result.rows[0], old: pkWhere,
+        type: 'UPDATE', kind: 'table', entity: tableName, new: withoutInternalFields(result.rows[0]), old: pkWhere,
       });
       return result.rows[0];
     } catch (err: any) {
-      if (err instanceof NotFoundException) throw err;
-      throw new BadRequestException(`Update failed: ${err.message}`);
+      throw this.dataError(err, 'Update failed');
     } finally {
       client.release();
       await pool.end();
     }
+  }
+
+  /**
+   * The error a row or table write answers with. Postgres errors keep their
+   * words and get a 4xx; a missing required value names its column. Anything
+   * else is wrapped as before (400 with the action in front).
+   */
+  private dataError(err: any, action: string): unknown {
+    if (err instanceof HttpException) return err;
+    if (isPgError(err) && err.code === '23502' && (err as { column?: string }).column) {
+      return new BadRequestException(
+        `${action}: "${(err as { column?: string }).column}" is required — enter a value for it.`,
+      );
+    }
+    const mapped = toUserFacingPgError(err, { prefix: action });
+    if (mapped instanceof HttpException) return mapped;
+    return new BadRequestException(`${action}: ${err?.message ?? err}`);
   }
 
   async deleteRow(
@@ -699,11 +897,17 @@ export class ProjectDataService {
         );
       }
 
-      if (result.rowCount === 0) throw new NotFoundException('Row not found');
+      if (result.rowCount === 0) {
+        throw new NotFoundException('Row not found — it may already have been deleted. Reload to see the current data.');
+      }
       this.realtimeData.publishChange(projectId, {
         type: 'DELETE', kind: 'table', entity: tableName, old: pkWhere,
       });
       return { message: 'Row deleted' };
+    } catch (err: any) {
+      // e.g. another table still references the row (foreign key) — a 4xx
+      // with Postgres' own explanation instead of a bare 500.
+      throw this.dataError(err, 'Delete failed');
     } finally {
       client.release();
       await pool.end();
@@ -907,14 +1111,42 @@ export class ProjectDataService {
   }
 
   private validateTableName(name: string) {
-    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
-      throw new BadRequestException('Invalid table name');
+    if (typeof name !== "string" || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+      throw new BadRequestException("Invalid table name");
+    }
+    if (name.length > MAX_IDENTIFIER_LENGTH) {
+      throw new BadRequestException(`Table name is too long (${name.length} characters; at most ${MAX_IDENTIFIER_LENGTH})`);
     }
   }
 
   private validateColumnName(name: string) {
-    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+    if (typeof name !== "string" || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
       throw new BadRequestException(`Invalid column name: ${name}`);
+    }
+    if (name.length > MAX_IDENTIFIER_LENGTH) {
+      throw new BadRequestException(`Column name is too long (${name.length} characters; at most ${MAX_IDENTIFIER_LENGTH})`);
+    }
+  }
+
+  /**
+   * A name about to be created. Same rules as above, said for someone typing
+   * it: Postgres would otherwise cut a long name at 63 characters without a
+   * word, and the dashboard would go on looking for the full one.
+   */
+  private validateNewName(name: string, what: "table" | "column") {
+    const label = what === "table" ? "Table" : "Column";
+    if (typeof name !== "string" || !name.trim()) {
+      throw new BadRequestException(`${label} name is required`);
+    }
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+      throw new BadRequestException(
+        `${label} name "${name}" is not valid: use letters, digits and underscores, starting with a letter or underscore`,
+      );
+    }
+    if (name.length > MAX_IDENTIFIER_LENGTH) {
+      throw new BadRequestException(
+        `${label} name is ${name.length} characters long; PostgreSQL allows at most ${MAX_IDENTIFIER_LENGTH}`,
+      );
     }
   }
 
@@ -941,7 +1173,7 @@ export class ProjectDataService {
     column: { name: string; type: string; nullable: boolean; defaultValue?: string; isUnique?: boolean },
   ) {
     this.validateTableName(tableName);
-    this.validateColumnName(column.name);
+    this.validateNewName(column.name, 'column');
     this.validateColumnType(column.type);
 
     const { pool } = await this.getProjectPool(projectId, ownerId);
@@ -964,7 +1196,7 @@ export class ProjectDataService {
       await client.query(sql);
       return { message: `Column "${column.name}" added to "${tableName}"` };
     } catch (err: any) {
-      throw new BadRequestException(`Failed to add column: ${err.message}`);
+      throw this.dataError(err, 'Failed to add column');
     } finally {
       client.release();
       await pool.end();
@@ -980,7 +1212,7 @@ export class ProjectDataService {
   ) {
     this.validateTableName(tableName);
     this.validateColumnName(columnName);
-    if (changes.name) this.validateColumnName(changes.name);
+    if (changes.name) this.validateNewName(changes.name, 'column');
     if (changes.type) this.validateColumnType(changes.type);
 
     const { pool } = await this.getProjectPool(projectId, ownerId);
@@ -988,6 +1220,43 @@ export class ProjectDataService {
 
     try {
       const statements: string[] = [];
+
+      // UNIQUE on or off. Done before a rename, under the current name.
+      if (changes.isUnique !== undefined) {
+        const existing = await client.query<{ conname: string }>(
+          `SELECT con.conname
+             FROM pg_constraint con
+             JOIN pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = con.conkey[1]
+            WHERE con.conrelid = format('%I', $1::text)::regclass
+              AND con.contype = 'u' AND array_length(con.conkey, 1) = 1
+              AND a.attname = $2`,
+          [tableName, columnName],
+        );
+        if (changes.isUnique && existing.rowCount === 0) {
+          const name = constraintName(tableName, columnName, 'key');
+          statements.push(`ALTER TABLE "${tableName}" ADD CONSTRAINT "${name}" UNIQUE ("${columnName}")`);
+        } else if (changes.isUnique === false) {
+          if (existing.rowCount === 0) {
+            const index = await client.query<{ relname: string }>(
+              `SELECT ic.relname FROM pg_index i
+                 JOIN pg_class ic ON ic.oid = i.indexrelid
+                 JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = i.indkey[0]
+                WHERE i.indrelid = format('%I', $1::text)::regclass
+                  AND i.indisunique AND NOT i.indisprimary AND i.indnatts = 1 AND a.attname = $2
+                LIMIT 1`,
+              [tableName, columnName],
+            );
+            if (index.rowCount) {
+              throw new BadRequestException(
+                `"${columnName}" is unique because of the index "${index.rows[0].relname}". Drop that index on the Database page to allow duplicates.`,
+              );
+            }
+          }
+          for (const row of existing.rows) {
+            statements.push(`ALTER TABLE "${tableName}" DROP CONSTRAINT "${row.conname.replace(/"/g, '""')}"`);
+          }
+        }
+      }
 
       if (changes.type) {
         statements.push(
@@ -1021,13 +1290,28 @@ export class ProjectDataService {
         );
       }
 
-      for (const sql of statements) {
-        await client.query(sql);
+      // All or nothing: a type change that fails must not leave the column
+      // renamed or its default dropped.
+      await client.query('BEGIN');
+      try {
+        for (const sql of statements) {
+          await client.query(sql);
+        }
+        await client.query('COMMIT');
+      } catch (e) {
+        await client.query('ROLLBACK').catch(() => undefined);
+        throw e;
       }
 
-      return { message: `Column "${columnName}" updated` };
+      const renamed = changes.name && changes.name !== columnName ? changes.name : null;
+      return {
+        message: renamed
+          ? `Column "${columnName}" renamed to "${renamed}"`
+          : `Column "${columnName}" updated`,
+        name: renamed ?? columnName,
+      };
     } catch (err: any) {
-      throw new BadRequestException(`Failed to edit column: ${err.message}`);
+      throw this.dataError(err, 'Failed to edit column');
     } finally {
       client.release();
       await pool.end();
@@ -1050,7 +1334,7 @@ export class ProjectDataService {
       await client.query(`ALTER TABLE "${tableName}" DROP COLUMN "${columnName}" CASCADE`);
       return { message: `Column "${columnName}" deleted from "${tableName}"` };
     } catch (err: any) {
-      throw new BadRequestException(`Failed to delete column: ${err.message}`);
+      throw this.dataError(err, "Failed to delete column");
     } finally {
       client.release();
       await pool.end();
@@ -1117,7 +1401,7 @@ export class ProjectDataService {
       );
       return { message: 'Foreign key added' };
     } catch (err: any) {
-      throw new BadRequestException(`Failed to add foreign key: ${err.message}`);
+      throw this.dataError(err, "Failed to add foreign key");
     } finally {
       client.release();
       await pool.end();
@@ -1139,6 +1423,8 @@ export class ProjectDataService {
         `ALTER TABLE "${tableName}" DROP CONSTRAINT "${constraintName.replace(/"/g, '""')}"`,
       );
       return { message: `Foreign key "${constraintName}" dropped` };
+    } catch (err: any) {
+      throw this.dataError(err, "Failed to remove foreign key");
     } finally {
       client.release();
       await pool.end();

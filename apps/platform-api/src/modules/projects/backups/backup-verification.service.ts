@@ -421,7 +421,9 @@ export class BackupVerificationService {
     const { stream } = await this.storage.getPlatformObject(AUTO_BACKUP_BUCKET, objectKey);
     if (objectKey.endsWith(ENCRYPTED_SUFFIX)) {
       const key = getBackupKey();
-      if (!key) throw new Error('this backup is encrypted but BACKUP_ENC_KEY is not set');
+      // Shown in the project's verification history: say what happened, not which
+      // server variable is missing (BACKUP_ENC_KEY, documented for operators).
+      if (!key) throw new Error('this backup is encrypted and the server has no key to decrypt it');
       await pipeline(stream, createDecryptStream(key), createWriteStream(zipPath));
       return;
     }

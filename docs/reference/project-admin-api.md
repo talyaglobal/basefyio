@@ -32,7 +32,7 @@ not apply to them. That is why the anon key can never reach them.
 | GET | `/api/projects` | session | `?teamId=` — the team's active projects |
 | GET | `/api/projects/deleted` | session | `?teamId=` — projects in the trash |
 | GET | `/api/projects/deactivated` | session | `?teamId=` — deactivated projects |
-| GET | `/api/projects/:id` | session | one project |
+| GET | `/api/projects/:id` | session | one project — `?secrets=omit` leaves out `dbPassword`, `serviceKey` and `dbReadonlyPassword` (answer carries `secretsOmitted: true`); read credentials from `/connect` |
 | PATCH | `/api/projects/:id` | session | `{ name?, description?, folderId?, tags? }` |
 | GET | `/api/projects/:id/activity` | session | `?page=&limit=` — the project's activity log (limit 1–500, default 50) |
 | PATCH | `/api/projects/:id/max-rows` | session | `{ maxRowsPerTable }` — page-size ceiling of the dashboard data grid |
@@ -142,19 +142,6 @@ that does not exist is 400.
 `maxDbConnections` is a whole number from 1 to the plan's ceiling (403 above it) or `null` to fall
 back to the plan or platform default. Answer: `{ maxDbConnections, planCeiling, effective, source }`.
 The pooler configuration is regenerated right away.
-
-## API keys
-
-| Method | Path | Who | What |
-|---|---|---|---|
-| GET | `/api/projects/:projectId/api-keys` | team member | anon key; service key masked, with `revealable` and `lastUsedAt`; secret keys (name, hint, created, last used); `canManage` |
-| POST | `/api/projects/:projectId/api-keys/service/reveal` | team member | the full service key, only until an application first uses it (then 409) |
-| POST | `/api/projects/:projectId/api-keys/service/rotate` | credentials permission | a new service key, returned once; the old one is refused from the next request |
-| POST | `/api/projects/:projectId/api-keys/anon/rotate` | credentials permission | a new anon key; the old one is refused from the next request — every app shipping it needs the new one |
-| POST | `/api/projects/:projectId/api-keys/secret` | credentials permission | `{ name }` → `{ id, name, key, hint }`; the key is returned only here, only its SHA-256 is stored (at most 20 active) |
-| DELETE | `/api/projects/:projectId/api-keys/secret/:keyId` | credentials permission | revoke; refused from the next request |
-
-Secret keys (`bf_secret_…`) have the service key's rights and, like it, are accepted only in the `apikey` header. "Credentials permission" is the team role's `canResetDbPassword` (owners always have it).
 
 ## Tables, rows and foreign keys
 
@@ -295,12 +282,7 @@ POST /api/projects/import-supabase
 ```
 
 `databasePassword` (optional) lets the importer read the source database directly; without it
-tables are read over the source's REST API. Users are created with the ids they had at the
-source, so `auth.users` references and `auth.uid()` policies keep matching them. Their password
-hashes can only be read from the source database: with `databasePassword` they are kept
-(encrypted) and checked on each user's first sign-in, which then stores the password in the
-project's identity provider; without it users must reset their password. The result's
-`auth.passwords` counts the users whose password is waiting for that first sign-in. `existingProjectId` re-imports into a project of the
+tables are read over the source's REST API. `existingProjectId` re-imports into a project of the
 same team instead of creating one. `mode: "sync"` requires `existingProjectId` and fetches only
 what the source has gained; with `repairKeys: true` a sync first adds missing primary keys. The
 answer is `{ jobId, project: { id, name, slug }, reimport }`.
@@ -331,8 +313,13 @@ finish `pending` tables.
 `POST /api/projects/import-export-zip` takes `multipart/form-data` with the archive in the field
 `file` and the fields `teamId`, `nameMode` (`existing` keeps the exported name, `new` uses
 `newProjectName`) and optional `existingProjectId` to overwrite a project instead of creating one.
+With `existingProjectId`, an optional `confirmProjectName` must equal that project's name (400
+otherwise, nothing is changed); the dashboard always sends it.
 It restores the database dump, the auth users and the storage objects found in the archive and
-answers `{ project: { id, name, slug }, importedName, appliedName, warnings }`. The upload is held in
+answers `{ project: { id, name, slug }, importedName, appliedName, warnings }`. The archive is
+checked before anything is created: a file that is not a ZIP, a damaged ZIP, or a ZIP with none of
+`manifest.json`, `project.json`, `database/dump.sql`, `auth/users.json`, `storage/buckets.json`
+answers 400. An export re-zipped inside one top-level folder is accepted. The upload is held in
 memory; for large projects prefer restoring a stored backup (below).
 
 ## Export, backups and point-in-time recovery
@@ -347,14 +334,24 @@ memory; for large projects prefer restoring a stored backup (below).
 | POST | `/api/projects/:id/backups/restore` | session | restore a stored archive into this or a new project |
 | GET | `/api/projects/:id/pitr/window` | session | the range of instants the database can be recovered to |
 | POST | `/api/projects/:id/pitr/restore` | session | `{ targetTime }` — recover the database to that instant |
+| POST | `/api/projects/:id/pitr/snapshot` | session | take this project's snapshot now (runs in the background; at most one per 10 minutes) → `{ started, message }` |
 | POST | `/api/projects/pitr/run-base-backup` | root | take a physical base backup of the whole cluster now |
+
+**Event streams from a browser.** `EventSource` cannot send an `Authorization` header. Instead of
+putting the access token in the URL, ask for a stream ticket — `POST /api/auth/stream-ticket` with
+`{ "path": "/api/projects/<id>/export/jobs/<jobId>/events" }` and a bearer token — and open the
+stream with `?ticket=<ticket>`. A ticket is valid for 60 seconds, for that one stream path, and
+only once; mint a new one for every reconnect. Ticket paths: `/api/realtime/stream` and any
+`/api/projects/…/events` route. A bearer header keeps working for clients that can send one.
 
 **Export.** Each part defaults to included. The archive is kept for 24 hours; download it before
 then. The [CLI](./cli.md) wraps these routes as `basefyio backup create|status|download`.
 
 **Stored backups.** `GET …/backups` lists `{ objectKey, filename, size, lastModified, kind:
-"manual"|"auto", encrypted }`, newest first. Nightly backups (`auto`, 03:00 UTC, database, auth and
-configuration — not storage objects) are kept 7 days. Restore with
+"manual"|"auto", encrypted, trigger: "export"|"scheduled"|"on-demand", expiresAt, retentionDays,
+deletable }`, newest first. Nightly backups (`auto`, 03:00 UTC, database, auth and configuration —
+not storage objects) and on-demand backups are kept `AUTO_BACKUP_RETENTION_DAYS` (default 7) days.
+Restore with
 
 ```json
 POST /api/projects/:id/backups/restore
@@ -362,11 +359,14 @@ POST /api/projects/:id/backups/restore
 ```
 
 The object key must belong to the project in the path (403 otherwise). An encrypted archive is
-decrypted on the way in when the server holds the backup key. The answer is the archive-import
-answer above.
+decrypted on the way in when the server holds the backup key. For `nameMode: "existing"`, an
+optional `confirmProjectName` must equal the target project's name. The answer is the
+archive-import answer above.
 
 **Point in time.** `GET …/pitr/window` answers `{ earliest, latest, continuousFrom, baseBackupCount,
-walSegmentCount, retentionDays }`. `POST …/pitr/restore` takes an ISO timestamp that is not in the
+walSegmentCount, retentionDays, clusterBaseCount, clusterBaseRetain, snapshotRunning }`.
+`retentionDays` is `PITR_RETENTION_DAYS` (default 7); exact replay reaches back to the oldest of
+`clusterBaseRetain` daily physical bases (`PITR_CLUSTER_BASE_RETAIN`, default 3). `POST …/pitr/restore` takes an ISO timestamp that is not in the
 future and answers `{ restoredTo, exact: true, message }` when write-ahead log could be replayed to
 that instant, or `{ restoredTo, exact: false, baseBackupTaken, message }` when only the nearest
 snapshot was available. How recovery works and what it covers:
@@ -379,6 +379,9 @@ snapshot was available. How recovery works and what it covers:
 | GET | `/api/projects/:id/backups/health` | session · token `backups:read` | off-site copy state, local encryption and the latest restore verifications |
 | GET | `/api/projects/:id/backups/verifications` | session · token `backups:read` | `?limit=` (1–50, default 10) — restore-verification history |
 | POST | `/api/projects/:id/backups/verify` | session · token `backups:write` | restore the newest nightly backup into a throwaway database now → 202 `{ verificationId }` |
+| POST | `/api/projects/:id/backups/run` | session · token `backups:write` | back up now (database, auth, config), kept like a nightly backup → 202 `{ jobId }` (follow it with the export job routes); 409 while one runs, 400 at five on-demand backups |
+| GET | `/api/projects/:id/backups/download` | session · token `backups:read` | `?objectKey=&kind=manual\|auto` — one stored archive as a plain ZIP (decrypted if stored encrypted) |
+| DELETE | `/api/projects/:id/backups/archive` | session · token `backups:write` | `?objectKey=&kind=` — delete a manual export or on-demand backup; nightly backups cannot be deleted (400) |
 | POST | `/api/projects/backups/offsite/reconcile` | root | copy whatever the off-site bucket is missing now → 202 `{ message }` |
 
 `GET …/backups/health` answers

@@ -8,7 +8,17 @@ export default function robots(): MetadataRoute.Robots {
       {
         userAgent: '*',
         allow: ['/', '/changelog', '/changelog/'],
-        disallow: ['/dashboard/', '/api/', '/cli-authorize'],
+        // A Disallow is a prefix: '/dashboard' covers /dashboard itself and everything under it.
+        disallow: [
+          '/dashboard',
+          '/console',
+          '/api/',
+          '/auth/',
+          '/cli-authorize',
+          '/set-new-password',
+          '/forgot-password',
+          '/reset-password',
+        ],
       },
     ],
     sitemap: `${siteUrl}/sitemap.xml`,

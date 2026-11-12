@@ -11,6 +11,7 @@
  */
 
 import type { BasefyioFetchClient } from '../lib/fetch.js';
+import { toBasefyioError, toJson } from '../lib/errors.js';
 import type { BasefyioResponse, BasefyioError } from '../lib/types.js';
 
 // ── Types ──────────────────────────────────────────────────
@@ -55,6 +56,18 @@ export interface DataEngineFilter {
 export interface DataEngineSort {
   path: string;
   direction: 'asc' | 'desc';
+}
+
+export interface DataEngineWriteOptions {
+  /**
+   * Optimistic concurrency: the `_version` you read. The write fails with a
+   * 409 if the document has changed since (sent as the If-Match header).
+   */
+  ifMatch?: number;
+}
+
+function ifMatchHeader(opts?: DataEngineWriteOptions): Record<string, string> | undefined {
+  return opts?.ifMatch !== undefined ? { 'If-Match': `"${opts.ifMatch}"` } : undefined;
 }
 
 // ── DataEngineQuery (chainable) ────────────────────────────
@@ -104,10 +117,10 @@ export class DataEngineQuery<T = Record<string, unknown>>
     try {
       const params = new URLSearchParams();
       if (this._filter && Object.keys(this._filter).length > 0) {
-        params.set('filter', JSON.stringify(this._filter));
+        params.set('filter', toJson(this._filter));
       }
       if (this._sort && this._sort.length > 0) {
-        params.set('sort', JSON.stringify(this._sort));
+        params.set('sort', toJson(this._sort));
       }
       if (this._limit !== undefined) params.set('limit', String(this._limit));
       if (this._offset !== undefined) params.set('offset', String(this._offset));
@@ -117,7 +130,7 @@ export class DataEngineQuery<T = Record<string, unknown>>
       const data = await this.http.json<DataEnginePage<T>>(path);
       return { data, error: null };
     } catch (err: unknown) {
-      return { data: null, error: err as BasefyioError };
+      return { data: null, error: toBasefyioError(err) };
     }
   }
 
@@ -147,11 +160,11 @@ export class EntityClient<T = Record<string, unknown>> {
     try {
       const data = await this.http.json<DataEngineDocument<T>>(this.basePath, {
         method: 'POST',
-        body: JSON.stringify(doc),
+        body: toJson(doc),
       });
       return { data, error: null };
     } catch (err: unknown) {
-      return { data: null, error: err as BasefyioError };
+      return { data: null, error: toBasefyioError(err) };
     }
   }
 
@@ -176,7 +189,7 @@ export class EntityClient<T = Record<string, unknown>> {
       const data = await this.http.json<DataEngineDocument<T>>(`${this.basePath}/${id}`);
       return { data, error: null };
     } catch (err: unknown) {
-      return { data: null, error: err as BasefyioError };
+      return { data: null, error: toBasefyioError(err) };
     }
   }
 
@@ -186,42 +199,99 @@ export class EntityClient<T = Record<string, unknown>> {
    * @example
    * await bf.data.collection('patients').update(id, { age: 36 });
    */
-  async update(id: string, patch: Partial<T>): Promise<BasefyioResponse<DataEngineDocument<T>>> {
+  async update(
+    id: string,
+    patch: Partial<T>,
+    opts?: DataEngineWriteOptions,
+  ): Promise<BasefyioResponse<DataEngineDocument<T>>> {
     try {
       const data = await this.http.json<DataEngineDocument<T>>(`${this.basePath}/${id}`, {
         method: 'PATCH',
-        body: JSON.stringify(patch),
+        body: toJson(patch),
+        headers: ifMatchHeader(opts),
       });
       return { data, error: null };
     } catch (err: unknown) {
-      return { data: null, error: err as BasefyioError };
+      return { data: null, error: toBasefyioError(err) };
     }
   }
 
   /**
    * Full document replacement.
    */
-  async replace(id: string, doc: T): Promise<BasefyioResponse<DataEngineDocument<T>>> {
+  async replace(
+    id: string,
+    doc: T,
+    opts?: DataEngineWriteOptions,
+  ): Promise<BasefyioResponse<DataEngineDocument<T>>> {
     try {
       const data = await this.http.json<DataEngineDocument<T>>(`${this.basePath}/${id}`, {
         method: 'PUT',
-        body: JSON.stringify(doc),
+        body: toJson(doc),
+        headers: ifMatchHeader(opts),
       });
       return { data, error: null };
     } catch (err: unknown) {
-      return { data: null, error: err as BasefyioError };
+      return { data: null, error: toBasefyioError(err) };
     }
   }
 
   /**
    * Delete a document (soft-delete).
    */
-  async delete(id: string): Promise<BasefyioResponse<void>> {
+  async delete(id: string, opts?: DataEngineWriteOptions): Promise<BasefyioResponse<void>> {
     try {
-      await this.http.json<void>(`${this.basePath}/${id}`, { method: 'DELETE' });
+      await this.http.json<void>(`${this.basePath}/${id}`, {
+        method: 'DELETE',
+        headers: ifMatchHeader(opts),
+      });
       return { data: null, error: null };
     } catch (err: unknown) {
-      return { data: null, error: err as BasefyioError };
+      return { data: null, error: toBasefyioError(err) };
+    }
+  }
+
+  /**
+   * Undo a soft delete.
+   *
+   * @example
+   * await bf.data.collection('patients').restore(id);
+   */
+  async restore(id: string): Promise<BasefyioResponse<DataEngineDocument<T>>> {
+    try {
+      const data = await this.http.json<DataEngineDocument<T>>(`${this.basePath}/${id}/restore`, {
+        method: 'POST',
+      });
+      return { data, error: null };
+    } catch (err: unknown) {
+      return { data: null, error: toBasefyioError(err) };
+    }
+  }
+
+  /**
+   * Insert up to 1000 documents in one request. Every document is validated
+   * before any is written.
+   */
+  async insertMany(docs: Partial<T>[]): Promise<BasefyioResponse<DataEngineDocument<T>[]>> {
+    try {
+      const data = await this.http.json<DataEngineDocument<T>[]>(this.basePath, {
+        method: 'POST',
+        body: toJson(docs),
+      });
+      return { data, error: null };
+    } catch (err: unknown) {
+      return { data: null, error: toBasefyioError(err) };
+    }
+  }
+
+  /** Count the documents matching an optional filter. */
+  async count(filter?: DataEngineFilter): Promise<BasefyioResponse<number>> {
+    try {
+      const qs = filter && Object.keys(filter).length > 0 ? `?filter=${encodeURIComponent(toJson(filter))}` : '';
+      const data = await this.http.json<{ count: number }>(`${this.basePath}/count${qs}`);
+      return { data: data.count, error: null };
+    } catch (err: unknown) {
+      return { data: null, error: toBasefyioError(err) };
     }
   }
 }
@@ -268,7 +338,7 @@ export class DataEngineClient {
       const data = await this.http.json<DataEnginePage<T>>(path);
       return { data, error: null };
     } catch (err: unknown) {
-      return { data: null, error: err as BasefyioError };
+      return { data: null, error: toBasefyioError(err) };
     }
   }
 
@@ -280,7 +350,7 @@ export class DataEngineClient {
       const data = await this.http.json<EntityInfo[]>(`${this.basePath}/entities`);
       return { data, error: null };
     } catch (err: unknown) {
-      return { data: null, error: err as BasefyioError };
+      return { data: null, error: toBasefyioError(err) };
     }
   }
 
@@ -296,11 +366,11 @@ export class DataEngineClient {
     try {
       const data = await this.http.json<EntityInfo>(`${this.basePath}/entities`, {
         method: 'POST',
-        body: JSON.stringify(def),
+        body: toJson(def),
       });
       return { data, error: null };
     } catch (err: unknown) {
-      return { data: null, error: err as BasefyioError };
+      return { data: null, error: toBasefyioError(err) };
     }
   }
 
@@ -314,7 +384,7 @@ export class DataEngineClient {
       );
       return { data, error: null };
     } catch (err: unknown) {
-      return { data: null, error: err as BasefyioError };
+      return { data: null, error: toBasefyioError(err) };
     }
   }
 }

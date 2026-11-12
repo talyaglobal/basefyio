@@ -7,69 +7,84 @@ import { api } from '@/lib/api';
 import {
   BASEFYIO_AI_SEND_EVENT,
   buildSqlRunErrorPrompt,
-  dispatchbasefyioAiMessage,
   type BasefyioAiSendDetail,
 } from '@/lib/basefyio-ai-events';
 import { dispatchbasefyioNotification } from '@/lib/notifications-context';
 import { useActiveTeam } from '@/app/dashboard/layout';
 import { cn } from '@/lib/utils';
 import {
+  looksReadOnly,
+  streamAiChat,
+  type AiMode,
+  type AiQueryEvent,
+} from '@/lib/ai-assistant';
+import { confirmDialog } from '@/components/ui/confirm-dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Markdown } from '@/components/ai/markdown';
+import { CodeBlock, ProposalCard, QueryResults, resultLabel, type ProposalState } from '@/components/ai/ai-blocks';
+import { AiModelSettings } from '@/components/ai/ai-model-settings';
+import {
   Bot,
-  CheckCircle2,
   ChevronDown,
   ChevronRight,
-  ChevronUp,
-  Copy,
+  ClipboardList,
   Loader2,
+  MessageCircle,
   Pencil,
   Play,
   Plus,
   RotateCcw,
   Send,
+  Settings2,
+  ShieldCheck,
   Sparkles,
-  MessageCircle,
-  ClipboardList,
-  Zap,
+  Square,
   X,
-  XCircle,
+  Zap,
 } from 'lucide-react';
 
-
 // ── Types ──────────────────────────────────────────────────────────────────────
-type AiMode = 'ask' | 'plan' | 'agent';
-
-interface AgentStep {
-  sql: string;
-  rows: number;
-  preview?: string;
-  error?: string;
-}
 
 interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   mode?: AiMode;
-  agentSteps?: AgentStep[];
+  /** streaming while the reply arrives; done/stopped/error once it ended. */
+  status?: 'streaming' | 'done' | 'stopped' | 'error';
+  statusLabel?: string | null;
+  /** Agent mode: the answer written from the real query results. */
+  followup?: string;
+  queries?: AiQueryEvent[];
+  proposals?: ProposalState[];
+  error?: string | null;
+  /** Model that wrote the reply, e.g. "gpt-4o-mini". */
+  model?: string | null;
+  /**
+   * Turns the panel adds itself. 'outcome' records what happened to a
+   * proposal (applied, failed, discarded) — not shown as a bubble, but sent to
+   * the model as history and used to restore the card after a reload.
+   */
+  kind?: 'outcome' | 'result' | 'proposal';
+  outcomeFor?: string | null;
 }
 
 interface ChatSession {
+  /** Stable key in the panel. Equals serverId for conversations loaded from the server. */
   id: string;
+  serverId: string | null;
   messages: Message[];
 }
 
-interface AiContext {
+interface PageContext {
   projectId?: string;
   projectName?: string;
-  tables?: string[];
   page?: string;
-  allProjects?: { id: string; name: string }[];
-  mode?: AiMode;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function genId() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
 function getSessionTitle(session: ChatSession): string {
@@ -85,44 +100,126 @@ function getSessionTitle(session: ChatSession): string {
  * person's existing conversations up the first time they sign in after the
  * change, and the key is cleared afterwards so it cannot drift.
  */
-function readLegacySessions(key: string): ChatSession[] {
+function readLegacySessions(key: string): { messages: { role: string; content: string }[] }[] {
   try {
     const raw = localStorage.getItem(key);
     if (!raw) return [];
-    const parsed = JSON.parse(raw) as ChatSession[];
+    const parsed = JSON.parse(raw) as { messages: { role: string; content: string }[] }[];
     return Array.isArray(parsed) ? parsed.filter((s) => s?.messages?.length) : [];
   } catch {
     return [];
   }
 }
 
-function extractSQLBlocks(text: string): string[] {
-  const regex = /```sql\n?([\s\S]*?)```/gi;
-  const blocks: string[] = [];
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(text)) !== null) {
-    const sql = match[1].trim();
-    if (sql) blocks.push(sql);
+function storageGet(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
   }
-  return blocks;
 }
 
-function parseContent(content: string) {
-  type Part = { type: 'text' | 'sql' | 'code'; value: string; lang?: string };
-  const parts: Part[] = [];
-  const regex = /```(\w*)\n?([\s\S]*?)```/g;
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(content)) !== null) {
-    if (match.index > lastIndex)
-      parts.push({ type: 'text', value: content.slice(lastIndex, match.index) });
-    const lang = match[1].toLowerCase();
-    parts.push({ type: lang === 'sql' ? 'sql' : 'code', value: match[2].trim(), lang: match[1] || 'code' });
-    lastIndex = match.index + match[0].length;
+function storageSet(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* private mode */
   }
-  if (lastIndex < content.length)
-    parts.push({ type: 'text', value: content.slice(lastIndex) });
-  return parts;
+}
+
+/** The structured parts of a turn, kept with it on the server so a reload shows the same thing. */
+function toMeta(m: Message): Record<string, unknown> | undefined {
+  const meta: Record<string, unknown> = {};
+  if (m.mode) meta.mode = m.mode;
+  if (m.status && m.status !== 'done') meta.status = m.status;
+  if (m.followup) meta.followup = m.followup;
+  if (m.error) meta.error = m.error;
+  if (m.model) meta.model = m.model;
+  if (m.kind) meta.kind = m.kind;
+  if (m.outcomeFor) meta.outcomeFor = m.outcomeFor;
+  if (m.queries?.length) {
+    meta.queries = m.queries.map((q) => ({
+      ...q,
+      results: q.results.map((r) => ({ ...r, rows: r.rows.slice(0, 25), truncated: r.truncated || r.rows.length > 25 })),
+    }));
+  }
+  if (m.proposals?.length) {
+    meta.proposals = m.proposals.map((p) => ({
+      ...p,
+      status: p.status === 'approving' ? 'pending' : p.status,
+      outcome: p.outcome
+        ? { ...p.outcome, statements: p.outcome.statements.map((s) => ({ ...s, rows: s.rows.slice(0, 25) })) }
+        : p.outcome,
+    }));
+  }
+  return Object.keys(meta).length ? meta : undefined;
+}
+
+function fromServer(m: { id: string; role: string; content: string; meta?: unknown }): Message {
+  const meta = (m.meta && typeof m.meta === 'object' ? m.meta : {}) as Partial<Message>;
+  return {
+    id: m.id,
+    role: m.role === 'assistant' ? 'assistant' : 'user',
+    content: m.content,
+    mode: meta.mode,
+    status: meta.status === 'streaming' ? 'stopped' : meta.status ?? 'done',
+    followup: meta.followup,
+    queries: meta.queries,
+    proposals: meta.proposals,
+    error: meta.error,
+    model: meta.model,
+    kind: meta.kind,
+    outcomeFor: meta.outcomeFor,
+  };
+}
+
+/** A proposal's card shows what its outcome turn recorded, after a reload too. */
+function linkOutcomes(messages: Message[]): Message[] {
+  const outcomes = new Map<string, Message>();
+  for (const m of messages) if (m.kind === 'outcome' && m.outcomeFor) outcomes.set(m.outcomeFor, m);
+  if (!outcomes.size) return messages;
+  return messages.map((m) =>
+    m.proposals?.some((p) => p.proposal && outcomes.has(p.proposal.id))
+      ? {
+          ...m,
+          proposals: m.proposals.map((p) => {
+            const o = p.proposal ? outcomes.get(p.proposal.id) : undefined;
+            if (!o || p.status !== 'pending') return p;
+            const recorded = o.proposals?.[0];
+            return recorded ? { ...p, status: recorded.status, outcome: recorded.outcome, message: recorded.message } : p;
+          }),
+        }
+      : m,
+  );
+}
+
+/** What the model is told about a turn: the text plus what really happened. */
+function historyContent(m: Message): string {
+  if (m.role === 'user') return m.content;
+  const parts: string[] = [];
+  if (m.content) parts.push(m.content);
+  for (const q of m.queries ?? []) {
+    parts.push(
+      `[basefyio ran this read-only query: ${q.results.map((r) => (r.ok ? resultLabel(r) : `failed — ${r.error}`)).join('; ')}]`,
+    );
+  }
+  for (const p of m.proposals ?? []) {
+    const state =
+      p.status === 'applied'
+        ? 'approved and applied'
+        : p.status === 'failed'
+          ? 'approved but FAILED'
+          : p.status === 'rejected'
+            ? 'discarded by the user, not run'
+            : p.status === 'invalid'
+              ? `rejected by validation (${p.validation.error}), not run`
+              : 'waiting for approval, NOT run';
+    parts.push(`[Proposed change — ${state}]`);
+  }
+  if (m.followup) parts.push(m.followup);
+  if (m.status === 'stopped') parts.push('[The user stopped this reply.]');
+  if (m.status === 'error' && m.error) parts.push(`[Error: ${m.error}]`);
+  return parts.join('\n\n').slice(0, 12_000);
 }
 
 // ── Mode config ────────────────────────────────────────────────────────────────
@@ -133,48 +230,48 @@ const MODES: {
   description: string;
   placeholder: string;
 }[] = [
-  {
-    id: 'ask',
-    label: 'Ask',
-    icon: MessageCircle,
-    description: 'Quick Q&A',
-    placeholder: 'Ask anything…',
-  },
-  {
-    id: 'plan',
-    label: 'Plan',
-    icon: ClipboardList,
-    description: 'Step-by-step planning',
-    placeholder: 'What do you want to plan?',
-  },
+  { id: 'ask', label: 'Ask', icon: MessageCircle, description: 'Quick Q&A', placeholder: 'Ask anything…' },
+  { id: 'plan', label: 'Plan', icon: ClipboardList, description: 'Step-by-step planning', placeholder: 'What do you want to plan?' },
   {
     id: 'agent',
     label: 'Agent',
     icon: Zap,
-    description: 'Runs SQL automatically',
-    placeholder: 'What should I analyze?',
+    description: 'Reads on its own, changes after your approval',
+    placeholder: 'What should I do or analyze?',
   },
 ];
 
-function getSuggestions(mode: AiMode, page?: string, hasTables?: boolean): string[] {
-  void page;
+function getSuggestions(mode: AiMode, hasProject: boolean): string[] {
   if (mode === 'ask') {
-    if (hasTables) {
-      return ['What tables exist?', 'How do I set up RLS?', 'When do I need indexes?'];
-    }
-    return ['What can basefyio do?', 'How do I connect to PostgreSQL?'];
+    return hasProject
+      ? ['What tables exist in this project?', 'How do I set up RLS?', 'When do I need indexes?']
+      : ['What can basefyio do?', 'How do I connect to PostgreSQL?'];
   }
   if (mode === 'plan') {
-    if (hasTables) {
-      return ['Draft a migration plan for my schema', 'Plan a soft-delete strategy'];
-    }
-    return ['Plan a new project schema', 'How should I design auth?'];
+    return hasProject
+      ? ['Draft a migration plan for my schema', 'Plan row level security for my tables']
+      : ['Plan a new project schema', 'How should I design auth?'];
   }
-  if (hasTables) {
-    return ['Analyze all tables and summarize', 'Find missing indexes'];
-  }
-  return ['Review my project and list recommendations', 'Run a database health check'];
+  return hasProject
+    ? ['Analyze all tables and summarize', 'Find missing indexes']
+    : ['Open a project to let the agent work on it'];
 }
+
+const PAGE_FROM_PATH: [RegExp, string][] = [
+  [/\/sql(\/|$)/, 'sql'],
+  [/\/tables(\/|$)/, 'tables'],
+  [/\/data(\/|$)/, 'data'],
+  [/\/database(\/|$)/, 'database'],
+  [/\/auth(\/|$)/, 'auth'],
+  [/\/storage(\/|$)/, 'storage'],
+  [/\/realtime(\/|$)/, 'realtime'],
+  [/\/flows(\/|$)/, 'flows'],
+  [/\/embeddings(\/|$)/, 'embeddings'],
+  [/\/api-explorer(\/|$)/, 'api-explorer'],
+  [/\/connect(\/|$)/, 'connect'],
+  [/\/logs(\/|$)/, 'logs'],
+  [/\/settings(\/|$)/, 'settings'],
+];
 
 // ── Main component ────────────────────────────────────────────────────────────
 export function AiAssistant() {
@@ -184,7 +281,7 @@ export function AiAssistant() {
   // ── Visibility ──────────────────────────────────────────────────────────
   const [open, setOpen] = useState<boolean>(() => {
     if (typeof window === 'undefined') return true;
-    return (localStorage.getItem('basefyio_ai_open') ?? 'true') === 'true';
+    return (storageGet('basefyio_ai_open') ?? 'true') === 'true';
   });
   const openRef = useRef(open);
   openRef.current = open;
@@ -192,71 +289,72 @@ export function AiAssistant() {
   // ── Resizable width ──────────────────────────────────────────────────────
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
     if (typeof window === 'undefined') return 380;
-    return parseInt(localStorage.getItem('basefyio_ai_width') || '380', 10);
+    return parseInt(storageGet('basefyio_ai_width') || '380', 10);
   });
   const isDragging = useRef(false);
   const dragStartX = useRef(0);
   const dragStartWidth = useRef(380);
+  const widthRef = useRef(sidebarWidth);
+  widthRef.current = sidebarWidth;
 
   const onDragStart = useCallback((e: React.MouseEvent) => {
     isDragging.current = true;
     dragStartX.current = e.clientX;
-    dragStartWidth.current = sidebarWidth;
+    dragStartWidth.current = widthRef.current;
     e.preventDefault();
-  }, [sidebarWidth]);
+  }, []);
 
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
       if (!isDragging.current) return;
       const delta = dragStartX.current - e.clientX;
-      const next = Math.min(Math.max(dragStartWidth.current + delta, 280), 760);
-      setSidebarWidth(next);
+      setSidebarWidth(Math.min(Math.max(dragStartWidth.current + delta, 280), 760));
     };
     const onUp = () => {
       if (isDragging.current) {
         isDragging.current = false;
-        localStorage.setItem('basefyio_ai_width', dragStartWidth.current.toString());
+        storageSet('basefyio_ai_width', widthRef.current.toString());
       }
     };
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
-    return () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+    return () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
   }, []);
 
-  // ── Storage key: per user + per team ─────────────────────────────────────
-  // e.g. "basefyio_ai_sessions_abc123_team456"
-  // null means we don't have user/team info yet — sessions are not persisted.
-  const storageKey = profile?.id && activeTeamId
-    ? `basefyio_ai_sessions_${profile.id}_${activeTeamId}`
-    : null;
-
-  // Track the previous key so we know when to reload sessions
-  const prevStorageKeyRef = useRef<string | null>(null);
+  // ── Storage keys: per user + per team ────────────────────────────────────
+  const userTeamKey = profile?.id && activeTeamId ? `${profile.id}_${activeTeamId}` : null;
+  const legacyKey = userTeamKey ? `basefyio_ai_sessions_${userTeamKey}` : null;
+  const activeKey = userTeamKey ? `basefyio_ai_active_${userTeamKey}` : null;
+  const loadedKeyRef = useRef<string | null>(null);
 
   // ── Sessions ─────────────────────────────────────────────────────────────
-  const initSession = (): ChatSession => ({ id: genId(), messages: [] });
-  const [sessions, setSessions] = useState<ChatSession[]>(() => [initSession()]);
+  const [sessions, setSessions] = useState<ChatSession[]>(() => [{ id: genId(), serverId: null, messages: [] }]);
   const [activeSessionId, setActiveSessionId] = useState<string>(() => sessions[0].id);
-  /** Turns already sent to the server, so a sync appends only what is new. */
+  const sessionsRef = useRef(sessions);
+  sessionsRef.current = sessions;
+  const activeSessionIdRef = useRef(activeSessionId);
+  activeSessionIdRef.current = activeSessionId;
+  /** Turns already on the server, per session key, so a sync appends only what is new. */
   const syncedCountRef = useRef<Record<string, number>>({});
+  /** A session is created on the server once, however many syncs ask for it. */
+  const creatingRef = useRef<Record<string, Promise<string | null>>>({});
 
   // Load this person's history from the server. It is keyed to them by their
-  // token, not by anything the browser supplies, so another account signing in
-  // on the same machine sees its own conversations and not these.
+  // token, so another account on the same machine sees its own conversations.
   useEffect(() => {
-    if (!storageKey || !activeTeamId) return;
-    if (storageKey === prevStorageKeyRef.current) return;
-    prevStorageKeyRef.current = storageKey;
+    if (!userTeamKey || !activeTeamId || !legacyKey) return;
+    if (loadedKeyRef.current === userTeamKey) return;
+    loadedKeyRef.current = userTeamKey;
 
     let cancelled = false;
     (async () => {
       try {
         let summaries = await api.aiChat.listSessions(activeTeamId);
-
-        // First sign-in after history moved server-side: carry up whatever the
-        // browser still holds, once, then forget it locally.
         if (summaries.length === 0) {
-          const legacy = readLegacySessions(storageKey);
+          const legacy = readLegacySessions(legacyKey);
           for (const s of legacy.slice(-10)) {
             const created = await api.aiChat.createSession(activeTeamId);
             await api.aiChat.appendMessages(
@@ -267,374 +365,565 @@ export function AiAssistant() {
           if (legacy.length) summaries = await api.aiChat.listSessions(activeTeamId);
         }
         try {
-          localStorage.removeItem(storageKey);
+          localStorage.removeItem(legacyKey);
         } catch {}
 
-        if (cancelled) return;
-        if (!summaries.length) {
-          const fresh = initSession();
-          setSessions([fresh]);
-          setActiveSessionId(fresh.id);
-          return;
-        }
-
-        // Oldest first, so the newest conversation ends up selected.
+        if (cancelled || !summaries.length) return;
+        // Oldest first, so the newest conversation sits at the end of the tab strip.
         const ordered = [...summaries].reverse();
-        const full = await Promise.all(ordered.map((s) => api.aiChat.getSession(s.id)));
+        const full = await Promise.all(ordered.map((s) => api.aiChat.getSession(s.id).catch(() => null)));
         if (cancelled) return;
-
-        const loaded: ChatSession[] = full.map((s) => ({
-          id: s.id,
-          messages: s.messages.map((m) => ({
-            id: m.id,
-            role: m.role as Message['role'],
-            content: m.content,
-          })) as Message[],
-        }));
+        const loaded: ChatSession[] = full
+          .filter((s): s is NonNullable<typeof s> => !!s)
+          .map((s) => ({ id: s.id, serverId: s.id, messages: linkOutcomes(s.messages.map(fromServer)) }));
+        if (!loaded.length) return;
         for (const s of loaded) syncedCountRef.current[s.id] = s.messages.length;
-        setSessions(loaded);
-        setActiveSessionId(loaded[loaded.length - 1].id);
+        // Keep a conversation started while history was loading.
+        setSessions((prev) => [...loaded, ...prev.filter((p) => p.messages.length > 0 && !p.serverId)]);
+        const remembered = activeKey ? storageGet(activeKey) : null;
+        setActiveSessionId((current) => {
+          const local = sessionsRef.current.find((s) => s.id === current);
+          if (local && local.messages.length > 0) return current;
+          return loaded.some((s) => s.id === remembered) ? (remembered as string) : loaded[loaded.length - 1].id;
+        });
       } catch {
-        // History is a convenience: if it cannot be fetched the assistant still
-        // answers, so start a blank conversation rather than blocking the panel.
-        if (!cancelled) {
-          const fresh = initSession();
-          setSessions([fresh]);
-          setActiveSessionId(fresh.id);
-        }
+        // History is a convenience: if it cannot be fetched the assistant still answers.
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [storageKey, activeTeamId]);
+  }, [userTeamKey, activeTeamId, legacyKey, activeKey]);
 
-  // Push new turns up as they appear. Only the tail is sent, so a long
-  // conversation is not re-uploaded on every keystroke.
+  useEffect(() => {
+    const s = sessions.find((x) => x.id === activeSessionId);
+    if (activeKey && s?.serverId) storageSet(activeKey, s.serverId);
+  }, [activeSessionId, sessions, activeKey]);
+
+  const ensureServerSession = useCallback(
+    (key: string): Promise<string | null> => {
+      const existing = sessionsRef.current.find((s) => s.id === key);
+      if (existing?.serverId) return Promise.resolve(existing.serverId);
+      if (!activeTeamId) return Promise.resolve(null);
+      if (!creatingRef.current[key]) {
+        creatingRef.current[key] = api.aiChat
+          .createSession(activeTeamId, pageContextRef.current.projectId)
+          .then((created) => {
+            setSessions((prev) => prev.map((s) => (s.id === key ? { ...s, serverId: created.id } : s)));
+            return created.id;
+          })
+          .catch(() => {
+            delete creatingRef.current[key];
+            return null;
+          });
+      }
+      return creatingRef.current[key];
+    },
+    // pageContextRef is a ref; activeTeamId is the only input that matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activeTeamId],
+  );
+
+  // Push finished turns up. A reply still streaming is held back until it ends,
+  // so the server never stores half an answer.
   useEffect(() => {
     if (!activeTeamId) return;
     const timer = setTimeout(() => {
       for (const s of sessions) {
+        const firstOpen = s.messages.findIndex((m) => m.status === 'streaming');
+        const stable = firstOpen === -1 ? s.messages : s.messages.slice(0, firstOpen);
         const already = syncedCountRef.current[s.id] ?? 0;
-        if (s.messages.length <= already) continue;
-        const pending = s.messages.slice(already).map((m) => ({ role: m.role, content: m.content }));
-        syncedCountRef.current[s.id] = s.messages.length;
-        api.aiChat
-          .appendMessages(s.id, pending)
-          .catch(() => {
-            // Let the next change retry from where this one left off.
+        if (stable.length <= already) continue;
+        const pending = stable.slice(already);
+        syncedCountRef.current[s.id] = stable.length;
+        void ensureServerSession(s.id).then((serverId) => {
+          if (!serverId) {
             syncedCountRef.current[s.id] = already;
-          });
+            return;
+          }
+          return api.aiChat
+            .appendMessages(
+              serverId,
+              pending.map((m) => ({ role: m.role, content: m.content || historyContent(m) || '(empty)', meta: toMeta(m) })),
+            )
+            .catch(() => {
+              // The next change retries from where this one left off.
+              syncedCountRef.current[s.id] = already;
+            });
+        });
       }
     }, 600);
     return () => clearTimeout(timer);
-  }, [sessions, activeTeamId]);
+  }, [sessions, activeTeamId, ensureServerSession]);
 
   const activeSession = sessions.find((s) => s.id === activeSessionId) ?? sessions[0];
   const messages = activeSession?.messages ?? [];
-  /** Only the latest user turn may use `sticky`; otherwise multiple stickies stack at top-0 and overlap. */
-  const latestUserMessageId = useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].role === 'user') return messages[i].id;
-    }
-    return null;
-  }, [messages]);
-  const messagesRef = useRef<Message[]>([]);
-  messagesRef.current = messages;
+  const visibleMessages = useMemo(() => messages.filter((m) => m.kind !== 'outcome'), [messages]);
 
-  const setMessages = useCallback((updater: (prev: Message[]) => Message[]) => {
-    setSessions((prev) =>
-      prev.map((s) =>
-        s.id === activeSessionId ? { ...s, messages: updater(s.messages) } : s,
-      ),
-    );
-  }, [activeSessionId]);
+  const updateSession = useCallback((sessionId: string, updater: (prev: Message[]) => Message[]) => {
+    setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, messages: updater(s.messages) } : s)));
+  }, []);
 
-  // A conversation is created on the server first, because its id is what the
-  // messages will be filed under. Creating one locally and syncing later would
-  // mean the first turns had nowhere to go.
-  const newChat = useCallback(async () => {
-    if (!activeTeamId) return;
-    try {
-      const created = await api.aiChat.createSession(activeTeamId);
-      syncedCountRef.current[created.id] = 0;
-      setSessions((prev) => [...prev, { id: created.id, messages: [] }]);
-      setActiveSessionId(created.id);
-    } catch {
-      // Offline or the call failed: open a local conversation so the panel
-      // still works. It syncs on the next successful create.
-      const id = genId();
-      setSessions((prev) => [...prev, { id, messages: [] }]);
-      setActiveSessionId(id);
-    }
-  }, [activeTeamId]);
+  const newChat = useCallback(() => {
+    const id = genId();
+    setSessions((prev) => [...prev, { id, serverId: null, messages: [] }]);
+    setActiveSessionId(id);
+  }, []);
 
   const closeSession = useCallback(
-    (id: string, e: React.MouseEvent) => {
+    async (id: string, e: React.MouseEvent) => {
       e.stopPropagation();
-      api.aiChat.deleteSession(id).catch(() => {});
+      const session = sessionsRef.current.find((s) => s.id === id);
+      if (session && session.messages.length > 0) {
+        const ok = await confirmDialog({
+          title: 'Delete this conversation?',
+          description: 'It is removed from your assistant history and cannot be restored.',
+          confirmText: 'Delete',
+          destructive: true,
+        });
+        if (!ok) return;
+      }
+      if (session?.serverId) api.aiChat.deleteSession(session.serverId).catch(() => {});
       delete syncedCountRef.current[id];
-      setSessions((prev) => {
-        if (prev.length === 1) return [{ id: genId(), messages: [] }];
-        const next = prev.filter((s) => s.id !== id);
-        if (activeSessionId === id) setActiveSessionId(next[next.length - 1].id);
-        return next;
-      });
+      const remaining = sessionsRef.current.filter((s) => s.id !== id);
+      const next = remaining.length ? remaining : [{ id: genId(), serverId: null, messages: [] }];
+      setSessions(next);
+      if (activeSessionIdRef.current === id || !remaining.length) setActiveSessionId(next[next.length - 1].id);
     },
-    [activeSessionId],
+    [],
   );
 
   // ── Mode ─────────────────────────────────────────────────────────────────
   const [mode, setMode] = useState<AiMode>(() => {
     if (typeof window === 'undefined') return 'ask';
-    return (localStorage.getItem('basefyio_ai_mode') as AiMode) ?? 'ask';
+    const saved = storageGet('basefyio_ai_mode');
+    return saved === 'plan' || saved === 'agent' ? saved : 'ask';
   });
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
   const [modeOpen, setModeOpen] = useState(false);
-  const modeRef = useRef<HTMLDivElement>(null);
+  const modeMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (modeRef.current && !modeRef.current.contains(e.target as Node)) setModeOpen(false);
+      if (modeMenuRef.current && !modeMenuRef.current.contains(e.target as Node)) setModeOpen(false);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const changeMode = (m: AiMode) => {
+  const changeMode = useCallback((m: AiMode) => {
     setMode(m);
-    localStorage.setItem('basefyio_ai_mode', m);
+    storageSet('basefyio_ai_mode', m);
     setModeOpen(false);
-  };
+  }, []);
 
-  // ── AI context ────────────────────────────────────────────────────────────
-  const [context, setContext] = useState<AiContext>({});
-  const [contextLoading, setContextLoading] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [agentStatus, setAgentStatus] = useState<string | null>(null);
-  const [runningSQL, setRunningSQL] = useState<string | null>(null);
-  const [input, setInput] = useState('');
+  // ── Page context ───────────────────────────────────────────────────────────
+  const [pageContext, setPageContext] = useState<PageContext>({});
+  const pageContextRef = useRef(pageContext);
+  pageContextRef.current = pageContext;
+  const projectNames = useRef<Record<string, string>>({});
+  const teamProjectsRef = useRef<{ id: string; name: string }[] | null>(null);
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-  const tabsRef = useRef<HTMLDivElement>(null);
-
-  // Page context
   useEffect(() => {
     if (!pathname) return;
     const projectMatch = pathname.match(/\/dashboard\/projects\/([^/]+)/);
     const projectId = projectMatch?.[1];
     if (projectId && projectId !== 'undefined') {
-      const subPage = pathname.includes('/sql') ? 'sql'
-        : pathname.includes('/tables') ? 'tables'
-        : pathname.includes('/auth') ? 'auth'
-        : pathname.includes('/storage') ? 'storage'
-        : pathname.includes('/connect') ? 'connect'
-        : pathname.includes('/logs') ? 'logs'
-        : 'project-detail';
-      setContext((p) => (p.projectId === projectId && p.page === subPage) ? p : { projectId, page: subPage });
-      Promise.all([
-        api.projects.get(projectId).catch(() => null),
-        api.projects.tables(projectId).catch(() => []),
-      ]).then(([project, tables]) =>
-        setContext((p) => ({ ...p, projectName: project?.name, tables: (tables as any[]).map((t: any) => t.name) })),
+      const page = PAGE_FROM_PATH.find(([re]) => re.test(pathname))?.[1] ?? 'project-detail';
+      setPageContext((p) =>
+        p.projectId === projectId && p.page === page ? p : { projectId, page, projectName: projectNames.current[projectId] },
       );
-    } else if (pathname === '/dashboard/projects') {
-      setContext({ page: 'projects' });
+      if (!projectNames.current[projectId]) {
+        api.projects
+          .get(projectId)
+          .then((project) => {
+            if (!project?.name) return;
+            projectNames.current[projectId] = project.name;
+            setPageContext((p) => (p.projectId === projectId ? { ...p, projectName: project.name } : p));
+          })
+          .catch(() => {});
+      }
     } else {
-      setContext({ page: 'dashboard' });
+      setPageContext({ page: pathname === '/dashboard/projects' ? 'projects' : 'dashboard' });
     }
   }, [pathname]);
 
-  useEffect(() => {
-    if (context.page === 'projects' && activeTeamId) {
-      api.projects.list(activeTeamId)
-        .then((ps) => setContext((p) => ({ ...p, allProjects: ps.map((x) => ({ id: x.id, name: x.name })) })))
-        .catch(() => {});
+  /** Outside a project, a message that names one of the team's projects is about that project. */
+  const projectForMessage = useCallback(
+    async (text: string): Promise<{ id?: string; name?: string }> => {
+      const ctx = pageContextRef.current;
+      if (ctx.projectId) return { id: ctx.projectId, name: ctx.projectName };
+      if (!activeTeamId) return {};
+      try {
+        if (!teamProjectsRef.current) {
+          const list = await api.projects.list(activeTeamId);
+          teamProjectsRef.current = list.map((p) => ({ id: p.id, name: p.name }));
+        }
+        const lower = text.toLowerCase();
+        const found = teamProjectsRef.current
+          .filter((p) => p.name.trim().length >= 2 && lower.includes(p.name.toLowerCase()))
+          .sort((a, b) => b.name.length - a.name.length)[0];
+        return found ? { id: found.id, name: found.name } : {};
+      } catch {
+        return {};
+      }
+    },
+    [activeTeamId],
+  );
+
+  // ── Sending ──────────────────────────────────────────────────────────────
+  const [streaming, setStreaming] = useState(false);
+  const streamingRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
+  const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [input, setInput] = useState<string>(() => {
+    if (typeof window === 'undefined') return '';
+    try {
+      return sessionStorage.getItem('basefyio_ai_draft') ?? '';
+    } catch {
+      return '';
     }
-  }, [context.page, activeTeamId]);
+  });
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('basefyio_ai_draft', input);
+    } catch {}
+  }, [input]);
+
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const stickToBottom = useRef(true);
+
+  const onScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  }, []);
 
   useEffect(() => {
-    if (open) setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
-  }, [messages, open, agentStatus]);
+    const el = scrollRef.current;
+    if (open && el && stickToBottom.current) el.scrollTop = el.scrollHeight;
+  }, [messages, open]);
 
   useEffect(() => {
     if (open) setTimeout(() => inputRef.current?.focus(), 150);
   }, [open, activeSessionId]);
 
-  // Smart project context from mention
-  const loadProjectContext = useCallback(async (text: string): Promise<AiContext> => {
-    if (context.projectId) return context;
-    const projects = context.allProjects ?? [];
-    const found = projects.find((p) => text.toLowerCase().includes(p.name.toLowerCase()));
-    if (!found) return context;
-    setContextLoading(true);
-    try {
-      const [project, tables] = await Promise.all([
-        api.projects.get(found.id).catch(() => null),
-        api.projects.tables(found.id).catch(() => []),
+  const sendMessage = useCallback(
+    async (text: string, opts?: { mode?: AiMode }) => {
+      const trimmed = text.trim();
+      if (!trimmed || streamingRef.current) return;
+      const sendMode = opts?.mode ?? modeRef.current;
+      const sessionId = activeSessionIdRef.current;
+      const session = sessionsRef.current.find((s) => s.id === sessionId);
+      const history = (session?.messages ?? [])
+        .filter((m) => m.status !== 'streaming')
+        .slice(-16)
+        .map((m) => ({ role: m.role, content: historyContent(m) }))
+        .filter((m) => m.content.trim());
+
+      const replyId = genId();
+      updateSession(sessionId, (p) => [
+        ...p,
+        { id: genId(), role: 'user', content: trimmed, mode: sendMode, status: 'done' },
+        { id: replyId, role: 'assistant', content: '', mode: sendMode, status: 'streaming', statusLabel: 'Reading your project…' },
       ]);
-      const loaded: AiContext = { ...context, projectId: found.id, projectName: project?.name ?? found.name, tables: (tables as any[]).map((t: any) => t.name) };
-      setContext(loaded);
-      return loaded;
-    } catch { return context; }
-    finally { setContextLoading(false); }
-  }, [context]);
+      setInput('');
+      stickToBottom.current = true;
 
-  // Agent loop
-  const runAgentLoop = useCallback(async (
-    userMessage: string,
-    ctx: AiContext,
-    history: { role: 'user' | 'assistant'; content: string }[],
-  ): Promise<{ content: string; agentSteps?: AgentStep[] }> => {
-    setAgentStatus('🔍 Generating queries…');
-    const { reply: planReply } = await api.ai.chat(userMessage, history, { ...ctx, mode: 'agent' });
-    const sqlBlocks = extractSQLBlocks(planReply).slice(0, 5);
-    if (sqlBlocks.length === 0 || !ctx.projectId) return { content: planReply };
+      const update = (fn: (m: Message) => Message) =>
+        updateSession(sessionId, (p) => p.map((m) => (m.id === replyId ? fn(m) : m)));
 
-    const agentSteps: AgentStep[] = [];
-    const summaries: string[] = [];
-    for (let i = 0; i < sqlBlocks.length; i++) {
-      const sql = sqlBlocks[i];
-      setAgentStatus(`⚡ Running SQL… (${i + 1}/${sqlBlocks.length})`);
+      const controller = new AbortController();
+      abortRef.current = controller;
+      streamingRef.current = true;
+      setStreaming(true);
       try {
-        const result = await api.sql.execute(ctx.projectId, sql);
-        const rows = result.rowCount ?? result.rows?.length ?? 0;
-        const preview = JSON.stringify(result.rows?.slice(0, 20) ?? []);
-        agentSteps.push({ sql, rows, preview });
-        summaries.push(`--- Query ${i + 1} ---\n${sql}\n\nResult (${rows} rows):\n${preview}`);
+        const project = await projectForMessage(trimmed);
+        await streamAiChat(
+          {
+            message: trimmed,
+            history,
+            context: { projectId: project.id, projectName: project.name, page: pageContextRef.current.page, mode: sendMode },
+          },
+          (e) => {
+            switch (e.event) {
+              case 'meta':
+                update((m) => ({ ...m, model: `${e.data.model}${e.data.source === 'project' ? ' · project key' : ''}` }));
+                break;
+              case 'status':
+                update((m) => ({ ...m, statusLabel: e.data.label }));
+                break;
+              case 'delta':
+                update((m) =>
+                  e.data.part === 'reply'
+                    ? { ...m, content: m.content + e.data.text }
+                    : { ...m, followup: (m.followup ?? '') + e.data.text },
+                );
+                break;
+              case 'query':
+                update((m) => ({ ...m, queries: [...(m.queries ?? []), e.data] }));
+                break;
+              case 'proposal':
+                update((m) => ({
+                  ...m,
+                  proposals: [...(m.proposals ?? []), { ...e.data, status: e.data.proposal ? 'pending' : 'invalid' }],
+                }));
+                break;
+              case 'done':
+                update((m) => ({ ...m, status: e.data.stopped ? 'stopped' : 'done', statusLabel: null }));
+                break;
+              case 'error':
+                update((m) => ({ ...m, status: 'error', error: e.data.message, statusLabel: null }));
+                break;
+            }
+          },
+          controller.signal,
+        );
+        update((m) => (m.status === 'streaming' ? { ...m, status: 'done', statusLabel: null } : m));
       } catch (err: any) {
-        agentSteps.push({ sql, rows: 0, error: err.message });
-        summaries.push(`--- Query ${i + 1} ---\n${sql}\n\nError: ${err.message}`);
-      }
-    }
-    setAgentStatus('📊 Analyzing results…');
-    const feedbackMsg = `I executed the SQL below. Answer the user's question ("${userMessage}") directly from these results, with numbers and analysis where helpful. Do not generate new SQL.\n\n${summaries.join('\n\n')}`;
-    const { reply: final } = await api.ai.chat(feedbackMsg,
-      [...history.slice(-6), { role: 'user', content: userMessage }, { role: 'assistant', content: planReply }],
-      { ...ctx, mode: 'agent' });
-    return { content: final, agentSteps };
-  }, []);
-
-  // Send
-  const sendMessage = useCallback(async (text: string) => {
-    const trimmed = text.trim();
-    if (!trimmed || loading) return;
-    const historyBefore = messagesRef.current.slice(-12).map((m) => ({ role: m.role, content: m.content }));
-    setMessages((p) => [...p, { id: genId(), role: 'user', content: trimmed, mode }]);
-    setInput('');
-    setLoading(true);
-    try {
-      const ctx = await loadProjectContext(trimmed);
-      const history = historyBefore;
-      if (mode === 'agent') {
-        const { content, agentSteps } = await runAgentLoop(trimmed, ctx, history);
-        setMessages((p) => [...p, { id: genId(), role: 'assistant', content, mode, agentSteps }]);
-        if (!openRef.current) {
-          dispatchbasefyioNotification({
-            type: 'ai',
-            title: 'AI replied',
-            message: 'New AI response is ready in assistant.',
-          });
+        if (controller.signal.aborted) {
+          update((m) => ({ ...m, status: 'stopped', statusLabel: null }));
+        } else {
+          update((m) => ({ ...m, status: 'error', statusLabel: null, error: err?.message ?? String(err) }));
         }
-      } else {
-        const { reply } = await api.ai.chat(trimmed, history, { ...ctx, mode });
-        setMessages((p) => [...p, { id: genId(), role: 'assistant', content: reply, mode }]);
+      } finally {
+        abortRef.current = null;
+        streamingRef.current = false;
+        setStreaming(false);
         if (!openRef.current) {
-          dispatchbasefyioNotification({
-            type: 'ai',
-            title: 'AI replied',
-            message: 'New AI response is ready in assistant.',
-          });
+          dispatchbasefyioNotification({ type: 'ai', title: 'AI replied', message: 'A new reply is ready in the assistant.' });
         }
       }
-    } catch (err: any) {
-      toast.error('AI error: ' + err.message);
-    } finally { setLoading(false); setAgentStatus(null); }
-  }, [loading, loadProjectContext, mode, runAgentLoop, setMessages]);
+    },
+    [projectForMessage, updateSession],
+  );
 
   const sendMessageRef = useRef(sendMessage);
   sendMessageRef.current = sendMessage;
 
+  const stop = useCallback(() => abortRef.current?.abort(), []);
+
+  // Messages sent from elsewhere in the dashboard (SQL editor errors, imports).
   useEffect(() => {
     const onKbAiSend = (e: Event) => {
       const detail = (e as CustomEvent<BasefyioAiSendDetail>).detail;
       const msg = detail?.message?.trim();
       if (!msg) return;
       setOpen(true);
-      localStorage.setItem('basefyio_ai_open', 'true');
+      storageSet('basefyio_ai_open', 'true');
       const m = detail.mode;
-      if (m === 'ask' || m === 'plan' || m === 'agent') {
-        setMode(m);
-        localStorage.setItem('basefyio_ai_mode', m);
-      }
-      const run = () => {
-        void sendMessageRef.current(msg);
-      };
-      if (typeof requestAnimationFrame === 'function') {
-        requestAnimationFrame(() => setTimeout(run, 0));
-      } else {
-        setTimeout(run, 0);
-      }
+      if (m === 'ask' || m === 'plan' || m === 'agent') changeMode(m);
+      const run = () => void sendMessageRef.current(msg, m ? { mode: m } : undefined);
+      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => setTimeout(run, 0));
+      else setTimeout(run, 0);
     };
     window.addEventListener(BASEFYIO_AI_SEND_EVENT, onKbAiSend as EventListener);
     return () => window.removeEventListener(BASEFYIO_AI_SEND_EVENT, onKbAiSend as EventListener);
-  }, []);
+  }, [changeMode]);
 
-  const runSQL = useCallback(async (sql: string) => {
-    if (!context.projectId) {
-      toast.error('Open a project to run SQL');
-      return;
-    }
-    setRunningSQL(sql);
-    try {
-      const result = await api.sql.execute(context.projectId, sql);
-      const rows = result.rowCount ?? 0;
-      toast.success(`Query finished — ${rows} row${rows === 1 ? '' : 's'}`);
-      const preview = result.rows?.length
-        ? `\`\`\`\n${JSON.stringify(result.rows.slice(0, 5), null, 2)}\n\`\`\``
-        : 'Query ran successfully.';
-      setMessages((p) => [
-        ...p,
-        { id: genId(), role: 'assistant', content: `**Result** (${rows} row${rows === 1 ? '' : 's'}):\n${preview}`, mode },
-      ]);
-    } catch (err: any) {
-      const errMsg = (err?.message ?? String(err)).trim();
-      const summary = errMsg.toLowerCase().startsWith('sql error')
-        ? errMsg
-        : `SQL error: ${errMsg}`;
-      toast.error(summary, {
-        duration: 20_000,
-        action: {
-          label: 'Send to chat',
-          onClick: () => {
-            dispatchbasefyioAiMessage({
-              message: buildSqlRunErrorPrompt(sql, errMsg),
-              mode: 'ask',
-            });
+  // ── SQL blocks: run reads, review changes ───────────────────────────────────
+  const runBlock = useCallback(
+    async (sql: string) => {
+      const projectId = pageContextRef.current.projectId;
+      if (!projectId) {
+        toast.error('Open a project to run SQL');
+        return;
+      }
+      const sessionId = activeSessionIdRef.current;
+      setBusyAction(sql);
+      try {
+        if (looksReadOnly(sql)) {
+          try {
+            const { results } = await api.ai.runSql(projectId, sql);
+            updateSession(sessionId, (p) => [
+              ...p,
+              {
+                id: genId(),
+                role: 'assistant',
+                kind: 'result',
+                status: 'done',
+                content: `Ran the query read-only: ${results.map((r) => (r.ok ? resultLabel(r) : 'failed')).join(', ')}.`,
+                queries: [{ index: 0, sql, results }],
+              },
+            ]);
+            return;
+          } catch (err: any) {
+            if (err?.status !== 422) throw err;
+          }
+        }
+        const event = await api.ai.propose(projectId, sql);
+        updateSession(sessionId, (p) => [
+          ...p,
+          {
+            id: genId(),
+            role: 'assistant',
+            kind: 'proposal',
+            status: 'done',
+            content: event.proposal
+              ? 'This SQL changes your database. Review it below; it runs only if you approve.'
+              : 'This SQL was checked against your database and failed, so it cannot be run as written.',
+            proposals: [{ ...event, status: event.proposal ? 'pending' : 'invalid' }],
           },
-        },
-      });
-    }
-    finally { setRunningSQL(null); }
-  }, [context.projectId, mode, setMessages]);
+        ]);
+      } catch (err: any) {
+        const message = (err?.message ?? String(err)).trim();
+        toast.error(message, {
+          duration: 20_000,
+          action: { label: 'Ask to fix', onClick: () => void sendMessageRef.current(buildSqlRunErrorPrompt(sql, message), { mode: 'ask' }) },
+        });
+      } finally {
+        setBusyAction(null);
+      }
+    },
+    [updateSession],
+  );
+
+  const setProposal = useCallback(
+    (sessionId: string, messageId: string, proposalId: string, patch: Partial<ProposalState>) => {
+      updateSession(sessionId, (p) =>
+        p.map((m) =>
+          m.id === messageId
+            ? { ...m, proposals: m.proposals?.map((x) => (x.proposal?.id === proposalId ? { ...x, ...patch } : x)) }
+            : m,
+        ),
+      );
+    },
+    [updateSession],
+  );
+
+  const approve = useCallback(
+    async (messageId: string, proposal: ProposalState) => {
+      if (!proposal.proposal) return;
+      const sessionId = activeSessionIdRef.current;
+      const id = proposal.proposal.id;
+      const warnings = proposal.statements.filter((s) => s.destructive);
+      if (warnings.length) {
+        const ok = await confirmDialog({
+          title: 'Run a destructive change?',
+          description: (
+            <span className="block space-y-1">
+              {warnings.map((w, i) => (
+                <span key={i} className="block">
+                  <strong>{w.command}</strong>: {w.warning}
+                </span>
+              ))}
+              <span className="block pt-1">This cannot be undone from here. Make sure you have a backup if the data matters.</span>
+            </span>
+          ),
+          confirmText: 'Run it',
+          destructive: true,
+        });
+        if (!ok) return;
+      }
+      setBusyAction(id);
+      setProposal(sessionId, messageId, id, { status: 'approving' });
+      try {
+        const outcome = await api.ai.approve(id);
+        const status = outcome.failedIndex === null ? 'applied' : 'failed';
+        setProposal(sessionId, messageId, id, { status, outcome });
+        updateSession(sessionId, (p) => [
+          ...p,
+          {
+            id: genId(),
+            role: 'assistant',
+            kind: 'outcome',
+            outcomeFor: id,
+            status: 'done',
+            content: `[Result of the approved change, checked in the database]\n${outcome.summary}`,
+            proposals: [{ ...proposal, status, outcome }],
+          },
+        ]);
+        if (status === 'applied' && outcome.ok) toast.success('Change applied and verified');
+        else if (status === 'applied') toast.warning('Change ran, but a check did not match — see details');
+        else toast.error('The change failed; nothing was kept');
+      } catch (err: any) {
+        if (err?.status === 410 || err?.status === 404) {
+          setProposal(sessionId, messageId, id, { status: 'expired', message: err.message });
+        } else {
+          setProposal(sessionId, messageId, id, { status: 'pending' });
+          toast.error(err?.message ?? 'Could not run the change');
+        }
+      } finally {
+        setBusyAction(null);
+      }
+    },
+    [setProposal, updateSession],
+  );
+
+  const reject = useCallback(
+    async (messageId: string, proposal: ProposalState) => {
+      if (!proposal.proposal) return;
+      const sessionId = activeSessionIdRef.current;
+      const id = proposal.proposal.id;
+      setBusyAction(id);
+      try {
+        await api.ai.reject(id).catch((err) => {
+          if (err?.status !== 410 && err?.status !== 404) throw err;
+        });
+        setProposal(sessionId, messageId, id, { status: 'rejected' });
+        updateSession(sessionId, (p) => [
+          ...p,
+          {
+            id: genId(),
+            role: 'assistant',
+            kind: 'outcome',
+            outcomeFor: id,
+            status: 'done',
+            content: '[The user discarded the proposed change. Nothing was run.]',
+            proposals: [{ ...proposal, status: 'rejected' }],
+          },
+        ]);
+      } catch (err: any) {
+        toast.error(err?.message ?? 'Could not discard the change');
+      } finally {
+        setBusyAction(null);
+      }
+    },
+    [setProposal, updateSession],
+  );
+
+  const handToAgent = useCallback(() => {
+    changeMode('agent');
+    void sendMessage(
+      'Carry out the plan above step by step in this project. Run read-only checks first, then propose each change for my approval.',
+      { mode: 'agent' },
+    );
+  }, [changeMode, sendMessage]);
+
+  // ── Settings dialog ────────────────────────────────────────────────────────
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const currentMode = MODES.find((m) => m.id === mode)!;
-  const suggestions = getSuggestions(mode, context.page, (context.tables?.length ?? 0) > 0);
-  const hasProject = !!context.projectId;
+  const hasProject = !!pageContext.projectId;
+  const suggestions = getSuggestions(mode, hasProject);
+  const lastAssistantId = [...visibleMessages].reverse().find((m) => m.role === 'assistant')?.id;
 
   const toggle = () => {
-    setOpen((o) => { const n = !o; localStorage.setItem('basefyio_ai_open', n ? 'true' : 'false'); return n; });
+    setOpen((o) => {
+      const n = !o;
+      storageSet('basefyio_ai_open', n ? 'true' : 'false');
+      return n;
+    });
   };
 
   // ── Closed state ──────────────────────────────────────────────────────────
   if (!open) {
     return (
       <div className="w-10 shrink-0 border-l bg-card flex flex-col items-center py-5">
-        <button onClick={toggle} title="Open AI assistant"
-          className="flex flex-col items-center gap-2 rounded-lg p-2 hover:bg-accent transition-colors group">
-          <Sparkles className="h-4 w-4 text-primary group-hover:scale-110 transition-transform" />
-          <span className="text-[9px] font-semibold tracking-widest text-muted-foreground uppercase"
-            style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>AI</span>
+        <button
+          onClick={toggle}
+          title="Open AI assistant"
+          className="flex flex-col items-center gap-2 rounded-lg p-2 hover:bg-accent transition-colors group"
+        >
+          <Sparkles className={cn('h-4 w-4 text-primary group-hover:scale-110 transition-transform', streaming && 'animate-pulse')} />
+          <span
+            className="text-[9px] font-semibold tracking-widest text-muted-foreground uppercase"
+            style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
+          >
+            AI
+          </span>
         </button>
       </div>
     );
@@ -643,7 +932,6 @@ export function AiAssistant() {
   // ── Open state ────────────────────────────────────────────────────────────
   return (
     <div className="flex shrink-0" style={{ width: sidebarWidth }}>
-      {/* Drag-to-resize handle */}
       <div
         onMouseDown={onDragStart}
         className="w-1 shrink-0 cursor-col-resize hover:bg-primary/40 transition-colors group relative"
@@ -652,9 +940,7 @@ export function AiAssistant() {
         <div className="absolute inset-y-0 left-0 w-4 -translate-x-1.5" />
       </div>
 
-      {/* Sidebar body */}
       <div className="flex-1 border-l bg-card flex flex-col overflow-hidden min-w-0">
-
         {/* Header */}
         <div className="flex items-center gap-2.5 border-b px-3 py-2.5 shrink-0">
           <div className="flex h-6 w-6 items-center justify-center rounded-md bg-gradient-to-br from-blue-500 to-blue-700">
@@ -663,18 +949,25 @@ export function AiAssistant() {
           <div className="flex-1 min-w-0">
             <p className="text-xs font-semibold leading-tight truncate">
               basefyio AI
-              {context.projectName && (
-                <span className="ml-1.5 font-normal text-muted-foreground">· {context.projectName}</span>
+              {pageContext.projectName && (
+                <span className="ml-1.5 font-normal text-muted-foreground">· {pageContext.projectName}</span>
               )}
             </p>
           </div>
           <div className="flex items-center gap-0.5 shrink-0">
-            <button onClick={newChat} title="New chat"
-              className="rounded p-1 hover:bg-accent transition-colors text-muted-foreground">
+            {hasProject && (
+              <button
+                onClick={() => setSettingsOpen(true)}
+                title="Model and API key for this project"
+                className="rounded p-1 hover:bg-accent transition-colors text-muted-foreground"
+              >
+                <Settings2 className="h-3.5 w-3.5" />
+              </button>
+            )}
+            <button onClick={newChat} title="New chat" className="rounded p-1 hover:bg-accent transition-colors text-muted-foreground">
               <Plus className="h-3.5 w-3.5" />
             </button>
-            <button onClick={toggle} title="Collapse panel"
-              className="rounded p-1 hover:bg-accent transition-colors text-muted-foreground">
+            <button onClick={toggle} title="Collapse panel" className="rounded p-1 hover:bg-accent transition-colors text-muted-foreground">
               <ChevronRight className="h-3.5 w-3.5" />
             </button>
           </div>
@@ -682,46 +975,49 @@ export function AiAssistant() {
 
         {/* Session tabs */}
         <div
-          ref={tabsRef}
           className="flex items-center gap-0.5 border-b px-1 py-1 overflow-x-auto scrollbar-none shrink-0 bg-muted/40"
           style={{ scrollbarWidth: 'none' }}
         >
           {sessions.map((session) => {
             const active = session.id === activeSessionId;
-            const title = getSessionTitle(session);
             return (
-              <button
+              <div
                 key={session.id}
+                role="tab"
+                aria-selected={active}
+                tabIndex={0}
                 onClick={() => setActiveSessionId(session.id)}
-                className={`group flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium whitespace-nowrap transition-colors shrink-0 ${
-                  active
-                    ? 'bg-background text-foreground shadow-sm'
-                    : 'text-muted-foreground hover:bg-background/60 hover:text-foreground'
-                }`}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') setActiveSessionId(session.id);
+                }}
+                className={cn(
+                  'group flex cursor-pointer items-center gap-1 rounded px-2 py-1 text-[11px] font-medium whitespace-nowrap transition-colors shrink-0',
+                  active ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:bg-background/60 hover:text-foreground',
+                )}
               >
-                <span className="max-w-[100px] truncate">{title}</span>
-                <span
-                  onClick={(e) => closeSession(session.id, e)}
-                  className={`ml-0.5 rounded p-0.5 transition-colors ${
-                    active
-                      ? 'hover:bg-muted text-muted-foreground'
-                      : 'text-transparent group-hover:text-muted-foreground hover:bg-muted'
-                  }`}
+                <span className="max-w-[100px] truncate">{getSessionTitle(session)}</span>
+                <button
+                  type="button"
+                  title="Delete conversation"
+                  onClick={(e) => void closeSession(session.id, e)}
+                  className={cn(
+                    'ml-0.5 rounded p-0.5 transition-colors',
+                    active ? 'hover:bg-muted text-muted-foreground' : 'text-transparent group-hover:text-muted-foreground hover:bg-muted',
+                  )}
                 >
                   <X className="h-2.5 w-2.5" />
-                </span>
-              </button>
+                </button>
+              </div>
             );
           })}
-          <button onClick={newChat} title="New chat"
-            className="ml-0.5 shrink-0 rounded p-1 hover:bg-background/60 transition-colors text-muted-foreground">
+          <button onClick={newChat} title="New chat" className="ml-0.5 shrink-0 rounded p-1 hover:bg-background/60 transition-colors text-muted-foreground">
             <Plus className="h-3 w-3" />
           </button>
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-3 space-y-3 min-h-0">
-          {messages.length === 0 ? (
+        <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto p-3 space-y-3 min-h-0">
+          {visibleMessages.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full gap-4 px-2">
               <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-blue-700 shadow">
                 <currentMode.icon className="h-5 w-5 text-white" />
@@ -729,68 +1025,68 @@ export function AiAssistant() {
               <div className="text-center">
                 <p className="text-sm font-semibold">{currentMode.label} mode</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  {hasProject
-                    ? `"${context.projectName}" · ${currentMode.description}`
+                  {hasProject && pageContext.projectName
+                    ? `"${pageContext.projectName}" · ${currentMode.description}`
                     : currentMode.description}
                 </p>
               </div>
-              {/* Project hint */}
-              {context.page === 'projects' && !context.projectId && (context.allProjects?.length ?? 0) > 0 && (
+              {!hasProject && (
                 <div className="w-full rounded-lg border border-blue-200 bg-blue-50 dark:bg-blue-950/30 dark:border-blue-800 px-3 py-2 text-[11px] text-blue-700 dark:text-blue-300">
-                  💡 Mention a project by name to load its context — e.g.{' '}
-                  <em>&quot;{context.allProjects![0].name}&quot;</em>
+                  Open a project, or mention one by name, and the assistant reads its schema.
                 </div>
               )}
               <div className="w-full space-y-1.5">
                 {suggestions.map((s) => (
-                  <button key={s} onClick={() => sendMessage(s)}
-                    className="w-full rounded-lg border bg-background px-3 py-2 text-left text-xs hover:bg-accent transition-colors text-foreground/80 hover:text-foreground">
+                  <button
+                    key={s}
+                    onClick={() => void sendMessage(s)}
+                    disabled={streaming || (mode === 'agent' && !hasProject)}
+                    className="w-full rounded-lg border bg-background px-3 py-2 text-left text-xs hover:bg-accent transition-colors text-foreground/80 hover:text-foreground disabled:opacity-60"
+                  >
                     {s}
                   </button>
                 ))}
               </div>
             </div>
           ) : (
-            messages.map((msg) => (
-              <MessageBubble
-                key={msg.id}
-                message={msg}
-                stickUserBubble={msg.role === 'user' && msg.id === latestUserMessageId}
-                canRunSQL={hasProject && msg.mode !== 'agent'}
-                runningSQL={runningSQL}
-                onRunSQL={runSQL}
-                onResend={sendMessage}
-              />
-            ))
+            visibleMessages.map((msg) =>
+              msg.role === 'user' ? (
+                <UserBubble key={msg.id} message={msg} onResend={(t) => void sendMessage(t)} disabled={streaming} />
+              ) : (
+                <AssistantMessage
+                  key={msg.id}
+                  message={msg}
+                  canRunSql={hasProject && msg.mode !== 'agent' && msg.kind !== 'proposal'}
+                  busyAction={busyAction}
+                  streaming={streaming}
+                  isLast={msg.id === lastAssistantId}
+                  onRunSql={(sql) => void runBlock(sql)}
+                  onApprove={(p) => void approve(msg.id, p)}
+                  onReject={(p) => void reject(msg.id, p)}
+                  onHandToAgent={hasProject ? handToAgent : undefined}
+                  onRetry={() => {
+                    const idx = messages.findIndex((m) => m.id === msg.id);
+                    const prevUser = [...messages.slice(0, idx)].reverse().find((m) => m.role === 'user');
+                    if (prevUser) void sendMessage(prevUser.content, { mode: msg.mode });
+                  }}
+                />
+              ),
+            )
           )}
-
-          {/* Loading */}
-          {(loading || contextLoading) && (
-            <div className="flex items-start gap-2">
-              <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-blue-700">
-                <Bot className="h-3.5 w-3.5 text-white" />
-              </div>
-              <div className="rounded-2xl rounded-tl-sm bg-muted px-3 py-2 flex items-center gap-2">
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground shrink-0" />
-                <span className="text-xs text-muted-foreground">
-                  {agentStatus ?? (contextLoading ? 'Loading project data…' : 'Preparing reply…')}
-                </span>
-              </div>
-            </div>
-          )}
-          <div ref={messagesEndRef} />
         </div>
 
         {/* Input area */}
         <div className="border-t p-2.5 shrink-0 space-y-2">
-          {/* Textarea */}
           <div className="rounded-xl border bg-background focus-within:ring-1 focus-within:ring-primary/40">
             <textarea
               ref={inputRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(input); }
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  if (!streaming) void sendMessage(input);
+                }
               }}
               placeholder={currentMode.placeholder}
               rows={2}
@@ -798,17 +1094,18 @@ export function AiAssistant() {
               style={{ fieldSizing: 'content' } as React.CSSProperties}
             />
 
-            {/* Toolbar row */}
             <div className="flex items-center justify-between px-2 pb-2">
-              {/* Mode selector */}
-              <div ref={modeRef} className="relative">
+              <div ref={modeMenuRef} className="relative">
                 <button
                   onClick={() => setModeOpen((o) => !o)}
-                  className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors hover:bg-accent ${
-                    mode === 'ask' ? 'border-blue-200 text-blue-600 bg-blue-50 dark:bg-blue-950/30 dark:border-blue-800 dark:text-blue-400'
-                    : mode === 'plan' ? 'border-violet-200 text-violet-600 bg-violet-50 dark:bg-violet-950/30 dark:border-violet-800 dark:text-violet-400'
-                    : 'border-amber-200 text-amber-600 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 dark:text-amber-400'
-                  }`}
+                  className={cn(
+                    'flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors hover:bg-accent',
+                    mode === 'ask'
+                      ? 'border-blue-200 text-blue-600 bg-blue-50 dark:bg-blue-950/30 dark:border-blue-800 dark:text-blue-400'
+                      : mode === 'plan'
+                        ? 'border-violet-200 text-violet-600 bg-violet-50 dark:bg-violet-950/30 dark:border-violet-800 dark:text-violet-400'
+                        : 'border-amber-200 text-amber-600 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 dark:text-amber-400',
+                  )}
                 >
                   <currentMode.icon className="h-3 w-3" />
                   <span>{currentMode.label}</span>
@@ -816,16 +1113,22 @@ export function AiAssistant() {
                 </button>
 
                 {modeOpen && (
-                  <div className="absolute bottom-full left-0 mb-1.5 w-52 rounded-xl border bg-popover shadow-lg overflow-hidden z-50">
+                  <div className="absolute bottom-full left-0 mb-1.5 w-60 rounded-xl border bg-popover shadow-lg overflow-hidden z-50">
                     {MODES.map((m) => {
                       const Icon = m.icon;
                       const active = mode === m.id;
                       return (
-                        <button key={m.id} onClick={() => changeMode(m.id)}
-                          className={`flex w-full items-start gap-3 px-3 py-2.5 text-left transition-colors hover:bg-accent ${active ? 'bg-accent' : ''}`}>
-                          <Icon className={`h-4 w-4 mt-0.5 shrink-0 ${
-                            m.id === 'ask' ? 'text-blue-500' : m.id === 'plan' ? 'text-violet-500' : 'text-amber-500'
-                          }`} />
+                        <button
+                          key={m.id}
+                          onClick={() => changeMode(m.id)}
+                          className={cn('flex w-full items-start gap-3 px-3 py-2.5 text-left transition-colors hover:bg-accent', active && 'bg-accent')}
+                        >
+                          <Icon
+                            className={cn(
+                              'h-4 w-4 mt-0.5 shrink-0',
+                              m.id === 'ask' ? 'text-blue-500' : m.id === 'plan' ? 'text-violet-500' : 'text-amber-500',
+                            )}
+                          />
                           <div>
                             <p className="text-xs font-semibold">{m.label}</p>
                             <p className="text-[10px] text-muted-foreground mt-0.5">{m.description}</p>
@@ -838,267 +1141,277 @@ export function AiAssistant() {
                 )}
               </div>
 
-              {/* Right: clear + send */}
               <div className="flex items-center gap-1">
-                {messages.length > 0 && (
-                  <button onClick={() => setMessages(() => [])} title="Clear chat"
-                    className="rounded-md p-1.5 hover:bg-accent transition-colors text-muted-foreground">
+                {visibleMessages.length > 0 && !streaming && (
+                  <button onClick={newChat} title="Start a new chat" className="rounded-md p-1.5 hover:bg-accent transition-colors text-muted-foreground">
                     <RotateCcw className="h-3.5 w-3.5" />
                   </button>
                 )}
-                <button
-                  onClick={() => sendMessage(input)}
-                  disabled={!input.trim() || loading || contextLoading}
-                  className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary text-white disabled:opacity-40 hover:opacity-90 transition-opacity"
-                >
-                  <Send className="h-3.5 w-3.5" />
-                </button>
+                {streaming ? (
+                  <button
+                    onClick={stop}
+                    title="Stop"
+                    className="flex h-7 items-center gap-1 rounded-lg bg-foreground px-2 text-background hover:opacity-90 transition-opacity"
+                  >
+                    <Square className="h-3 w-3 fill-current" />
+                    <span className="text-[11px] font-medium">Stop</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => void sendMessage(input)}
+                    disabled={!input.trim()}
+                    title="Send"
+                    className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary text-white disabled:opacity-40 hover:opacity-90 transition-opacity"
+                  >
+                    <Send className="h-3.5 w-3.5" />
+                  </button>
+                )}
               </div>
             </div>
           </div>
 
-          {/* Agent hint */}
           {mode === 'agent' && hasProject && (
-            <p className="text-[10px] text-center text-amber-600/70 dark:text-amber-400/60">
-              ⚡ Agent mode runs generated SQL automatically against this project
+            <p className="flex items-center justify-center gap-1 text-[10px] text-center text-amber-700/80 dark:text-amber-400/70">
+              <ShieldCheck className="h-3 w-3" />
+              Agent runs read-only queries itself; every change waits for your approval.
             </p>
           )}
         </div>
       </div>
-    </div>
-  );
-}
 
-// ── Agent trace ────────────────────────────────────────────────────────────────
-function AgentTrace({ steps }: { steps: AgentStep[] }) {
-  const [expanded, setExpanded] = useState(false);
-  return (
-    <div className="rounded-lg border bg-background/60 text-xs overflow-hidden w-full">
-      <button onClick={() => setExpanded((e) => !e)}
-        className="flex w-full items-center gap-2 px-3 py-2 hover:bg-accent transition-colors">
-        <Zap className="h-3 w-3 text-amber-500 shrink-0" />
-        <span className="font-medium flex-1 text-left text-[11px]">
-          Agent ran — {steps.length} {steps.length === 1 ? 'query' : 'queries'}
-          {steps.some((s) => s.error) && <span className="ml-1 text-red-500">(errors)</span>}
-        </span>
-        {expanded
-          ? <ChevronUp className="h-3 w-3 text-muted-foreground" />
-          : <ChevronDown className="h-3 w-3 text-muted-foreground" />}
-      </button>
-      {expanded && (
-        <div className="border-t divide-y">
-          {steps.map((step, i) => (
-            <div key={i} className="px-3 py-2 space-y-1.5">
-              <div className="flex items-center gap-1.5">
-                {step.error
-                  ? <XCircle className="h-3 w-3 text-red-500 shrink-0" />
-                  : <CheckCircle2 className="h-3 w-3 text-green-500 shrink-0" />}
-                <span className={`text-[11px] font-medium ${step.error ? 'text-red-600' : 'text-green-700 dark:text-green-400'}`}>
-                  {step.error ? 'Error' : `${step.rows} row${step.rows === 1 ? '' : 's'} returned`}
-                </span>
-              </div>
-              <pre className="text-[10px] text-muted-foreground font-mono whitespace-pre-wrap break-words bg-muted rounded p-1.5 leading-relaxed">
-                {step.sql.length > 140 ? step.sql.slice(0, 140) + '…' : step.sql}
-              </pre>
-              {step.error && <p className="text-[10px] text-red-500">{step.error}</p>}
-              {!step.error && step.preview && step.preview !== '[]' && (
-                <pre className="text-[10px] text-muted-foreground font-mono whitespace-pre-wrap break-words max-h-20 overflow-y-auto bg-muted/50 rounded p-1">
-                  {step.preview.length > 400 ? step.preview.slice(0, 400) + '…' : step.preview}
-                </pre>
-              )}
-            </div>
-          ))}
-        </div>
+      {pageContext.projectId && (
+        <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Assistant model for this project</DialogTitle>
+              <DialogDescription>
+                Use your own OpenAI, Google Gemini or Anthropic Claude key for conversations about this project.
+              </DialogDescription>
+            </DialogHeader>
+            <AiModelSettings projectId={pageContext.projectId} bare />
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   );
 }
 
-// ── Message bubble ─────────────────────────────────────────────────────────────
+// ── User bubble ────────────────────────────────────────────────────────────────
+function UserBubble({
+  message,
+  onResend,
+  disabled,
+}: {
+  message: Message;
+  onResend: (text: string) => void;
+  disabled: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(message.content);
+  const isLong = message.content.length > 160 || message.content.split('\n').length > 3;
+
+  if (editing) {
+    return (
+      <div className="w-full rounded-xl border border-border/60 bg-card px-3.5 py-2.5 shadow-sm space-y-2">
+        <textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          rows={4}
+          className="w-full resize-y rounded-md border bg-background px-2 py-1.5 text-xs outline-none focus:ring-1 focus:ring-primary/40"
+        />
+        <div className="flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setEditing(false);
+              setDraft(message.content);
+            }}
+            className="text-[10px] text-muted-foreground hover:text-foreground"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => {
+              const next = draft.trim();
+              if (!next) return;
+              onResend(next);
+              setEditing(false);
+            }}
+            className="inline-flex items-center gap-1 rounded bg-primary px-2 py-1 text-[10px] font-medium text-white hover:opacity-90 disabled:opacity-50"
+          >
+            <Send className="h-3 w-3" />
+            Send again
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="group w-full rounded-xl border border-border/60 bg-card px-3.5 py-2.5 shadow-sm">
+      <p className={cn('text-xs text-foreground leading-relaxed whitespace-pre-wrap break-words', isLong && !expanded && 'line-clamp-3')}>
+        {message.content}
+      </p>
+      <div className="mt-1.5 flex items-center gap-2">
+        {isLong && (
+          <button type="button" onClick={() => setExpanded((v) => !v)} className="text-[10px] font-medium text-primary hover:underline">
+            {expanded ? 'Show less' : 'Show full'}
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => {
+            setDraft(message.content);
+            setEditing(true);
+          }}
+          className="inline-flex items-center gap-1 text-[10px] font-medium text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-foreground transition-opacity"
+        >
+          <Pencil className="h-3 w-3" />
+          Edit & resend
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Assistant message ─────────────────────────────────────────────────────────
 const MODE_BADGE: Record<AiMode, string> = {
   ask: 'bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-400',
   plan: 'bg-violet-100 text-violet-600 dark:bg-violet-900/40 dark:text-violet-400',
   agent: 'bg-amber-100 text-amber-600 dark:bg-amber-900/40 dark:text-amber-400',
 };
 
-function MessageBubble({
+function AssistantMessage({
   message,
-  stickUserBubble,
-  canRunSQL,
-  runningSQL,
-  onRunSQL,
-  onResend,
+  canRunSql,
+  busyAction,
+  streaming,
+  isLast,
+  onRunSql,
+  onApprove,
+  onReject,
+  onHandToAgent,
+  onRetry,
 }: {
   message: Message;
-  /** Only true for the most recent user message — avoids stacked stickies overlapping. */
-  stickUserBubble?: boolean;
-  canRunSQL: boolean;
-  runningSQL: string | null;
-  onRunSQL: (sql: string) => void;
-  onResend: (text: string) => Promise<void>;
+  canRunSql: boolean;
+  busyAction: string | null;
+  streaming: boolean;
+  isLast: boolean;
+  onRunSql: (sql: string) => void;
+  onApprove: (p: ProposalState) => void;
+  onReject: (p: ProposalState) => void;
+  onHandToAgent?: () => void;
+  onRetry: () => void;
 }) {
-  const isUser = message.role === 'user';
-  const parts = parseContent(message.content);
-  const [expanded, setExpanded] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(message.content);
-  const isLikelyLong = message.content.length > 120 || message.content.includes('\n');
-
-  // ── User message: optional sticky for latest prompt only (scroll long replies) ──
-  if (isUser) {
+  const live = message.status === 'streaming';
+  const renderCode = (code: string, lang: string, key: string, closed: boolean) => {
+    const isSql = ['sql', 'postgres', 'postgresql', 'pgsql', 'psql'].includes(lang);
+    const runnable = isSql && closed && canRunSql && !live && code.trim().length > 0;
+    const readOnly = runnable && looksReadOnly(code);
     return (
-      <div
-        className={cn(
-          'w-full rounded-xl border border-border/60 bg-card px-3.5 py-2.5 shadow-sm',
-          stickUserBubble && 'sticky top-0 z-10',
-        )}
-      >
-        {!editing ? (
-          <>
-            <p
-              className={cn(
-                'text-xs text-foreground leading-relaxed whitespace-pre-wrap break-words',
-                isLikelyLong && !expanded && 'line-clamp-2',
-              )}
-              title={message.content}
+      <CodeBlock
+        key={key}
+        code={code}
+        lang={lang}
+        action={
+          runnable ? (
+            <button
+              type="button"
+              onClick={() => onRunSql(code)}
+              disabled={busyAction === code || streaming}
+              title={readOnly ? 'Run this read-only query' : 'Check this change and ask for approval before it runs'}
+              className="flex items-center gap-1 rounded px-2 py-0.5 bg-primary/80 hover:bg-primary text-white transition-colors disabled:opacity-60"
             >
-              {message.content}
-            </p>
-            {isLikelyLong && (
-              <div className="mt-1.5 flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setExpanded((v) => !v)}
-                  className="text-[10px] font-medium text-primary hover:underline"
-                >
-                  {expanded ? 'Show less' : 'Show full'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDraft(message.content);
-                    setEditing(true);
-                    setExpanded(true);
-                  }}
-                  className="inline-flex items-center gap-1 text-[10px] font-medium text-muted-foreground hover:text-foreground"
-                >
-                  <Pencil className="h-3 w-3" />
-                  Edit & resend
-                </button>
-              </div>
-            )}
-          </>
-        ) : (
-          <div className="space-y-2">
-            <textarea
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              rows={4}
-              className="w-full resize-y rounded-md border bg-background px-2 py-1.5 text-xs outline-none focus:ring-1 focus:ring-primary/40"
-            />
-            <div className="flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setEditing(false);
-                  setDraft(message.content);
-                }}
-                className="text-[10px] text-muted-foreground hover:text-foreground"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const next = draft.trim();
-                  if (!next) return;
-                  void onResend(next);
-                  setEditing(false);
-                }}
-                className="inline-flex items-center gap-1 rounded bg-primary px-2 py-1 text-[10px] font-medium text-white hover:opacity-90"
-              >
-                <Send className="h-3 w-3" />
-                Send again
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
+              {busyAction === code ? <Loader2 className="h-3 w-3 animate-spin" /> : readOnly ? <Play className="h-3 w-3" /> : <ShieldCheck className="h-3 w-3" />}
+              <span className="text-[10px]">{readOnly ? 'Run' : 'Review & run'}</span>
+            </button>
+          ) : undefined
+        }
+      />
     );
-  }
+  };
 
-  // ── Assistant message ────────────────────────────────────────────────────
   return (
     <div className="flex items-start gap-2">
       <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-blue-700">
         <Bot className="h-3 w-3 text-white" />
       </div>
+      <div className="flex-1 min-w-0 space-y-2">
+        {(message.mode || message.model) && message.kind !== 'result' && message.kind !== 'proposal' && (
+          <div className="flex items-center gap-1.5">
+            {message.mode && (
+              <span className={cn('text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded', MODE_BADGE[message.mode])}>
+                {message.mode}
+              </span>
+            )}
+            {message.model && <span className="text-[9px] text-muted-foreground truncate">{message.model}</span>}
+          </div>
+        )}
 
-      <div className="flex-1 min-w-0 space-y-1.5 flex flex-col items-start">
-        {message.mode && (
-          <span className={`text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded ${MODE_BADGE[message.mode]}`}>
-            {message.mode}
-          </span>
+        {(message.content || live) && (
+          <div className="rounded-2xl rounded-tl-sm bg-muted px-3 py-2">
+            {message.content ? (
+              <Markdown text={message.content} renderCode={renderCode} />
+            ) : (
+              <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                {message.statusLabel ?? 'Preparing reply…'}
+              </span>
+            )}
+          </div>
         )}
-        {message.agentSteps && message.agentSteps.length > 0 && (
-          <AgentTrace steps={message.agentSteps} />
+
+        {message.queries?.map((q, i) => <QueryResults key={`q${i}`} sql={q.sql} results={q.results} />)}
+
+        {message.proposals?.map((p, i) => (
+          <ProposalCard
+            key={p.proposal?.id ?? `p${i}`}
+            proposal={p}
+            canAct={!busyAction}
+            onApprove={() => onApprove(p)}
+            onReject={() => onReject(p)}
+          />
+        ))}
+
+        {message.followup && (
+          <div className="rounded-2xl bg-muted px-3 py-2">
+            <Markdown text={message.followup} renderCode={renderCode} />
+          </div>
         )}
-        {parts.map((part, i) => {
-          if (part.type === 'text') {
-            if (!part.value.trim()) return null;
-            // Escape HTML first to prevent XSS from AI responses or injected content
-            const escaped = part.value
-              .replace(/&/g, '&amp;')
-              .replace(/</g, '&lt;')
-              .replace(/>/g, '&gt;')
-              .replace(/"/g, '&quot;');
-            const html = escaped
-              .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-              .replace(/`([^`]+)`/g, '<code class="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">$1</code>')
-              .replace(/\n/g, '<br>');
-            return (
-              <div key={i}
-                className="rounded-2xl rounded-tl-sm bg-muted px-3 py-2 text-xs leading-relaxed text-foreground"
-                dangerouslySetInnerHTML={{ __html: html }}
-              />
-            );
-          }
-          if (part.type === 'sql' || part.type === 'code') {
-            const isSql = part.type === 'sql';
-            const isRunning = runningSQL === part.value;
-            return (
-              <div key={i} className="w-full rounded-xl border bg-zinc-950 overflow-hidden text-xs">
-                <div className="flex items-center justify-between px-3 py-1.5 border-b border-white/10">
-                  <span className="text-zinc-400 font-mono uppercase tracking-wider text-[10px]">
-                    {isSql ? 'SQL' : part.lang}
-                  </span>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      onClick={() => {
-                        navigator.clipboard.writeText(part.value);
-                        toast.success('Copied');
-                      }}
-                      className="flex items-center gap-1 rounded px-1.5 py-0.5 text-zinc-400 hover:text-white hover:bg-white/10 transition-colors">
-                      <Copy className="h-3 w-3" />
-                      <span className="text-[10px]">Copy</span>
-                    </button>
-                    {isSql && canRunSQL && (
-                      <button onClick={() => onRunSQL(part.value)} disabled={isRunning}
-                        className="flex items-center gap-1 rounded px-2 py-0.5 bg-primary/80 hover:bg-primary text-white transition-colors disabled:opacity-60">
-                        {isRunning ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
-                        <span className="text-[10px]">{isRunning ? 'Running…' : 'Run'}</span>
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <pre className="p-3 overflow-x-auto text-zinc-200 font-mono leading-relaxed text-[11px] whitespace-pre-wrap break-words">
-                  {part.value}
-                </pre>
-              </div>
-            );
-          }
-          return null;
-        })}
+
+        {live && message.content && (
+          <p className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            {message.statusLabel ?? 'Writing…'}
+          </p>
+        )}
+        {message.status === 'stopped' && <p className="text-[10px] text-muted-foreground">Stopped.</p>}
+        {message.status === 'error' && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11px] text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-400">
+            <p className="break-words">{message.error}</p>
+            {isLast && (
+              <button type="button" onClick={onRetry} disabled={streaming} className="mt-1 font-medium underline underline-offset-2">
+                Try again
+              </button>
+            )}
+          </div>
+        )}
+
+        {message.mode === 'plan' && message.status === 'done' && isLast && onHandToAgent && message.content.includes('```') && (
+          <button
+            type="button"
+            onClick={onHandToAgent}
+            disabled={streaming}
+            className="flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-60 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300"
+          >
+            <Zap className="h-3 w-3" />
+            Carry out this plan with Agent
+          </button>
+        )}
       </div>
     </div>
   );

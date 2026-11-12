@@ -2,7 +2,13 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Pool } from 'pg';
 import { PrismaService } from '../../prisma/prisma.service';
-import { ProjectCostService } from '../billing/project-cost.service';
+import { ProjectCostService, toRevenueInput } from '../billing/project-cost.service';
+import {
+  RevenueState,
+  classifyRevenue,
+  monthlyRevenueUsd,
+  summarizeRecurringRevenue,
+} from '../billing/recurring-revenue';
 import type { CostLine, ProjectCostReport } from '../billing/project-cost.pricing';
 import { BucketInventory, PLATFORM_BUCKETS, StorageService } from '../storage/storage.service';
 import { DiskUsageService } from './disk-usage.service';
@@ -71,6 +77,10 @@ export interface ConsolePlanTeam {
   slug: string;
   ownerEmail: string | null;
   status: string;
+  /** Where the team stands for recurring revenue (see billing/recurring-revenue.ts). */
+  revenueState: RevenueState;
+  /** What the team adds to recurring revenue: 0 unless it is paying. */
+  monthlyRevenueUsd: number;
   projects: number;
   members: number;
   createdAt: string;
@@ -86,7 +96,10 @@ export interface ConsolePlanMix {
   displayName: string;
   priceMonthlyUsd: number;
   teams: number;
+  /** Teams counted in recurring revenue. */
   paying: number;
+  /** Their recurring revenue (after student discounts). */
+  revenueUsd: number;
   teamList: ConsolePlanTeam[];
 }
 
@@ -129,14 +142,22 @@ export class RootConsoleService {
       this.storage.getBucketInventory(),
       this.prisma.user.count(),
       this.prisma.user.count({ where: { createdAt: { gte: since30d } } }),
-      this.prisma.user.count({ where: { lastLoginAt: { gte: since30d } } }),
+      // Active = signed in, or used an existing session, in the last 30 days.
+      this.prisma.user.count({
+        where: { OR: [{ lastLoginAt: { gte: since30d } }, { lastSeenAt: { gte: since30d } }] },
+      }),
       this.prisma.team.count(),
-      this.prisma.project.groupBy({ by: ['status'], _count: { _all: true } }),
+      // Projects only: preview branches are counted separately below.
+      this.prisma.project.groupBy({ by: ['status'], where: { parentProjectId: null }, _count: { _all: true } }),
       this.prisma.subscription.findMany({
         select: {
           status: true,
           currentPeriodEnd: true,
           createdAt: true,
+          stripeCustomerId: true,
+          stripeSubscriptionId: true,
+          billingDayOfMonth: true,
+          studentDiscountPercent: true,
           plan: { select: { name: true, displayName: true, priceMonthly: true } },
           team: {
             select: {
@@ -144,6 +165,7 @@ export class RootConsoleService {
               name: true,
               slug: true,
               createdAt: true,
+              accountStatus: true,
               _count: { select: { projects: { where: { status: { not: 'DELETED' } } }, members: true } },
               members: {
                 where: { role: 'OWNER' },
@@ -176,11 +198,12 @@ export class RootConsoleService {
       ]),
     );
 
-    // Plan mix and recurring revenue across every team, not only those with projects.
+    // Plan mix and recurring revenue across every team, not only those with
+    // projects — classified by the same rules as the Costs and Stripe screens.
     const planMix = new Map<string, ConsolePlanMix>();
-    let mrrUsd = 0;
-    let payingTeams = 0;
-    for (const s of subscriptions) {
+    const revenueInputs = subscriptions.map((s) => toRevenueInput(s));
+    const revenue = summarizeRecurringRevenue(revenueInputs, now);
+    subscriptions.forEach((s, i) => {
       const price = s.plan.priceMonthly / 100;
       const entry = planMix.get(s.plan.name) ?? {
         name: s.plan.name,
@@ -188,16 +211,21 @@ export class RootConsoleService {
         priceMonthlyUsd: price,
         teams: 0,
         paying: 0,
+        revenueUsd: 0,
         teamList: [],
       };
       entry.teams += 1;
       const tc = teamCost.get(s.team.id);
+      const revenueState = classifyRevenue(revenueInputs[i], now);
+      const teamRevenueUsd = monthlyRevenueUsd(revenueInputs[i], now);
       entry.teamList.push({
         id: s.team.id,
         name: s.team.name,
         slug: s.team.slug,
         ownerEmail: s.team.members[0]?.user.email ?? null,
         status: s.status,
+        revenueState,
+        monthlyRevenueUsd: teamRevenueUsd,
         projects: s.team._count.projects,
         members: s.team._count.members,
         createdAt: s.team.createdAt.toISOString(),
@@ -206,13 +234,14 @@ export class RootConsoleService {
         projectedRawUsd: tc?.projectedRawUsd ?? 0,
         footprintBytes: tc?.footprintBytes ?? 0,
       });
-      if (price > 0 && (s.status === 'ACTIVE' || s.status === 'TRIALING' || s.status === 'PAST_DUE')) {
+      if (revenueState === 'paying') {
         entry.paying += 1;
-        payingTeams += 1;
-        mrrUsd += price;
+        entry.revenueUsd = round2((entry.revenueUsd ?? 0) + teamRevenueUsd);
       }
       planMix.set(s.plan.name, entry);
-    }
+    });
+    const mrrUsd = revenue.mrrUsd;
+    const payingTeams = revenue.payingTeams;
 
     const months: { month: string; signups: number; projects: number }[] = [];
     for (let i = 5; i >= 0; i--) {
@@ -227,6 +256,12 @@ export class RootConsoleService {
     projectRows.forEach((p) => bump(p.createdAt, 'projects'));
 
     const statusCount = (s: string) => projectsByStatus.find((r) => r.status === s)?._count._all ?? 0;
+    const [previewBranches, permanentlyDeletedLast30d] = await Promise.all([
+      this.prisma.project.count({ where: { parentProjectId: { not: null }, status: { not: 'DELETED' } } }),
+      this.prisma.projectDeletionRecord.count({
+        where: { kind: { in: ['permanent', 'purged'] }, isBranch: false, createdAt: { gte: since30d } },
+      }),
+    ]);
     const allProjects = report.teams.flatMap((t) =>
       t.projects.map((p) => ({ ...p, teamName: t.teamName, teamId: t.teamId })),
     );
@@ -258,6 +293,8 @@ export class RootConsoleService {
           paused: statusCount('PAUSED'),
           deactivated: statusCount('DEACTIVATED'),
           deleted: statusCount('DELETED'),
+          previewBranches,
+          permanentlyDeletedLast30d,
         },
       },
       money: {
@@ -268,6 +305,9 @@ export class RootConsoleService {
         marginVsBillUsd: round2(mrrUsd - report.summary.actualMonthlyBillUsd),
         recoveryRatio: report.summary.recoveryRatio,
         markup: report.config.markup,
+        paidPlanTeams: revenue.paidPlanTeams,
+        revenueByState: revenue.byState,
+        revenueDefinition: revenue.definition,
       },
       footprint: {
         dbBytes: Number(usageTotals._sum.dbSizeBytes ?? 0),
@@ -390,15 +430,6 @@ export class RootConsoleService {
     return { generatedAt: new Date().toISOString(), storageMeasuredAt: inventory?.measuredAt ?? null, projects };
   }
 
-  /** The per-project switch of the Supabase-compatible surfaces; see the controller. */
-  async setSupabaseCompat(projectId: string, enabled: boolean, actorId: string) {
-    const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { id: true, slug: true } });
-    if (!project) throw new NotFoundException('Project not found');
-    await this.prisma.project.update({ where: { id: projectId }, data: { supabaseCompat: enabled } });
-    this.logger.log(`Supabase-compatible API ${enabled ? 'enabled' : 'disabled'} for project ${project.slug} by ${actorId}`);
-    return { projectId, slug: project.slug, supabaseCompat: enabled };
-  }
-
   async getProject(projectId: string) {
     const project = await this.prisma.project.findUnique({
       where: { id: projectId },
@@ -449,6 +480,7 @@ export class RootConsoleService {
       this.tableSizes(project.dbName),
       this.usageHistory(project.id),
     ]);
+    const activity = await this.recentActivity(project.id);
 
     const sub = project.team.subscription;
     return {
@@ -456,6 +488,8 @@ export class RootConsoleService {
       project: {
         id: project.id,
         name: project.name,
+        // A trashed project's name carries an internal suffix; this is the name its owner gave it.
+        displayName: project.status === 'DELETED' ? project.name.replace(/(_\d+)?_deleted$/, '') : project.name,
         slug: project.slug,
         description: project.description,
         status: project.status,
@@ -509,7 +543,40 @@ export class RootConsoleService {
         tablesError: tables.error,
       },
       history,
+      activity,
     };
+  }
+
+  /**
+   * Who did what in the project, newest first — readable while the project
+   * sits in the trash, which is when a deletion gets reviewed.
+   */
+  private async recentActivity(projectId: string) {
+    const rows = await this.prisma.projectActivityLog.findMany({
+      where: { projectId },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+      select: { id: true, kind: true, title: true, detail: true, userId: true, createdAt: true },
+    });
+    const ids = [...new Set(rows.map((r) => r.userId).filter((v): v is string => !!v))];
+    const users = ids.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: ids } },
+          select: { id: true, email: true, firstName: true, lastName: true },
+        })
+      : [];
+    const name = new Map(
+      users.map((u) => [u.id, [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.email] as const),
+    );
+    return rows.map((r) => ({
+      id: r.id,
+      kind: r.kind,
+      title: r.title,
+      detail: r.detail,
+      actorUserId: r.userId,
+      actorName: r.userId ? name.get(r.userId) ?? r.userId : 'System or API key',
+      createdAt: r.createdAt.toISOString(),
+    }));
   }
 
   // ── Storage ──────────────────────────────────────────────

@@ -567,7 +567,12 @@ export class BackupOffsiteService implements OnModuleInit {
       enabled,
       encrypted: this.isEncrypting(),
       misconfigured: this.setup.kind === 'misconfigured',
-      reason: this.setup.kind === 'misconfigured' ? this.setup.reason : null,
+      // Customers see that copies are not running, not the server settings
+      // behind it; the exact cause (which variable) is in the API log.
+      reason:
+        this.setup.kind === 'misconfigured'
+          ? 'Off-site copies are switched on but not fully set up on this server yet. The platform operator needs to finish the configuration.'
+          : null,
       endpoint: this.setup.kind === 'enabled' ? this.setup.config.endPoint : null,
       bucket: this.setup.kind === 'enabled' ? this.setup.config.bucket : null,
       copies,

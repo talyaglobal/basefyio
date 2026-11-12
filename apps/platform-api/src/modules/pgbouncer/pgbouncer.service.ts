@@ -2,17 +2,23 @@ import { randomBytes } from 'crypto';
 import {
   Injectable,
   Logger,
+  OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Pool } from 'pg';
-import { access, chmod, rename, writeFile } from 'fs/promises';
-import { join } from 'path';
+import { access, chmod, readFile, rename, writeFile } from 'fs/promises';
+import { join, posix } from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+import { buildHbaFile, hasRestrictions, isHbaSafeName } from './pgbouncer-hba';
+import { ClientTrustBundle, checkCertificatePair, clientTrustBundle } from './pooler-tls';
 
 const execFileAsync = promisify(execFile);
+
+/** How often a configured certificate source is checked for a renewed certificate. */
+const TLS_SOURCE_REFRESH_MS = 6 * 60 * 60 * 1000;
 
 /** What the ini generator needs to know about an ACTIVE project. */
 export interface PoolerProject {
@@ -25,6 +31,8 @@ export interface PoolerProject {
   team?: {
     subscription?: { plan?: { maxDbConnections: number | null } | null } | null;
   } | null;
+  /** External access rules; only written when PGBOUNCER_NETWORK_RULES=enforce. */
+  dbAccessPolicy?: { requireTls: boolean; allowedCidrs: string[] } | null;
 }
 
 export type DbConnectionLimitSource = 'project' | 'plan' | 'platform' | 'none';
@@ -38,11 +46,15 @@ export type DbConnectionLimitSource = 'project' | 'plan' | 'platform' | 'none';
 const CLIENTS_PER_SERVER_CONNECTION = 10;
 
 @Injectable()
-export class PgBouncerService implements OnModuleInit {
+export class PgBouncerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(PgBouncerService.name);
   private readonly configDir: string;
   private readonly pgHost: string;
   private readonly pgPort: number;
+  /** Whether the last config written offered client TLS. */
+  private tlsAvailable = false;
+  private tlsSourceTimer: NodeJS.Timeout | null = null;
+  private tlsSourceWarned = '';
 
   constructor(
     private readonly prisma: PrismaService,
@@ -60,6 +72,16 @@ export class PgBouncerService implements OnModuleInit {
     } catch (err) {
       this.logger.warn(`PgBouncer config generation skipped: ${err}`);
     }
+    // A certificate source renews on its own schedule (the proxy's ACME
+    // client); pick the renewed pair up without waiting for a project change.
+    if (this.tlsSource()) {
+      this.tlsSourceTimer = setInterval(() => void this.refreshSourceCert(), TLS_SOURCE_REFRESH_MS);
+      this.tlsSourceTimer.unref?.();
+    }
+  }
+
+  onModuleDestroy() {
+    if (this.tlsSourceTimer) clearInterval(this.tlsSourceTimer);
   }
 
   async regenerateConfig(): Promise<void> {
@@ -77,6 +99,7 @@ export class PgBouncerService implements OnModuleInit {
             subscription: { select: { plan: { select: { maxDbConnections: true } } } },
           },
         },
+        dbAccessPolicy: { select: { requireTls: true, allowedCidrs: true } },
       },
     });
 
@@ -85,9 +108,11 @@ export class PgBouncerService implements OnModuleInit {
     // place — a missing cert with client_tls_* set would stop PgBouncer from
     // starting and take down DB access for every project.
     const tlsReady = await this.ensureTlsCert();
+    this.tlsAvailable = tlsReady;
 
     const dbClientLimits = await this.supportsDbClientLimits();
-    const iniContent = this.buildIni(projects, tlsReady, dbClientLimits);
+    const hbaFile = await this.writeHbaFile(projects, tlsReady);
+    const iniContent = this.buildIni(projects, tlsReady, dbClientLimits, hbaFile);
     const userlistContent = this.buildUserlist(projects);
 
     await this.writeAtomically(join(this.configDir, 'pgbouncer.ini'), iniContent);
@@ -117,10 +142,15 @@ export class PgBouncerService implements OnModuleInit {
     projects: PoolerProject[],
     tlsReady: boolean,
     dbClientLimits = false,
+    hbaFile: string | null = null,
   ): string {
     const dbEntries = projects
       .map((p) => this.databaseLine(p, dbClientLimits))
       .join('\n');
+
+    // Host-based rules only once a project actually has some; until then the
+    // pooler authenticates exactly as it always has.
+    const authLines = hbaFile ? `auth_type = hba\nauth_hba_file = ${hbaFile}` : 'auth_type = plain';
 
     // "allow" = opportunistic: clients may negotiate TLS, but plaintext
     // connections (existing customers, internal services) keep working.
@@ -137,7 +167,7 @@ ${dbEntries}
 [pgbouncer]
 listen_addr = 0.0.0.0
 listen_port = 6432
-auth_type = plain
+${authLines}
 auth_file = /etc/pgbouncer/userlist.txt
 pool_mode = transaction
 max_client_conn = ${this.intSetting('pgbouncer.maxClientConn', 1000)}
@@ -299,6 +329,10 @@ ${tlsLines}`;
     const certPath = join(this.configDir, 'server.crt');
     const keyPath = join(this.configDir, 'server.key');
 
+    // A certificate from a public authority, when one is configured and valid,
+    // takes the place of the self-signed one (see installSourceCert).
+    if ((await this.installSourceCert()) !== 'unavailable') return true;
+
     try {
       await access(certPath);
       await access(keyPath);
@@ -327,6 +361,155 @@ ${tlsLines}`;
       );
       return false;
     }
+  }
+
+  /**
+   * PGBOUNCER_TLS_CERT_SOURCE / PGBOUNCER_TLS_KEY_SOURCE: a certificate (full
+   * chain) and key from a public authority — the wildcard certificate the
+   * proxy obtains for `*.<domain>` — mounted into this container. Unset = the
+   * self-signed certificate, as before.
+   */
+  private tlsSource(): { cert: string; key: string } | null {
+    const cert = this.config.get<string>('PGBOUNCER_TLS_CERT_SOURCE')?.trim();
+    const key = this.config.get<string>('PGBOUNCER_TLS_KEY_SOURCE')?.trim();
+    return cert && key ? { cert, key } : null;
+  }
+
+  /**
+   * Copy the source certificate over the pooler's server certificate when it
+   * is valid and differs from what is installed. With a public certificate
+   * that names `*.<domain>`, clients can connect with sslmode=verify-full to
+   * db.<domain> and to every workspace address.
+   *
+   * Nothing is replaced unless the new pair parses, belongs together and is
+   * currently valid: a broken pair would cost every tenant TLS at the next
+   * reload. The self-signed pair is kept beside it once, so going back is a
+   * copy rather than a new certificate clients have never seen.
+   */
+  private async installSourceCert(): Promise<'installed' | 'unchanged' | 'unavailable'> {
+    const source = this.tlsSource();
+    if (!source) return 'unavailable';
+
+    let certPem: string;
+    let keyPem: string;
+    try {
+      [certPem, keyPem] = await Promise.all([readFile(source.cert, 'utf-8'), readFile(source.key, 'utf-8')]);
+    } catch (err: any) {
+      this.warnSourceOnce(`TLS certificate source unreadable (${source.cert}): ${err.message}`);
+      return 'unavailable';
+    }
+    const check = checkCertificatePair(certPem, keyPem);
+    if (!check.ok) {
+      this.warnSourceOnce(`TLS certificate source not used: ${check.reason}`);
+      return 'unavailable';
+    }
+
+    const certPath = join(this.configDir, 'server.crt');
+    const keyPath = join(this.configDir, 'server.key');
+    const [currentCert, currentKey] = await Promise.all([
+      readFile(certPath, 'utf-8').catch(() => null),
+      readFile(keyPath, 'utf-8').catch(() => null),
+    ]);
+    if (currentCert === certPem && currentKey === keyPem) return 'unchanged';
+
+    if (currentCert && currentKey && clientTrustBundle(currentCert)?.kind === 'self-signed') {
+      await this.keepOnce(join(this.configDir, 'server-selfsigned.crt'), currentCert);
+      await this.keepOnce(join(this.configDir, 'server-selfsigned.key'), currentKey);
+    }
+    await this.writeAtomically(keyPath, keyPem);
+    await this.writeAtomically(certPath, certPem);
+    // PgBouncer runs as another user on the shared volume (see ensureTlsCert).
+    await chmod(certPath, 0o644);
+    await chmod(keyPath, 0o644);
+    this.tlsSourceWarned = '';
+    this.logger.log(
+      `Installed CA-signed TLS certificate for PgBouncer (${check.leaf.subjectAltName ?? check.leaf.subject}, valid until ${check.leaf.validTo})`,
+    );
+    return 'installed';
+  }
+
+  /** Re-check the certificate source; reload the pooler only when a new pair went in. */
+  private async refreshSourceCert(): Promise<void> {
+    try {
+      if ((await this.installSourceCert()) === 'installed') await this.sendReload();
+    } catch (err: any) {
+      this.logger.warn(`TLS certificate refresh failed: ${err.message}`);
+    }
+  }
+
+  private async keepOnce(path: string, content: string): Promise<void> {
+    try {
+      await access(path);
+    } catch {
+      await writeFile(path, content, { encoding: 'utf-8', mode: 0o644 });
+    }
+  }
+
+  /** The same failure every six hours is one log line, not a stream of them. */
+  private warnSourceOnce(message: string): void {
+    if (this.tlsSourceWarned === message) return;
+    this.tlsSourceWarned = message;
+    this.logger.warn(message);
+  }
+
+  /** Whether the pooler offered client TLS when its config was last written. */
+  isTlsAvailable(): boolean {
+    return this.tlsAvailable;
+  }
+
+  /**
+   * The file a client passes as `sslrootcert` to verify the pooler: the
+   * self-signed certificate itself, or the public root (plus intermediates)
+   * a CA-signed one chains to. Null when the pooler has no certificate.
+   */
+  async clientTrustBundle(): Promise<ClientTrustBundle | null> {
+    try {
+      return clientTrustBundle(await readFile(join(this.configDir, 'server.crt'), 'utf-8'));
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * PGBOUNCER_NETWORK_RULES=enforce lets projects restrict external access
+   * (TLS required, address allow list) through the pooler's host-based
+   * authentication file. Off by default: an operator turns it on once the
+   * pooler is confirmed to see real client addresses, since an allow list
+   * judged against a proxy's address would lock every client out.
+   */
+  networkRulesEnforced(): boolean {
+    return String(this.config.get<string>('PGBOUNCER_NETWORK_RULES') ?? '').trim().toLowerCase() === 'enforce';
+  }
+
+  /**
+   * Write the HBA file when rules are enforced and at least one project has
+   * some; returns its path for the ini, or null to keep `auth_type = plain`.
+   */
+  private async writeHbaFile(projects: PoolerProject[], tlsReady: boolean): Promise<string | null> {
+    if (!this.networkRulesEnforced()) return null;
+    const rules = projects
+      .filter((p) => hasRestrictions(p.dbAccessPolicy))
+      .map((p) => ({
+        dbName: p.dbName,
+        requireTls: p.dbAccessPolicy?.requireTls === true,
+        allowedCidrs: p.dbAccessPolicy?.allowedCidrs ?? [],
+      }));
+    for (const r of rules) {
+      if (!isHbaSafeName(r.dbName)) {
+        this.logger.error(`Access rules for database "${r.dbName}" not written: the name cannot appear in pg_hba.conf unquoted`);
+      }
+    }
+    if (!rules.some((r) => isHbaSafeName(r.dbName))) return null;
+    if (!tlsReady && rules.some((r) => r.requireTls)) {
+      this.logger.error(
+        'PgBouncer has no TLS certificate, so databases that require TLS refuse every external connection until it is restored',
+      );
+    }
+    // The pooler reads this path inside its own container, where the shared
+    // volume is mounted at the same place.
+    const path = posix.join(this.configDir.replace(/\\/g, '/'), 'pg_hba.conf');
+    await this.writeAtomically(path, buildHbaFile(rules));
+    return path;
   }
 
   /**

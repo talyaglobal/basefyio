@@ -15,18 +15,7 @@ export function summarizeReconciliation(tables: TableReconciliation[]) {
   const matching = tables.filter(
     (t) => t.sourceRows != null && t.sourceCountMethod !== 'rest-planned' && !t.rowCountMismatch,
   ).length;
-  // Counted through the source's REST API and empty on both sides: under row-level
-  // security the API sees no rows of such a table, so "0 = 0" proves nothing.
-  const unverifiedEmpty = tables.filter(isUnverifiedEmpty).length;
-  return { total: tables.length, mismatched, keyless, counted, matching, unverifiedEmpty };
-}
-
-function isUnverifiedEmpty(t: TableReconciliation): boolean {
-  return (
-    (t.sourceCountMethod === 'rest' || t.sourceCountMethod === 'rest-planned') &&
-    t.sourceRows === 0 &&
-    (t.destinationRows ?? 0) === 0
-  );
+  return { total: tables.length, mismatched, keyless, counted, matching };
 }
 
 type RowKind = 'mismatch' | 'estimated' | 'uncounted' | 'match';
@@ -96,7 +85,7 @@ export function ImportReconciliationTable({
           compact ? 'max-h-64' : 'max-h-80',
         )}
       >
-        <table className={cn('w-full text-left text-xs', !compact && 'min-w-[32rem]')}>
+        <table className="w-full min-w-[32rem] text-left text-xs">
           <thead className="sticky top-0 bg-muted/60 text-[11px] uppercase tracking-wide text-muted-foreground backdrop-blur-sm">
             <tr>
               <th className="px-3 py-2 font-medium">Table</th>
@@ -111,9 +100,7 @@ export function ImportReconciliationTable({
             {visible.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-3 py-3 text-center text-muted-foreground">
-                  {summary.unverifiedEmpty > 0
-                    ? `No differences found, but ${summary.unverifiedEmpty} table(s) are empty as counted through the source's API, where row-level security can hide every row. Run Sync Changes with the source database password to count them directly.`
-                    : 'Every counted table matches the source.'}
+                  Every counted table matches the source.
                 </td>
               </tr>
             )}
@@ -202,7 +189,7 @@ export function ImportReconciliationTable({
       <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
         <span>
           {summary.counted > 0
-            ? `${summary.matching} of ${summary.counted} counted table(s) match the source${summary.unverifiedEmpty > 0 ? ` (${summary.unverifiedEmpty} only as empty through the API)` : ''}`
+            ? `${summary.matching} of ${summary.counted} counted table(s) match the source`
             : 'The source could not be counted'}
           {summary.keyless > 0 && (
             <>

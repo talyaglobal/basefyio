@@ -218,12 +218,16 @@ export function resolveComputeTier(
   return sorted.find((t) => t.name === rule.tier) ?? sorted[0];
 }
 
+/**
+ * Binary units, because every quantity here is computed in powers of 1024;
+ * a "GB" label on a figure of 1024³ bytes described a different unit.
+ */
 const fmtGb = (bytes: number) => {
   const gb = bytes / GB;
-  if (gb >= 100) return `${gb.toFixed(0)} GB`;
-  if (gb >= 1) return `${gb.toFixed(2)} GB`;
+  if (gb >= 100) return `${gb.toFixed(0)} GiB`;
+  if (gb >= 1) return `${gb.toFixed(2)} GiB`;
   const mb = bytes / 1024 ** 2;
-  return mb >= 1 ? `${mb.toFixed(0)} MB` : `${Math.round(bytes / 1024)} KB`;
+  return mb >= 1 ? `${mb.toFixed(0)} MiB` : `${Math.round(bytes / 1024)} KiB`;
 };
 
 const fmtCount = (n: number) => n.toLocaleString('en-US');

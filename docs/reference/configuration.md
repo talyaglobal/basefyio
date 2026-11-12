@@ -15,7 +15,7 @@ in the `${VAR}` placeholders of the compose file**. A variable that the compose 
 list is never seen by the API, however it is spelled in `.env`. Today that includes, among
 others, `STORAGE_DRIVER` and every `S3_*`, every `REALTIME_*`, `MFA_*`, `ANON_SIGNIN_*`,
 `PROVISION_*`, the PgBouncer pool globals (`PGBOUNCER_MAX_CLIENT_CONN` and friends),
-`CRON_LEADER_*`, `METRICS_TOKEN` and every `BACKUP_*` / `BRANCH_*` variable. The
+`CRON_LEADER_*`, `METRICS_TOKEN` (development file) and every `BACKUP_*` / `BRANCH_*` variable. The
 **Compose** column below says, per variable, whether `.env` takes effect.
 
 To pass more variables, add an override file. Two ways, pick one:
@@ -29,7 +29,7 @@ services:
     environment:
       METRICS_TOKEN: ${METRICS_TOKEN:-}
       STORAGE_DRIVER: ${STORAGE_DRIVER:-minio}
-      REALTIME_RLS_FILTER: ${REALTIME_RLS_FILTER:-jwt}
+      REALTIME_RLS_FILTER: ${REALTIME_RLS_FILTER:-all}
       # …one line per variable you set
 ```
 
@@ -110,9 +110,6 @@ are off unless set to exactly `true`.
 | `KEYCLOAK_ADMIN_USER` | `admin` | yes / yes (required) | Master-realm administrator the API uses to create a realm per project. Also the first dashboard login of a fresh install. |
 | `KEYCLOAK_ADMIN_PASSWORD` | `admin` | yes / yes (required) | Its password. |
 | `KEYCLOAK_ADMIN_CLIENT_ID` | `admin-cli` | fixed / fixed | Client used for that admin login. |
-| `KEYCLOAK_HEALTH_URL` | unset (`<KEYCLOAK_URL>/health/ready`) | yes / yes | Readiness URL the health check probes. Keycloak 25 and newer answer on the management port: `http://keycloak:9000/health/ready` (set by `deploy/compose/keycloak-26.yml`). |
-| `KEYCLOAK_REALM_SMTP` | `false` | yes / yes | `true` with `MAIL_TRANSPORT=smtp`: the API writes the SMTP server into every realm at start-up and into each new realm, so Keycloak's own mail (password reset and verification links of its login pages) can leave. |
-| `KEYCLOAK_IMAGE` | `quay.io/keycloak/keycloak:24.0` | compose / compose | Keycloak image; `scripts/install.sh` pins it per release (`deploy/components.env`). |
 | `KEYCLOAK_POST_LOGOUT_REDIRECT_URIS` | empty | no / no | Extra post-logout redirect URIs (comma- or space-separated) added to the dashboard's Keycloak client. |
 | `PLATFORM_KEYCLOAK_CLIENT_ID` | `kolaybase-platform` | no / no | Client id of the dashboard's OAuth client in the master realm; the API creates or updates it at start-up. Change it only on a fresh install — a new value creates a second client. (`.env.example` shows `basefyio-platform`; compose does not pass it, so the code default is what runs.) |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | empty | yes / yes | Google sign-in for the **dashboard** (configured as an identity provider in the master realm). Project end-user providers are set per project, not here. |
@@ -145,6 +142,7 @@ Behaviour is described in [storage-api.md](./storage-api.md).
 | `S3_PUBLIC_ENDPOINT` | empty | no / no | Host for public and presigned URLs when it differs from the endpoint (CDN, custom domain). |
 | `S3_BUCKET_POLICIES` | on | no / no | `false` on stores without `PutBucketPolicy` (R2): making a bucket public is then refused with a clear message. |
 | `STORAGE_MAX_UPLOAD_MB` | `500` | no / no | Ceiling of a single-request upload; the body is spooled to disk and streamed to the store. |
+| `STORAGE_PUBLIC_BUCKET_LISTING` | off | no / no | `on` lets anyone list a public bucket's keys at its base URL again (anonymous `s3:ListBucket`). Off, new public buckets get read-only access to named files and existing ones lose listing shortly after the API starts. |
 | `STORAGE_UPLOAD_TMP_DIR` | `<os tmp>/basefyio-uploads` | no / no | Disk spool for uploads in flight. |
 | `STORAGE_MAX_CONCURRENT_UPLOADS` | `8` | no / no | Uploads streaming to the store at once per API process; beyond it the API answers 503. |
 | `STORAGE_RESUMABLE_CHUNK_MB` | `8` | no / no | Default chunk size of a resumable upload (clamped to 5–64). |
@@ -160,28 +158,7 @@ Behaviour is described in [storage-api.md](./storage-api.md).
 
 | Variable | Default | Compose (dev / prod) | Purpose |
 |---|---|---|---|
-| `REDIS_URL` | `redis://localhost:6379` | fixed `redis://redis:6379` / fixed | Caches, rate-limit counters, realtime fan-out. |
-| `REDIS_QUEUE_URL` | = `REDIS_URL` | `redis://redis-queue:6379` / same | Durable state: BullMQ job queues, the scheduled-job lease, usage counters. The compose files run it as a second instance with `maxmemory-policy noeviction` and an append-only log, because the cache instance's `allkeys-lru` may evict exactly these keys under memory pressure. Unset = everything on `REDIS_URL`, as before. |
-| `TRUSTED_PROXY_HOPS` | `1` | `1` / `1` | Proxies between the client and the API (Traefik = 1; a load balancer in front of it = 2). Sets Express's `trust proxy`, which decides what `req.ip` means for rate limits, the sign-in audit and realtime connection keys. |
-| `SQL_QUERY_EMBEDDING` | `on` | `on` / `on` | `off` stops queueing an embedding job for every executed SQL statement (semantic search over past queries keeps what it already indexed). |
-| `IMPORT_STALE_AFTER_MS` | `1800000` | no / no | On boot, an import or export job still marked active after this long with no progress is failed as an orphan of a dead process; younger ones are left alone, since another replica may be running them. |
-| `REALTIME_FANOUT` | `redis` | no / no | `off` keeps realtime events (the customer data stream and the dashboard's own stream) inside each API process; with Redis they reach the connections every replica holds. |
-| `RELEASE_STAGE` | `beta` | `beta` / `beta` | Which stage the product is in. `beta` puts a small "beta" badge next to the mark in e-mails and invoices and reports `release.stage` on `GET /api/health`; `ga` removes it. Anything else counts as `beta`. The dashboard and the website read the same value as `NEXT_PUBLIC_RELEASE_STAGE`, **inlined at build time** — the deploy workflow passes it from `.env.production`, so the value must be there before the build, not only in the running container. |
-| `ORG_PERMISSIONS_ENFORCED` | `log` | `log` / `log` | How far the per-role permission flags (Organization → Roles) reach for the actions that ignored them before: creating, deleting, restoring and moving projects, viewing and managing billing. `off` keeps the old rules (owners and creators only); `log` lets the flags grant what they promise and only logs where they would deny (`Permission … would deny …` in the API log); `enforce` grants and denies. Run a week on `log`, read the log, then switch. Waking a deactivated project is never gated beyond membership. |
-| `PLATFORM_STATUS_ENABLED` | `false` | `false` / `false` | `true` runs the availability prober on the scheduler leader every 30 s (API, dashboard, auth, database endpoint, storage, realtime, from inside the platform) and the 5-minute roll-ups behind `GET /api/platform-status/public` and the console's Reliability page. Internal probing alone cannot see a dead host, so pair it with an external monitor. |
-| `PLATFORM_STATUS_PROBE_TOKEN` | unset | unset / set | Bearer token an external monitor presents to `POST /api/platform-status/samples`; unset means the endpoint answers 401 and only internal samples exist. |
-| `PLATFORM_DOMAIN` | `DOMAIN` | — | The public domain the probes target (`api.<domain>`, `app.<domain>`, `auth.<domain>`, `db.<domain>`, `storage.<domain>`). |
-| `PLATFORM_STATUS_CANARY_OWNER` | unset | unset / set | E-mail of a ROOT user. When set (and the prober is on), the canary project is created once at boot in that user's personal organization, so the keyed REST, database, storage and realtime probes have a target without anyone clicking in the console. |
-| `CAPACITY_SAMPLER_ENABLED` | `false` | `false` / `false` | `true` samples the host (`/host/proc`), the `kolaybase-*` containers, Postgres, the pooler, Redis and the tenancy counts every 60 s on the scheduler leader, keeps a minute row for 30 days and hourly means for good, and recomputes the capacity model every 5 minutes behind the console's Capacity page. |
-| `CAPACITY_BENCHMARK_TOKEN` | unset | unset / set | Bearer token a load-test runner presents to `POST /api/admin/capacity/benchmarks/results`; unset means 401. |
-| `ADMISSION_MODE` | `log` | `log` / `log` | Admission control for every request after authentication: a per-process in-flight gate with a bounded wait line (separate shares for dashboard and customer traffic) and a per-project token bucket in Redis sized by the plan (`Plan.features.api_rps` / `api_burst`, else free 50/100, pro 200/400, business 500/1000). `off` skips it; `log` counts every decision in `basefyio_admission_decisions_total` and logs a sample without rejecting; `enforce` answers `503 overloaded` or `429 rate_limited` with `Retry-After` and `RateLimit-*` headers. Run a week on `log` first. |
-| `ADMISSION_MAX_INFLIGHT` | `200` | `200` / `200` | Requests in flight per API process before new ones wait in line. |
-| `ADMISSION_MAX_WAITING` | `400` | `400` / `400` | How many may wait; beyond that a request is shed at once. |
-| `ADMISSION_MAX_WAIT_MS` | `1500` | `1500` / `1500` | The longest a request waits for a slot before it is shed. |
-| `ADMISSION_DASHBOARD_SHARE` | `30` | `30` / `30` | Per cent of the in-flight limit reserved for dashboard sessions (JWT), so customer traffic cannot lock the owner out of the console. |
-| `MESSAGE_BUS_URL` | unset | unset / `amqp://…@rabbitmq:5672` | The RabbitMQ connection the message bus uses (work queues with retries and dead-letter queues; WP-6 streams). Unset keeps the bus inert: producers answer that it is not configured, consumers stay idle, `GET /api/health` reports `checks.bus` as skipped. |
-| `RABBITMQ_USER` / `RABBITMQ_PASSWORD` | `basefyio` / `basefyio_bus` | set both | Credentials the `rabbitmq` compose service is created with; put the same pair in `MESSAGE_BUS_URL`. |
-| `BUS_CONSUMERS` | `all` | `all` / `all` | Which work queues this process consumes: `all`, `none` (a pure HTTP replica), or a comma-separated list of queue names. |
+| `REDIS_URL` | `redis://localhost:6379` | fixed `redis://redis:6379` / fixed | Job queues, caches, rate-limit counters, realtime fan-out, the scheduled-job lease. |
 
 ## PgBouncer and per-project pooling
 
@@ -222,7 +199,9 @@ pool global takes effect on the next API restart.
 | `DB_CRED_ENC_KEY` | unset | yes / yes | **Required to create projects.** Encrypts project database passwords (and second-factor secrets) at rest with AES-256-GCM: 32 random bytes as base64 or 64 hex characters (`openssl rand -base64 32`). Without it the API refuses to store a project credential. Losing it makes stored credentials unreadable; rotating it needs a re-encryption, not a swap. |
 | `SERVICE_KEY_PROJECT_BINDING` | refuse | no / yes | A service key aimed at another project is refused (403). `log` records the call and lets it through instead. |
 | `ANON_WRITE_BINDING` | refuse | no / yes | A bare anon key on a route that needs a signed-in user is refused. `log` records and allows it. |
-| `METRICS_TOKEN` | unset | no / no | Bearer token that unlocks `GET /api/metrics`; without it the route answers 401. See [health-and-metrics.md](../guides/health-and-metrics.md). |
+| `STORAGE_PRIVATE_BUCKET_ANON` | refuse | no / yes | The bare anon key on a private bucket (any object route, reads included) is refused with 403. `log` records and allows it, for measuring which apps depend on it before closing it. |
+| `METRICS_TOKEN` | unset | no / yes | Operator bearer token. Unlocks `GET /api/metrics` (401 without it) and the detailed `GET /api/health` body: the mail provider's error text and which replica and build answered. See [health-and-metrics.md](../guides/health-and-metrics.md). |
+| `HEALTH_PUBLIC_DETAIL` | `false` | no / yes | `true` serves the detailed `/api/health` body to every caller, as before 2026-10-22. Otherwise an anonymous caller gets `status` and `checks.email.state` only. |
 
 ## End-user authentication
 
@@ -241,7 +220,9 @@ Anonymous sign-in itself is switched on per project in the dashboard, not here. 
 | Variable | Default | Compose (dev / prod) | Purpose |
 |---|---|---|---|
 | `REALTIME_FANOUT` | `redis` | no / no | `redis` delivers events through Redis pub/sub to every API process; `off` keeps delivery process-local. |
-| `REALTIME_RLS_FILTER` | `jwt` | no / no | Row-level security on the stream: `jwt` filters subscribers that sent a user token, `all` filters anon subscribers too, `off` disables filtering. |
+| `REALTIME_RLS_FILTER` | `all` | no / yes | Row-level security on the stream: `all` checks every subscriber that is not the service key, anon subscribers included, under its own role; `jwt` (the behaviour before 2026-10-22) checks only subscribers that sent a user token and lets anon subscribers see every row; `off` disables filtering. |
+| `REALTIME_REPLAY_WINDOW_SEC` | `120` | no / no | How long recent events are kept for a reconnecting subscriber (`Last-Event-ID`). `0` turns replay off. |
+| `REALTIME_REPLAY_MAX_EVENTS` | `500` | no / no | Most events kept per project for replay. |
 | `REALTIME_RLS_META_TTL_MS` | `60000` | no / no | Cache lifetime of the per-table "RLS enabled + primary key" lookup. |
 | `REALTIME_PRESENCE_TTL_SEC` | `90` | no / no | A presence member expires this long after its last heartbeat (heartbeats every 25 s). |
 | `REALTIME_BROADCAST_MAX_BYTES` | `65536` | no / no | Largest broadcast payload. |
@@ -261,12 +242,6 @@ Details: [REALTIME_API.md](../REALTIME_API.md).
 | `RESEND_BASE_URL` | the provider's own (`https://api.resend.com`) | no / yes | API base of a provider that speaks the same HTTP contract; wins over the key-prefix rule. |
 | `RESEND_FROM_EMAIL` | `basefyio <noreply@basefyio.com>` | yes / yes | Sender. The value contains `<` and `>`: quote it in any file a shell will `source`. |
 | `RESEND_REPLY_TO` | `support@basefyio.com` | yes / yes | Reply-To header. |
-| `MAIL_TRANSPORT` | `resend` | yes / yes | How platform mail leaves: `resend` (the HTTP API above) or `smtp`. The startup probe and `/api/health` (`checks.email`) report either. |
-| `MAIL_FROM` | unset (`RESEND_FROM_EMAIL`) | yes / yes | Sender for SMTP, as `Name <address>` (quote it in env files). |
-| `SMTP_HOST`, `SMTP_PORT` | unset, `587` | yes / yes | SMTP server for `MAIL_TRANSPORT=smtp`; no host means mail is not configured. |
-| `SMTP_USER`, `SMTP_PASSWORD` | unset | yes / yes | Login; no user means no authentication. |
-| `SMTP_SECURE` | `starttls` | yes / yes | `starttls` (upgrade required, usually 587), `tls` (implicit, 465), `none` (plain text; a trusted relay only). |
-| `SMTP_TLS_REJECT_UNAUTHORIZED` | `true` | yes / yes | `false` accepts a self-signed server certificate. |
 | `FEEDBACK_NOTIFY_EMAILS` | `support@talyasmart.com` | no / no | Comma-separated recipients of new-feedback notifications. |
 | `BILLING_SUMMARY_RECIPIENT` | `support@talyasmart.com` | no / no | Recipient of the scheduled billing summary mail. |
 
@@ -292,24 +267,18 @@ The dashboard's Stripe publishable key is a build argument of the UI image — s
 | `DATA_ENGINE_MAX_DOC_KB` | `1024` | yes / yes | Largest document. |
 | `DATA_ENGINE_MAX_NESTING_DEPTH` | `8` | yes / yes | Deepest nesting. |
 | `DATA_ENGINE_MAX_ARRAY_ITEMS` | `1000` | yes / yes | Longest array. |
+| `DATA_ENGINE_SCHEMA_VALIDATION` | `enforce` | yes / yes | `off` stops checking entity documents against their declared fields on write (an escape hatch; the size, depth and array limits still apply). |
 
 The dev file starts the Couchbase `nosql` and `nosql-init` containers by default even though
 the provider defaults to `disabled`; start the stack with explicit service names to skip them.
 
 ## Embeddings and AI
 
-| Variable | Default | Dev / prod | Meaning |
-|---|---|---|---|
-| `AI_ENABLED` | `true` | yes / yes | `false` switches off every feature that sends data to a hosted model: the dashboard assistant, project agents, platform and per-project embeddings, SQL statement embedding, retrieval, recommendations and the marketing tools. Every hosted-model key reads as empty and every embedding provider refuses, so nothing reaches OpenAI, Anthropic, Cohere, fal.ai, ElevenLabs or a remote Ollama. |
-| `REST_SUPABASE_COMPAT` | `auto` | yes / yes | Whether `/api/rest/v1` answers PostgREST clients (supabase-js, postgrest-js) in their wire format. `auto` detects them by their headers, `off` gives every caller the basefyio envelope, `always` gives everyone the PostgREST format. |
-| `STORAGE_URL_SIGNING_SECRET` | unset | yes / yes | Key for the signed download and upload URLs of `/api/storage/v1`. Unset, each project signs with a key derived from its service key and a warning is logged. Changing it invalidates every signed URL already handed out. |
-| `STORAGE_SIGNED_URL_MAX_SECONDS` | `31536000` | yes / yes | Longest lifetime a signed storage URL may be given. |
-
 | Variable | Default | Compose (dev / prod) | Purpose |
 |---|---|---|---|
 | `OPENAI_API_KEY` | unset | yes / yes | Platform OpenAI key: embeddings with the default `openai` provider, and the agent runner. With the default provider and no key, platform embedding features are disabled (logged at start-up); a project may still store its own key. |
 | `EMBEDDING_ENABLED` | on | no / no | `false` disables all embedding and vector search without removing the module. |
-| `EMBEDDING_PROVIDER` | `openai` | yes / yes | Provider for the platform vector store: `openai`, `ollama` or `cohere`. |
+| `EMBEDDING_PROVIDER` | `openai` | yes / yes | Provider for the platform vector store: `openai`, `ollama`, `cohere` or `gemini`. |
 | `EMBEDDING_MODEL` | provider default (`text-embedding-3-small`, `nomic-embed-text`, `embed-v4.0`) | yes / yes | Model id at the provider. |
 | `EMBEDDING_BASE_URL` | provider default | yes / yes | Custom endpoint (an OpenAI-compatible gateway, a remote Ollama). |
 | `EMBEDDING_DIMENSIONS` | model default | yes / yes | Request-side output width for models that support it. Stores are `vector(1536)`: narrower vectors are zero-padded, wider models refused. |
@@ -323,6 +292,7 @@ the provider defaults to `disabled`; start the stack with explicit service names
 | `OLLAMA_BASE_URL` | unset (agent runner: `http://localhost:11434/v1`) | yes / yes | Ollama host; a trailing `/v1` is tolerated. |
 | `OLLAMA_API_KEY` | unset | yes / yes | Bearer token for an Ollama behind an authenticating proxy. |
 | `COHERE_API_KEY` | unset | yes / yes | Platform Cohere key. |
+| `GEMINI_API_KEY` | unset | yes / yes | Platform Google Gemini key for Gemini embeddings (`gemini-embedding-001`, requested at 1536 dimensions). |
 | `NEBIUS_API_BASE_URL` | unset | no / no | Base URL for agents configured with the `nebius-private` provider. |
 
 See [embeddings-api.md](./embeddings-api.md).
@@ -348,13 +318,16 @@ Off until a target is set. Records are forwarded by the API process that created
 | `AUDIT_BATCH_SIZE` | `100` | no / no | Records per webhook batch. |
 | `AUDIT_FLUSH_MS` | `2000` | no / no | Flush interval. |
 | `AUDIT_RETRIES` | `3` | no / no | Retries per batch (0–10). |
+| `AUDIT_HTTP_READS` | `writes` | no / no | What the `audit_logs` table keeps: `writes` stores every write, every failed request and every credential read (`/connect`, exports); routine successful reads are only forwarded. `all` stores every request. |
+| `STREAM_TICKET_SECRET` | derived from `DB_CRED_ENC_KEY` | no / no | Signing key for the single-use tickets a browser uses to open an event stream (`POST /api/auth/stream-ticket`). Every API replica needs the same value. |
+| `PROJECT_DETAIL_SECRETS` | `include` | no / no | Whether `GET /api/projects/:id` carries the database password and service key when the caller does not choose with `?secrets=omit` or `?secrets=include`. The dashboard always omits them. |
 
 ## Deployment and scale
 
 | Variable | Default | Compose (dev / prod) | Purpose |
 |---|---|---|---|
 | `GHCR_OWNER` | — | — / compose | Registry owner in the production image names `ghcr.io/<owner>/basefyio-*`. |
-| `IMAGE_TAG` | `latest` | yes / compose + yes | Tag of the `basefyio-api`, `basefyio-ui` and `basefyio-website` images in the prod file; also passed to the API, which reports it in `/api/health` and `/api/metrics` (`unknown` when unset). |
+| `IMAGE_TAG` | `latest` | — / compose + yes | Tag of the `basefyio-api`, `basefyio-ui` and `basefyio-website` images in the prod file; also passed to the API, which reports it in `/api/health` and `/api/metrics` (`unknown` when unset). |
 | `API_REPLICAS` | `1` | — / compose | Number of `platform-api` containers. Raise it only with `PGBOUNCER_ADMIN_PASSWORD` set and memory to spare. |
 | `API_DB_CONNECTION_LIMIT` | `20` | — / compose | Prisma pool per API replica (part of the derived `DATABASE_URL`); multiplies by the replica count. |
 | `CRON_LEADER_ELECTION` | on | no / no | One replica runs the scheduled jobs, chosen through a Redis lease. `false` = every process runs them. |
@@ -467,7 +440,7 @@ the dashboard's server routes.
 | `NEXT_PUBLIC_API_URL` | `http://localhost:4000` | no / yes (runtime only) | Initial API origin shown on the embeddings page before the API reports its own. |
 | `NEXT_PUBLIC_APP_URL` | `https://app.basefyio.com` | no / no | Canonical dashboard URL in page metadata, `robots.txt` and the sitemap. |
 | `NEXT_PUBLIC_SITE_URL` | `https://basefyio.com` | no / no | Website URL in page metadata. |
-| `NEXT_PUBLIC_DOCS_URL` | `https://docs.basefyio.com` | no / no | Origin of the documentation site the dashboard's Docs menu links to; it reads `<value>/api/docs-nav` for the page list. |
+| `NEXT_PUBLIC_DOCS_URL` | `https://basefyio.com` | no / no | Base of the dashboard's documentation links (`<value>/docs`). |
 | `NEXT_PUBLIC_BASEFYIO_REALTIME_DISABLE` | unset | no / no | `1` turns off the dashboard's live updates in the browser. |
 | `SEO_AUDIT_SITE_URL` | `https://basefyio.com` | no / no | Site the operator's SEO audit page checks. |
 
@@ -476,9 +449,6 @@ the dashboard's server routes.
 | Variable | Default | Compose (dev / prod) | Purpose |
 |---|---|---|---|
 | `NEXT_PUBLIC_SITE_URL` | build arg default `https://basefyio.com`; outside a production build `http://localhost:3002` | build arg + yes (`http://localhost:3002`) / no | Canonical URL for metadata, sitemap and Open Graph. |
-| `NEXT_PUBLIC_DOCS_URL` | `https://docs.<site host>` in a production build; unset on localhost (the docs stay under `/docs`) | no / no | Origin the docs are served from. The website's middleware maps `docs.<apex>` to the `/docs` pages and forwards `<apex>/docs/*` there permanently. |
-| `NEXT_PUBLIC_STATUS_URL` | `https://status.<site host>` in a production build; unset on localhost | no / no | Origin of the status page, mapped to `/status` the same way. |
-| `NEXT_PUBLIC_SUPPORT_EMAIL` | `support@talyasmart.com` | no / no | Address behind "Report a problem" on the status page. |
 | `NEXT_PUBLIC_GA_MEASUREMENT_ID` | `G-99MKTVXWZV` (basefyio's own property) | build arg / no | Google Analytics tag. Set it to an empty value at build time to leave the tag out of your build. |
 | `NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION` | unset | no / no | Search Console verification meta tag. |
 | `NEXT_PUBLIC_APP_URL` | `https://app.basefyio.com` | no / no | Dashboard link target (sign-up, sign-in). |
@@ -515,20 +485,3 @@ Source: `apps/platform-api/src/config/configuration.ts`, `apps/platform-api/src/
 `lib/basefyio-realtime.ts`, `Dockerfile`); `apps/website/src/lib/site-url.ts`,
 `apps/website/src/components/google-analytics.tsx`, `apps/website/Dockerfile`;
 `docker-compose.yml`, `docker-compose.prod.yml`, `.env.example`.
-
-## Self-hosting installer (scripts/install.sh)
-
-`scripts/install.sh` writes these into the env file; see `docs/SELF_HOSTING_OFFLINE.md`.
-
-| Variable | Meaning |
-|---|---|
-| `BASEFYIO_BASE` | `selfhost` (`docker-compose.yml`) or `prod` (`docker-compose.prod.yml`) |
-| `BASEFYIO_VERSION`, `BASEFYIO_PREVIOUS_VERSION`, `BASEFYIO_LAST_BACKUP` | the release running, the one before the last upgrade, and that upgrade's backup |
-| `BASEFYIO_IMAGES`, `BASEFYIO_BUNDLE` | `build`, `pull` or `bundle`, and the bundle path |
-| `BASEFYIO_KEYCLOAK` | `24`, `26` or `external` |
-| `BASEFYIO_DB_ADMIN_ROLE`, `POSTGRES_APP_ADMIN_USER`, `POSTGRES_APP_ADMIN_PASSWORD`, `POSTGRES_DIRECT_BIND`, `POSTGRES_DIRECT_PORT` | the direct Postgres role (`CREATEDB`, `CREATEROLE`, not a superuser) and where Postgres is published |
-| `BASEFYIO_PGBOUNCER_BIND` | `all`, `local` or `closed` |
-| `BASEFYIO_DOCSTORE` | `yes` or `no` (then `DATA_ENGINE_PROVIDER=postgres`) |
-| `BASEFYIO_AI`, `BASEFYIO_MAIL`, `BASEFYIO_OFFLINE`, `BASEFYIO_PIN_COMPONENTS` | AI on/off (`AI_ENABLED`), `resend`/`smtp` (`MAIL_TRANSPORT`), offline host, component pins |
-| `BASEFYIO_COMPOSE_FILES`, `BASEFYIO_PROJECT` | the overlays in use and the compose project name |
-| `POSTGRES_IMAGE`, `MINIO_IMAGE`, `PGBOUNCER_IMAGE`, `REDIS_IMAGE`, `RABBITMQ_IMAGE`, `MONGO_IMAGE`, `TRAEFIK_IMAGE`, `CURL_IMAGE`, `COUCHBASE_IMAGE`, `COUCHDB_IMAGE` | component images; each defaults in the compose files to the historical floating tag, and the installer pins them to `deploy/components.env` on a new installation |

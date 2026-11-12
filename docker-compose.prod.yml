@@ -2,7 +2,7 @@ services:
   # ── Reverse Proxy ───────────────────────────────────────
 
   traefik:
-    image: ${TRAEFIK_IMAGE:-traefik:v3.1}
+    image: traefik:v3.1
     restart: always
     command:
       - --log.level=INFO
@@ -113,7 +113,7 @@ services:
       retries: 5
 
   keycloak:
-    image: ${KEYCLOAK_IMAGE:-quay.io/keycloak/keycloak:24.0}
+    image: quay.io/keycloak/keycloak:24.0
     restart: always
     oom_score_adj: -900
     environment:
@@ -156,7 +156,7 @@ services:
       - traefik.http.services.keycloak.loadbalancer.server.port=8080
 
   redis:
-    image: ${REDIS_IMAGE:-redis:7-alpine}
+    image: redis:7-alpine
     restart: always
     oom_score_adj: -900
     command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --save 60 1000 --save 300 100
@@ -177,63 +177,8 @@ services:
       retries: 10
       start_period: 30s
 
-  # Durable state — BullMQ job queues, the scheduled-job lease, usage
-  # counters — on an instance that refuses writes rather than evicting them
-  # (`noeviction`), with an append-only log so a restart loses nothing. The
-  # cache instance above keeps `allkeys-lru`, which is right for caches and
-  # wrong for a queue.
-  redis-queue:
-    image: ${REDIS_IMAGE:-redis:7-alpine}
-    restart: always
-    oom_score_adj: -900
-    command: redis-server --maxmemory 192mb --maxmemory-policy noeviction --appendonly yes --appendfsync everysec
-    volumes:
-      - redis_queue_data:/data
-    networks:
-      - internal
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-        reservations:
-          memory: 64M
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-      start_period: 30s
-
-
-  # ── Message bus (WP-5): RabbitMQ 4 — quorum work queues, retry queues, DLQs; WP-6 streams ──
-  # Inert for the API until MESSAGE_BUS_URL is set. Management UI only on the internal network.
-  rabbitmq:
-    image: ${RABBITMQ_IMAGE:-rabbitmq:4.4-management-alpine}
-    restart: always
-    hostname: rabbitmq
-    environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-basefyio}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-basefyio_bus}
-      RABBITMQ_DEFAULT_VHOST: /
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
-    networks:
-      - internal
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-        reservations:
-          memory: 128M
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
-      interval: 15s
-      timeout: 10s
-      retries: 10
-      start_period: 60s
-
   minio:
-    image: ${MINIO_IMAGE:-minio/minio:latest}
+    image: minio/minio:latest
     restart: always
     oom_score_adj: -900
     environment:
@@ -266,7 +211,7 @@ services:
       - traefik.http.services.minio-console.loadbalancer.server.port=9001
 
   pgbouncer:
-    image: ${PGBOUNCER_IMAGE:-edoburu/pgbouncer:latest}
+    image: edoburu/pgbouncer:latest
     restart: always
     oom_score_adj: -900
     ports:
@@ -291,7 +236,7 @@ services:
   # CouchDB was retired 2026-06-12; its volume (couchdb_data) is preserved
   # on disk in case the old test entities are ever needed.
   mongodb:
-    image: ${MONGO_IMAGE:-mongo:7}
+    image: mongo:7
     restart: always
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${NOSQL_USERNAME}
@@ -334,9 +279,6 @@ services:
     # command keeps working.
     image: ghcr.io/${GHCR_OWNER}/basefyio-api:${IMAGE_TAG:-latest}
     restart: always
-    # The API drains on SIGTERM (readiness goes 503, requests in flight
-    # finish, hard exit after 25 s); give it that long before the kill.
-    stop_grace_period: 30s
     environment:
       PORT: 4000
       NODE_ENV: production
@@ -344,6 +286,11 @@ services:
       # Which build this container runs; reported by /api/health and /api/metrics
       # so replicas behind the proxy can be told apart.
       IMAGE_TAG: ${IMAGE_TAG:-latest}
+      # Operator token: unlocks /api/metrics and the detailed /api/health body
+      # (mail provider error, replica, build). Unset = metrics 401, health shows
+      # the verdict only. HEALTH_PUBLIC_DETAIL=true shows the detail to everyone.
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
+      HEALTH_PUBLIC_DETAIL: ${HEALTH_PUBLIC_DETAIL:-}
       # At-rest encryption key for project DB credentials (base64/hex 32 bytes).
       # Empty = passthrough (no encryption). Set in .env.production.
       DB_CRED_ENC_KEY: ${DB_CRED_ENC_KEY:-}
@@ -355,6 +302,13 @@ services:
       #                                 signed-in end user (storage writes).
       SERVICE_KEY_PROJECT_BINDING: ${SERVICE_KEY_PROJECT_BINDING:-}
       ANON_WRITE_BINDING: ${ANON_WRITE_BINDING:-}
+      #   STORAGE_PRIVATE_BUCKET_ANON — the bare anon key on a private bucket
+      #                                 (refused by default; "log" allows + logs).
+      #   REALTIME_RLS_FILTER         — who realtime checks against row-level
+      #                                 security (default "all"; "jwt" = the old
+      #                                 behaviour that skipped anon subscribers).
+      STORAGE_PRIVATE_BUCKET_ANON: ${STORAGE_PRIVATE_BUCKET_ANON:-}
+      REALTIME_RLS_FILTER: ${REALTIME_RLS_FILTER:-}
       # Distribution analytics (Management → Analytics). Stars/forks + npm work
       # without a token; clones/views/referrers need a GitHub PAT (repo scope).
       GITHUB_INSIGHTS_TOKEN: ${GITHUB_INSIGHTS_TOKEN:-}
@@ -404,56 +358,7 @@ services:
       RESEND_BASE_URL: ${RESEND_BASE_URL:-}
       RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-basefyio <noreply@basefyio.com>}
       RESEND_REPLY_TO: ${RESEND_REPLY_TO:-support@basefyio.com}
-      # Platform mail over SMTP instead of the HTTP API (MAIL_TRANSPORT=smtp), the
-      # AI master switch, and Keycloak 25+ health; all default to today's behaviour.
-      MAIL_TRANSPORT: ${MAIL_TRANSPORT:-resend}
-      MAIL_FROM: ${MAIL_FROM:-}
-      SMTP_HOST: ${SMTP_HOST:-}
-      SMTP_PORT: ${SMTP_PORT:-587}
-      SMTP_USER: ${SMTP_USER:-}
-      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      SMTP_SECURE: ${SMTP_SECURE:-starttls}
-      SMTP_TLS_REJECT_UNAUTHORIZED: ${SMTP_TLS_REJECT_UNAUTHORIZED:-true}
-      KEYCLOAK_REALM_SMTP: ${KEYCLOAK_REALM_SMTP:-false}
-      KEYCLOAK_HEALTH_URL: ${KEYCLOAK_HEALTH_URL:-}
-      AI_ENABLED: ${AI_ENABLED:-true}
-      # Supabase-compatible surfaces (REST dialect, storage facade signing).
-      # REST_SUPABASE_COMPAT=off turns the PostgREST dialect off (auto|off|always).
-      REST_SUPABASE_COMPAT: ${REST_SUPABASE_COMPAT:-auto}
-      STORAGE_URL_SIGNING_SECRET: ${STORAGE_URL_SIGNING_SECRET:-}
-      STORAGE_SIGNED_URL_MAX_SECONDS: ${STORAGE_SIGNED_URL_MAX_SECONDS:-}
       REDIS_URL: redis://redis:6379
-      # Durable state (job queues, the scheduled-job lease, usage counters)
-      # goes to the noeviction instance; unset it to keep everything on one.
-      REDIS_QUEUE_URL: ${REDIS_QUEUE_URL:-redis://redis-queue:6379}
-      # Proxies between the client and the API: Traefik alone is 1; a load
-      # balancer in front of it makes 2. Drives Express's `trust proxy`.
-      TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-1}
-      # `off` stops queueing an embedding job for every executed SQL statement.
-      SQL_QUERY_EMBEDDING: ${SQL_QUERY_EMBEDDING:-on}
-      # Which stage the product is in: "beta" puts the badge on e-mails and invoices and in /api/health.
-      RELEASE_STAGE: ${RELEASE_STAGE:-beta}
-      # How far the per-role permission flags reach: off | log (default; denials only logged) | enforce.
-      ORG_PERMISSIONS_ENFORCED: ${ORG_PERMISSIONS_ENFORCED:-log}
-      # Availability probes (leader only) and roll-ups; off = nothing runs, the status data stays empty.
-      PLATFORM_STATUS_ENABLED: ${PLATFORM_STATUS_ENABLED:-false}
-      PLATFORM_STATUS_PROBE_TOKEN: ${PLATFORM_STATUS_PROBE_TOKEN:-}
-      PLATFORM_DOMAIN: ${PLATFORM_DOMAIN:-${DOMAIN:-}}
-      PLATFORM_STATUS_CANARY_OWNER: ${PLATFORM_STATUS_CANARY_OWNER:-}
-      # Capacity sampler (leader only, every 60 s) and the token for uploaded benchmark results.
-      CAPACITY_SAMPLER_ENABLED: ${CAPACITY_SAMPLER_ENABLED:-false}
-      CAPACITY_BENCHMARK_TOKEN: ${CAPACITY_BENCHMARK_TOKEN:-}
-      # Admission control: off | log (default, counts only) | enforce (503/429 with Retry-After).
-      ADMISSION_MODE: ${ADMISSION_MODE:-log}
-      ADMISSION_MAX_INFLIGHT: ${ADMISSION_MAX_INFLIGHT:-200}
-      ADMISSION_MAX_WAITING: ${ADMISSION_MAX_WAITING:-400}
-      ADMISSION_MAX_WAIT_MS: ${ADMISSION_MAX_WAIT_MS:-1500}
-      ADMISSION_DASHBOARD_SHARE: ${ADMISSION_DASHBOARD_SHARE:-30}
-      # Message bus: unset keeps the bus inert; amqp://<user>:<password>@rabbitmq:5672 to use it.
-      MESSAGE_BUS_URL: ${MESSAGE_BUS_URL:-}
-      BUS_CONSUMERS: ${BUS_CONSUMERS:-all}
-      # Operator token that unlocks GET /api/metrics; unset = the scrape answers 401.
-      METRICS_TOKEN: ${METRICS_TOKEN:-}
       APP_URL: https://app.${DOMAIN}
       ADMIN_URL: https://admin.${DOMAIN}
       CORS_ORIGIN: "*"
@@ -489,6 +394,7 @@ services:
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
       OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
       COHERE_API_KEY: ${COHERE_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       PLATFORM_REGION: ${PLATFORM_REGION:-}
       # Marketing agency (Claude copy, fal.ai visuals, ElevenLabs voice, Pubbler)
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -508,6 +414,7 @@ services:
       TSMART_INTEGRATION_TOKEN_SHA256: ${TSMART_INTEGRATION_TOKEN_SHA256:-}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:-}
       # QuickBooks Online
       QUICKBOOKS_CLIENT_ID: ${QUICKBOOKS_CLIENT_ID:-}
       QUICKBOOKS_CLIENT_SECRET: ${QUICKBOOKS_CLIENT_SECRET:-}
@@ -526,6 +433,15 @@ services:
       # Root console alerts: when true, a missing or silent host storage
       # autopilot is itself an alert. Installs without the autopilot leave it off.
       STORAGE_AUTOPILOT_REQUIRED: ${STORAGE_AUTOPILOT_REQUIRED:-false}
+      # A restore replays WAL in a throwaway postgres, which must be able to
+      # open every relation the cluster holds. Once the cluster gained PostGIS,
+      # a plain pgvector image could no longer read it back.
+      PITR_POSTGRES_IMAGE: ghcr.io/${GHCR_OWNER}/basefyio-postgres:latest
+      # Backup retention; the defaults keep today's behaviour. Longer windows
+      # cost disk — see docs/POINT_IN_TIME_RECOVERY.md before raising them.
+      PITR_RETENTION_DAYS: ${PITR_RETENTION_DAYS:-7}
+      PITR_CLUSTER_BASE_RETAIN: ${PITR_CLUSTER_BASE_RETAIN:-3}
+      AUTO_BACKUP_RETENTION_DAYS: ${AUTO_BACKUP_RETENTION_DAYS:-7}
       # Idle projects. Off until switched on, and the sweep refuses to run
       # without PROJECT_SLEEP_SIGNAL_SINCE: request counting starts empty, so
       # without a start date every project would look as if it had never been
@@ -536,10 +452,6 @@ services:
       PROJECT_SLEEP_IDLE_DAYS: ${PROJECT_SLEEP_IDLE_DAYS:-14}
       PROJECT_SLEEP_WARN_DAYS: ${PROJECT_SLEEP_WARN_DAYS:-3}
       PROJECT_SLEEP_MAX_PER_RUN: ${PROJECT_SLEEP_MAX_PER_RUN:-25}
-      # A restore replays WAL in a throwaway postgres, which must be able to
-      # open every relation the cluster holds. Once the cluster gained PostGIS,
-      # a plain pgvector image could no longer read it back.
-      PITR_POSTGRES_IMAGE: ghcr.io/${GHCR_OWNER}/basefyio-postgres:latest
       DOCKER_NETWORK: ${DOCKER_NETWORK:-kolaybase_default}
       PGBOUNCER_CONFIG_DIR: /etc/pgbouncer
       # Data Engine
@@ -552,6 +464,7 @@ services:
       DATA_ENGINE_MAX_DOC_KB: ${DATA_ENGINE_MAX_DOC_KB:-1024}
       DATA_ENGINE_MAX_NESTING_DEPTH: ${DATA_ENGINE_MAX_NESTING_DEPTH:-8}
       DATA_ENGINE_MAX_ARRAY_ITEMS: ${DATA_ENGINE_MAX_ARRAY_ITEMS:-1000}
+      DATA_ENGINE_SCHEMA_VALIDATION: ${DATA_ENGINE_SCHEMA_VALIDATION:-enforce}
     volumes:
       - pgbouncer_config:/etc/pgbouncer
       - /var/run/docker.sock:/var/run/docker.sock
@@ -559,8 +472,6 @@ services:
       # API can statfs() the system disk without seeing anything else on it. The
       # container's own root already sits on the Docker data volume.
       - /srv/basefyio-diskprobe:/host/system:ro
-      # Read-only kernel counters for the capacity sampler (CPU, memory, load); no privileges needed.
-      - /proc:/host/proc:ro
       # Host storage autopilot (scripts/storage-autopilot.py): its status and
       # event log, read-only. The console shows the events as a red badge.
       - /var/lib/basefyio-autopilot:/host/storage-autopilot:ro
@@ -598,8 +509,6 @@ services:
         condition: service_started
       redis:
         condition: service_healthy
-      redis-queue:
-        condition: service_healthy
       mongodb:
         condition: service_healthy
     labels:
@@ -623,8 +532,6 @@ services:
       API_INTERNAL_URL: http://platform-api:4000
       NEXT_PUBLIC_API_URL: https://api.${DOMAIN}
       NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:-}
-      # Which stage the product is in (inlined at build; the runtime value is informational).
-      NEXT_PUBLIC_RELEASE_STAGE: ${RELEASE_STAGE:-beta}
     deploy:
       resources:
         limits:
@@ -671,18 +578,6 @@ services:
       - traefik.http.routers.website.rule=Host(`${DOMAIN}`)
       - traefik.http.routers.website.entrypoints=websecure
       - traefik.http.routers.website.tls.certresolver=le
-      # docs.<domain> and status.<domain> are served by the same website build; its
-      # middleware maps the host to /docs and /status internally and forwards the old
-      # apex addresses. Each router host needs its DNS record first: Traefik requests
-      # a certificate for every host it is given.
-      - traefik.http.routers.docs.rule=Host(`docs.${DOMAIN}`)
-      - traefik.http.routers.docs.entrypoints=websecure
-      - traefik.http.routers.docs.tls.certresolver=le
-      - traefik.http.routers.docs.service=website
-      - traefik.http.routers.status.rule=Host(`status.${DOMAIN}`)
-      - traefik.http.routers.status.entrypoints=websecure
-      - traefik.http.routers.status.tls.certresolver=le
-      - traefik.http.routers.status.service=website
       - traefik.http.services.website.loadbalancer.server.port=3000
       - traefik.http.services.website.loadbalancer.healthcheck.path=/
       - traefik.http.services.website.loadbalancer.healthcheck.interval=10s
@@ -698,8 +593,6 @@ volumes:
   # each restore.
   pitr_scratch:
   redis_data:
-  redis_queue_data:
-  rabbitmq_data:
   minio_data:
   couchdb_data:
   mongodb_data:

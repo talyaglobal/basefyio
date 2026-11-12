@@ -6,7 +6,7 @@ jest.mock('pg', () => ({
 }));
 
 import { Logger } from '@nestjs/common';
-import { RealtimePolicyService, policyGroupOf } from './realtime-policy.service';
+import { RealtimePolicyService, policyGroupOf, resolveRlsFilterMode } from './realtime-policy.service';
 import type { DataChangeEvent, PolicySubscriber } from './realtime-data.types';
 
 /**
@@ -169,8 +169,31 @@ describe('RealtimePolicyService.filterByPolicy', () => {
     expect(client.query.mock.calls.filter(([sql]) => sql === 'ROLLBACK')).toHaveLength(3);
   });
 
-  it('by default (jwt mode) anon subscribers are not checked; signed-in ones are', async () => {
+  it('by default every non-service subscriber is checked, anon ones included', async () => {
+    // RLS on, no policy admits anyone: the anon key must not see the row on
+    // the stream when it cannot see it through the REST API.
     const { svc, client } = build({ meta: { rls: true, pk: ['id'] }, visible: () => [] });
+    expect(svc.getMode()).toBe('all');
+    const r = await svc.filterByPolicy('p1', insert(), [
+      sub('a', 'anon'),
+      sub('u', 'authenticated', { sub: 'u1' }),
+      sub('s', 'service_role'),
+    ]);
+    expect(ids(r.deliverTo)).toEqual(['s']);
+    const roles = client.query.mock.calls.filter(([sql]) => /SET LOCAL ROLE/.test(sql)).map(([sql]) => sql);
+    expect(roles.sort()).toEqual(['SET LOCAL ROLE "anon"', 'SET LOCAL ROLE "authenticated"']);
+  });
+
+  it('resolveRlsFilterMode: all unless jwt or off is asked for', () => {
+    expect(resolveRlsFilterMode(undefined)).toBe('all');
+    expect(resolveRlsFilterMode('')).toBe('all');
+    expect(resolveRlsFilterMode(' JWT ')).toBe('jwt');
+    expect(resolveRlsFilterMode('off')).toBe('off');
+    expect(resolveRlsFilterMode('everything')).toBe('all');
+  });
+
+  it('REALTIME_RLS_FILTER=jwt restores the old behaviour: anon subscribers are not checked', async () => {
+    const { svc, client } = build({ meta: { rls: true, pk: ['id'] }, visible: () => [] }, { REALTIME_RLS_FILTER: 'jwt' });
     expect(svc.getMode()).toBe('jwt');
     const r = await svc.filterByPolicy('p1', insert(), [sub('a', 'anon'), sub('u', 'authenticated', { sub: 'u1' })]);
     expect(ids(r.deliverTo)).toEqual(['a']);
@@ -180,7 +203,7 @@ describe('RealtimePolicyService.filterByPolicy', () => {
   });
 
   it('in jwt mode with only anon subscribers nothing is read from the project database at all', async () => {
-    const { svc, pool } = build({ meta: { rls: true, pk: ['id'] }, visible: () => [] });
+    const { svc, pool } = build({ meta: { rls: true, pk: ['id'] }, visible: () => [] }, { REALTIME_RLS_FILTER: 'jwt' });
     const r = await svc.filterByPolicy('p1', insert(), [sub('a', 'anon'), sub('b', 'anon')]);
     expect(ids(r.deliverTo)).toEqual(['a', 'b']);
     expect(pool.query).not.toHaveBeenCalled();

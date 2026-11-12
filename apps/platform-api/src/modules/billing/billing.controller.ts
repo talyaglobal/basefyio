@@ -14,24 +14,29 @@ import {
   Patch,
   Param,
   Delete,
+  BadRequestException,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { ManagementPermissionGuard } from '../../common/guards/management-permission.guard';
 import { RequireManagementPermission } from '../../common/decorators/management-permission.decorator';
 import { BillingService } from './billing.service';
-import { UsageService } from './usage.service';
+import { DB_SIZE_FRESH_MS, UsageService } from './usage.service';
+import { QuotaService } from './quota.service';
 import { ProjectCostService } from './project-cost.service';
+import { StripeOverviewService } from './stripe-overview.service';
+import {
+  DEFAULT_EMAIL_REPORTS_CONFIG,
+  DEFAULT_REPORT_RECIPIENT,
+  EMAIL_REPORTS_KEY,
+  EmailReportsConfig,
+  normalizeRecipients,
+} from './email-reports';
 import { StripeService } from '../stripe/stripe.service';
 import { ObservabilityService } from '../observability/observability.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { RedisService } from '../redis/redis.service';
 import { RequestWithTraceId } from '../../common/middleware/trace-id.middleware';
 
-const EMAIL_REPORTS_KEY = 'email_reports_config';
-
-/** How long a handled Stripe event id is remembered; Stripe retries for up to 3 days. */
-const WEBHOOK_SEEN_TTL_SECONDS = 3 * 24 * 60 * 60;
 
 @Controller('billing')
 export class BillingController {
@@ -44,7 +49,8 @@ export class BillingController {
     private readonly stripe: StripeService,
     private readonly observability: ObservabilityService,
     private readonly prisma: PrismaService,
-    private readonly redis: RedisService,
+    private readonly stripeOverviewService: StripeOverviewService,
+    private readonly quota: QuotaService,
   ) {}
 
   @Get('plans')
@@ -69,23 +75,45 @@ export class BillingController {
     if (!teamId) {
       teamId = await this.billing.getUserActiveTeamId(userId);
     }
-    await this.billing.verifyCanViewBilling(teamId, userId);
+    await this.billing.verifyTeamMembership(teamId, userId);
+    // Database sizes are cheap to measure, so the meter is at most minutes old.
+    await this.usage.ensureFreshDbSizes(teamId, DB_SIZE_FRESH_MS);
     return this.usage.getTeamUsage(teamId);
   }
 
   /**
-   * Per-project cost breakdown for the current billing period. Customers only
-   * ever see priced figures; the raw infrastructure cost stays in management.
+   * The plan's project and member limits next to live usage, so the dashboard
+   * can say "limit reached" before a request fails with 402.
    */
   @UseGuards(JwtAuthGuard)
-  @Get('project-costs')
-  async getProjectCosts(@Req() req: any, @Query('teamId') teamId?: string) {
+  @Get('limits')
+  async getLimits(@Req() req: any, @Query('teamId') teamId?: string) {
     const userId = req.user.sub;
     if (!teamId) {
       teamId = await this.billing.getUserActiveTeamId(userId);
     }
-    await this.billing.verifyCanViewBilling(teamId, userId);
-    return this.projectCosts.getTeamReport(teamId);
+    await this.billing.verifyTeamMembership(teamId, userId);
+    return this.quota.getTeamLimitSummary(teamId);
+  }
+
+  /**
+   * Per-project cost breakdown for the current UTC calendar month, or a closed
+   * month with `?period=YYYY-MM`. Customers only ever see priced figures; the
+   * raw infrastructure cost stays in management.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get('project-costs')
+  async getProjectCosts(
+    @Req() req: any,
+    @Query('teamId') teamId?: string,
+    @Query('period') period?: string,
+  ) {
+    const userId = req.user.sub;
+    if (!teamId) {
+      teamId = await this.billing.getUserActiveTeamId(userId);
+    }
+    await this.billing.verifyTeamMembership(teamId, userId);
+    return this.projectCosts.getTeamReport(teamId, { period });
   }
 
   @UseGuards(JwtAuthGuard)
@@ -505,18 +533,13 @@ export class BillingController {
     const row = await this.prisma.systemSetting.findUnique({
       where: { key: EMAIL_REPORTS_KEY },
     });
-    return (row?.value as any) ?? {
-      schedule: { daily: false, weekly: false, monthly: false, yearly: false },
-      content: {
-        newUsers: true,
-        newProjects: true,
-        deletedProjects: true,
-        newTeams: true,
-        deletedTeams: true,
-        searchConsole: true,
-        analytics: true,
-        stripe: true,
-      },
+    const stored = (row?.value as Partial<EmailReportsConfig> | null) ?? null;
+    return {
+      schedule: { ...DEFAULT_EMAIL_REPORTS_CONFIG.schedule, ...(stored?.schedule ?? {}) },
+      content: stored ? stored.content ?? {} : DEFAULT_EMAIL_REPORTS_CONFIG.content,
+      recipients: Array.isArray(stored?.recipients) ? stored!.recipients : [],
+      /** Used when the list is empty. */
+      defaultRecipient: DEFAULT_REPORT_RECIPIENT,
     };
   }
 
@@ -524,166 +547,43 @@ export class BillingController {
   @RequireManagementPermission('canManagePlans')
   @Patch('management/email-reports')
   async updateEmailReportsConfig(
-    @Body() body: { schedule?: Record<string, boolean>; content?: Record<string, boolean> },
+    @Body()
+    body: { schedule?: Record<string, boolean>; content?: Record<string, boolean>; recipients?: string[] },
   ) {
     const current = await this.prisma.systemSetting.findUnique({
       where: { key: EMAIL_REPORTS_KEY },
     });
-    const prev = (current?.value as any) ?? {
-      schedule: { daily: false, weekly: false, monthly: false, yearly: false },
+    const prev = (current?.value as Partial<EmailReportsConfig> | null) ?? {
+      schedule: { ...DEFAULT_EMAIL_REPORTS_CONFIG.schedule },
       content: {},
     };
+    let recipients = Array.isArray(prev.recipients) ? prev.recipients : [];
+    if (body.recipients !== undefined) {
+      try {
+        recipients = normalizeRecipients(body.recipients);
+      } catch (err: any) {
+        throw new BadRequestException(err.message);
+      }
+    }
     const next = {
       schedule: { ...prev.schedule, ...(body.schedule || {}) },
       content: { ...prev.content, ...(body.content || {}) },
+      recipients,
     };
     await this.prisma.systemSetting.upsert({
       where: { key: EMAIL_REPORTS_KEY },
       create: { key: EMAIL_REPORTS_KEY, value: next },
       update: { value: next },
     });
-    return next;
+    return { ...next, defaultRecipient: DEFAULT_REPORT_RECIPIENT };
   }
 
   @UseGuards(JwtAuthGuard, ManagementPermissionGuard)
   @RequireManagementPermission('canManagePlans')
   @Get('management/stripe-overview')
   async stripeOverview() {
-    if (!this.stripe.isEnabled()) {
-      return { configured: false, message: 'Stripe is not configured.' };
-    }
-
-    const client = this.stripe.getClient();
-
-    const [charges, balanceTxns, invoices, subscriptions, customers] =
-      await Promise.all([
-        client.charges.list({
-          limit: 50,
-          expand: ['data.customer'],
-        }),
-        client.balanceTransactions.list({
-          limit: 50,
-        }),
-        client.invoices.list({
-          limit: 50,
-          expand: ['data.customer', 'data.subscription'],
-        }),
-        client.subscriptions.list({
-          limit: 100,
-          status: 'all',
-          expand: ['data.customer', 'data.plan'],
-        }),
-        client.customers.list({
-          limit: 100,
-        }),
-      ]);
-
-    // Revenue summary from balance transactions
-    const revenueTxns = balanceTxns.data.filter(
-      (t) => t.type === 'charge' && t.status === 'available',
-    );
-    const totalRevenue = revenueTxns.reduce((s, t) => s + t.net, 0);
-    const totalGross = revenueTxns.reduce((s, t) => s + t.amount, 0);
-    const totalFees = revenueTxns.reduce((s, t) => s + t.fee, 0);
-
-    // Monthly revenue by month
-    const monthlyRevenue: Record<string, { gross: number; net: number; fees: number; count: number }> = {};
-    for (const t of balanceTxns.data) {
-      if (t.type !== 'charge') continue;
-      const d = new Date(t.created * 1000);
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      if (!monthlyRevenue[key]) monthlyRevenue[key] = { gross: 0, net: 0, fees: 0, count: 0 };
-      monthlyRevenue[key].gross += t.amount;
-      monthlyRevenue[key].net += t.net;
-      monthlyRevenue[key].fees += t.fee;
-      monthlyRevenue[key].count++;
-    }
-    const revenueByMonth = Object.entries(monthlyRevenue)
-      .map(([month, v]) => ({ month, ...v }))
-      .sort((a, b) => a.month.localeCompare(b.month));
-
-    // Subscription stats
-    const activeSubs = subscriptions.data.filter((s) => s.status === 'active');
-    const canceledSubs = subscriptions.data.filter((s) => s.status === 'canceled');
-    const pastDueSubs = subscriptions.data.filter((s) => s.status === 'past_due');
-    const mrr = activeSubs.reduce((s, sub) => {
-      const item = sub.items?.data[0];
-      return s + (item?.price?.unit_amount || 0);
-    }, 0);
-
-    // Recent charges
-    const recentCharges = charges.data.map((c) => ({
-      id: c.id,
-      amount: c.amount,
-      currency: c.currency,
-      status: c.status,
-      created: new Date(c.created * 1000).toISOString(),
-      customerEmail: typeof c.customer === 'object' && c.customer && 'email' in c.customer
-        ? (c.customer as any).email : null,
-      customerName: typeof c.customer === 'object' && c.customer && 'name' in c.customer
-        ? (c.customer as any).name : null,
-      description: c.description,
-      paid: c.paid,
-      refunded: c.refunded,
-      amountRefunded: c.amount_refunded,
-      failureMessage: c.failure_message,
-    }));
-
-    // Recent invoices
-    const recentInvoices = invoices.data.map((inv) => ({
-      id: inv.id,
-      number: inv.number,
-      amount: inv.amount_due,
-      amountPaid: inv.amount_paid,
-      currency: inv.currency,
-      status: inv.status,
-      created: inv.created ? new Date(inv.created * 1000).toISOString() : null,
-      dueDate: inv.due_date ? new Date(inv.due_date * 1000).toISOString() : null,
-      customerEmail: typeof inv.customer === 'object' && inv.customer && 'email' in inv.customer
-        ? (inv.customer as any).email : null,
-      customerName: typeof inv.customer === 'object' && inv.customer && 'name' in inv.customer
-        ? (inv.customer as any).name : null,
-      hostedUrl: inv.hosted_invoice_url,
-      pdf: inv.invoice_pdf,
-      planName: typeof inv.subscription === 'object' && inv.subscription
-        ? (inv.subscription as any).metadata?.planName || null : null,
-    }));
-
-    // Active subscriptions list
-    const activeSubscriptions = activeSubs.map((s) => ({
-      id: s.id,
-      status: s.status,
-      created: new Date(s.created * 1000).toISOString(),
-      currentPeriodEnd: s.current_period_end
-        ? new Date(s.current_period_end * 1000).toISOString() : null,
-      cancelAtPeriodEnd: s.cancel_at_period_end,
-      customerEmail: typeof s.customer === 'object' && s.customer && 'email' in s.customer
-        ? (s.customer as any).email : null,
-      customerName: typeof s.customer === 'object' && s.customer && 'name' in s.customer
-        ? (s.customer as any).name : null,
-      planName: s.metadata?.planName || s.items?.data[0]?.price?.nickname || null,
-      amount: s.items?.data[0]?.price?.unit_amount || 0,
-      currency: s.currency,
-    }));
-
-    return {
-      configured: true,
-      summary: {
-        totalRevenue,
-        totalGross,
-        totalFees,
-        mrr,
-        currency: 'usd',
-        activeSubscriptions: activeSubs.length,
-        canceledSubscriptions: canceledSubs.length,
-        pastDueSubscriptions: pastDueSubs.length,
-        totalCustomers: customers.data.length,
-      },
-      revenueByMonth,
-      recentCharges,
-      recentInvoices,
-      activeSubscriptions,
-    };
+    // basefyio customers only; the Stripe account is shared with other products.
+    return this.stripeOverviewService.getOverview();
   }
 
   /** Every team's projects with raw infrastructure cost, customer price and margin. */
@@ -738,55 +638,30 @@ export class BillingController {
     }
   }
 
-  // `passthrough`: the handler sets the status and returns the body for Nest
-  // to send. Returning the Express response object, as this did before, hands
-  // a cyclic structure to the global serializer, which recurses until the
-  // stack overflows — after the reply had gone out, so Stripe saw a 200 and
-  // the process then died and restarted on every delivery.
   @Post('webhook')
   @HttpCode(200)
   async handleWebhook(
     @Req() req: RawBodyRequest<Request>,
     @Headers('stripe-signature') signature: string,
-    @Res({ passthrough: true }) res: Response,
-  ): Promise<Record<string, unknown>> {
+    @Res() res: Response,
+  ) {
     if (!signature) {
-      res.status(400);
-      return { error: 'Missing stripe-signature header' };
+      return res.status(400).json({ error: 'Missing stripe-signature header' });
     }
 
     let event;
     try {
       const rawBody = req.rawBody;
       if (!rawBody) {
-        res.status(400);
-        return { error: 'Missing raw body' };
+        return res.status(400).json({ error: 'Missing raw body' });
       }
       event = this.stripe.constructWebhookEvent(rawBody, signature);
     } catch (err: any) {
       this.logger.warn(`Webhook signature verification failed: ${err.message}`);
-      res.status(400);
-      return { error: 'Webhook signature verification failed' };
+      return res.status(400).json({ error: 'Webhook signature verification failed' });
     }
 
     this.logger.log(`Stripe webhook received: ${event.type}`);
-
-    // Stripe delivers at least once and retries anything that is not a 2xx,
-    // so the same event can arrive twice; a plan change applied twice is a
-    // support ticket. Claim the event id first; a second delivery is simply
-    // acknowledged. If Redis is unavailable the event is handled anyway —
-    // a missed de-duplication is cheaper than a missed payment.
-    const seenKey = `stripe:evt:${event.id}`;
-    let fresh = true;
-    try {
-      fresh = (await this.redis.getClient().set(seenKey, '1', 'EX', WEBHOOK_SEEN_TTL_SECONDS, 'NX')) === 'OK';
-    } catch (err: any) {
-      this.logger.warn(`Webhook de-duplication unavailable: ${err.message}`);
-    }
-    if (!fresh) {
-      this.logger.log(`Stripe webhook ${event.id} (${event.type}) already handled; acknowledged again`);
-      return { received: true, duplicate: true };
-    }
 
     try {
       switch (event.type) {
@@ -810,15 +685,8 @@ export class BillingController {
       }
     } catch (err: any) {
       this.logger.error(`Webhook handler error for ${event.type}: ${err.message}`);
-      // Forget the claim and fail the delivery, so Stripe retries and the
-      // retry is handled rather than acknowledged as a duplicate. Swallowing
-      // the error here meant a failed plan change was never retried and never
-      // visible anywhere but a log line.
-      await this.redis.del(seenKey).catch(() => undefined);
-      res.status(500);
-      return { error: 'Webhook handler failed; the delivery will be retried' };
     }
 
-    return { received: true };
+    return res.json({ received: true });
   }
 }

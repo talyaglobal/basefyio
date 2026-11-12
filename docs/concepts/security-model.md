@@ -108,8 +108,8 @@ page, which uses `GET/POST/PUT/DELETE /api/projects/:projectId/database/policies
 | `/api/rest/v1/:table`, `rpc` | role + claims per request; a `SECURITY DEFINER` function cannot be called with the anon key alone |
 | `/api/rest/v1/collections` | same mechanism on the collection tables |
 | `/api/sql/execute` with a key | role + claims; owner-only DDL verbs refused for anon/authenticated by the SQL guard |
-| realtime stream | on a table with RLS, each subscriber receives only the rows its role may select; without RLS every subscriber receives every change ([../REALTIME_API.md](../REALTIME_API.md)) |
-| storage | per bucket (public/private) plus access rules `public-read`, `authenticated-read`, `owner-only` per bucket or prefix ([../reference/storage-api.md](../reference/storage-api.md)) |
+| realtime stream | on a table with RLS, each subscriber — anon subscribers included — receives only the rows its role may select, re-checked under its own role and claims; without RLS every subscriber receives every change ([../REALTIME_API.md](../REALTIME_API.md)) |
+| storage | per bucket: a public bucket serves named files to anyone (no anonymous listing); a private bucket is reached with a signed-in user, a signed URL or the service key, never the anon key alone; access rules `public-read`, `authenticated-read`, `owner-only` per bucket or prefix ([../reference/storage-api.md](../reference/storage-api.md)) |
 | embeddings / RAG | no row-level policy: writes need the service key, search needs a signed-in user, RAG search is service-only |
 
 ## The SQL guard
@@ -134,10 +134,12 @@ misapplied. Details in [../reference/sql-api.md](../reference/sql-api.md).
 - Repairs: `POST /api/projects/:id/ensure-rls-bootstrap` re-applies the roles and helpers to an
   existing database; `GET /api/projects/:id/rls-diagnose` reports what is missing.
 
-Two operator switches relax a refusal to log-only for a deployment that depends on the old
-behaviour: `SERVICE_KEY_PROJECT_BINDING=log` (service key aimed at another project) and
-`ANON_WRITE_BINDING=log` (bare anon key on a route that wants a signed-in user). The default
-is to refuse.
+Three operator switches relax a refusal to log-only for a deployment that depends on the old
+behaviour: `SERVICE_KEY_PROJECT_BINDING=log` (service key aimed at another project),
+`ANON_WRITE_BINDING=log` (bare anon key on a route that wants a signed-in user) and
+`STORAGE_PRIVATE_BUCKET_ANON=log` (bare anon key on a private bucket). The default is to
+refuse. `REALTIME_RLS_FILTER=jwt` likewise restores the old realtime behaviour of delivering
+every row of an RLS table to anon subscribers.
 
 Source: `apps/platform-api/src/common/guards/api-key.guard.ts`,
 `common/decorators/api-key-scope.decorator.ts`, `modules/projects/sql/rls-bootstrap.sql`,

@@ -5,39 +5,16 @@ import {
   InternalServerErrorException,
   ConflictException,
   BadRequestException,
-  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import KcAdminClient from '@keycloak/keycloak-admin-client';
 import { v4 as uuid } from 'uuid';
 import { randomBytes } from 'crypto';
 import axios from 'axios';
-import { realmSmtpServer } from '../email/smtp-options';
 
 export interface ProjectClients {
   anonKey: string;
   serviceKey: string;
-}
-
-/** The part of a Keycloak user an import writes. `id` is kept as given. */
-export interface ImportedRealmUser {
-  id: string;
-  username: string;
-  email: string;
-  firstName: string;
-  lastName: string;
-  enabled: boolean;
-  emailVerified: boolean;
-  createdTimestamp?: number;
-  /** Custom attributes, each a list of strings (`app_metadata` / `user_metadata` carry one JSON document). */
-  attributes?: Record<string, string[]>;
-}
-
-export interface ImportedRealmUserResult {
-  action: 'ADDED' | 'SKIPPED';
-  username: string;
-  /** The id the user has in the realm now: the given one when added, the existing user's when skipped. */
-  id: string;
 }
 
 type SupportedIdpProvider =
@@ -68,109 +45,6 @@ const AUTH_TIME_MAPPER = {
     'userinfo.token.claim': 'false',
   },
 };
-
-/**
- * The claims a GoTrue client expects in an access token, produced by the
- * project's public clients (docs/specs/supabase-compat-auth.md §5).
- *
- * `app_metadata` and `user_metadata` are JSON user attributes copied verbatim;
- * `role` is what RLS reads as `auth.role()`, `aal` what `getAuthenticatorAssuranceLevel()`
- * reads, `aud` the audience supabase-js checks, `phone` the user's phoneNumber attribute.
- * The aal2 client is identical except for `aal` and the `amr` list.
- */
-function jsonAttributeMapper(name: string) {
-  return {
-    name,
-    protocol: 'openid-connect',
-    protocolMapper: 'oidc-usermodel-attribute-mapper',
-    config: {
-      'user.attribute': name,
-      'claim.name': name,
-      'jsonType.label': 'JSON',
-      'id.token.claim': 'true',
-      'access.token.claim': 'true',
-      'userinfo.token.claim': 'true',
-      multivalued: 'false',
-      'aggregate.attrs': 'false',
-    },
-  };
-}
-
-function hardcodedClaimMapper(name: string, value: string, jsonType: 'String' | 'JSON' = 'String') {
-  return {
-    name,
-    protocol: 'openid-connect',
-    protocolMapper: 'oidc-hardcoded-claim-mapper',
-    config: {
-      'claim.name': name,
-      'claim.value': value,
-      'jsonType.label': jsonType,
-      'id.token.claim': 'true',
-      'access.token.claim': 'true',
-      'userinfo.token.claim': 'true',
-    },
-  };
-}
-
-const AUTHENTICATED_AUDIENCE_MAPPER = {
-  name: 'aud-authenticated',
-  protocol: 'openid-connect',
-  protocolMapper: 'oidc-audience-mapper',
-  config: {
-    'included.custom.audience': 'authenticated',
-    'id.token.claim': 'false',
-    'access.token.claim': 'true',
-  },
-};
-
-const PHONE_CLAIM_MAPPER = {
-  name: 'phone',
-  protocol: 'openid-connect',
-  protocolMapper: 'oidc-usermodel-attribute-mapper',
-  config: {
-    'user.attribute': 'phoneNumber',
-    'claim.name': 'phone',
-    'jsonType.label': 'String',
-    'id.token.claim': 'true',
-    'access.token.claim': 'true',
-    'userinfo.token.claim': 'true',
-    multivalued: 'false',
-    'aggregate.attrs': 'false',
-  },
-};
-
-export type AssuranceLevel = 'aal1' | 'aal2';
-
-/** The GoTrue claim mappers of one public client; `aal2` adds the `amr` list. */
-export function goTrueClientMappers(aal: AssuranceLevel) {
-  return [
-    jsonAttributeMapper('app_metadata'),
-    jsonAttributeMapper('user_metadata'),
-    hardcodedClaimMapper('role', 'authenticated'),
-    hardcodedClaimMapper('aal', aal),
-    ...(aal === 'aal2' ? [hardcodedClaimMapper('amr', '[{"method":"totp"}]', 'JSON')] : []),
-    AUTHENTICATED_AUDIENCE_MAPPER,
-    PHONE_CLAIM_MAPPER,
-  ];
-}
-
-/** `${realm}-anon` for aal1 sessions, `${realm}-anon-aal2` for sessions that passed a second factor. */
-export function realmPublicClientId(realmName: string, aal: AssuranceLevel = 'aal1'): string {
-  return aal === 'aal2' ? `${realmName}-anon-aal2` : `${realmName}-anon`;
-}
-
-/** What `app_metadata` says about a user nothing else has been recorded for. */
-export const DEFAULT_APP_METADATA = { provider: 'email', providers: ['email'] };
-
-export interface MintedTokens {
-  accessToken: string;
-  refreshToken: string;
-  expiresIn: number;
-  tokenType: string;
-}
-
-/** Client attribute behind "Always use lightweight access token" (Keycloak 23+). */
-const LIGHTWEIGHT_ACCESS_TOKEN = 'client.use.lightweight.access.token.enabled';
 
 @Injectable()
 export class KeycloakAdminService implements OnModuleInit {
@@ -219,62 +93,10 @@ export class KeycloakAdminService implements OnModuleInit {
     });
     await this.authenticate();
     this.logger.log('Keycloak admin client initialized');
-    await this.ensureSignInClientFullTokens();
     await this.ensureRealmTokenLifespan();
     await this.ensureAutoLinkFlow('master');
     await this.ensurePlatformOAuthClient();
     await this.ensurePlatformIdentityProviders();
-    await this.ensureRealmSmtp();
-  }
-
-  /**
-   * With KEYCLOAK_REALM_SMTP=true and the platform on SMTP, every realm gets the
-   * same server, so the mail Keycloak sends itself — the password reset and
-   * verification links of its login pages — can leave too. Off by default:
-   * realms keep whatever they had. Idempotent; never fails the boot.
-   */
-  private async ensureRealmSmtp(): Promise<void> {
-    const smtp = realmSmtpServer(this.config);
-    if (!smtp) return;
-    try {
-      const realms = await this.client.realms.find();
-      let updated = 0;
-      for (const realm of realms) {
-        const current = (realm.smtpServer ?? {}) as Record<string, string>;
-        const same = Object.keys(smtp).every((k) => k === 'password' || String(current[k] ?? '') === String(smtp[k]));
-        if (same && current.host) continue;
-        await this.client.realms.update({ realm: realm.realm! }, { smtpServer: smtp });
-        updated++;
-      }
-      if (updated) this.logger.log(`SMTP settings written to ${updated} realm(s)`);
-    } catch (err: any) {
-      this.logger.warn(`Could not write SMTP settings to the realms: ${err?.message ?? err}`);
-    }
-  }
-
-  /**
-   * Platform sign-in is a password grant on the master realm's admin client
-   * (keycloak.adminClientId, admin-cli), and every guarded route reads `sub` and
-   * `email` from that token. Keycloak 25+ creates admin-cli with lightweight
-   * access tokens, and its 26.0.0 migration switches them on for existing
-   * realms too: those tokens carry neither claim, so nobody could use the
-   * dashboard. Turn it back off — only when it is on, so a Keycloak 24 server
-   * (where it never is) sees no write. Never fails the boot.
-   */
-  private async ensureSignInClientFullTokens(): Promise<void> {
-    const clientId = this.config.get<string>('keycloak.adminClientId') || 'admin-cli';
-    try {
-      const [c] = await this.client.clients.find({ realm: 'master', clientId });
-      const attributes = (c?.attributes ?? {}) as Record<string, string>;
-      if (!c?.id || String(attributes[LIGHTWEIGHT_ACCESS_TOKEN]) !== 'true') return;
-      await this.client.clients.update(
-        { realm: 'master', id: c.id },
-        { ...c, attributes: { ...attributes, [LIGHTWEIGHT_ACCESS_TOKEN]: 'false' } },
-      );
-      this.logger.log(`Lightweight access tokens switched off on "${clientId}" (platform sign-in needs sub and email)`);
-    } catch (err: any) {
-      this.logger.warn(`Could not check the token settings of "${clientId}": ${err?.message ?? err}`);
-    }
   }
 
   private async ensureRealmTokenLifespan() {
@@ -631,7 +453,15 @@ export class KeycloakAdminService implements OnModuleInit {
         ssoSessionIdleTimeout: 2592000,  // 30 days
         ssoSessionMaxLifespan: 2592000,  // 30 days
         offlineSessionIdleTimeout: 2592000, // 30 days
-        ...(realmSmtpServer(this.config) ? { smtpServer: realmSmtpServer(this.config)! } : {}),
+        // New realms lock an account for a while after repeated failed sign-ins
+        // (1 minute, growing to 15). Only failures count, so a person who
+        // mistypes once is unaffected; existing realms keep their setting and
+        // can turn it on under Auth → Policies.
+        bruteForceProtected: true,
+        permanentLockout: false,
+        failureFactor: 10,
+        waitIncrementSeconds: 60,
+        maxFailureWaitSeconds: 900,
       }),
     );
 
@@ -679,13 +509,9 @@ export class KeycloakAdminService implements OnModuleInit {
    * confined to the provider segment. A broader pattern on a redirect URI is
    * an open redirect, which is the hole this kind of setting usually opens.
    */
-  async ensureAnonClientRedirectUri(
-    realmName: string,
-    callbackUri: string,
-    clientId: string = `${realmName}-anon`,
-  ): Promise<void> {
+  async ensureAnonClientRedirectUri(realmName: string, callbackUri: string): Promise<void> {
     await this.ensureAuth();
-    const anonClientId = clientId;
+    const anonClientId = `${realmName}-anon`;
 
     const found = await this.withRetry(`findClient(${anonClientId})`, () =>
       this.client.clients.find({ realm: realmName, clientId: anonClientId }),
@@ -724,13 +550,9 @@ export class KeycloakAdminService implements OnModuleInit {
         publicClient: true,
         directAccessGrantsEnabled: true,
         standardFlowEnabled: true,
-        protocolMappers: [AUTH_TIME_MAPPER, ...goTrueClientMappers('aal1')],
+        protocolMappers: [AUTH_TIME_MAPPER],
       }),
     );
-
-    // A session that passed a second factor is minted through this twin of the
-    // anon client; the only difference is what its tokens say about `aal`.
-    await this.createAal2Client(realmName);
 
     const serviceSecret = uuid();
     await this.withRetry(`createClient(${serviceClientId})`, () =>
@@ -750,84 +572,6 @@ export class KeycloakAdminService implements OnModuleInit {
     const anonKey = `bf_anon_${randomBytes(32).toString('base64url')}`;
     const serviceKey = `bf_service_${randomBytes(32).toString('base64url')}`;
     return { anonKey, serviceKey };
-  }
-
-  private async createAal2Client(realmName: string): Promise<void> {
-    const clientId = realmPublicClientId(realmName, 'aal2');
-    await this.withRetry(`createClient(${clientId})`, () =>
-      this.client.clients.create({
-        realm: realmName,
-        clientId,
-        enabled: true,
-        publicClient: true,
-        directAccessGrantsEnabled: true,
-        standardFlowEnabled: true,
-        protocolMappers: [AUTH_TIME_MAPPER, ...goTrueClientMappers('aal2')],
-      }),
-    );
-  }
-
-  /** Realms whose public clients are known to carry the GoTrue claim mappers in this process. */
-  private readonly goTrueMapped = new Set<string>();
-
-  /**
-   * Make a public client of the realm produce GoTrue-shaped tokens. Realms created before the
-   * mappers were part of createClients get them on their first sign-in through the facade; a
-   * missing aal2 client is created outright. Idempotent and cached per process.
-   */
-  async ensureRealmClientGoTrueMappers(realmName: string, clientId: string): Promise<void> {
-    const key = `${realmName}/${clientId}`;
-    if (this.goTrueMapped.has(key)) return;
-    await this.ensureAuth();
-    const aal: AssuranceLevel = clientId === realmPublicClientId(realmName, 'aal2') ? 'aal2' : 'aal1';
-    let [c] = await this.client.clients.find({ realm: realmName, clientId });
-    if (!c?.id && aal === 'aal2') {
-      await this.createAal2Client(realmName);
-      [c] = await this.client.clients.find({ realm: realmName, clientId });
-    }
-    if (!c?.id) {
-      throw new BadRequestException(`Client "${clientId}" does not exist in realm "${realmName}"`);
-    }
-    const present = new Set(
-      (await this.client.clients.listProtocolMappers({ realm: realmName, id: c.id })).map((m) => m.name),
-    );
-    for (const mapper of goTrueClientMappers(aal)) {
-      if (present.has(mapper.name)) continue;
-      await this.client.clients.addProtocolMapper({ realm: realmName, id: c.id }, mapper);
-      this.logger.log(`Added ${mapper.name} mapper to "${clientId}" in realm "${realmName}"`);
-    }
-    this.goTrueMapped.add(key);
-  }
-
-  /**
-   * Everything the GoTrue facade needs from a realm, for the repair routes: both public
-   * clients with their mappers, and custom attributes writable. Each step is best-effort
-   * and reported, so one failure does not hide the others.
-   */
-  async ensureRealmGoTrueCompat(realmName: string): Promise<string[]> {
-    const problems: string[] = [];
-    for (const aal of ['aal1', 'aal2'] as AssuranceLevel[]) {
-      const clientId = realmPublicClientId(realmName, aal);
-      try {
-        this.goTrueMapped.delete(`${realmName}/${clientId}`);
-        await this.ensureRealmClientGoTrueMappers(realmName, clientId);
-      } catch (err: any) {
-        problems.push(`${clientId}: ${err?.message ?? err}`);
-      }
-    }
-    await this.ensureUnmanagedAttributes(realmName);
-    return problems;
-  }
-
-  /**
-   * How long the access tokens of a realm live (ProjectAuthConfig.tokenExpirySeconds). The
-   * realm's SSO session (30 days) bounds the refresh token and is left alone.
-   */
-  async setRealmAccessTokenLifespan(realmName: string, seconds: number): Promise<void> {
-    await this.ensureAuth();
-    const lifespan = Math.max(60, Math.min(Math.floor(seconds), 30 * 24 * 60 * 60));
-    await this.client.realms.update({ realm: realmName }, { accessTokenLifespan: lifespan });
-    this.logger.log(`Realm "${realmName}" access token lifespan set to ${lifespan}s`);
   }
 
   async deleteRealm(realmName: string): Promise<void> {
@@ -883,33 +627,17 @@ export class KeycloakAdminService implements OnModuleInit {
   // ── Realm user operations ──
 
   /**
-   * Every user of a realm, page by page. For exports and backups: a single `listUsers`
-   * call answers one page, and the sign-in server's default page is 100.
-   */
-  async listAllUsers(realmName: string) {
-    const PAGE = 500;
-    const all: Awaited<ReturnType<KeycloakAdminService['listUsers']>> = [];
-    for (let first = 0; ; first += PAGE) {
-      const page = await this.listUsers(realmName, { first, max: PAGE });
-      all.push(...page);
-      if (page.length < PAGE) return all;
-    }
-  }
-
-  /**
-   * A page of a realm's users. `search` matches username, e-mail, first and last name
-   * (Keycloak's own search, over every user of the realm). Keycloak answers 100 users when
-   * no `max` is sent, so a realm with more had the rest unreachable; the page is explicit now.
+   * One page of realm users. Without `max` Keycloak returns its default page of
+   * 100, which is what the dashboard used to show as "all users".
    */
   async listUsers(realmName: string, opts: { search?: string; first?: number; max?: number } = {}) {
     await this.ensureAuth();
-    const search = opts.search?.trim();
     const users = await this.client.users.find({
       realm: realmName,
       briefRepresentation: false,
-      first: Math.max(0, Math.floor(opts.first ?? 0)),
-      max: Math.min(500, Math.max(1, Math.floor(opts.max ?? 100))),
-      ...(search ? { search } : {}),
+      ...(opts.search ? { search: opts.search } : {}),
+      ...(opts.first !== undefined ? { first: opts.first } : {}),
+      ...(opts.max !== undefined ? { max: opts.max } : {}),
     });
     return users.map((u) => ({
       id: u.id,
@@ -923,10 +651,17 @@ export class KeycloakAdminService implements OnModuleInit {
       phoneVerified: (u.attributes as any)?.phoneVerified?.[0] === 'true',
       isAnonymous: this.isAnonymousUser(u),
       createdTimestamp: u.createdTimestamp,
+      requiredActions: (u.requiredActions as string[] | undefined) ?? [],
     }));
   }
 
-  // ── Sessions / providers / lifecycle emails (Supabase-style auth dashboard) ──
+  /** How many users match `search` (all users when omitted), for paging. */
+  async countUsers(realmName: string, search?: string): Promise<number> {
+    await this.ensureAuth();
+    return this.client.users.count({ realm: realmName, ...(search ? { search } : {}) });
+  }
+
+  // ── Sessions / providers / lifecycle emails (auth dashboard) ──
 
   /** Active sessions for a single realm user. */
   async listUserSessions(realmName: string, userId: string) {
@@ -1139,9 +874,11 @@ export class KeycloakAdminService implements OnModuleInit {
       waitIncrementSeconds: r?.waitIncrementSeconds ?? 60,
       maxFailureWaitSeconds: r?.maxFailureWaitSeconds ?? 900,
       passwordPolicy: r?.passwordPolicy ?? '',
+      accessTokenLifespan: r?.accessTokenLifespan ?? 300,
     };
   }
 
+  /** Partial realm update: only the listed fields are sent, Keycloak keeps the rest. */
   async updateRealmPolicies(realmName: string, data: Record<string, any>) {
     await this.ensureAuth();
     const update: Record<string, any> = {};
@@ -1152,6 +889,7 @@ export class KeycloakAdminService implements OnModuleInit {
       'waitIncrementSeconds',
       'maxFailureWaitSeconds',
       'passwordPolicy',
+      'accessTokenLifespan',
     ]) {
       if (data[k] !== undefined) update[k] = data[k];
     }
@@ -1160,21 +898,72 @@ export class KeycloakAdminService implements OnModuleInit {
     return { message: 'Policies updated' };
   }
 
+  /**
+   * Make first and last name optional in a realm's user profile, so an account
+   * created without a name can still sign in. Keycloak 24 marks both required
+   * by default, and a user missing them fails the password grant with
+   * "Account is not fully set up" — which is why names used to be filled with
+   * the email's local part. Only the `required` flag of those two attributes
+   * changes; returns true once the realm no longer requires them.
+   */
+  async ensureNamesOptional(realmName: string): Promise<boolean> {
+    try {
+      const baseUrl = this.config.get<string>('keycloak.url');
+      const adminToken = await this.getAdminAccessToken();
+      const headers = { Authorization: `Bearer ${adminToken}`, 'Content-Type': 'application/json' };
+      const url = `${baseUrl}/admin/realms/${realmName}/users/profile`;
+      const { data: profile } = await axios.get(url, { headers });
+      const attributes: any[] = Array.isArray(profile?.attributes) ? profile.attributes : [];
+      const names = attributes.filter((a) => a?.name === 'firstName' || a?.name === 'lastName');
+      if (names.length === 0) return true; // no declarative profile: names were never required
+      if (names.every((a) => !a.required)) return true;
+      const next = {
+        ...profile,
+        attributes: attributes.map((a) => {
+          if (a?.name !== 'firstName' && a?.name !== 'lastName') return a;
+          const { required: _required, ...rest } = a;
+          return rest;
+        }),
+      };
+      await axios.put(url, next, { headers });
+      const { data: after } = await axios.get(url, { headers });
+      const ok = (after?.attributes ?? [])
+        .filter((a: any) => a?.name === 'firstName' || a?.name === 'lastName')
+        .every((a: any) => !a.required);
+      if (ok) this.logger.log(`First/last name made optional for realm "${realmName}"`);
+      return ok;
+    } catch (err: any) {
+      this.logger.warn(
+        `Could not make names optional for "${realmName}": ${err?.response?.status ?? err?.message}`,
+      );
+      return false;
+    }
+  }
+
   async createUser(
     realmName: string,
     data: { email: string; password: string; firstName?: string; lastName?: string; username?: string },
+    opts: { allowEmptyNames?: boolean } = {},
   ) {
     await this.ensureAuth();
+
+    const firstName = data.firstName?.trim() || '';
+    const lastName = data.lastName?.trim() || '';
+    // Keycloak 24's User Profile requires firstName/lastName unless the realm
+    // was told otherwise (ensureNamesOptional); empty values would then make the
+    // password grant fail with "Account is not fully set up". Without that, fall
+    // back to the email local part so the account is always login-ready.
+    const namesOptional = opts.allowEmptyNames && (!firstName || !lastName)
+      ? await this.ensureNamesOptional(realmName)
+      : false;
+    const fallback = data.email.split('@')[0] || 'user';
 
     await this.client.users.create({
       realm: realmName,
       username: data.email,
       email: data.email,
-      // Keycloak 24's User Profile requires firstName/lastName; empty values make
-      // the password grant fail with "Account is not fully set up". Fall back to
-      // the email local part so the account is always login-ready.
-      firstName: data.firstName?.trim() || data.email.split('@')[0] || 'user',
-      lastName: data.lastName?.trim() || data.email.split('@')[0] || 'user',
+      ...(firstName || !namesOptional ? { firstName: firstName || fallback } : {}),
+      ...(lastName || !namesOptional ? { lastName: lastName || fallback } : {}),
       enabled: true,
       emailVerified: true,
       // Explicitly clear required actions so the realm's DEFAULT required actions
@@ -1192,8 +981,7 @@ export class KeycloakAdminService implements OnModuleInit {
 
   async createProjectUser(
     realmName: string,
-    /** Without a password the user can only sign in through a mailed link (invite, magic link). */
-    data: { email: string; password?: string; firstName?: string; lastName?: string },
+    data: { email: string; password: string; firstName?: string; lastName?: string },
     /**
      * Whether the address counts as confirmed. Required, never defaulted: this flag is what a
      * token's `email_verified` claim reports, and consumers use it to decide whether an address
@@ -1201,21 +989,8 @@ export class KeycloakAdminService implements OnModuleInit {
      * address (or a project that opted out of verification) may pass true.
      */
     emailVerified: boolean,
-    /**
-     * Custom attributes; `app_metadata` and `user_metadata` are what the GoTrue claim mappers
-     * copy into the tokens, so they are always written (defaulted when the caller sends none)
-     * and always as one JSON document each.
-     */
-    metadata: { app_metadata?: Record<string, unknown>; user_metadata?: Record<string, unknown>; phone?: string } = {},
   ): Promise<string> {
     await this.ensureAuth();
-    await this.ensureUnmanagedAttributes(realmName);
-
-    const attributes: Record<string, string[]> = {
-      app_metadata: [JSON.stringify(metadata.app_metadata ?? DEFAULT_APP_METADATA)],
-      user_metadata: [JSON.stringify(metadata.user_metadata ?? {})],
-      ...(metadata.phone ? { phoneNumber: [metadata.phone] } : {}),
-    };
 
     const { id } = await this.client.users.create({
       realm: realmName,
@@ -1233,243 +1008,13 @@ export class KeycloakAdminService implements OnModuleInit {
       // somebody else's address.
       emailVerified,
       requiredActions: [],
-      attributes,
-      credentials: data.password
-        ? [{ type: 'password', value: data.password, temporary: false }]
-        : [],
+      credentials: [
+        { type: 'password', value: data.password, temporary: false },
+      ],
     });
 
     this.logger.log(`Project user "${data.email}" created in realm "${realmName}" (${id})`);
     return id;
-  }
-
-  /** The whole Keycloak representation (attributes included), or null. */
-  async getRealmUserRepresentation(realmName: string, userId: string) {
-    await this.ensureAuth();
-    const user = await this.client.users.findOne({ realm: realmName, id: userId });
-    return user ?? null;
-  }
-
-  /**
-   * One page of a realm's users with their attributes, and the realm's user count — what
-   * `GET /auth/v1/admin/users` lists. `first` is an offset, `max` the page size.
-   */
-  async listRealmUsersPage(realmName: string, first: number, max: number) {
-    await this.ensureAuth();
-    const [users, total] = await Promise.all([
-      this.client.users.find({ realm: realmName, first, max, briefRepresentation: false }),
-      this.client.users.count({ realm: realmName }),
-    ]);
-    return { users, total };
-  }
-
-  /**
-   * Replace some of a user's custom attributes, keeping the rest. Values are lists of strings,
-   * as Keycloak stores them; an empty list removes the attribute.
-   */
-  /**
-   * Keycloak 24+ (User Profile) treats a user update without email/firstName/lastName as
-   * clearing them and adds VERIFY_PROFILE, after which a password grant answers
-   * "Account is not fully set up". Every attribute-only update must carry these back.
-   */
-  private static profileFields(current: {
-    username?: string;
-    email?: string;
-    firstName?: string;
-    lastName?: string;
-    emailVerified?: boolean;
-    enabled?: boolean;
-  }): Record<string, unknown> {
-    const out: Record<string, unknown> = {};
-    for (const k of ['username', 'email', 'firstName', 'lastName', 'emailVerified', 'enabled'] as const) {
-      if (current[k] !== undefined) out[k] = current[k];
-    }
-    return out;
-  }
-
-  async setRealmUserAttributes(
-    realmName: string,
-    userId: string,
-    attributes: Record<string, string[]>,
-  ): Promise<void> {
-    await this.ensureAuth();
-    await this.ensureUnmanagedAttributes(realmName);
-    const current = await this.client.users.findOne({ realm: realmName, id: userId });
-    if (!current?.id) throw new BadRequestException('User not found');
-    const merged: Record<string, unknown> = { ...(current.attributes || {}) };
-    for (const [k, v] of Object.entries(attributes)) {
-      if (v.length === 0) delete merged[k];
-      else merged[k] = v;
-    }
-    await this.client.users.update(
-      { realm: realmName, id: userId },
-      { ...KeycloakAdminService.profileFields(current), attributes: merged },
-    );
-  }
-
-  /** The JSON document in a user attribute, or `{}` when absent or unparsable. */
-  static readJsonAttribute(
-    user: { attributes?: Record<string, unknown> } | null | undefined,
-    name: string,
-  ): Record<string, unknown> {
-    const raw = (user?.attributes as any)?.[name];
-    const text = Array.isArray(raw) ? raw[0] : raw;
-    if (typeof text !== 'string' || !text) return {};
-    try {
-      const parsed = JSON.parse(text);
-      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-    } catch {
-      return {};
-    }
-  }
-
-  /**
-   * Write a user's `app_metadata` / `user_metadata`. Merged into what is stored (a key set to
-   * null is removed), so two callers updating different keys do not overwrite each other;
-   * `replace` writes the given documents as they are. Always one JSON document per attribute —
-   * the claim mappers copy the attribute verbatim, and a non-JSON value there breaks every
-   * token of the user.
-   */
-  async setRealmUserMetadata(
-    realmName: string,
-    userId: string,
-    data: { app_metadata?: Record<string, unknown>; user_metadata?: Record<string, unknown> },
-    mode: 'merge' | 'replace' = 'merge',
-  ): Promise<{ app_metadata: Record<string, unknown>; user_metadata: Record<string, unknown> }> {
-    await this.ensureAuth();
-    await this.ensureUnmanagedAttributes(realmName);
-    const current = await this.client.users.findOne({ realm: realmName, id: userId });
-    if (!current?.id) throw new BadRequestException('User not found');
-
-    const merge = (stored: Record<string, unknown>, patch?: Record<string, unknown>) => {
-      if (!patch) return stored;
-      if (mode === 'replace') return { ...patch };
-      const out = { ...stored };
-      for (const [k, v] of Object.entries(patch)) {
-        if (v === null || v === undefined) delete out[k];
-        else out[k] = v;
-      }
-      return out;
-    };
-    const app_metadata = merge(
-      { ...DEFAULT_APP_METADATA, ...KeycloakAdminService.readJsonAttribute(current, 'app_metadata') },
-      data.app_metadata,
-    );
-    const user_metadata = merge(KeycloakAdminService.readJsonAttribute(current, 'user_metadata'), data.user_metadata);
-
-    await this.client.users.update(
-      { realm: realmName, id: userId },
-      {
-        ...KeycloakAdminService.profileFields(current),
-        attributes: {
-          ...(current.attributes || {}),
-          app_metadata: [JSON.stringify(app_metadata)],
-          user_metadata: [JSON.stringify(user_metadata)],
-        },
-      },
-    );
-    return { app_metadata, user_metadata };
-  }
-
-  /**
-   * Tokens for a user who has not typed a password: a mailed link, an invitation, a step-up
-   * to aal2 (docs/specs/supabase-compat-auth.md §6, option A).
-   *
-   * Keycloak's token exchange would be the natural tool, but it is a preview feature behind a
-   * start-up flag — a restart this platform does not do for an app deploy. The admin API's
-   * impersonation endpoint needs no flag on 24 or 26: it answers with the cookies of a browser
-   * session for the user, and an authorization request made with those cookies and
-   * `prompt=none` yields a code, which the ordinary code exchange turns into tokens for the
-   * client named. The session is a real one — refresh and logout work on it like any other.
-   *
-   * `redirectUri` must be registered on the client (ensureAnonClientRedirectUri). Fails with a
-   * 503 that says what to do when impersonation is not allowed for the admin account.
-   */
-  async mintSessionForUser(
-    realmName: string,
-    userId: string,
-    clientId: string,
-    redirectUri: string,
-  ): Promise<MintedTokens> {
-    const baseUrl = (this.config.get<string>('keycloak.url') || '').replace(/\/+$/, '');
-    const unavailable = (why: string) =>
-      new ServiceUnavailableException(
-        `Cannot create a session without a password: Keycloak impersonation is unavailable for realm "${realmName}" (${why}). ` +
-          'Allow the admin account to impersonate users of this realm, then run POST /api/projects/:projectId/auth/repair.',
-      );
-
-    let cookies: string;
-    try {
-      const adminToken = await this.getAdminAccessToken();
-      const res = await axios.post(
-        `${baseUrl}/admin/realms/${realmName}/users/${userId}/impersonation`,
-        {},
-        {
-          headers: { Authorization: `Bearer ${adminToken}` },
-          maxRedirects: 0,
-          validateStatus: () => true,
-        },
-      );
-      if (res.status >= 400) {
-        throw unavailable(`impersonation answered ${res.status}${res.data?.errorMessage ? `: ${res.data.errorMessage}` : ''}`);
-      }
-      const setCookie = (res.headers['set-cookie'] ?? []) as string[];
-      cookies = setCookie.map((c) => c.split(';')[0]).filter(Boolean).join('; ');
-      if (!cookies.includes('KEYCLOAK_IDENTITY')) throw unavailable('no identity cookie came back');
-    } catch (err: any) {
-      if (err instanceof ServiceUnavailableException) throw err;
-      throw unavailable(err?.message ?? String(err));
-    }
-
-    const authParams = new URLSearchParams({
-      client_id: clientId,
-      response_type: 'code',
-      scope: 'openid email profile',
-      prompt: 'none',
-      redirect_uri: redirectUri,
-    });
-    const auth = await axios.get(
-      `${baseUrl}/realms/${realmName}/protocol/openid-connect/auth?${authParams.toString()}`,
-      { headers: { Cookie: cookies }, maxRedirects: 0, validateStatus: () => true },
-    );
-    const location = String(auth.headers['location'] ?? '');
-    let code: string | null = null;
-    let oauthError: string | null = null;
-    try {
-      const url = new URL(location, redirectUri);
-      code = url.searchParams.get('code');
-      oauthError = url.searchParams.get('error_description') ?? url.searchParams.get('error');
-    } catch {
-      /* no usable Location */
-    }
-    if (!code) {
-      throw unavailable(
-        oauthError
-          ? `the authorization request answered "${oauthError}"`
-          : `the authorization request answered ${auth.status} without a code`,
-      );
-    }
-
-    const tokenParams = new URLSearchParams({
-      grant_type: 'authorization_code',
-      client_id: clientId,
-      code,
-      redirect_uri: redirectUri,
-    });
-    const token = await axios.post(
-      `${baseUrl}/realms/${realmName}/protocol/openid-connect/token`,
-      tokenParams.toString(),
-      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, validateStatus: () => true },
-    );
-    if (token.status >= 400 || !token.data?.access_token) {
-      throw unavailable(`the code exchange answered ${token.status}: ${token.data?.error_description ?? token.data?.error ?? 'no token'}`);
-    }
-    return {
-      accessToken: token.data.access_token,
-      refreshToken: token.data.refresh_token,
-      expiresIn: token.data.expires_in,
-      tokenType: token.data.token_type || 'Bearer',
-    };
   }
 
   async deleteUser(realmName: string, userId: string) {
@@ -1494,6 +1039,7 @@ export class KeycloakAdminService implements OnModuleInit {
       phoneNumber: (user.attributes as any)?.phoneNumber?.[0] ?? null,
       phoneVerified: (user.attributes as any)?.phoneVerified?.[0] === 'true',
       createdTimestamp: user.createdTimestamp,
+      requiredActions: (user.requiredActions as string[] | undefined) ?? [],
     };
   }
 
@@ -1512,11 +1058,11 @@ export class KeycloakAdminService implements OnModuleInit {
     if (!users.length) {
       users = await this.client.users.find({ realm: realmName, search: email });
     }
-    // Only the account whose address (or username) is this one. The broad searches above
-    // match substrings, and returning their first hit handed `bob@x.com`'s account to a
-    // request for `ob@x.com` — a magic link or reset code for one user mailed to another.
-    const same = (v?: string) => (v || '').trim().toLowerCase() === norm;
-    return users.find((u) => same(u.email)) || users.find((u) => same(u.username)) || null;
+    return (
+      users.find((u) => (u.email || '').trim().toLowerCase() === norm) ||
+      users[0] ||
+      null
+    );
   }
 
   async findUserByEmailInRealm(realm: string, email: string) {
@@ -1575,14 +1121,12 @@ export class KeycloakAdminService implements OnModuleInit {
   private readonly authTimeMapped = new Set<string>();
 
   /**
-   * Ensure a realm client puts `auth_time` in its access tokens. Realms created before
-   * AUTH_TIME_MAPPER was part of createClients get it here, on their first sign-in.
-   * Best-effort and cached per process: a failure only means the claim is still missing, never
-   * a failed sign-in.
-   *
-   * Limit: Keycloak (24 and 26 alike) writes the AUTH_TIME session note only when a browser
-   * sign-in completes, so tokens from the SDK's password grant still carry no auth_time
-   * (test/keycloak-compat.test.mjs).
+   * Ensure a realm client puts `auth_time` in its access tokens. Keycloak 24 only puts it in
+   * the ID token by default, and the SDK sign-in returns only the access token, so without this
+   * a consumer has no way to tell when the person last entered their password (OIDC's re-auth
+   * checks). Realms created before AUTH_TIME_MAPPER was part of createClients get it here, on
+   * their first sign-in. Best-effort and cached per process: a failure only means the claim is
+   * still missing, never a failed sign-in.
    */
   async ensureRealmClientAuthTimeMapper(realmName: string, clientId: string): Promise<void> {
     const key = `${realmName}/${clientId}`;
@@ -1646,7 +1190,7 @@ export class KeycloakAdminService implements OnModuleInit {
    * as a custom attribute, so enable `unmanagedAttributePolicy=ADMIN_EDIT`
    * (idempotent) before writing it — otherwise the user update fails with a 400.
    */
-  async ensureUnmanagedAttributes(realmName: string): Promise<void> {
+  private async ensureUnmanagedAttributes(realmName: string): Promise<void> {
     try {
       const baseUrl = this.config.get<string>('keycloak.url');
       const adminToken = await this.getAdminAccessToken();
@@ -1699,33 +1243,23 @@ export class KeycloakAdminService implements OnModuleInit {
       enabled?: boolean;
       phoneNumber?: string;
       phoneVerified?: boolean;
-      /** With a new email: whether it counts as confirmed (the dashboard's default, true). */
-      emailVerified?: boolean;
     },
   ) {
     await this.ensureAuth();
     // Changing email syncs username → needs editUsernameAllowed on the realm.
     if (data.email !== undefined) await this.ensureEditUsername(realmName);
-    // Keycloak 24+ (User Profile) clears profile fields a partial update omits and then
-    // refuses the password grant ("Account is not fully set up"): start from what is there.
-    const existing = await this.client.users.findOne({ realm: realmName, id: userId });
-    const update: Record<string, any> = existing ? KeycloakAdminService.profileFields(existing) : {};
+    const update: Record<string, any> = {};
     if (data.firstName !== undefined) update.firstName = data.firstName;
     if (data.lastName !== undefined) update.lastName = data.lastName;
     // Sync username to the new email so SDK signin (which authenticates by email)
     // keeps working — see updateRealmUserEmail.
-    if (data.email !== undefined) {
-      update.email = data.email;
-      update.emailVerified = data.emailVerified ?? true;
-      update.username = data.email;
-    } else if (data.emailVerified !== undefined) {
-      update.emailVerified = data.emailVerified;
-    }
+    if (data.email !== undefined) { update.email = data.email; update.emailVerified = true; update.username = data.email; }
     if (data.enabled !== undefined) update.enabled = data.enabled;
     // Phone is stored as a user attribute (Keycloak has no native phone field).
     if (data.phoneNumber !== undefined || data.phoneVerified !== undefined) {
       await this.ensureUnmanagedAttributes(realmName);
-      const attrs: Record<string, any> = { ...(existing?.attributes || {}) };
+      const current = await this.client.users.findOne({ realm: realmName, id: userId });
+      const attrs: Record<string, any> = { ...(current?.attributes || {}) };
       if (data.phoneNumber !== undefined) attrs.phoneNumber = data.phoneNumber ? [data.phoneNumber] : [];
       if (data.phoneVerified !== undefined) attrs.phoneVerified = [String(!!data.phoneVerified)];
       update.attributes = attrs;
@@ -1945,55 +1479,6 @@ export class KeycloakAdminService implements OnModuleInit {
     await this.ensureAuth();
     const creds = await this.client.users.getCredentials({ realm: realmName, id: userId });
     return (creds || []).some((c: any) => c.type === 'otp');
-  }
-
-  async userHasPasswordCredential(realmName: string, userId: string): Promise<boolean> {
-    await this.ensureAuth();
-    const creds = await this.client.users.getCredentials({ realm: realmName, id: userId });
-    return (creds || []).some((c: any) => c.type === 'password');
-  }
-
-  /** Whether the realm's brute-force detection has the user locked out right now. */
-  async isUserLockedOut(realmName: string, userId: string): Promise<boolean> {
-    await this.ensureAuth();
-    const status = await this.client.attackDetection.findOne({ realm: realmName, id: userId });
-    return status?.disabled === true;
-  }
-
-  /**
-   * Create users with the ids they already carry elsewhere.
-   *
-   * The ordinary create endpoint always mints a new id, while an imported
-   * project's rows, foreign keys and policies all name the old one — a user
-   * created that way signs in as a stranger to their own data. The realm's
-   * partial import keeps the id it is given. A user that already exists (same
-   * username or email) is skipped, never overwritten, and its result carries
-   * the id it actually has, so the caller can tell a kept identity from a clash.
-   *
-   * No credentials are written: the source's password hashes are in a format
-   * Keycloak cannot verify, and wait in ImportedPasswordHash instead.
-   */
-  async importRealmUsers(
-    realmName: string,
-    users: ImportedRealmUser[],
-  ): Promise<ImportedRealmUserResult[]> {
-    await this.ensureAuth();
-    // The metadata attributes are what the GoTrue claim mappers copy into tokens; the realm
-    // must accept custom attributes before the import writes them.
-    if (users.some((u) => u.attributes && Object.keys(u.attributes).length > 0)) {
-      await this.ensureUnmanagedAttributes(realmName);
-    }
-    const res = await this.client.realms.partialImport({
-      realm: realmName,
-      rep: { ifResourceExists: 'SKIP', users: users.map((u) => ({ ...u, requiredActions: [] })) },
-    });
-    return (res?.results ?? [])
-      .filter((r) => r.resourceType === 'USER')
-      .map((r) => ({
-        action: r.action === 'ADDED' ? 'ADDED' : 'SKIPPED',
-        username: r.resourceName,
-        id: r.id,
-      }));
   }
 
   // ── Platform user operations ──

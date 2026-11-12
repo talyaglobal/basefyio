@@ -1,5 +1,4 @@
 import { randomInt } from 'crypto';
-import { isBeta, RELEASE_LABEL } from '../../common/utils/release-stage';
 import {
   Injectable,
   Logger,
@@ -15,21 +14,11 @@ import { RedisService } from '../redis/redis.service';
 import { EmailService } from '../email/email.service';
 import { QuickbooksService } from '../quickbooks/quickbooks.service';
 import { ACADEMIC_DOMAINS } from './academic-domains';
-import { DEFAULT_PLANS } from './default-plans';
-import { grantedByRole, requireRolePermission } from '../teams/role-permissions';
+import { dataGridRowLimitFor } from './plan-limits';
 import PDFDocument = require('pdfkit');
 
 /** Worldwide university/college domains, built once for O(1) lookup. */
 const ACADEMIC_DOMAIN_SET = new Set(ACADEMIC_DOMAINS);
-
-/** A subscription's current period: top-level on older API versions, on the first item since 2025-03-31. */
-function subscriptionPeriod(stripeSub: any): { start: number | null; end: number | null } {
-  const item = stripeSub?.items?.data?.[0];
-  const start = stripeSub?.current_period_start ?? item?.current_period_start ?? null;
-  const end = stripeSub?.current_period_end ?? item?.current_period_end ?? null;
-  return { start: typeof start === 'number' ? start : null, end: typeof end === 'number' ? end : null };
-}
-
 
 @Injectable()
 export class BillingService implements OnModuleInit {
@@ -51,32 +40,12 @@ export class BillingService implements OnModuleInit {
   }
 
   async onModuleInit() {
-    await this.ensureDefaultPlans();
     if (this.stripe.isEnabled()) {
       try {
         await this.syncStripePlans();
       } catch (err: any) {
         this.logger.error(`Failed to sync Stripe plans: ${err.message}`);
       }
-    }
-  }
-
-  /**
-   * A new installation starts with an empty plans table, and without the free
-   * plan no organization gets a subscription and nobody can create a project.
-   * Write the default plans then — only when there is no plan at all, so an
-   * installation whose plans exist (edited or not) is never touched.
-   */
-  private async ensureDefaultPlans(): Promise<void> {
-    try {
-      if ((await this.prisma.plan.count()) > 0) return;
-      const { count } = await this.prisma.plan.createMany({
-        data: DEFAULT_PLANS,
-        skipDuplicates: true,
-      });
-      this.logger.log(`The plans table was empty; created ${count} default plans`);
-    } catch (err: any) {
-      this.logger.error(`Could not create the default plans: ${err?.message ?? err}`);
     }
   }
 
@@ -149,12 +118,17 @@ export class BillingService implements OnModuleInit {
     return next as T & { stripeProductId: string; stripePriceId: string };
   }
 
-  /** List all publicly available plans */
+  /**
+   * List all publicly available plans, each with the Data grid page-size
+   * ceiling — a plan fact that is not a column, so the plan cards could not
+   * show it.
+   */
   async listPlans() {
-    return this.prisma.plan.findMany({
+    const plans = await this.prisma.plan.findMany({
       where: { isPublic: true },
       orderBy: { priceMonthly: 'asc' },
     });
+    return plans.map((p) => ({ ...p, dataGridRowLimit: dataGridRowLimitFor(p.name) }));
   }
 
   /** Get all plans including non-public (for internal use) */
@@ -343,7 +317,8 @@ export class BillingService implements OnModuleInit {
       existingCustomerId: sub?.stripeCustomerId,
     });
 
-    if (sub && !sub.stripeCustomerId) {
+    // Also covers a stored id Stripe no longer knows (test-mode leftover): getOrCreateCustomer replaced it.
+    if (sub && sub.stripeCustomerId !== customer.id) {
       await this.prisma.subscription.update({
         where: { id: sub.id },
         data: { stripeCustomerId: customer.id },
@@ -577,10 +552,6 @@ export class BillingService implements OnModuleInit {
     // Header — title left, brand right
     doc.fillColor(DARK).font('Helvetica-Bold').fontSize(28).text(isReceipt ? 'Receipt' : 'Invoice', 50, 50);
     doc.fillColor('#3b82f6').fontSize(18).text('basefyio', 350, 56, { width: 195, align: 'right' });
-    if (isBeta()) {
-      // The same small "beta" that sits next to the mark everywhere else.
-      doc.fillColor(MUTE).font('Helvetica').fontSize(8).text(RELEASE_LABEL, 350, 78, { width: 195, align: 'right' });
-    }
 
     // Meta block
     let y = 100;
@@ -695,7 +666,7 @@ export class BillingService implements OnModuleInit {
 
   /** Get invoices for a team */
   async getInvoices(teamId: string, userId: string) {
-    await this.assertCanViewBilling(teamId, userId);
+    await this.assertTeamMember(teamId, userId);
 
     const sub = await this.prisma.subscription.findUnique({ where: { teamId } });
 
@@ -778,8 +749,8 @@ export class BillingService implements OnModuleInit {
         status: 'ACTIVE',
         stripeCustomerId: customerId,
         stripeSubscriptionId: subscriptionId,
-        currentPeriodStart: new Date((subscriptionPeriod(stripeSub).start ?? 0) * 1000),
-        currentPeriodEnd: new Date((subscriptionPeriod(stripeSub).end ?? 0) * 1000),
+        currentPeriodStart: new Date((stripeSub as any).current_period_start * 1000),
+        currentPeriodEnd: new Date((stripeSub as any).current_period_end * 1000),
         cancelAtPeriodEnd: stripeSub.cancel_at_period_end,
       },
       create: {
@@ -788,8 +759,8 @@ export class BillingService implements OnModuleInit {
         status: 'ACTIVE',
         stripeCustomerId: customerId,
         stripeSubscriptionId: subscriptionId,
-        currentPeriodStart: new Date((subscriptionPeriod(stripeSub).start ?? 0) * 1000),
-        currentPeriodEnd: new Date((subscriptionPeriod(stripeSub).end ?? 0) * 1000),
+        currentPeriodStart: new Date((stripeSub as any).current_period_start * 1000),
+        currentPeriodEnd: new Date((stripeSub as any).current_period_end * 1000),
       },
     });
 
@@ -817,11 +788,11 @@ export class BillingService implements OnModuleInit {
     const data: any = {
       status: statusMap[stripeSub.status] || 'ACTIVE',
       cancelAtPeriodEnd: stripeSub.cancel_at_period_end ?? false,
-      currentPeriodStart: subscriptionPeriod(stripeSub).start
-        ? new Date((subscriptionPeriod(stripeSub).start as number) * 1000)
+      currentPeriodStart: stripeSub.current_period_start
+        ? new Date(stripeSub.current_period_start * 1000)
         : undefined,
-      currentPeriodEnd: subscriptionPeriod(stripeSub).end
-        ? new Date((subscriptionPeriod(stripeSub).end as number) * 1000)
+      currentPeriodEnd: stripeSub.current_period_end
+        ? new Date(stripeSub.current_period_end * 1000)
         : undefined,
     };
 
@@ -958,10 +929,20 @@ export class BillingService implements OnModuleInit {
     return user.activeTeamId;
   }
 
-  /** Get subscription with membership check */
+  /**
+   * Get subscription with membership check. Also says what the caller may do:
+   * only the owner manages billing, so the dashboard shows everyone else a
+   * read-only page instead of forms that end in a 403.
+   */
   async getTeamSubscriptionForUser(teamId: string, userId: string) {
-    await this.assertCanViewBilling(teamId, userId);
-    return this.getTeamSubscription(teamId);
+    const member = await this.prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId, userId } },
+      select: { role: true },
+    });
+    if (!member) throw new ForbiddenException('Not a member of this team');
+    const sub = await this.getTeamSubscription(teamId);
+    if (!sub) return sub;
+    return { ...sub, viewerRole: member.role, canManageBilling: member.role === 'OWNER' };
   }
 
   /** Assert caller is team member (public wrapper) */
@@ -969,38 +950,13 @@ export class BillingService implements OnModuleInit {
     await this.assertTeamMember(teamId, userId);
   }
 
-  /** Member, and — as far as ORG_PERMISSIONS_ENFORCED reaches — holder of canViewBilling. */
-  async verifyCanViewBilling(teamId: string, userId: string): Promise<void> {
-    await this.assertCanViewBilling(teamId, userId);
-  }
-
-  /**
-   * Billing is managed by the OWNER, and by a role whose stored
-   * canManageBilling flag says so (off for ADMIN and MEMBER unless the owner
-   * turned it on).
-   */
   private async assertTeamOwner(teamId: string, userId: string) {
     const m = await this.prisma.teamMember.findUnique({
       where: { teamId_userId: { teamId, userId } },
     });
-    if (!m) throw new ForbiddenException('Not a member of this team');
-    if (m.role !== 'OWNER' && !(await grantedByRole(this.prisma, teamId, m.role, 'canManageBilling'))) {
+    if (!m || m.role !== 'OWNER') {
       throw new ForbiddenException('Only the team owner can manage billing');
     }
-  }
-
-  /**
-   * Reading billing (subscription, usage, invoices, costs) used to need
-   * membership only, while the role-permissions page showed canViewBilling as
-   * off for members. The flag is applied as far as ORG_PERMISSIONS_ENFORCED
-   * allows: logged first, denied once the operator switches to enforce.
-   */
-  private async assertCanViewBilling(teamId: string, userId: string) {
-    const m = await this.prisma.teamMember.findUnique({
-      where: { teamId_userId: { teamId, userId } },
-    });
-    if (!m) throw new ForbiddenException('Not a member of this team');
-    await requireRolePermission(this.prisma, this.logger, { teamId, userId, role: m.role, key: 'canViewBilling' });
   }
 
   private async assertTeamMember(teamId: string, userId: string) {
@@ -1023,14 +979,16 @@ export class BillingService implements OnModuleInit {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!team || !user) throw new NotFoundException('Team or user not found');
 
-    let customerId = sub.stripeCustomerId;
-    if (!customerId) {
-      const customer = await this.stripe.getOrCreateCustomer({
-        teamId,
-        teamName: team.name,
-        email: user.email,
-      });
-      customerId = customer.id;
+    // A stored id Stripe no longer knows (17 teams on 2026-11-06, test-mode leftovers) used to
+    // make this a 500; getOrCreateCustomer replaces it and we persist the new one.
+    const customer = await this.stripe.getOrCreateCustomer({
+      teamId,
+      teamName: team.name,
+      email: user.email,
+      existingCustomerId: sub.stripeCustomerId,
+    });
+    const customerId = customer.id;
+    if (customerId !== sub.stripeCustomerId) {
       await this.prisma.subscription.update({
         where: { id: sub.id },
         data: { stripeCustomerId: customerId },
@@ -1924,6 +1882,14 @@ export class BillingService implements OnModuleInit {
   ) {
     await this.assertTeamOwner(teamId, userId);
 
+    // The dashboard sends an ISO 3166-1 alpha-2 code from a list; normalise its
+    // case. Free text from older clients is stored as given but not sent to the
+    // payment processor, which accepts only the two-letter code and would
+    // reject the whole address over it.
+    const rawCountry = typeof data.country === 'string' ? data.country.trim() : data.country;
+    const isoCountry = typeof rawCountry === 'string' && /^[a-z]{2}$/i.test(rawCountry) ? rawCountry.toUpperCase() : null;
+    if (rawCountry !== undefined) data = { ...data, country: isoCountry ?? rawCountry };
+
     const account = await this.prisma.billingAccount.upsert({
       where: { teamId },
       update: data,
@@ -1943,7 +1909,7 @@ export class BillingService implements OnModuleInit {
             city: data.city || undefined,
             state: data.state || undefined,
             postal_code: data.postalCode || undefined,
-            country: data.country || undefined,
+            country: isoCountry || undefined,
           },
         });
 
@@ -1983,7 +1949,14 @@ export class BillingService implements OnModuleInit {
   }
 
   async listManagementPlans() {
-    return this.getAllPlans();
+    // How many teams each plan has, so the console can warn before a delete
+    // moves them all to another plan.
+    const [plans, counts] = await Promise.all([
+      this.getAllPlans(),
+      this.prisma.subscription.groupBy({ by: ['planId'], _count: { _all: true } }),
+    ]);
+    const byPlan = new Map(counts.map((c) => [c.planId, c._count._all]));
+    return plans.map((p) => ({ ...p, subscriptionCount: byPlan.get(p.id) ?? 0 }));
   }
 
   async updateManagementPlan(

@@ -40,6 +40,7 @@ link and therefore accept the anon key as `?apikey=`.
 | POST | `/api/rest/v1/auth/reauth/verify` | anon | confirm it |
 | POST | `/api/rest/v1/auth/invite` | service | create an invited user and mail them |
 | POST | `/api/rest/v1/auth/refresh` | anon | exchange a refresh token for new tokens |
+| POST | `/api/rest/v1/auth/signout` | anon | revoke a refresh token (`{ "refreshToken": "…" }`) so the session cannot be renewed |
 | GET | `/api/rest/v1/auth/me` | anon + user | the profile behind the access token |
 | GET | `/api/rest/v1/auth/signin/:provider` | anon | the URL to send the browser to for OAuth sign-in |
 | GET | `/api/rest/v1/auth/callback/:projectId/:provider` | public | where the provider returns; redirects to your app with tokens in the URL fragment |
@@ -62,11 +63,7 @@ the anon key — that is what turns a request into the `authenticated` role for 
 security, with the claims readable in SQL through `auth.uid()`, `auth.email()` and
 `auth.jwt()`. Refresh with `POST refresh` `{ "refreshToken": "…" }` →
 `{ accessToken, refreshToken, expiresIn }`. The lifetime (`expiresIn`, default 1800 s) is the
-project's `tokenExpirySeconds` setting, written to the realm when the setting is saved; a
-realm created before that was wired keeps 1800 s until `POST /api/projects/:projectId/auth/repair`
-is run once. The token also carries `role`, `aal`, `app_metadata` and `user_metadata` — see
-[supabase-auth-v1.md](./supabase-auth-v1.md), the same identity system in GoTrue's shapes for
-`@supabase/supabase-js`.
+project's `tokenExpirySeconds` setting.
 
 ## Sign-up and sign-in
 
@@ -75,13 +72,12 @@ Project settings that apply (defaults in brackets, changed under Authentication 
 `PUT /api/projects/:projectId/auth/config`): `allowSignup` [true] — otherwise 403
 `Self-signup is disabled for this project`; `minPasswordLength` [6] — otherwise 400;
 `requireEmailVerify` [true] — the response still carries tokens, with `emailVerified: false`,
-and a code valid for 24 hours is mailed. 409 `Email already registered`.
+and a code valid for 24 hours is mailed. A missing or malformed e-mail or a missing password is
+400 (`Email is required`, `Email is not a valid address`, `Password is required`); 409
+`Email already registered` only for an address that has an account.
 
 `POST signin` body: `{ email, password, totp? }`. Wrong credentials: 401
-`Invalid email or password`. A user imported from Supabase signs in with their existing
-password; the first sign-in verifies it against the imported hash. When that password is right
-but breaks the project's password rules, the answer is 401 with
-`"code": "password_reset_required"`; send the user through `forgot-password`. When the account has an authenticator enrolled and `totp` was
+`Invalid email or password`. When the account has an authenticator enrolled and `totp` was
 not supplied, the response is a **challenge** instead of tokens:
 
 ```json
@@ -101,7 +97,12 @@ checked — and the verification response carries the tokens.
 `{ message: "If an account exists, …" }`; `POST reset-password` `{ otp, newPassword }`;
 `POST magic-link/verify` `{ otp }` → `{ message, userId, email, emailVerified: true }` (the
 link flow confirms the address and then the app signs the user in).
-`GET me` → `{ id, email, emailVerified, username, firstName, lastName, isAnonymous }`.
+`GET me` → `{ id, email, emailVerified, username, firstName, lastName, isAnonymous }`; without
+an `Authorization: Bearer` token it is 401 (nobody is signed in).
+
+`POST signout` `{ refreshToken }` → `{ message: "Signed out" }` ends the session on the auth
+server; the SDK's `signOut()` calls it. Access tokens already issued stay valid until they
+expire.
 
 ## Second factor (authenticator apps)
 
@@ -151,11 +152,8 @@ Then:
 ## Invitations
 
 `POST invite` `{ email }` needs the **service key** (403 `Invite requires service_role key`
-otherwise): it creates a password-less, unconfirmed user, mails an invitation whose link signs
-them in (`GET /api/auth/v1/verify`, valid seven days; the app lands on the project's first
-registered redirect URL with a session and may then set a password with `PUT /api/auth/v1/user`)
-and answers `{ message: "Invitation sent to …", userId }`. 409 `User already exists in this
-project`.
+otherwise): it creates the user, mails an invitation and answers
+`{ message: "Invitation sent to …" }`. 409 `User already exists in this project`.
 
 ## Examples
 
@@ -180,8 +178,8 @@ const { data: user } = await bf.auth.getUser();
 
 | Status | When |
 |---|---|
-| 400 | `Invalid or expired verification code` / `reset code` / `magic link` / `confirmation code`; `Password must be at least N characters`; `No enrollment is in progress. Call /mfa/enroll first.`; `That code does not match the authenticator…`; `This session is not anonymous…`; `Unsupported provider` |
-| 401 | `Invalid email or password`; `Invalid or expired access token`; `Invalid or expired refresh token`; `Invalid code` (`code: invalid_code`); an expired MFA challenge |
+| 400 | `Email is required` / `Email is not a valid address` / `Password is required` (sign-up); `refreshToken is required` (sign-out); `Invalid or expired verification code` / `reset code` / `magic link` / `confirmation code`; `Password must be at least N characters`; `No enrollment is in progress. Call /mfa/enroll first.`; `That code does not match the authenticator…`; `This session is not anonymous…`; `Unsupported provider` |
+| 401 | `Invalid email or password`; `GET me` without a token; `Invalid or expired access token`; `Invalid or expired refresh token`; `Invalid code` (`code: invalid_code`); an expired MFA challenge |
 | 403 | `Self-signup is disabled for this project`; `Invite requires service_role key`; `This route acts on the signed-in user…`; anonymous sign-in disabled for the project |
 | 409 | `Email already registered`; `Email already in use`; `User already exists in this project`; `An authenticator is already enrolled for this account.` |
 | 429 | anonymous sign-in rate limit |

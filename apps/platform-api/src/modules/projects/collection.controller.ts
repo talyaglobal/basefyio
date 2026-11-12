@@ -13,6 +13,7 @@ import {
   DefaultValuePipe,
 } from '@nestjs/common';
 import { CollectionService } from './collection.service';
+import { parseJsonQueryParam } from './nosql-filter.util';
 import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
 import { ServiceKeyOnly } from '../../common/decorators/api-key-scope.decorator';
 import {
@@ -102,9 +103,9 @@ export class CollectionController {
     @Query('offset', new DefaultValuePipe(0), ParseIntPipe) offset?: number,
     @CurrentUser() user?: JwtPayload,
   ) {
-    const filter = filterRaw ? JSON.parse(filterRaw) : undefined;
-    const sort = sortRaw ? JSON.parse(sortRaw) : undefined;
-    const project = projectRaw ? JSON.parse(projectRaw) : undefined;
+    const filter = parseJsonQueryParam(filterRaw, 'filter');
+    const sort = parseJsonQueryParam<Record<string, number>>(sortRaw, 'sort');
+    const project = parseJsonQueryParam<Record<string, 0 | 1>>(projectRaw, 'project');
 
     return this.collectionService.findDocuments(
       projectId,
@@ -232,7 +233,7 @@ export class CollectionController {
     const result = await this.collectionService.deleteDocuments(
       projectId,
       collectionName,
-      body.filter,
+      body?.filter,
       user?.sub,
     );
     await this.activity.append(projectId, {
@@ -253,7 +254,7 @@ export class CollectionController {
     @Query('filter') filterRaw?: string,
     @CurrentUser() user?: JwtPayload,
   ) {
-    const filter = filterRaw ? JSON.parse(filterRaw) : undefined;
+    const filter = parseJsonQueryParam(filterRaw, 'filter');
     return this.collectionService.countDocuments(
       projectId,
       collectionName,
@@ -272,8 +273,27 @@ export class CollectionController {
     return this.collectionService.createIndex(
       projectId,
       collectionName,
-      body.fieldPath,
+      body?.fieldPath,
       user?.sub,
     );
+  }
+
+  @Get(':collectionName/indexes')
+  async listIndexes(
+    @Param('projectId') projectId: string,
+    @Param('collectionName') collectionName: string,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    return this.collectionService.listIndexes(projectId, collectionName, user?.sub);
+  }
+
+  @Delete(':collectionName/indexes/:indexName')
+  async dropIndex(
+    @Param('projectId') projectId: string,
+    @Param('collectionName') collectionName: string,
+    @Param('indexName') indexName: string,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    return this.collectionService.dropIndex(projectId, collectionName, indexName, user?.sub);
   }
 }

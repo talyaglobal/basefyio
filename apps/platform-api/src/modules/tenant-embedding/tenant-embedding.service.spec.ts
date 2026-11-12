@@ -35,6 +35,7 @@ import {
   ConflictException,
   HttpException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { TenantEmbeddingService } from './tenant-embedding.service';
 import { EmbeddingProviderService } from '../embedding/providers/embedding-provider.service';
 
@@ -366,7 +367,8 @@ describe('TenantEmbeddingService.setProvider', () => {
       .catch((e) => e);
 
     expect(responseCode(err)).toBe('EMBEDDING_REEMBED_TOO_LARGE');
-    expect(err.message).toContain('EMBEDDING_REEMBED_MAX_ROWS');
+    expect(err.message).toContain('re-embed limit');
+    expect(err.message).not.toContain('EMBEDDING_REEMBED_MAX_ROWS');
     expect(svc.prismaMock.project.update).not.toHaveBeenCalled();
   });
 
@@ -377,7 +379,8 @@ describe('TenantEmbeddingService.setProvider', () => {
     for (const baseUrl of ['http://10.0.0.5:11434', 'https://keycloak:8080', 'http://ollama.example.com']) {
       const err = await svc.setProvider('p1', { provider: 'ollama', baseUrl }).catch((e) => e);
       expect(err).toBeInstanceOf(BadRequestException);
-      expect(err.message).toContain('EMBEDDING_ALLOW_PRIVATE_BASE_URL');
+      expect(err.message).toContain('public https');
+      expect(err.message).not.toContain('EMBEDDING_ALLOW_PRIVATE_BASE_URL');
     }
     await expect(
       svc.setProvider('p1', { provider: 'ollama', baseUrl: 'https://user:pw@ollama.example.com' }),
@@ -517,7 +520,7 @@ describe('TenantEmbeddingService disclosure and status', () => {
     expect(cat.platformProvider).toBe('openai');
     expect(cat.platformModel).toBe('text-embedding-3-small');
     expect(cat.hostRegion).toEqual({ code: 'DE', label: 'Germany' });
-    expect(cat.providers.map((p) => p.id)).toEqual(['openai', 'ollama', 'cohere']);
+    expect(cat.providers.map((p) => p.id)).toEqual(['openai', 'ollama', 'cohere', 'gemini']);
     expect(cat.providers.find((p) => p.id === 'cohere')).toMatchObject({ platformKeyAvailable: true, requiresApiKey: true });
     expect(cat.providers.find((p) => p.id === 'ollama')).toMatchObject({ platformKeyAvailable: false, requiresApiKey: false, selfHosted: true, dataRegion: { code: 'DE' } });
     expect(JSON.stringify(cat)).not.toContain('sk-platform');
@@ -580,5 +583,181 @@ describe('TenantEmbeddingService re-embed', () => {
 
     const tooBig = await service({}, { config: { 'embedding.reembedMaxRows': '2' } }).startReembed('p1').catch((e) => e);
     expect(responseCode(tooBig)).toBe('EMBEDDING_REEMBED_TOO_LARGE');
+  });
+});
+
+describe('TenantEmbeddingService.setEmbeddingApiKey', () => {
+  const apiError = (status: number | undefined, message: string) =>
+    new (OpenAI as any).APIError(status, message);
+
+  it('tests the key with one embedding request before storing it', async () => {
+    embeddingsCreate.mockResolvedValue(embedResponse(1));
+    const svc = service();
+
+    const out = await svc.setEmbeddingApiKey('p1', '  sk-project  ');
+
+    expect(out).toEqual({ verified: true, warning: null });
+    expect(embeddingsCreate).toHaveBeenCalledTimes(1);
+    const ctorCalls = (OpenAI as unknown as jest.Mock).mock.calls;
+    expect(ctorCalls[ctorCalls.length - 1][0].apiKey).toBe('sk-project');
+    expect(svc.prismaMock.project.update).toHaveBeenCalledWith({
+      where: { id: 'p1' },
+      data: { embeddingApiKey: 'sk-project' },
+    });
+  });
+
+  it('refuses a key the provider rejects and stores nothing', async () => {
+    embeddingsCreate.mockRejectedValue(apiError(401, 'Incorrect API key provided: fake'));
+    const svc = service();
+
+    const err = await svc.setEmbeddingApiKey('p1', 'fake').catch((e) => e);
+
+    expect(err).toBeInstanceOf(BadRequestException);
+    expect(responseCode(err)).toBe('EMBEDDING_API_KEY_REJECTED');
+    expect((err.getResponse() as any).message).toContain('OpenAI rejected this API key');
+    expect(svc.prismaMock.project.update).not.toHaveBeenCalled();
+  });
+
+  it('reports an unreachable provider separately and lets the caller skip the check', async () => {
+    embeddingsCreate.mockRejectedValue(apiError(undefined, 'Connection error.'));
+    const svc = service();
+
+    const err = await svc.setEmbeddingApiKey('p1', 'sk-x').catch((e) => e);
+    expect(err).toBeInstanceOf(BadGatewayException);
+    expect(responseCode(err)).toBe('EMBEDDING_PROVIDER_UNREACHABLE');
+    expect(svc.prismaMock.project.update).not.toHaveBeenCalled();
+
+    embeddingsCreate.mockClear();
+    const skipped = await svc.setEmbeddingApiKey('p1', 'sk-x', { skipValidation: true });
+    expect(skipped).toEqual({ verified: false, warning: null });
+    expect(embeddingsCreate).not.toHaveBeenCalled();
+    expect(svc.prismaMock.project.update).toHaveBeenCalledWith({
+      where: { id: 'p1' },
+      data: { embeddingApiKey: 'sk-x' },
+    });
+  });
+
+  it('stores a key that authenticated but hit a quota, with a warning', async () => {
+    embeddingsCreate.mockRejectedValue(apiError(429, 'You exceeded your current quota'));
+    const out = await service().setEmbeddingApiKey('p1', 'sk-x');
+    expect(out.verified).toBe(true);
+    expect(out.warning).toContain('quota');
+  });
+
+  it('clears the key without calling the provider', async () => {
+    const svc = service({ embeddingApiKey: 'sk-old' });
+    for (const empty of [null, '', '   ']) {
+      expect(await svc.setEmbeddingApiKey('p1', empty)).toEqual({ verified: false, warning: null });
+    }
+    expect(embeddingsCreate).not.toHaveBeenCalled();
+    expect(svc.prismaMock.project.update).toHaveBeenLastCalledWith({
+      where: { id: 'p1' },
+      data: { embeddingApiKey: null },
+    });
+  });
+
+  it('refuses a key with whitespace inside before any request', async () => {
+    const err = await service().setEmbeddingApiKey('p1', 'sk-a b').catch((e) => e);
+    expect(responseCode(err)).toBe('EMBEDDING_API_KEY_INVALID_FORMAT');
+    expect(embeddingsCreate).not.toHaveBeenCalled();
+  });
+
+  it('tests against the provider the dashboard is switching to, not the saved one', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ embeddings: { float: [[0.1, 0.2]] } }),
+    } as unknown as Response);
+
+    const out = await service().setEmbeddingApiKey('p1', 'co-key', { provider: 'cohere' });
+
+    expect(out.verified).toBe(true);
+    expect(embeddingsCreate).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls[0][0]).toBe('https://api.cohere.com/v2/embed');
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe('Bearer co-key');
+  });
+
+  it("treats Gemini's 400 API_KEY_INVALID as a rejected key", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 400,
+      text: async () =>
+        JSON.stringify({
+          error: {
+            code: 400,
+            message: 'API key not valid. Please pass a valid API key.',
+            status: 'INVALID_ARGUMENT',
+          },
+        }),
+    } as unknown as Response);
+
+    const err = await service()
+      .setEmbeddingApiKey('p1', 'AIza-fake', { provider: 'gemini' })
+      .catch((e) => e);
+
+    expect(responseCode(err)).toBe('EMBEDDING_API_KEY_REJECTED');
+    expect((err.getResponse() as any).message).toContain('Google Gemini rejected this API key');
+  });
+});
+
+describe('TenantEmbeddingService.disablePgvector', () => {
+  it('keeps the tables by default', async () => {
+    const svc = service();
+    expect(await svc.disablePgvector('p1')).toEqual({ dataDropped: false });
+    expect(clientQuery).not.toHaveBeenCalled();
+    expect(svc.prismaMock.project.update).toHaveBeenCalledWith({
+      where: { id: 'p1' },
+      data: { pgvectorEnabled: false },
+    });
+  });
+
+  it('drops the platform tables in one transaction before turning the flag off', async () => {
+    const done = { status: 'COMPLETED', done: 3, total: 3, model: 'x', updatedAt: new Date().toISOString() };
+    const svc = service({ embeddingReembedState: done });
+
+    expect(await svc.disablePgvector('p1', { dropData: true })).toEqual({ dataDropped: true });
+
+    expect(clientQuery.mock.calls.map(([sql]) => sql)).toEqual([
+      'BEGIN',
+      'DROP TABLE IF EXISTS "kb_embeddings_store"',
+      'DROP TABLE IF EXISTS "kb_embeddings"',
+      'COMMIT',
+    ]);
+    // Never the extension: the project's own tables may use it.
+    expect(clientQuery.mock.calls.some(([sql]) => /DROP EXTENSION/i.test(sql))).toBe(false);
+    expect(svc.prismaMock.project.update).toHaveBeenCalledWith({
+      where: { id: 'p1' },
+      data: { pgvectorEnabled: false, embeddingReembedState: Prisma.DbNull },
+    });
+  });
+
+  it('leaves everything as it was when customer objects depend on the tables', async () => {
+    clientQuery.mockImplementation(async (sql: string) => {
+      if (sql === 'DROP TABLE IF EXISTS "kb_embeddings"') {
+        throw Object.assign(
+          new Error('cannot drop table kb_embeddings because other objects depend on it'),
+          { code: '2BP01', detail: 'view my_search depends on table kb_embeddings' },
+        );
+      }
+      return { rows: [] };
+    });
+    const svc = service();
+
+    const err = await svc.disablePgvector('p1', { dropData: true }).catch((e) => e);
+
+    expect(err).toBeInstanceOf(ConflictException);
+    expect(responseCode(err)).toBe('EMBEDDING_TABLES_IN_USE');
+    expect((err.getResponse() as any).message).toContain('view my_search depends on table kb_embeddings');
+    expect(clientQuery.mock.calls.map(([sql]) => sql)).toContain('ROLLBACK');
+    expect(svc.prismaMock.project.update).not.toHaveBeenCalled();
+  });
+
+  it('refuses to drop data while a re-embed is running', async () => {
+    const running = { status: 'RUNNING', done: 1, total: 3, model: 'x', updatedAt: new Date().toISOString() };
+    const svc = service({ embeddingReembedState: running });
+    const err = await svc.disablePgvector('p1', { dropData: true }).catch((e) => e);
+    expect(responseCode(err)).toBe('EMBEDDING_REEMBED_RUNNING');
+    expect(clientQuery).not.toHaveBeenCalled();
+    expect(svc.prismaMock.project.update).not.toHaveBeenCalled();
   });
 });

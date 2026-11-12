@@ -20,18 +20,8 @@ import { RedisService } from '../redis/redis.service';
 import { ProjectAuthConfigService } from './project-auth-config.service';
 import { describeAllowedRedirects, resolveOAuthRedirect } from './oauth-redirect.util';
 import { ProjectMfaService } from './project-mfa.service';
-import { ImportedPasswordService } from './imported-password.service';
-import { decodeJwtPayload } from './gotrue-shapes';
 
-export type EmailType = 'verify' | 'reset' | 'welcome' | 'invite' | 'magic_link' | 'change_email' | 'reauth';
-
-/** What a social sign-in started by the GoTrue facade remembers across the provider round trip. */
-export interface OAuthStateExtras {
-  /** Started by `GET /auth/v1/authorize`; the callback answers in GoTrue's shape. */
-  gotrue?: boolean;
-  codeChallenge?: string;
-  codeChallengeMethod?: 's256' | 'plain';
-}
+type EmailType = 'verify' | 'reset' | 'welcome' | 'invite' | 'magic_link' | 'change_email' | 'reauth';
 
 const SUBJECT_FIELDS: Record<EmailType, string> = {
   verify: 'verifyEmailSubject',
@@ -76,7 +66,6 @@ export class ProjectSdkAuthService {
     private readonly config: ConfigService,
     private readonly authConfig: ProjectAuthConfigService,
     private readonly mfa: ProjectMfaService,
-    private readonly importedPasswords: ImportedPasswordService,
   ) {}
 
   private getRealmAnonClientId(realmName: string): string {
@@ -84,7 +73,7 @@ export class ProjectSdkAuthService {
   }
 
   /** Returns the public-facing API base URL including the /api prefix. */
-  getPublicApiBase(): string {
+  private getPublicApiBase(): string {
     const raw = this.config.get<string>('publicApiUrl') || 'http://localhost:4000';
     const base = raw.replace(/\/+$/, '');
     return base.endsWith('/api') ? base : `${base}/api`;
@@ -96,6 +85,18 @@ export class ProjectSdkAuthService {
     data: { email: string; password: string; firstName?: string; lastName?: string },
     clientIp?: string,
   ) {
+    // Checked before anything is looked up: an empty email used to reach the
+    // user search, which matched an existing account and answered 409 "Email
+    // already registered" to a request that never named one.
+    const email = typeof data?.email === 'string' ? data.email.trim() : '';
+    if (!email) throw new BadRequestException('Email is required');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      throw new BadRequestException('Email is not a valid address');
+    }
+    if (typeof data.password !== 'string' || !data.password) {
+      throw new BadRequestException('Password is required');
+    }
+
     const project = await this.getProject(projectId);
     const cfg = await this.authConfig.getOrCreate(projectId);
 
@@ -152,34 +153,15 @@ export class ProjectSdkAuthService {
   ) {
     const project = await this.getProject(projectId);
     const kcClientId = this.getRealmAnonClientId(project.keycloakRealm);
-    const grant = () =>
-      this.authenticateInRealm(
-        project.keycloakRealm, kcClientId, email, password, false, clientIp, { projectId, totp },
-      );
-    let tokens: Awaited<ReturnType<typeof grant>>;
-    try {
-      tokens = await grant();
-    } catch (err) {
-      // An account imported from another provider has no password in Keycloak
-      // until its owner first signs in with the one they always used.
-      if (
-        !(err instanceof UnauthorizedException) ||
-        !(await this.importedPasswords.adoptOnSignIn(projectId, project.keycloakRealm, email, password))
-      ) {
-        throw err;
-      }
-      tokens = await grant();
-    }
+    const tokens = await this.authenticateInRealm(
+      project.keycloakRealm, kcClientId, email, password, false, clientIp, { projectId, totp },
+    );
     const user = await this.keycloak.findUserInRealm(project.keycloakRealm, email);
     const sub = this.decodeJwtPayload(tokens.accessToken)?.sub;
     const userId: string | undefined = typeof sub === 'string' && sub ? sub : user?.id;
     const emailVerified = user?.emailVerified ?? false;
     const response = { ...tokens, userId, emailVerified };
     if (!userId) return { ...response, mfaEnrollmentRequired: false };
-
-    // Signed in with a password Keycloak holds, so an imported hash still
-    // waiting for this user (say, after a reset) will never be needed.
-    void this.importedPasswords.settleForUser(projectId, userId).catch(() => undefined);
 
     const mfa = await this.mfa.getState(projectId, userId);
     const account = user?.email ?? email;
@@ -316,7 +298,13 @@ export class ProjectSdkAuthService {
    * not verified — verification is the guard's job on the way back in.
    */
   private decodeJwtPayload(token: string | undefined): Record<string, unknown> | null {
-    return decodeJwtPayload(token);
+    const part = token?.split('.')[1];
+    if (!part) return null;
+    try {
+      return JSON.parse(Buffer.from(part, 'base64url').toString('utf8'));
+    } catch {
+      return null;
+    }
   }
 
   /* ───────── Email verification ───────── */
@@ -525,17 +513,7 @@ export class ProjectSdkAuthService {
       : [];
   }
 
-  async getOAuthRedirectUrl(
-    projectId: string,
-    provider: string,
-    redirectTo?: string,
-    /**
-     * `extras` ride in the state for the callback; `fallbackRedirect` sends an unregistered
-     * `redirect_to` to the first registered URL instead of refusing (what the GoTrue facade
-     * does, since supabase-js never shows that 400 to anyone).
-     */
-    opts: { extras?: OAuthStateExtras; fallbackRedirect?: boolean } = {},
-  ) {
+  async getOAuthRedirectUrl(projectId: string, provider: string, redirectTo?: string) {
     const project = await this.getProject(projectId);
     // The only Keycloak URL in this service that a browser opens, so the only
     // one that must be the public hostname. The rest are server-to-server
@@ -563,13 +541,7 @@ export class ProjectSdkAuthService {
     // wrong URL is a clear 400 instead of a browser that comes back from the
     // provider with nowhere to land.
     const allowed = await this.allowedRedirectUrls(projectId);
-    let resolvedRedirect = resolveOAuthRedirect(redirectTo, allowed);
-    if (!resolvedRedirect && opts.fallbackRedirect) {
-      this.logger.warn(
-        `OAuth redirect_to is not registered on project ${projectId}; sending the browser to the first registered URL instead: ${String(redirectTo).slice(0, 200)}`,
-      );
-      resolvedRedirect = resolveOAuthRedirect(allowed[0], allowed) ?? '/';
-    }
+    const resolvedRedirect = resolveOAuthRedirect(redirectTo, allowed);
     if (!resolvedRedirect) {
       throw new BadRequestException(
         `redirect_to is not a registered redirect URL for this project (allowed: ${describeAllowedRedirects(allowed)})`,
@@ -578,7 +550,6 @@ export class ProjectSdkAuthService {
 
     const stateData = JSON.stringify({
       redirectTo: resolvedRedirect,
-      ...(opts.extras ?? {}),
     });
     const state = Buffer.from(stateData).toString('base64url');
 
@@ -603,15 +574,9 @@ export class ProjectSdkAuthService {
     // a 500 with a stack trace, which is both the wrong answer and more than
     // the caller should learn.
     let requestedRedirect = '/';
-    const extras: OAuthStateExtras = {};
     try {
       const parsed = JSON.parse(Buffer.from(state ?? '', 'base64url').toString());
       if (parsed && typeof parsed.redirectTo === 'string') requestedRedirect = parsed.redirectTo;
-      if (parsed?.gotrue === true) extras.gotrue = true;
-      if (typeof parsed?.codeChallenge === 'string' && parsed.codeChallenge) {
-        extras.codeChallenge = parsed.codeChallenge;
-        extras.codeChallengeMethod = parsed.codeChallengeMethod === 'plain' ? 'plain' : 's256';
-      }
     } catch {
       throw new BadRequestException('Invalid OAuth state');
     }
@@ -653,7 +618,6 @@ export class ProjectSdkAuthService {
         expiresIn: data.expires_in,
         tokenType: data.token_type,
         redirectTo,
-        ...extras,
       };
     } catch (err: any) {
       this.logger.error(`OAuth callback failed: ${err.message}`);
@@ -662,11 +626,28 @@ export class ProjectSdkAuthService {
   }
 
   /* ───────── Refresh & Me ───────── */
-  /** `clientId` names the client the token was issued to (an aal2 session refreshes on its own client). */
-  async refresh(projectId: string, refreshToken: string, clientId?: string) {
+  async refresh(projectId: string, refreshToken: string) {
     const project = await this.getProject(projectId);
-    const kcClientId = clientId || this.getRealmAnonClientId(project.keycloakRealm);
+    const kcClientId = this.getRealmAnonClientId(project.keycloakRealm);
     return this.refreshInRealm(project.keycloakRealm, kcClientId, refreshToken);
+  }
+
+  /**
+   * End the session behind a refresh token, so it cannot mint new access
+   * tokens. Best-effort like revokeRefreshToken: an already-dead token is not
+   * an error to the caller, who is signing out either way.
+   */
+  async signout(projectId: string, refreshToken: string) {
+    if (typeof refreshToken !== 'string' || !refreshToken) {
+      throw new BadRequestException('refreshToken is required');
+    }
+    const project = await this.getProject(projectId);
+    await this.revokeRefreshToken(
+      project.keycloakRealm,
+      this.getRealmAnonClientId(project.keycloakRealm),
+      refreshToken,
+    );
+    return { message: 'Signed out' };
   }
 
   async me(projectId: string, accessToken: string) {
@@ -676,8 +657,7 @@ export class ProjectSdkAuthService {
 
   /* ═══════════════════ Private Helpers ═══════════════════ */
 
-  /** The user behind a token according to the realm's userinfo — a 401 once the session is gone. */
-  async getUserFromToken(
+  private async getUserFromToken(
     project: { keycloakRealm: string },
     accessToken: string,
   ) {
@@ -730,25 +710,13 @@ export class ProjectSdkAuthService {
     password: string,
     retried = false,
     clientIp?: string,
-    opts: { projectId?: string; totp?: string; gotrueClaims?: boolean } = {},
+    opts: { projectId?: string; totp?: string } = {},
   ): Promise<{ accessToken: string; refreshToken: string; expiresIn: number; tokenType: string }> {
     const keycloakUrl = this.config.get<string>('keycloak.url');
     const tokenUrl = `${keycloakUrl}/realms/${realmName}/protocol/openid-connect/token`;
 
     // Before the grant, so the very first token already carries auth_time.
     await this.keycloak.ensureRealmClientAuthTimeMapper(realmName, clientId);
-    // Likewise the GoTrue claims (role, aal, app_metadata…), but only for the Supabase-compatible
-    // sign-in (`opts.gotrueClaims`, a project with the switch on): every other sign-in leaves the
-    // realm and its tokens as they were. Best-effort: a failure costs the claims, never the sign-in.
-    if (opts.gotrueClaims) {
-      try {
-        await this.keycloak.ensureRealmClientGoTrueMappers(realmName, clientId);
-      } catch (err: any) {
-        this.logger.warn(
-          `Could not ensure GoTrue claim mappers for "${clientId}" in "${realmName}": ${err?.message ?? err}`,
-        );
-      }
-    }
 
     const params = new URLSearchParams({
       grant_type: 'password', client_id: clientId, username: email, password,
@@ -925,21 +893,6 @@ export class ProjectSdkAuthService {
   }
 
   /* ───────── Unified Email Sender ───────── */
-  /**
-   * The project's lifecycle mail, for callers outside this service (the GoTrue facade). The
-   * template variables are the ones listed in sendEmail; `default_html` is the body used when
-   * the project has no template of its own for `type`.
-   */
-  async sendProjectEmail(
-    projectId: string,
-    to: string,
-    projectName: string,
-    type: EmailType,
-    extraVars: Record<string, string>,
-  ): Promise<void> {
-    return this.sendEmail(projectId, to, projectName, type, extraVars);
-  }
-
   private async sendEmail(
     projectId: string,
     to: string,
@@ -952,8 +905,6 @@ export class ProjectSdkAuthService {
     const customSubject = (rawCfg as any)[SUBJECT_FIELDS[type]] as string | null;
     const customBody = (rawCfg as any)[BODY_FIELDS[type]] as string | null;
 
-    const confirmationUrl =
-      extraVars.verify_url || extraVars.magic_link_url || extraVars.confirm_url || extraVars.invite_url || '';
     const vars: Record<string, string> = {
       '{{otp}}': extraVars.otp || '',
       '{{project_name}}': projectName,
@@ -963,29 +914,10 @@ export class ProjectSdkAuthService {
       '{{magic_link_url}}': extraVars.magic_link_url || '',
       '{{confirm_url}}': extraVars.confirm_url || '',
       '{{new_email}}': extraVars.new_email || '',
-      // GoTrue's template variables, so a template written for Supabase works unchanged.
-      '{{ .ConfirmationURL }}': confirmationUrl,
-      '{{ .TokenHash }}': extraVars.token_hash || '',
-      '{{ .Token }}': extraVars.otp || '',
-      '{{ .SiteURL }}': extraVars.site_url || '',
-      '{{ .RedirectTo }}': extraVars.redirect_to || '',
-      '{{ .Email }}': to,
-      '{{ .NewEmail }}': extraVars.new_email || '',
-      '{{.ConfirmationURL}}': confirmationUrl,
-      '{{.TokenHash}}': extraVars.token_hash || '',
-      '{{.Token}}': extraVars.otp || '',
-      '{{.SiteURL}}': extraVars.site_url || '',
-      '{{.RedirectTo}}': extraVars.redirect_to || '',
-      '{{.Email}}': to,
-      '{{.NewEmail}}': extraVars.new_email || '',
     };
 
     const resolvedSubject = this.applyVars(customSubject || DEFAULT_SUBJECTS[type], vars);
-    const resolvedBody = customBody
-      ? this.applyVars(customBody, vars)
-      : extraVars.default_html
-        ? this.applyVars(extraVars.default_html, vars)
-        : null;
+    const resolvedBody = customBody ? this.applyVars(customBody, vars) : null;
 
     const smtpOpts = this.resolveSmtpConfig(rawCfg);
 

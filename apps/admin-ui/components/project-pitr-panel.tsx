@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import type { PitrRecoveryWindow } from '@/lib/types';
@@ -15,7 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { History, Loader2, RotateCcw, TriangleAlert } from 'lucide-react';
+import { Camera, History, Loader2, RotateCcw, TriangleAlert } from 'lucide-react';
 
 function fmt(ts: string | null) {
   return ts ? new Date(ts).toLocaleString() : '—';
@@ -40,16 +40,30 @@ export function ProjectPitrPanel({ projectId }: { projectId: string }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmText, setConfirmText] = useState('');
   const [restoring, setRestoring] = useState(false);
+  const [snapshotting, setSnapshotting] = useState(false);
+  const alive = useRef(true);
+  /** The picker is pre-filled once; later reloads must not overwrite what the user chose. */
+  const targetTouched = useRef(false);
+
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
 
   const load = useCallback(async () => {
     try {
       const w = await api.projects.getRecoveryWindow(projectId);
+      if (!alive.current) return null;
       setWindow(w);
-      if (w.latest) setTarget(toLocalInput(w.latest));
+      if (w.latest && !targetTouched.current) setTarget(toLocalInput(w.latest));
+      return w;
     } catch {
-      setWindow(null);
+      if (alive.current) setWindow(null);
+      return null;
     } finally {
-      setLoading(false);
+      if (alive.current) setLoading(false);
     }
   }, [projectId]);
 
@@ -59,16 +73,58 @@ export function ProjectPitrPanel({ projectId }: { projectId: string }) {
 
   const ready = !!window?.earliest;
 
+  // Check the chosen time here instead of leaving every mistake to the server.
+  const targetError = useMemo(() => {
+    if (!target || !window) return null;
+    const t = new Date(target).getTime();
+    if (Number.isNaN(t)) return 'Enter a valid date and time.';
+    if (t > Date.now()) return 'That time is in the future.';
+    if (window.earliest && t < new Date(window.earliest).getTime() - 60_000) {
+      return `The earliest recoverable time is ${fmt(window.earliest)} (snapshots are kept ${window.retentionDays} days).`;
+    }
+    if (window.latest && t > new Date(window.latest).getTime() + 60_000) {
+      return `Changes after ${fmt(window.latest)} are not archived yet. Pick that time or earlier.`;
+    }
+    return null;
+  }, [target, window]);
+
   // Before the first physical base there is nothing to replay onto, so a target
   // that early lands on the nearest snapshot instead of the exact instant.
   const approximate =
     !!target &&
+    !targetError &&
     (!window?.continuousFrom ||
       new Date(target).getTime() < new Date(window.continuousFrom).getTime());
+
+  async function takeSnapshot() {
+    setSnapshotting(true);
+    try {
+      const res = await api.projects.takePitrSnapshot(projectId);
+      toast.success(res.message);
+      // A snapshot of a small project takes seconds, a large one minutes.
+      // Follow it for up to five minutes, then leave the rest to Refresh.
+      for (let i = 0; i < 60 && alive.current; i++) {
+        await new Promise((r) => setTimeout(r, 5000));
+        const w = await load();
+        if (w && !w.snapshotRunning) {
+          if (w.earliest) toast.success('Snapshot taken. Recovery is available.');
+          break;
+        }
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Could not take a snapshot');
+    } finally {
+      if (alive.current) setSnapshotting(false);
+    }
+  }
 
   async function submitRestore() {
     if (confirmText.trim().toUpperCase() !== 'RESTORE') {
       toast.error('Type "RESTORE" to confirm');
+      return;
+    }
+    if (targetError) {
+      toast.error(targetError);
       return;
     }
     setRestoring(true);
@@ -92,6 +148,8 @@ export function ProjectPitrPanel({ projectId }: { projectId: string }) {
     }
   }
 
+  const snapshotBusy = snapshotting || !!window?.snapshotRunning;
+
   return (
     <section className="rounded-xl border bg-card p-6 space-y-4">
       <div className="flex items-start justify-between gap-4">
@@ -105,6 +163,12 @@ export function ProjectPitrPanel({ projectId }: { projectId: string }) {
             nightly backup ran.
           </p>
         </div>
+        {ready && (
+          <Button variant="outline" size="sm" onClick={() => void takeSnapshot()} disabled={snapshotBusy}>
+            {snapshotBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Camera className="mr-2 h-4 w-4" />}
+            Snapshot now
+          </Button>
+        )}
       </div>
 
       {loading ? (
@@ -112,9 +176,15 @@ export function ProjectPitrPanel({ projectId }: { projectId: string }) {
           <Loader2 className="h-4 w-4 animate-spin" /> Reading recovery window…
         </div>
       ) : !ready ? (
-        <div className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
-          No base backup has been taken yet. The first one runs automatically tonight; recovery
-          becomes available once it completes.
+        <div className="space-y-3 rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
+          <p>
+            No snapshot of this project exists yet, so there is nothing to recover to. The nightly run takes
+            one at 02:00 UTC — or take one now; recovery becomes available as soon as it finishes.
+          </p>
+          <Button size="sm" onClick={() => void takeSnapshot()} disabled={snapshotBusy}>
+            {snapshotBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Camera className="mr-2 h-4 w-4" />}
+            {snapshotBusy ? 'Taking snapshot…' : 'Take a snapshot now'}
+          </Button>
         </div>
       ) : (
         <>
@@ -150,7 +220,12 @@ export function ProjectPitrPanel({ projectId }: { projectId: string }) {
                 value={target}
                 min={window!.earliest ? toLocalInput(window!.earliest) : undefined}
                 max={window!.latest ? toLocalInput(window!.latest) : undefined}
-                onChange={(e) => setTarget(e.target.value)}
+                onChange={(e) => {
+                  targetTouched.current = true;
+                  setTarget(e.target.value);
+                }}
+                aria-invalid={!!targetError}
+                aria-describedby="pitr-target-error"
                 className="w-[230px]"
               />
             </div>
@@ -160,12 +235,18 @@ export function ProjectPitrPanel({ projectId }: { projectId: string }) {
                 setConfirmText('');
                 setConfirmOpen(true);
               }}
-              disabled={!target}
+              disabled={!target || !!targetError}
             >
               <RotateCcw className="mr-2 h-4 w-4" />
               Recover
             </Button>
           </div>
+
+          {targetError && (
+            <p id="pitr-target-error" className="text-xs text-red-600 dark:text-red-400">
+              {targetError}
+            </p>
+          )}
 
           {approximate && (
             <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
@@ -176,9 +257,11 @@ export function ProjectPitrPanel({ projectId }: { projectId: string }) {
           )}
 
           <p className="text-xs text-muted-foreground">
-            {window!.baseBackupCount} base backup{window!.baseBackupCount === 1 ? '' : 's'} ·{' '}
-            {window!.walSegmentCount} archived change segment
-            {window!.walSegmentCount === 1 ? '' : 's'}
+            Snapshots of this project are kept {window!.retentionDays} days ({window!.baseBackupCount} now).
+            {window!.clusterBaseRetain
+              ? ` Exact, to-the-second recovery reaches back to the oldest of the last ${window!.clusterBaseRetain} daily full backups (${window!.clusterBaseCount ?? 0} held now); earlier times restore the nearest snapshot.`
+              : ''}{' '}
+            {window!.walSegmentCount} archived change segment{window!.walSegmentCount === 1 ? '' : 's'}.
           </p>
         </>
       )}
@@ -215,7 +298,7 @@ export function ProjectPitrPanel({ projectId }: { projectId: string }) {
             <Button
               variant="destructive"
               onClick={submitRestore}
-              disabled={restoring || confirmText.trim().toUpperCase() !== 'RESTORE'}
+              disabled={restoring || confirmText.trim().toUpperCase() !== 'RESTORE' || !!targetError}
             >
               {restoring && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Recover database

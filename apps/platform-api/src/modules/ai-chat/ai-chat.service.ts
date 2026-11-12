@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 
 /** How much history is kept per person, so the table cannot grow without end. */
@@ -8,6 +9,22 @@ const MAX_MESSAGES_PER_SESSION = 200;
 export interface ChatMessageInput {
   role: string;
   content: string;
+  /** Structured parts of an assistant turn (result tables, proposals, outcomes). */
+  meta?: unknown;
+}
+
+/** A turn's structured parts are kept up to this size; larger ones are dropped, the text is kept. */
+const MAX_META_BYTES = 256 * 1024;
+
+function cleanMeta(meta: unknown): Prisma.InputJsonValue | undefined {
+  if (meta == null || typeof meta !== 'object') return undefined;
+  try {
+    const json = JSON.stringify(meta);
+    if (json.length > MAX_META_BYTES) return undefined;
+    return JSON.parse(json) as Prisma.InputJsonValue;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -50,7 +67,7 @@ export class AiChatService {
       include: {
         messages: {
           orderBy: { createdAt: 'asc' },
-          select: { id: true, role: true, content: true, createdAt: true },
+          select: { id: true, role: true, content: true, meta: true, createdAt: true },
         },
       },
     });
@@ -76,11 +93,15 @@ export class AiChatService {
   async appendMessages(userId: string, sessionId: string, messages: ChatMessageInput[]) {
     const clean = messages
       .filter((m) => m && typeof m.content === 'string' && m.content.length > 0)
-      .map((m) => ({
-        sessionId,
-        role: String(m.role || 'user').slice(0, 16),
-        content: m.content,
-      }));
+      .map((m) => {
+        const meta = cleanMeta(m.meta);
+        return {
+          sessionId,
+          role: String(m.role || 'user').slice(0, 16),
+          content: m.content,
+          ...(meta !== undefined ? { meta } : {}),
+        };
+      });
     if (!clean.length) return { appended: 0 };
 
     return this.prisma.$transaction(async (tx) => {

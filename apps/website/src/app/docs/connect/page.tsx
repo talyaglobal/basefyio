@@ -1,21 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { withAbsoluteSiteUrls } from "@/lib/absolute-site-metadata";
+import { docsMetadata } from "../docs-metadata";
 import { getAppPortalUrl } from "@/lib/site-url";
-import { docsPath } from "@/lib/public-hosts";
 
 const pageDescription =
   "Connect to your basefyio project database from external tools like pgAdmin, DBeaver, DataGrip, TablePlus, or the terminal.";
 
 export async function generateMetadata(): Promise<Metadata> {
-  return withAbsoluteSiteUrls("/docs/connect", {
-    title: "External Database Access",
-    description: pageDescription,
-    openGraph: {
-      title: "External Database Access | basefyio Docs",
-      description: pageDescription,
-    },
-  });
+  return docsMetadata("/docs/connect", "External Database Access", pageDescription);
 }
 
 export default function ConnectDocs() {
@@ -37,7 +29,7 @@ export default function ConnectDocs() {
         Open your project in the <a href={appUrl}>basefyio dashboard</a>, then
         go to <strong>Connection</strong> in the sidebar. You will see:
       </p>
-      <table>
+      <div className="docs-table"><table>
         <thead>
           <tr>
             <th>Field</th>
@@ -52,7 +44,7 @@ export default function ConnectDocs() {
           <tr><td><strong>Password</strong></td><td>Database password (can be reset from the Connection page)</td></tr>
           <tr><td><strong>Connection URI</strong></td><td>Full connection string — copy and paste directly</td></tr>
         </tbody>
-      </table>
+      </table></div>
 
       {/* ── pgAdmin ──────────────────────────────────── */}
 
@@ -179,8 +171,8 @@ DIRECT_URL=postgresql://USER:PASSWORD@db.basefyio.com:6432/YOUR_DATABASE`}</code
 
       <p>
         For REST API access without a database client, see the{" "}
-        <Link href={docsPath("/docs/api")}>API Reference</Link>. For SDK integration, see the{" "}
-        <Link href={docsPath("/docs/sdk")}>SDK documentation</Link>.
+        <Link href="/docs/api">API Reference</Link>. For SDK integration, see the{" "}
+        <Link href="/docs/sdk">SDK documentation</Link>.
       </p>
     </div>
   );

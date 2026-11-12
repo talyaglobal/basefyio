@@ -104,6 +104,12 @@ export interface WriteOpts {
   status?: DocumentStatus;
 }
 
+/** Read options. */
+export interface ReadOpts {
+  /** Also return soft-deleted documents. Default: false. */
+  includeSoftDeleted?: boolean;
+}
+
 // ── Pagination ─────────────────────────────────────────────
 
 export interface Page<T> {

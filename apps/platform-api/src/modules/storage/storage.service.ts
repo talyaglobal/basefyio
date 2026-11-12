@@ -6,7 +6,6 @@ import {
   InternalServerErrorException,
   BadRequestException,
   ConflictException,
-  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
@@ -19,8 +18,7 @@ import { stat } from 'fs/promises';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { QuotaService } from '../billing/quota.service';
-import { StorageCatalogService } from './storage-catalog.service';
-import { downloadOnlyHeaders, withoutAnonymousListing } from './storage-public-safety';
+import { BucketLimits, NO_LIMITS, activeContentHeaders } from './storage-objects';
 
 export interface StorageObject {
   name: string;
@@ -37,7 +35,18 @@ export interface BucketSummary {
   createdAt: string;
   objectCount: number;
   totalSize: number;
+  /** Largest object the bucket accepts, in bytes; null = the platform ceiling. */
+  fileSizeLimit: number | null;
+  /** MIME types the bucket accepts; empty = any. */
+  allowedMimeTypes: string[];
 }
+
+/** How long one instance trusts its answer to "is this bucket public". */
+const VISIBILITY_TTL_MS = 10_000;
+/** How long one instance trusts its copy of a bucket's upload limits. */
+const LIMITS_TTL_MS = 30_000;
+/** Delay before the boot-time pass that removes anonymous listing from public buckets. */
+const LISTING_PASS_DELAY_MS = 30_000;
 
 /** One MinIO bucket as measured by the last full storage pass. */
 export interface BucketInventoryEntry {
@@ -79,14 +88,15 @@ export class StorageService {
   private publicSsl: boolean;
   /** Driver, addressing style and capabilities of the configured store. */
   private readonly caps: StorageClientSet;
+  /** physical bucket → { public, at } */
+  private readonly visibilityCache = new Map<string, { public: boolean; at: number }>();
+  /** `${projectId}|${bucket}` → { limits, at } */
+  private readonly limitsCache = new Map<string, { limits: BucketLimits; at: number }>();
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly quota: QuotaService,
-    // Optional so the service can still be built by hand without a catalog;
-    // every write below reports to it when it is there (see StorageCatalogService).
-    @Optional() private readonly catalog?: StorageCatalogService,
   ) {
     // One place decides which store this is: MINIO_* by default, S3_* when
     // STORAGE_DRIVER=s3. Everything below only ever sees an S3 client.
@@ -110,7 +120,6 @@ export class StorageService {
    */
   async onModuleInit(): Promise<void> {
     this.logger.log(`Storage driver: ${this.caps.describe()}`);
-    this.scheduleListingClosure();
     if (this.caps.driver === 's3') {
       // Not fatal: a wrong credential or region shows up here instead of on
       // the first upload.
@@ -119,6 +128,14 @@ export class StorageService {
       } catch (err: any) {
         this.logger.warn(`Object store probe failed (${this.caps.describe()}): ${err?.message ?? err}`);
       }
+    }
+    if (this.caps.supportsBucketPolicies && !this.publicListingAllowed()) {
+      const pass = setTimeout(() => {
+        this.removeAnonymousListing().catch((err) =>
+          this.logger.warn(`Public listing pass failed: ${err?.message ?? err}`),
+        );
+      }, LISTING_PASS_DELAY_MS);
+      if (typeof (pass as any).unref === 'function') (pass as any).unref();
     }
     try {
       const unmeasured = await this.prisma.project.count({
@@ -201,11 +218,14 @@ export class StorageService {
     });
 
     const results: BucketSummary[] = [];
+    const limitsByBucket = await this.limitsForProject(projectId);
 
     for (const b of projectBuckets) {
       const displayName = b.name.substring(prefix.length);
       const stats = await this.bucketStats(b.name);
       const isPublic = await this.isBucketPublic(b.name);
+      this.visibilityCache.set(b.name, { public: isPublic, at: Date.now() });
+      const limits = limitsByBucket.get(displayName) ?? NO_LIMITS;
 
       results.push({
         id: b.name,
@@ -214,13 +234,21 @@ export class StorageService {
         createdAt: b.creationDate.toISOString(),
         objectCount: stats.objectCount,
         totalSize: stats.totalSize,
+        fileSizeLimit: limits.fileSizeLimit,
+        allowedMimeTypes: limits.allowedMimeTypes,
       });
     }
 
     return results;
   }
 
-  async createBucket(projectId: string, userId: string | undefined, name: string, isPublic = false) {
+  async createBucket(
+    projectId: string,
+    userId: string | undefined,
+    name: string,
+    isPublic = false,
+    limits: Partial<BucketLimits> = {},
+  ) {
     const project = await this.assertProjectAccess(projectId, userId);
 
     if (!name || !/^[A-Za-z0-9][A-Za-z0-9-]{1,60}[A-Za-z0-9]$/.test(name)) {
@@ -243,9 +271,14 @@ export class StorageService {
     if (isPublic) {
       await this.applyBucketPolicy(minioBucket, this.publicBucketPolicy(minioBucket));
     }
+    this.visibilityCache.set(minioBucket, { public: isPublic, at: Date.now() });
+
+    const saved =
+      limits.fileSizeLimit !== undefined || limits.allowedMimeTypes !== undefined
+        ? await this.setBucketLimits(projectId, name, limits)
+        : NO_LIMITS;
 
     this.logger.log(`Bucket "${minioBucket}" created (public=${isPublic})`);
-    await this.catalog?.upsertBucket(projectId, { name, public: isPublic, owner: userId });
 
     return {
       id: minioBucket,
@@ -254,26 +287,48 @@ export class StorageService {
       createdAt: new Date().toISOString(),
       objectCount: 0,
       totalSize: 0,
+      fileSizeLimit: saved.fileSizeLimit,
+      allowedMimeTypes: saved.allowedMimeTypes,
     };
   }
 
-  async deleteBucket(projectId: string, userId: string | undefined, bucketName: string) {
+  /**
+   * Delete a bucket. A bucket holding files is refused (409) unless `force`
+   * is set, in which case everything in it goes first. Empty folder markers do
+   * not count as content.
+   */
+  async deleteBucket(
+    projectId: string,
+    userId: string | undefined,
+    bucketName: string,
+    opts: { force?: boolean } = {},
+  ) {
     const project = await this.assertProjectAccess(projectId, userId);
     const minioBucket = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
 
     const exists = await this.client.bucketExists(minioBucket);
     if (!exists) throw new NotFoundException(`Bucket "${bucketName}" not found`);
 
-    // Remove all objects first
     const objects = await this.listAllObjects(minioBucket);
+    const files = objects.filter((o) => !(o.name.endsWith('/') && o.size === 0));
+    if (files.length > 0 && !opts.force) {
+      throw new ConflictException(
+        `Bucket "${bucketName}" is not empty (${files.length} file(s)). Delete its files first, ` +
+          'or repeat the request with force=true to delete the bucket together with everything in it.',
+      );
+    }
     if (objects.length > 0) {
       await this.client.removeObjects(minioBucket, objects.map((o) => o.name));
     }
 
     await this.client.removeBucket(minioBucket);
-    this.logger.log(`Bucket "${minioBucket}" deleted`);
-    await this.catalog?.deleteBucket(projectId, bucketName);
-    return { message: `Bucket "${bucketName}" deleted` };
+    this.visibilityCache.delete(minioBucket);
+    await this.prisma.storageBucketSettings
+      .deleteMany({ where: { projectId, bucket: bucketName } })
+      .catch((err: any) => this.logger.debug(`bucket settings cleanup skipped: ${err?.message}`));
+    this.limitsCache.delete(`${projectId}|${bucketName}`);
+    this.logger.log(`Bucket "${minioBucket}" deleted (${files.length} file(s))`);
+    return { message: `Bucket "${bucketName}" deleted`, deletedObjects: files.length };
   }
 
   /**
@@ -309,7 +364,7 @@ export class StorageService {
       if (!logical || keep.has(logical)) continue;
 
       try {
-        await this.deleteBucket(projectId, undefined, logical);
+        await this.deleteBucket(projectId, undefined, logical, { force: true });
         this.logger.log(
           `Pruned storage bucket "${logical}" (not in remote source list) for project ${projectId}`,
         );
@@ -335,88 +390,146 @@ export class StorageService {
       // A store without policies never had a public bucket; nothing to clear.
       await this.applyBucketPolicy(minioBucket, '');
     }
+    this.visibilityCache.set(minioBucket, { public: isPublic, at: Date.now() });
 
-    await this.catalog?.setBucketPublic(projectId, bucketName, isPublic);
     return { public: isPublic };
   }
 
   /**
-   * The project's buckets by name, without the per-bucket statistics that make
-   * {@link listBuckets} walk every object. For callers that need the names and
-   * nothing more (the Supabase-compatible `GET /bucket`).
+   * `STORAGE_PUBLIC_BUCKET_LISTING=on` restores the old public-bucket policy,
+   * which let anyone list a public bucket's keys at its base URL.
    */
-  async listBucketNames(
-    projectId: string,
-    userId?: string,
-  ): Promise<Array<{ name: string; physical: string; createdAt: string }>> {
-    const project = await this.assertProjectAccess(projectId, userId);
-    const prefix = this.minioProjectPrefix(project.storagePrefix ?? project.slug);
-    const allProjects = await this.prisma.project.findMany({
-      where: { status: 'ACTIVE' },
-      select: { id: true, slug: true, storagePrefix: true },
-    });
-    const allBuckets = await this.client.listBuckets();
-    return allBuckets
-      .filter((b) => this.resolveMinioBucketOwner(b.name, allProjects)?.id === project.id)
-      .map((b) => ({
-        name: b.name.substring(prefix.length),
-        physical: b.name,
-        createdAt: b.creationDate.toISOString(),
-      }));
+  private publicListingAllowed(): boolean {
+    const raw = (this.config.get<string>('STORAGE_PUBLIC_BUCKET_LISTING') ?? '').trim().toLowerCase();
+    return raw === 'on' || raw === 'true' || raw === '1';
   }
 
   /**
-   * Anonymous read policy for a public bucket: GetObject, so each file opens at its
-   * direct URL. Not ListBucket: making a bucket public shares its files, not an
-   * index of every key in it (feedback #9).
+   * Anonymous read policy for a public bucket: GetObject, so every file opens
+   * at its direct URL. No ListBucket: a public file is one you can fetch when
+   * you know its name, not an index of everything in the bucket (the storage
+   * origin is shared, and a listing hands over every key at once).
    */
   private publicBucketPolicy(minioBucket: string): string {
-    return JSON.stringify({
-      Version: '2012-10-17',
-      Statement: [
-        {
-          Effect: 'Allow',
-          Principal: { AWS: ['*'] },
-          Action: ['s3:GetObject'],
-          Resource: [`arn:aws:s3:::${minioBucket}/*`],
-        },
-      ],
-    });
+    const statements: Record<string, unknown>[] = [
+      {
+        Effect: 'Allow',
+        Principal: { AWS: ['*'] },
+        Action: ['s3:GetObject'],
+        Resource: [`arn:aws:s3:::${minioBucket}/*`],
+      },
+    ];
+    if (this.publicListingAllowed()) {
+      statements.push({
+        Effect: 'Allow',
+        Principal: { AWS: ['*'] },
+        Action: ['s3:ListBucket'],
+        Resource: [`arn:aws:s3:::${minioBucket}`],
+      });
+    }
+    return JSON.stringify({ Version: '2012-10-17', Statement: statements });
   }
 
   /**
-   * Public buckets made before the policy above also granted anonymous ListBucket. Remove
-   * that statement and keep everything else, so files stay readable at their URLs.
-   * Idempotent and safe on every replica; a bucket that fails is logged and left as it was.
+   * Public buckets made before listing was withdrawn still carry an anonymous
+   * s3:ListBucket statement. Runs once shortly after boot: rewrites the policy
+   * of each of this platform's buckets that grants it, leaving every other
+   * statement (GetObject above all) exactly as it was. Idempotent, so several
+   * instances running it at once is harmless. Returns the buckets changed.
    */
-  async closeAnonymousListings(): Promise<{ checked: number; closed: number }> {
-    let checked = 0;
-    let closed = 0;
+  async removeAnonymousListing(): Promise<string[]> {
+    const changed: string[] = [];
     const buckets = await this.client.listBuckets();
     for (const b of buckets) {
-      checked++;
+      // Only buckets this platform names; an S3 account may hold others.
+      if (!b.name.startsWith(this.caps.bucketPrefix)) continue;
+      let raw: string;
       try {
-        const policy = await this.client.getBucketPolicy(b.name).catch(() => '');
-        if (!policy) continue;
-        const next = withoutAnonymousListing(policy);
-        if (next == null) continue;
-        const hasStatements = (JSON.parse(next).Statement ?? []).length > 0;
-        await this.client.setBucketPolicy(b.name, hasStatements ? next : '');
-        closed++;
+        raw = await this.client.getBucketPolicy(b.name);
+      } catch {
+        continue; // no policy = private
+      }
+      const next = withoutAnonymousListing(raw);
+      if (next === null) continue;
+      try {
+        await this.client.setBucketPolicy(b.name, next);
+        changed.push(b.name);
       } catch (err: any) {
-        this.logger.warn(`Could not close anonymous listing on bucket ${b.name}: ${err?.message ?? err}`);
+        this.logger.warn(`Could not remove anonymous listing from "${b.name}": ${err?.message ?? err}`);
       }
     }
-    if (closed) this.logger.log(`Anonymous listing closed on ${closed} of ${checked} bucket(s)`);
-    return { checked, closed };
+    if (changed.length > 0) {
+      this.logger.log(`Removed anonymous listing from ${changed.length} public bucket(s): ${changed.join(', ')}`);
+    }
+    return changed;
   }
 
-  /** A minute after boot, off the request path: see closeAnonymousListings. */
-  private scheduleListingClosure(): void {
-    const timer = setTimeout(() => {
-      this.closeAnonymousListings().catch((err) => this.logger.warn(`Listing closure skipped: ${err?.message ?? err}`));
-    }, 60_000);
-    if (typeof (timer as any).unref === 'function') (timer as any).unref();
+  /**
+   * Whether a project's bucket is public, cached briefly per instance. Used to
+   * decide what the bare public key may do, so it only runs for that caller. A
+   * bucket that does not exist reads as private.
+   */
+  async isPublicBucket(projectId: string, bucketName: string): Promise<boolean> {
+    const project = await this.prisma.project.findFirst({
+      where: { id: projectId, status: 'ACTIVE' },
+      select: { slug: true, storagePrefix: true },
+    });
+    if (!project) return false;
+    const minioBucket = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
+    const hit = this.visibilityCache.get(minioBucket);
+    if (hit && Date.now() - hit.at < VISIBILITY_TTL_MS) return hit.public;
+    const isPublic = await this.isBucketPublic(minioBucket);
+    this.visibilityCache.set(minioBucket, { public: isPublic, at: Date.now() });
+    return isPublic;
+  }
+
+  // ── Per-bucket upload limits ───────────────────────────
+
+  private async limitsForProject(projectId: string): Promise<Map<string, BucketLimits>> {
+    const out = new Map<string, BucketLimits>();
+    try {
+      const rows = await this.prisma.storageBucketSettings.findMany({ where: { projectId } });
+      for (const r of rows) out.set(r.bucket, toLimits(r));
+    } catch (err: any) {
+      // A missing table (schema not pushed yet) must not take bucket listing down.
+      this.logger.debug(`bucket settings unavailable: ${err?.message}`);
+    }
+    return out;
+  }
+
+  /** A bucket's upload limits, cached per instance for LIMITS_TTL_MS; none when unset. */
+  async getBucketLimits(projectId: string, bucketName: string): Promise<BucketLimits> {
+    const key = `${projectId}|${bucketName}`;
+    const hit = this.limitsCache.get(key);
+    if (hit && Date.now() - hit.at < LIMITS_TTL_MS) return hit.limits;
+    let limits = NO_LIMITS;
+    try {
+      const row = await this.prisma.storageBucketSettings.findUnique({
+        where: { projectId_bucket: { projectId, bucket: bucketName } },
+      });
+      if (row) limits = toLimits(row);
+    } catch (err: any) {
+      this.logger.debug(`bucket settings unavailable: ${err?.message}`);
+    }
+    this.limitsCache.set(key, { limits, at: Date.now() });
+    return limits;
+  }
+
+  /** Store the given limit fields; absent fields keep their value, null clears one. */
+  async setBucketLimits(projectId: string, bucketName: string, patch: Partial<BucketLimits>): Promise<BucketLimits> {
+    const data: { fileSizeLimit?: bigint | null; allowedMimeTypes?: string[] } = {};
+    if (patch.fileSizeLimit !== undefined) {
+      data.fileSizeLimit = patch.fileSizeLimit === null ? null : BigInt(patch.fileSizeLimit);
+    }
+    if (patch.allowedMimeTypes !== undefined) data.allowedMimeTypes = patch.allowedMimeTypes;
+    const row = await this.prisma.storageBucketSettings.upsert({
+      where: { projectId_bucket: { projectId, bucket: bucketName } },
+      create: { projectId, bucket: bucketName, ...data },
+      update: data,
+    });
+    const limits = toLimits(row);
+    this.limitsCache.set(`${projectId}|${bucketName}`, { limits, at: Date.now() });
+    return limits;
   }
 
   // ── Object operations ──────────────────────────────────
@@ -486,12 +599,9 @@ export class StorageService {
     const omitPort =
       (this.publicSsl && this.publicPort === 443) || (!this.publicSsl && this.publicPort === 80);
     const host = omitPort ? this.publicEndpoint : `${this.publicEndpoint}:${this.publicPort}`;
-    // Each segment encoded: a key with #, ? or a space is a different URL otherwise (a # cut it short).
-    const clean = (path || '')
-      .replace(/^\/+/, '')
-      .split('/')
-      .map((segment) => encodeURIComponent(segment))
-      .join('/');
+    // Each segment percent-encoded, '/' kept: a key with spaces or non-ASCII
+    // letters ("qa e2e ş.txt") must still be a URL every client accepts.
+    const clean = (path || '').replace(/^\/+/, '').split('/').map(encodeURIComponent).join('/');
     // Virtual-host addressing (AWS without path-style) carries the bucket in the host.
     return this.caps.virtualHost
       ? `${scheme}://${minioBucket}.${host}/${clean}`
@@ -625,7 +735,6 @@ export class StorageService {
           // cast past the ambiguous overload typing.
           await (this.client.copyObject as any)(minioBucket, newKey, `/${minioBucket}/${key}`);
           await this.client.removeObject(minioBucket, key);
-          await this.catalog?.moveObject(projectId, bucketName, key, newKey);
           moved++;
         }
       } else {
@@ -634,88 +743,12 @@ export class StorageService {
         if (newKey === src) continue;
         await (this.client.copyObject as any)(minioBucket, newKey, `/${minioBucket}/${src}`);
         await this.client.removeObject(minioBucket, src);
-        await this.catalog?.moveObject(projectId, bucketName, src, newKey);
         moved++;
       }
     }
 
     this.logger.log(`Moved ${moved} object(s) to "${dest || '/'}" in "${minioBucket}"`);
     return { moved };
-  }
-
-  /**
-   * Rename one object to an exact key, optionally into another bucket of the
-   * same project (copy + delete; S3 has no native move). Unlike
-   * {@link moveObjects}, the destination is the whole key, not a folder.
-   */
-  async moveObject(
-    projectId: string,
-    userId: string | undefined,
-    bucketName: string,
-    sourceKey: string,
-    destinationKey: string,
-    destinationBucket: string = bucketName,
-  ): Promise<{ name: string }> {
-    const project = await this.assertProjectAccess(projectId, userId);
-    const src = this.cleanKey(sourceKey, 'source');
-    const dest = this.cleanKey(destinationKey, 'destination');
-    const srcPhysical = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
-    const destPhysical = this.minioBucketName(project.storagePrefix ?? project.slug, destinationBucket);
-    if (!(await this.client.bucketExists(srcPhysical))) throw new NotFoundException(`Bucket "${bucketName}" not found`);
-    if (destPhysical !== srcPhysical && !(await this.client.bucketExists(destPhysical))) {
-      throw new NotFoundException(`Bucket "${destinationBucket}" not found`);
-    }
-    if (srcPhysical === destPhysical && src === dest) return { name: dest };
-    await this.copyObjectIn(srcPhysical, src, destPhysical, dest);
-    await this.client.removeObject(srcPhysical, src);
-    await this.catalog?.moveObject(projectId, bucketName, src, dest, destinationBucket);
-    return { name: dest };
-  }
-
-  /** Duplicate one object under another key, optionally into another bucket of the same project. */
-  async copyObject(
-    projectId: string,
-    userId: string | undefined,
-    bucketName: string,
-    sourceKey: string,
-    destinationKey: string,
-    destinationBucket: string = bucketName,
-    meta: Record<string, string> = {},
-  ): Promise<{ name: string; size: number; etag?: string; id?: string }> {
-    const project = await this.assertProjectAccess(projectId, userId);
-    const src = this.cleanKey(sourceKey, 'source');
-    const dest = this.cleanKey(destinationKey, 'destination');
-    const srcPhysical = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
-    const destPhysical = this.minioBucketName(project.storagePrefix ?? project.slug, destinationBucket);
-    if (!(await this.client.bucketExists(srcPhysical))) throw new NotFoundException(`Bucket "${bucketName}" not found`);
-    if (destPhysical !== srcPhysical && !(await this.client.bucketExists(destPhysical))) {
-      throw new NotFoundException(`Bucket "${destinationBucket}" not found`);
-    }
-    const source = await this.statObjectIn(srcPhysical, src);
-    if (!source) throw new NotFoundException(`Object "${src}" not found`);
-    await this.quota.assertCanUploadStorage(project.teamId, source.size);
-    await this.copyObjectIn(srcPhysical, src, destPhysical, dest);
-    const stat = (await this.statObjectIn(destPhysical, dest)) ?? source;
-    const id = await this.catalog?.recordUpload(
-      projectId,
-      destinationBucket,
-      dest,
-      stat,
-      (stat.metaData?.['content-type'] as string | undefined) || 'application/octet-stream',
-      meta,
-    );
-    return { name: dest, size: stat.size, etag: stat.etag, id };
-  }
-
-  private cleanKey(raw: string, what: string): string {
-    const key = (raw || '').replace(/^\/+/, '');
-    if (!key || key.includes('..') || key.includes('\0')) throw new BadRequestException(`Invalid ${what} key`);
-    return key;
-  }
-
-  /** Server-side copy between physical buckets of the same store. */
-  async copyObjectIn(srcPhysical: string, srcKey: string, destPhysical: string, destKey: string): Promise<void> {
-    await (this.client.copyObject as any)(destPhysical, destKey, `/${srcPhysical}/${srcKey}`);
   }
 
   async uploadObject(
@@ -742,20 +775,18 @@ export class StorageService {
 
     await this.client.putObject(minioBucket, objectName, buffer, buffer.length, {
       'Content-Type': contentType,
-      ...downloadOnlyHeaders(contentType),
+      ...activeContentHeaders(contentType, objectName),
     });
 
     this.logger.log(`Uploaded "${objectName}" to "${minioBucket}"`);
 
     const stat = await this.client.statObject(minioBucket, objectName);
-    const id = await this.catalog?.recordUpload(projectId, bucketName, objectName, stat, contentType, undefined);
     return {
       name: objectName,
       size: stat.size,
       contentType: stat.metaData?.['content-type'] || contentType,
       lastModified: stat.lastModified,
       etag: stat.etag,
-      id,
     };
   }
 
@@ -801,8 +832,8 @@ export class StorageService {
 
     await this.client.putObject(minioBucket, objectName, body, declared as number, {
       'Content-Type': contentType,
+      ...activeContentHeaders(contentType, objectName),
       ...meta,
-      ...downloadOnlyHeaders(contentType),
     });
 
     const stat = await this.client.statObject(minioBucket, objectName);
@@ -813,14 +844,12 @@ export class StorageService {
         `Upload of "${objectName}" stored ${stat.size} bytes, expected ${declared}`,
       );
     }
-    const id = await this.catalog?.recordUpload(projectId, bucketName, objectName, stat, contentType, meta);
     return {
       name: objectName,
       size: stat.size,
       contentType: stat.metaData?.['content-type'] || contentType,
       lastModified: stat.lastModified,
       etag: stat.etag,
-      id,
     };
   }
 
@@ -841,106 +870,62 @@ export class StorageService {
       if (err.code === 'NotFound' || err.code === 'NoSuchKey') {
         throw new NotFoundException(`Object "${objectName}" not found`);
       }
-      throw new InternalServerErrorException(`Failed to get object: ${err.message}`);
-    }
-  }
-
-  /**
-   * Like {@link getObject}, but only `length` bytes from `offset` — what a
-   * `Range` request for a video or a resumed download needs. The stat is the
-   * whole object's, so the caller can write Content-Range from it.
-   */
-  async getPartialObject(
-    projectId: string,
-    userId: string | undefined,
-    bucketName: string,
-    objectName: string,
-    offset: number,
-    length?: number,
-  ): Promise<{ stream: Readable; stat: Minio.BucketItemStat }> {
-    const project = await this.assertProjectAccess(projectId, userId);
-    const minioBucket = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
-    return this.getObjectIn(minioBucket, objectName, { offset, length });
-  }
-
-  /**
-   * The bytes of one object in a physical bucket the caller already resolved,
-   * whole or as a range. Missing → 404.
-   */
-  async getObjectIn(
-    minioBucket: string,
-    objectName: string,
-    range?: { offset: number; length?: number },
-  ): Promise<{ stream: Readable; stat: Minio.BucketItemStat }> {
-    try {
-      const stat = await this.client.statObject(minioBucket, objectName);
-      const stream = range
-        ? await this.client.getPartialObject(minioBucket, objectName, range.offset, range.length)
-        : await this.client.getObject(minioBucket, objectName);
-      return { stream, stat };
-    } catch (err: any) {
-      if (err.code === 'NotFound' || err.code === 'NoSuchKey') {
-        throw new NotFoundException(`Object "${objectName}" not found`);
+      if (err.code === 'NoSuchBucket') {
+        throw new NotFoundException(`Bucket "${bucketName}" not found`);
       }
       throw new InternalServerErrorException(`Failed to get object: ${err.message}`);
     }
   }
 
-  /** Objects directly under `prefix` in a physical bucket (folder markers skipped). */
-  listObjectsIn(minioBucket: string, prefix = '', recursive = false): Promise<StorageObject[]> {
-    return new Promise((resolve, reject) => {
-      const objects: StorageObject[] = [];
-      const stream = this.client.listObjectsV2(minioBucket, prefix, recursive);
-      stream.on('data', (obj) => {
-        if (obj.name && (obj.name === prefix || obj.name.endsWith('/'))) return;
-        objects.push({
-          name: obj.name || '',
-          prefix: obj.prefix,
-          size: obj.size || 0,
-          lastModified: obj.lastModified || new Date(),
-          etag: obj.etag,
-        });
-      });
-      stream.on('error', reject);
-      stream.on('end', () => resolve(objects));
-    });
-  }
-
-  /** Remove exact keys from a physical bucket; nothing is expanded. */
-  async removeObjectsIn(minioBucket: string, keys: readonly string[]): Promise<void> {
-    if (keys.length === 0) return;
-    await this.client.removeObjects(minioBucket, [...keys]);
-  }
-
+  /**
+   * Delete objects and whole folders (a path ending in '/'). Only what really
+   * existed is counted: `deleted` lists the keys removed, `notFound` the
+   * requested files that were not there. Folder markers are removed but not
+   * counted as files.
+   */
   async deleteObjects(
     projectId: string,
     userId: string | undefined,
     bucketName: string,
     objectNames: string[],
-    options: { expandFolders?: boolean } = {},
-  ) {
+  ): Promise<{ message: string; deleted: string[]; notFound: string[] }> {
     const project = await this.assertProjectAccess(projectId, userId);
     const minioBucket = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
-    const expandFolders = options.expandFolders ?? true;
+    const exists = await this.client.bucketExists(minioBucket);
+    if (!exists) throw new NotFoundException(`Bucket "${bucketName}" not found`);
 
     // Expand any folder paths (ending in '/') into all the objects beneath them
     // so selecting a folder deletes its whole contents.
     const keys = new Set<string>();
+    const files = new Set<string>();
     for (const raw of objectNames || []) {
       const name = (raw || '').replace(/^\/+/, '');
       if (!name) continue;
-      if (name.endsWith('/') && expandFolders) {
+      if (name.endsWith('/')) {
         for (const k of await this.listKeysUnder(minioBucket, name)) keys.add(k);
       } else {
-        keys.add(name);
+        files.add(name);
       }
     }
 
+    const notFound: string[] = [];
+    const named = [...files];
+    for (let i = 0; i < named.length; i += 25) {
+      const batch = named.slice(i, i + 25);
+      const stats = await Promise.all(batch.map((k) => this.statObjectIn(minioBucket, k)));
+      batch.forEach((k, idx) => (stats[idx] ? keys.add(k) : notFound.push(k)));
+    }
+
     const all = Array.from(keys);
-    await this.client.removeObjects(minioBucket, all);
-    this.logger.log(`Deleted ${all.length} object(s) from "${minioBucket}"`);
-    await this.catalog?.deleteObjects(projectId, bucketName, all);
-    return { message: `Deleted ${all.length} object(s)` };
+    if (all.length > 0) await this.client.removeObjects(minioBucket, all);
+    const deleted = all.filter((k) => !k.endsWith('/'));
+    this.logger.log(`Deleted ${deleted.length} object(s) from "${minioBucket}"`);
+    return {
+      message:
+        `Deleted ${deleted.length} object(s)` + (notFound.length ? `; ${notFound.length} not found` : ''),
+      deleted,
+      notFound,
+    };
   }
 
   async getPresignedUrl(
@@ -953,11 +938,128 @@ export class StorageService {
     const project = await this.assertProjectAccess(projectId, userId);
     const minioBucket = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
 
+    // A URL for nothing would only fail later, at the browser, with a bare 404
+    // from the store. Say so now.
+    const key = (objectName || '').replace(/^\/+/, '');
+    if (!key || key.endsWith('/')) throw new BadRequestException('path must name a file');
+    let stat: Minio.BucketItemStat | null;
+    try {
+      stat = await this.statObjectIn(minioBucket, key);
+    } catch (err: any) {
+      if (err?.code === 'NoSuchBucket') throw new NotFoundException(`Bucket "${bucketName}" not found`);
+      throw err;
+    }
+    if (!stat) throw new NotFoundException(`Object "${key}" not found`);
+
     // Important: generate the signed URL using the public endpoint client directly.
     // Rewriting host/port after signing can invalidate the signature in production.
-    const url = await this.publicClient.presignedGetObject(minioBucket, objectName, expiry);
+    const url = await this.publicClient.presignedGetObject(minioBucket, key, expiry);
 
     return { url, expiresIn: expiry };
+  }
+
+  /**
+   * Copy (or, with `move`, rename) one file or one folder inside a bucket. A
+   * folder is a key ending in '/' and takes its whole subtree; its destination
+   * must be a folder too. An existing destination is refused with 409 unless
+   * `overwrite` is set. Copies count against the storage quota; a rename does
+   * not change usage.
+   */
+  async copyObjects(
+    projectId: string,
+    userId: string | undefined,
+    bucketName: string,
+    from: string,
+    to: string,
+    opts: { overwrite?: boolean; move?: boolean } = {},
+  ): Promise<{ from: string; to: string; count: number }> {
+    const project = await this.assertProjectAccess(projectId, userId);
+    const minioBucket = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
+    const exists = await this.client.bucketExists(minioBucket);
+    if (!exists) throw new NotFoundException(`Bucket "${bucketName}" not found`);
+
+    const isFolder = from.endsWith('/');
+    if (isFolder !== to.endsWith('/')) {
+      throw new BadRequestException(
+        isFolder ? 'A folder can only be copied to a folder path ending in "/"' : 'A file cannot be copied to a folder path; name the destination file',
+      );
+    }
+    if (from === to) throw new BadRequestException('Source and destination are the same');
+    if (isFolder && to.startsWith(from)) throw new BadRequestException('Cannot copy a folder into itself');
+
+    let pairs: { src: string; dst: string }[];
+    let bytes = 0;
+    if (isFolder) {
+      const keys = await this.listKeysUnder(minioBucket, from);
+      if (keys.length === 0) throw new NotFoundException(`Folder "${from}" not found`);
+      pairs = keys.map((k) => ({ src: k, dst: `${to}${k.slice(from.length)}` }));
+      if (!opts.move) {
+        const objects = await this.listAllObjects(minioBucket);
+        const wanted = new Set(keys);
+        bytes = objects.filter((o) => wanted.has(o.name)).reduce((n, o) => n + o.size, 0);
+      }
+    } else {
+      const stat = await this.statObjectIn(minioBucket, from);
+      if (!stat) throw new NotFoundException(`Object "${from}" not found`);
+      pairs = [{ src: from, dst: to }];
+      bytes = stat.size;
+    }
+
+    if (!opts.overwrite) {
+      const taken: string[] = [];
+      for (let i = 0; i < pairs.length && taken.length === 0; i += 25) {
+        const batch = pairs.slice(i, i + 25);
+        const stats = await Promise.all(batch.map((p) => this.statObjectIn(minioBucket, p.dst)));
+        batch.forEach((p, idx) => stats[idx] && taken.push(p.dst));
+      }
+      if (taken.length > 0) {
+        throw new ConflictException(`"${taken[0]}" already exists. Pass overwrite=true to replace it.`);
+      }
+    }
+    if (!opts.move && bytes > 0) await this.quota.assertCanUploadStorage(project.teamId, bytes);
+
+    for (const { src, dst } of pairs) {
+      // minio 8 keeps the (target, object, source) string overload at runtime;
+      // cast past the ambiguous overload typing. Metadata, the owner tag
+      // included, travels with the copy.
+      await (this.client.copyObject as any)(minioBucket, dst, `/${minioBucket}/${src}`);
+      if (opts.move) await this.client.removeObject(minioBucket, src);
+    }
+    const count = pairs.filter((p) => !p.src.endsWith('/')).length;
+    this.logger.log(`${opts.move ? 'Renamed' : 'Copied'} "${from}" → "${to}" (${count} object(s)) in "${minioBucket}"`);
+    return { from, to, count };
+  }
+
+  /**
+   * An object of a **public** bucket for the unauthenticated public route.
+   * Anything else — a private bucket, a missing project or object — is the same
+   * 404, so the route reveals nothing about what it does not serve.
+   */
+  async statPublicObject(
+    projectId: string,
+    bucketName: string,
+    objectName: string,
+  ): Promise<{ minioBucket: string; key: string; stat: Minio.BucketItemStat }> {
+    const key = (objectName || '').replace(/^\/+/, '');
+    const notFound = new NotFoundException('Object not found, or the bucket is not public');
+    if (!key || key.endsWith('/')) throw notFound;
+    if (!(await this.isPublicBucket(projectId, bucketName))) throw notFound;
+    const project = await this.prisma.project.findFirst({
+      where: { id: projectId, status: 'ACTIVE' },
+      select: { slug: true, storagePrefix: true },
+    });
+    if (!project) throw notFound;
+    const minioBucket = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
+    const stat = await this.statObjectIn(minioBucket, key).catch(() => null);
+    if (!stat) throw notFound;
+    return { minioBucket, key, stat };
+  }
+
+  /** The bytes of an object found by {@link statPublicObject}, whole or one inclusive range. */
+  openObjectStream(minioBucket: string, key: string, range?: { start: number; end: number }): Promise<Readable> {
+    return range
+      ? this.client.getPartialObject(minioBucket, key, range.start, range.end - range.start + 1)
+      : this.client.getObject(minioBucket, key);
   }
 
   // ── For sibling services (upload sessions, access rules) ─
@@ -1367,4 +1469,53 @@ export class StorageService {
       stream.on('end', () => resolve(objects));
     });
   }
+}
+
+function toLimits(row: { fileSizeLimit: bigint | null; allowedMimeTypes: string[] | null }): BucketLimits {
+  return {
+    fileSizeLimit: row.fileSizeLimit === null || row.fileSizeLimit === undefined ? null : Number(row.fileSizeLimit),
+    allowedMimeTypes: row.allowedMimeTypes ?? [],
+  };
+}
+
+function isAnonymousPrincipal(principal: unknown): boolean {
+  if (principal === '*') return true;
+  const aws = (principal as { AWS?: unknown } | null)?.AWS;
+  if (aws === '*') return true;
+  return Array.isArray(aws) && aws.includes('*');
+}
+
+/**
+ * A bucket policy with every anonymous listing action (s3:ListBucket,
+ * s3:ListBucketMultipartUploads, s3:ListBucketVersions) taken out, or null
+ * when it grants none. Every other statement and action is kept as it was; a
+ * policy left with no statements becomes '' (no policy).
+ */
+export function withoutAnonymousListing(raw: string): string | null {
+  let policy: any;
+  try {
+    policy = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  const statements: any[] = Array.isArray(policy?.Statement)
+    ? policy.Statement
+    : policy?.Statement
+      ? [policy.Statement]
+      : [];
+  const isListing = (a: unknown) => typeof a === 'string' && /^s3:ListBucket/i.test(a);
+  let changed = false;
+  const kept: any[] = [];
+  for (const s of statements) {
+    const actions: unknown[] = Array.isArray(s?.Action) ? s.Action : s?.Action ? [s.Action] : [];
+    if (s?.Effect !== 'Allow' || !isAnonymousPrincipal(s?.Principal) || !actions.some(isListing)) {
+      kept.push(s);
+      continue;
+    }
+    changed = true;
+    const rest = actions.filter((a) => !isListing(a));
+    if (rest.length > 0) kept.push({ ...s, Action: rest });
+  }
+  if (!changed) return null;
+  return kept.length === 0 ? '' : JSON.stringify({ ...policy, Statement: kept });
 }

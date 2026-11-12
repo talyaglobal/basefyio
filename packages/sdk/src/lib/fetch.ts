@@ -52,7 +52,8 @@ export class BasefyioFetchClient {
       let code: string | undefined;
       try {
         const body = await res.json();
-        message = body.message || message;
+        // Validation errors arrive as a list of messages.
+        message = (Array.isArray(body.message) ? body.message.join('; ') : body.message) || message;
         if (typeof body.code === 'string') code = body.code;
       } catch {}
       const err: BasefyioError = { message, status: res.status };
@@ -89,11 +90,16 @@ export class BasefyioFetchClient {
 
     if (!res.ok) {
       let message = `Request failed with status ${res.status}`;
+      let code: string | undefined;
       try {
         const body = await res.json();
-        message = body.message || message;
+        // Validation errors arrive as a list of messages.
+        message = (Array.isArray(body.message) ? body.message.join('; ') : body.message) || message;
+        if (typeof body.code === 'string') code = body.code;
       } catch {}
-      throw { message, status: res.status } as BasefyioError;
+      const err: BasefyioError = { message, status: res.status };
+      if (code) err.code = code;
+      throw err;
     }
 
     const data = await res.blob();

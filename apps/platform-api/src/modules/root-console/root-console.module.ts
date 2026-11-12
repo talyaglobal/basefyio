@@ -7,11 +7,10 @@ import { ProjectsModule } from '../projects/projects.module';
 import { RootConsoleController } from './root-console.controller';
 import { RootConsoleService } from './root-console.service';
 import { DiskUsageService } from './disk-usage.service';
-import { TechDocsService } from './tech-docs.service';
 
 @Module({
   imports: [PrismaModule, BillingModule, StorageModule, PlatformAlertsModule, ProjectsModule],
   controllers: [RootConsoleController],
-  providers: [RootConsoleService, DiskUsageService, TechDocsService],
+  providers: [RootConsoleService, DiskUsageService],
 })
 export class RootConsoleModule {}

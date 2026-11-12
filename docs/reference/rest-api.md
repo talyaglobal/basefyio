@@ -5,21 +5,6 @@ grammar: a client written for `postgrest-js` or `supabase-js` can point at a bas
 without a rewrite. Every statement runs under the caller's database role, so row-level
 security applies exactly as it does in SQL.
 
-The API speaks two dialects, chosen per request:
-
-- **Platform** (default) — what basefyio-js and basefyio-python read: reads answer
-  `{ data, count }`, writes `{ count }`, `rpc` an array of rows, errors
-  `{ statusCode, message, code?, timestamp }`.
-- **PostgREST** — what supabase-js and postgrest-js expect: bare arrays, `Content-Range`,
-  `Prefer:` hints, 201/204, 406 for `.single()`, errors `{ code, message, details, hint }`.
-  A request is served this way when it carries any of `X-Client-Info: supabase-*` /
-  `postgrest-*`, `Accept-Profile`, `Content-Profile`, an `Accept: application/vnd.pgrst.*`
-  media type, or the explicit opt-in `X-Basefyio-Compat: postgrest`. supabase-js and
-  postgrest-js always send the first two, so pointing one at `https://<api>/api` just
-  works. `REST_SUPABASE_COMPAT=off|always` on the server disables or forces it.
-
-The sections below describe the platform dialect first and the PostgREST differences after.
-
 ## Authentication
 
 `apikey` header with the anon or service key. With the anon key, add
@@ -36,7 +21,6 @@ and must never leave your server. This API is exempt from the per-IP rate limit.
 | PATCH | `/api/rest/v1/:table` | anon | update the rows matched by the filters |
 | DELETE | `/api/rest/v1/:table` | anon | delete the rows matched by the filters |
 | POST | `/api/rest/v1/rpc/:fn` | anon | call a function in the `public` schema |
-| GET | `/api/rest/v1/rpc/:fn` | anon | call a function with its arguments in the query string (`.rpc(fn, args, { get: true })`); HEAD is served here too |
 
 "anon" here means any key is accepted by the guard; what the call may *do* is decided by
 Postgres grants and policies for the role the key resolves to. New tables grant `SELECT` to
@@ -55,20 +39,25 @@ Response:
 { "data": [ { "id": 7, "title": "Buy milk", "done": false } ], "count": 1 }
 ```
 
-`count` is the total number of rows matching the filters, regardless of `limit`/`offset`; the
-platform dialect always computes it.
+The same information is in the `Content-Range` header (`0-19/57`; `*/0` for an empty page), and
+`Accept: text/csv` returns the rows as CSV instead of JSON.
 
-**PostgREST dialect**: the body is the bare array. The total is computed only on
-`Prefer: count=exact` (`planned`/`estimated` are treated as exact) and returned in
-`Content-Range: <from>-<to>/<total>` (`*/<total>` for an empty page, `/*` when no count was
-asked for); the status is 206 when the page is a strict subset of the total, 200 otherwise.
-`HEAD` runs the count only. `Accept: application/vnd.pgrst.object+json` (`.single()`) returns
-one object, or 406 `PGRST116` when the query matched zero or several rows. A `Range: 0-9`
-header pages like `offset`/`limit`. `Accept-Profile` must be `public` (406 `PGRST106`
-otherwise); `text/csv`, GeoJSON and `vnd.pgrst.plan` are not served (406 `PGRST107`). In this
-dialect `order=col` without `nullsfirst`/`nullslast` follows Postgres (ASC NULLS LAST / DESC
-NULLS FIRST), which is what `.order()` expects; the platform dialect keeps its original
-default (ASC NULLS FIRST / DESC NULLS LAST).
+### The `count`
+
+`count` is the number of rows matching the filters, regardless of `limit`/`offset`. It is no
+longer a full `COUNT(*)` on every request — on a large table that was most of the cost of a
+read:
+
+| Mode | How it is computed |
+|---|---|
+| default (`estimated`) | free when the page comes back short (it already holds the total); otherwise counted exactly up to 10,000 matching rows, and taken from the planner's estimate beyond that |
+| `exact` | a full count of every matching row |
+| `planned` | the planner's estimate only |
+| `none` | not computed; `count` is `null` |
+
+Choose with `Prefer: count=exact` (or `?count=exact`). The `Preference-Applied` response
+header says what the number is: `count=exact` or `count=planned` (an estimate). For a total
+you page through on a table that may exceed 10,000 matching rows, ask for `count=exact`.
 
 ### Query parameters
 
@@ -78,24 +67,36 @@ default (ASC NULLS FIRST / DESC NULLS LAST).
 | `<column>` | `<op>.<value>` | a filter; several filters are ANDed |
 | `<column>` | `not.<op>.<value>` | negated filter |
 | `or` / `and` | `or=(a.eq.1,b.gte.10)`, `and=(…)`, `not.and(…)`, nested | boolean trees |
-| `order` | `col.asc`, `col.desc`, `col.desc.nullslast`, `col.asc.nullsfirst`, comma-separated | |
-| `limit` / `offset` | integers | `limit` is capped at 1000 |
-| JSON paths | `data->settings->>theme=eq.dark`, `select=data->>name` | `->` keeps JSON, `->>` yields text |
+| `order` | `col.asc`, `col.desc`, `col.desc.nullslast`, `col.asc.nullsfirst`, comma-separated | without `nullsfirst`/`nullslast`, NULLs follow PostgreSQL: last when ascending, first when descending |
+| `limit` / `offset` | non-negative integers | at most 1000 rows per request: a larger `limit` returns 1000 (see `Content-Range`); a `limit`/`offset` that is not a whole number is 400 |
+| `count` | `exact`, `planned`, `estimated`, `none` | same as the `Prefer: count=` header |
+| JSON paths | `data->settings->>theme=eq.dark`, `select=data->>name` | `->` keeps JSON, `->>` yields text; a selected path is labelled by its last key (`name`) unless aliased |
+
+`Range: 0-24` (with `Range-Unit: items`, optional) pages the same way as `offset=0&limit=25`
+when the query has no `limit`/`offset` of its own.
 
 Operators: `eq neq gt gte lt lte like ilike match imatch in is isdistinct fts plfts phfts
 wfts cs cd ov sl sr nxl nxr adj`. `in` takes `in.(1,2,3)`; `is` takes `is.null`, `is.true`,
 `is.false`; full-text search accepts a language: `fts(english).cat`. Values are always bound,
-never interpolated into SQL. A name that is not a valid identifier, an unknown operator or a
-malformed tree is 400 `Invalid <what>: "…"`.
+never interpolated into SQL. A filter without an operator (`id=5`), an unknown operator or
+order modifier, a name that is not a valid identifier, or a malformed tree is 400 with a
+message naming what was wrong.
 
 Embedded resources need a foreign key between the two tables; the schema cache is refreshed
 once when a request names a relation or column it has not seen, so a table you just created
-works on the first request.
+works on the first request. With `rel!inner(…)`, the `count` counts only the parent rows that
+have a matching child, like the rows themselves.
+
+Value types: `bigint`, `numeric` and other exact numbers of the row itself arrive as JSON
+**strings** (`"id": "1"`), so no digit is lost to floating point; inside an embedded resource
+they are JSON numbers, because the embed is built as JSON by Postgres.
 
 ## Writing
 
-Writes answer `{ "count": n }` unless the request carries `Prefer: return=representation`,
-in which case the affected rows are returned.
+Writes answer `{ "count": n }` unless the request carries `Prefer: return=representation`, in
+which case the affected rows are returned (narrowed to `?select=col,alias:col` when given).
+`Prefer: return=minimal` answers with no body: `201` for an insert, `204` for an update or
+delete.
 
 ```
 POST /api/rest/v1/todos            body: { "title": "Buy milk" }  or  [ {…}, {…} ]
@@ -103,33 +104,32 @@ PATCH /api/rest/v1/todos?id=eq.7   body: { "done": true }
 DELETE /api/rest/v1/todos?id=eq.7
 ```
 
-- An insert body may be one object or an array; in the platform dialect the columns are the
-  keys of the first row. 400 `Empty body` / `No columns provided`.
+- An insert body may be one object or an array of objects. The columns come from the first
+  row; a later row missing one of them writes NULL there. 400 `Empty body` /
+  `No columns provided` / `Every row must be a JSON object…`.
+- A large insert is split into statements under Postgres' limit of 65,535 bound values, all in
+  one transaction: it lands whole or not at all. The request body is limited to 10 MB.
 - `PATCH` and `DELETE` without any filter are refused (400), so a missing `?id=eq.…` cannot
   touch every row.
-- In the platform dialect upsert is not provided: `on_conflict` is accepted and ignored, and
-  `Prefer: resolution=merge-duplicates` has no effect. Use the SDK's `upsert()` (which goes
-  through the SQL route) or SQL.
 - Every successful write is published to realtime subscribers of the table if the table is
   enabled for realtime (see [../REALTIME_API.md](../REALTIME_API.md)).
 
-**PostgREST dialect**:
+### Upsert
 
-- `POST` answers 201 with no body, or the inserted rows under
-  `Prefer: return=representation` (`.select()` after the write); `PATCH`/`DELETE` answer 204
-  with no body, or 200 with the rows. `Prefer: count=exact` puts the affected count in
-  `Content-Range`. `.single()` after a write demands exactly one affected row, otherwise the
-  write is rolled back with 406 `PGRST116`.
-- Insert columns are the union of every row's keys (or the `columns=` hint the client sends
-  for arrays). A key a row lacks is `NULL`, or `DEFAULT` under `Prefer: missing=default`
-  (`defaultToNull: false`). An empty array inserts nothing and answers 201 `[]`.
-- Upsert: `Prefer: resolution=merge-duplicates` (`.upsert()`) becomes
-  `ON CONFLICT (<on_conflict columns, else the primary key>) DO UPDATE SET col = EXCLUDED.col`
-  for every inserted column; `resolution=ignore-duplicates` becomes `DO NOTHING`. A table with
-  no primary key needs `on_conflict=` (400 otherwise).
-- `select=` on a write (`.insert(…).select('id,author:users(name)')`) shapes the returned
-  rows like a read, embedded resources included.
-- An unfiltered `PATCH`/`DELETE` is still refused, as `{ "code": "21000", … }`.
+```
+POST /api/rest/v1/todos?on_conflict=slug
+Prefer: resolution=merge-duplicates, return=representation
+body: [ { "slug": "milk", "title": "Buy milk" } ]
+```
+
+- `resolution=merge-duplicates` updates the existing row's columns with the ones sent;
+  `resolution=ignore-duplicates` keeps the existing row.
+- The conflict target is `on_conflict` (unique column(s)), or the primary key when it is
+  omitted. Merging needs a target, so a table without a primary key needs `on_conflict`.
+- A row that carries only its key has nothing to merge and is left as it is.
+- It runs like an insert — same role, same transaction, same batching. Row-level policies
+  decide as for an `INSERT`, and for the rows it updates as for an `UPDATE`.
+- Realtime publishes an `INSERT` for a new row and an `UPDATE` for a merged one.
 
 ## Functions (`rpc`)
 
@@ -140,52 +140,27 @@ curl -s "$API/rest/v1/rpc/add_to_cart" -H "apikey: $ANON_KEY" -H "Authorization:
   -H "Content-Type: application/json" -d '{"product_id": 42, "qty": 1}'
 ```
 
-The function must live in the `public` schema. Every argument is bound as a parameter by
-name; when the function is overloaded, the overload whose parameter names cover the keys sent
-(and whose parameters without defaults are all present) is called. In the platform dialect,
-keys the function does not name are ignored and the result rows are returned as an array. A
-`SECURITY DEFINER` function runs as the database owner, so policies do not apply inside it;
-for that reason it **cannot be called with the anon key alone** (403) — send a signed-in
-user's token or call it with the service key from your server.
-
-`GET /api/rest/v1/rpc/<fn>?a=1&b=2` calls it with the arguments from the query string (an
-array argument as `{a,b}`); `HEAD` is served the same way. Both run in a read-only
-transaction, so a function that writes must be called with `POST` (over GET it answers 405).
-A successful `POST` answers 200 with the function's rows. Each argument is passed
-as the type the chosen overload declares, so the overload that runs is always the one
-selected by the argument names.
-
-**PostgREST dialect**: the body is the function's value — a bare scalar or JSON value, one
-object for a composite type or `OUT` parameters, an array for `SETOF` (bare values for a
-scalar set) — and `void` answers 204. `POST` answers 200. A key no overload names is 404
-`PGRST202` (`Could not find the function public.<fn>(<args>) in the schema cache`).
-`Prefer: params=single-object`, or a function whose only parameter is an unnamed `json`/
-`jsonb`, receives the whole body as that parameter. The definer refusal is
-`{ "code": "42501" }` 403. Filtering, ordering or `select=` on an `rpc` result is not
-applied yet.
+- Answers `200` with the result rows as an array. A function returning a single value comes
+  back as one row keyed by the function name: `[{ "add_to_cart": 3 }]`.
+- The body is the arguments object itself, not `{ "args": {…} }`. Keys that are not argument
+  names are ignored; arguments with a default may be left out. When the arguments sent fit
+  no version of the function, the answer is 400 listing the signatures that exist.
+- A `json`/`jsonb` argument receives the JSON value as sent; an array argument (`text[]`)
+  takes a JSON array.
+- The function must live in the `public` schema. A `SECURITY DEFINER` function runs as the
+  database owner, so policies do not apply inside it; for that reason it **cannot be called
+  with the anon key alone** (403) — send a signed-in user's token or call it with the service
+  key from your server.
+- An error the function raises (`RAISE EXCEPTION`) is 400 with its message.
 
 ## Examples
 
 ```ts
-// basefyio-js executes from() through the SQL route; for the PostgREST grammar use fetch or postgrest-js:
+// basefyio-js executes from() through the SQL route (upsert() and rpc() use this API); for the PostgREST grammar use fetch or postgrest-js:
 const res = await fetch(`${API}/rest/v1/todos?select=id,title&done=eq.false&order=created_at.desc`, {
   headers: { apikey: ANON_KEY, Authorization: `Bearer ${accessToken}` },
 });
 const { data, count } = await res.json();
-```
-
-```ts
-// supabase-js, unchanged: point it at the API root. Its own headers select the PostgREST dialect.
-import { createClient } from '@supabase/supabase-js';
-const supabase = createClient('https://api.basefyio.com/api', ANON_KEY);
-const { data, count, error } = await supabase
-  .from('todos')
-  .select('id,title,author:users(name)', { count: 'exact' })
-  .eq('done', false)
-  .order('created_at', { ascending: false })
-  .range(0, 19);
-await supabase.from('todos').upsert({ id: 7, done: true }).select().single();
-const { data: total } = await supabase.rpc('cart_total', { user_id: 42 }); // bare value
 ```
 
 ```python
@@ -194,46 +169,20 @@ client.from_("todos").select("id,title").eq("done", False).order("created_at", d
 
 ## Errors
 
+Error bodies are `{ "statusCode", "message", "code" }`. For a database error `code` is
+Postgres' SQLSTATE (`23505` duplicate key, `22P02` invalid input, `42501` missing privilege…);
+for a request the API could not parse it is a `PGRST…` code.
+
 | Status | When |
 |---|---|
-| 400 | `Invalid table name`; parser errors `Invalid column: "…"`; `Empty body`; `No columns provided`; `No data to update`; a write without filters; `Function "<fn>" not found`; a Postgres error from your statement (its message) |
+| 400 | `Invalid table name`; a malformed query (filter without operator, unknown operator, bad `order`, `limit`/`offset` not a whole number, bad `Range`); `Empty body`; `No columns provided`; `No data to update`; a write without filters; `Function "<fn>" not found`; arguments that fit no version of the function; a value that does not fit its column (invalid uuid, numeric overflow, check or not-null constraint — the message names the column, constraint or type); malformed JSON in the body |
 | 401 | missing/invalid key; invalid Bearer token |
-| 403 | `Function "<fn>" is SECURITY DEFINER …`; key of another project; `Project not found or inactive` |
-| 404 | unknown table (surfaced as a Postgres error on the relation) |
+| 403 | `Function "<fn>" is SECURITY DEFINER …`; key of another project; `Project not found or inactive`; `Permission denied: permission denied for table …` (the role has no `GRANT` on the table) or `Permission denied by row-level security policy: …` (a policy refused the row) |
+| 404 | unknown table |
+| 409 | duplicate key or foreign-key violation (the message carries Postgres' detail) |
 
-**PostgREST dialect**: every error is `{ "code", "message", "details", "hint" }`, which
-postgrest-js returns verbatim as `error`. A Postgres error carries its SQLSTATE as `code`
-with PostgREST's status for it (`23505`/`23503` → 409, `42501` → 403, or 401 for the
-anonymous role, `42P01`/`42883` → 404, `P0001` → 400, connection and resource classes → 503,
-…). The API's own codes: `PGRST100` malformed request, `PGRST116` `.single()` mismatch (406),
-`PGRST106` schema other than `public` (406), `PGRST107` unsupported media type (406),
-`PGRST200` no relationship for an embed, `PGRST204` unknown column, `PGRST205` unknown table
-(404), `PGRST202` unknown function (404), `PGRST301` missing or invalid key (401), `21000`
-unfiltered write.
+Error responses carry the CORS headers too, so a browser can read them.
 
 Source: `apps/platform-api/src/modules/projects/public-api.controller.ts`, `public-api.service.ts`,
-`postgrest/parser.ts`, `postgrest/builder.ts`, `postgrest/schema-cache.ts`, `postgrest/types.ts`;
-PostgREST dialect: `postgrest/compat.ts`, `postgrest/compat.filter.ts`, `postgrest/errors.ts`,
-`postgrest/rpc.ts`, exercised end to end by `public-api.supabase-compat.spec.ts`.
-
-## Rate limits and overload responses
-
-Every request is admitted through three checks after authentication, so a burst from one
-project never reaches the database at the expense of everyone else:
-
-- **Per-project rate limit**: a token bucket sized by the plan (`Plan.features.api_rps` and
-  `api_burst`; by default Free 50 req/s with a burst of 100, Pro 200/400, Business 500/1000).
-  Every response carries `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset`.
-  Over the limit the API answers `429` with `code: "rate_limited"` and `Retry-After`.
-- **Per-process concurrency**: each API process serves a bounded number of requests at once;
-  the next ones wait briefly in line (at most 1.5 s, visible as `X-Admission-Wait-Ms`), and when
-  the line is full the request is shed at once with `503`, `code: "overloaded"` and
-  `Retry-After: 1`. Dashboard sessions have their own share of the line, so customer traffic
-  cannot lock the console out.
-- **Restarting instance**: during a deploy a draining process answers `503 overloaded` for new
-  work while it finishes the requests it has; the load balancer stops sending it traffic.
-
-Clients should retry `429` and `503` with the `Retry-After` delay and jitter, idempotent
-requests only. The platform operator runs these checks in `log` mode first (every decision is
-counted, nothing rejected) and switches to `enforce` after reading a week of counters; see
-`ADMISSION_MODE` in the configuration reference.
+`postgrest/parser.ts`, `postgrest/builder.ts`, `postgrest/schema-cache.ts`, `postgrest/types.ts`,
+`postgrest/write.ts`, `postgrest/response.ts`, `postgrest/rpc.ts`, `pg-error.util.ts`.

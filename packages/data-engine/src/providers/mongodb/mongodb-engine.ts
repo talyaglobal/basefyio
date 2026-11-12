@@ -20,6 +20,7 @@ import type { DataEngine, EntityCollection } from '../../interfaces/data-engine'
 import {
   ConcurrencyError,
   DataEngineError,
+  DocumentNotDeletedError,
   DocumentNotFoundError,
   DocumentTooLargeError,
 } from '../../interfaces/data-engine';
@@ -31,6 +32,7 @@ import type {
   JsonObject,
   Page,
   ProviderCapabilities,
+  ReadOpts,
   TenantDataPlane,
   WriteOpts,
 } from '../../interfaces/types';
@@ -66,6 +68,11 @@ interface MongoCursorLike {
 
 interface MongoCollectionLike {
   insertOne(doc: Record<string, unknown>): Promise<unknown>;
+  insertMany(
+    docs: Record<string, unknown>[],
+    options?: Record<string, unknown>,
+  ): Promise<unknown>;
+  deleteMany(filter: Record<string, unknown>): Promise<{ deletedCount?: number }>;
   findOne(filter: Record<string, unknown>): Promise<Record<string, unknown> | null>;
   findOneAndUpdate(
     filter: Record<string, unknown>,
@@ -178,6 +185,11 @@ export class MongoDataEngine implements DataEngine {
     await col.createIndex(
       { 'envelope.projectId': 1, 'envelope.entity': 1, 'envelope.createdAt': -1 },
       { name: 'idx_created' },
+    );
+    // Serves the default list order (newest first, _id as the tiebreaker) without an in-memory sort.
+    await col.createIndex(
+      { 'envelope.projectId': 1, 'envelope.entity': 1, 'envelope.createdAt': -1, _id: 1 },
+      { name: 'idx_created_id' },
     );
     return {
       projectId,
@@ -297,6 +309,7 @@ function flattenStored(doc: StoredDoc): DocResult {
 
 // ── Entity Collection ──────────────────────────────────────
 
+
 class MongoEntityCollection implements EntityCollection {
   constructor(
     private readonly engine: MongoDataEngine,
@@ -306,11 +319,11 @@ class MongoEntityCollection implements EntityCollection {
   ) {}
 
   /** Tenant + entity scope every operation is pinned to. */
-  private scope(extra?: Record<string, unknown>): Record<string, unknown> {
+  private scope(extra?: Record<string, unknown>, includeSoftDeleted = false): Record<string, unknown> {
     return {
       'envelope.projectId': this.projectId,
       'envelope.entity': this.entity,
-      'envelope.status': { $ne: 'deleted' },
+      ...(includeSoftDeleted ? {} : { 'envelope.status': { $ne: 'deleted' } }),
       ...extra,
     };
   }
@@ -323,11 +336,8 @@ class MongoEntityCollection implements EntityCollection {
     }
   }
 
-  async insert(doc: JsonObject, opts?: WriteOpts): Promise<DocResult> {
-    this.checkDocSize(doc);
-    const col = await this.engine._records();
-    const now = new Date().toISOString();
-    const stored: StoredDoc = {
+  private newStored(doc: JsonObject, opts: WriteOpts | undefined, now: string): StoredDoc {
+    return {
       _id: uuid(),
       envelope: {
         entity: this.entity,
@@ -344,89 +354,141 @@ class MongoEntityCollection implements EntityCollection {
       },
       data: doc,
     };
+  }
+
+  async insert(doc: JsonObject, opts?: WriteOpts): Promise<DocResult> {
+    this.checkDocSize(doc);
+    const col = await this.engine._records();
+    const stored = this.newStored(doc, opts, new Date().toISOString());
     await col.insertOne(stored as unknown as Record<string, unknown>);
     return flattenStored(stored);
   }
 
-  async get(id: string): Promise<DocResult | null> {
+  async insertMany(docs: JsonObject[], opts?: WriteOpts): Promise<DocResult[]> {
+    if (docs.length === 0) return [];
+    for (const doc of docs) this.checkDocSize(doc);
     const col = await this.engine._records();
-    const row = await col.findOne(this.scope({ _id: id }));
+    const now = new Date().toISOString();
+    const stored = docs.map((doc) => this.newStored(doc, opts, now));
+    await col.insertMany(stored as unknown as Record<string, unknown>[], { ordered: true });
+    return stored.map(flattenStored);
+  }
+
+  async get(id: string, opts?: ReadOpts): Promise<DocResult | null> {
+    const col = await this.engine._records();
+    const row = await col.findOne(this.scope({ _id: id }, opts?.includeSoftDeleted === true));
     return row ? flattenStored(row as unknown as StoredDoc) : null;
+  }
+
+  /**
+   * One atomic conditional write. The expected version (If-Match) is part of
+   * the match filter, so a concurrent writer can never slip in between the
+   * check and the write. When nothing matched, a second read tells "not
+   * found" apart from "version conflict".
+   */
+  private async writeOne(
+    id: string,
+    update: Record<string, unknown>,
+    opts: WriteOpts | undefined,
+    match: { deleted: boolean } = { deleted: false },
+  ): Promise<StoredDoc> {
+    const col = await this.engine._records();
+    const filter: Record<string, unknown> = {
+      'envelope.projectId': this.projectId,
+      'envelope.entity': this.entity,
+      'envelope.status': match.deleted ? 'deleted' : { $ne: 'deleted' },
+      _id: id,
+      ...(opts?.ifMatch !== undefined ? { 'envelope.version': opts.ifMatch } : {}),
+    };
+    const updated = await col.findOneAndUpdate(filter, update, { returnDocument: 'after' });
+    if (updated) return updated as unknown as StoredDoc;
+
+    const current = (await col.findOne(this.scope({ _id: id }, true))) as unknown as StoredDoc | null;
+    if (!current) throw new DocumentNotFoundError(this.entity, id);
+    const isDeleted = current.envelope.status === 'deleted';
+    if (match.deleted && !isDeleted) throw new DocumentNotDeletedError(this.entity, id);
+    if (!match.deleted && isDeleted) throw new DocumentNotFoundError(this.entity, id);
+    if (opts?.ifMatch !== undefined && current.envelope.version !== opts.ifMatch) {
+      throw new ConcurrencyError(this.entity, id, opts.ifMatch, current.envelope.version);
+    }
+    throw new DocumentNotFoundError(this.entity, id);
   }
 
   async update(id: string, patch: JsonObject, opts?: WriteOpts): Promise<DocResult> {
     this.checkDocSize(patch);
-    const col = await this.engine._records();
-
-    if (opts?.ifMatch !== undefined) {
-      await this.assertVersion(id, opts.ifMatch);
-    }
-
     const set: Record<string, unknown> = {
       'envelope.updatedAt': new Date().toISOString(),
     };
     for (const [key, value] of Object.entries(patch)) {
       set[`data.${key}`] = value;
     }
-
-    const updated = await col.findOneAndUpdate(
-      this.scope({ _id: id }),
-      {
-        $set: set,
-        $inc: { 'envelope.version': 1, 'envelope.eventSequence': 1 },
-      },
-      { returnDocument: 'after' },
+    const updated = await this.writeOne(
+      id,
+      { $set: set, $inc: { 'envelope.version': 1, 'envelope.eventSequence': 1 } },
+      opts,
     );
-    if (!updated) throw new DocumentNotFoundError(this.entity, id);
-    return flattenStored(updated as unknown as StoredDoc);
+    return flattenStored(updated);
   }
 
   async replace(id: string, doc: JsonObject, opts?: WriteOpts): Promise<DocResult> {
     this.checkDocSize(doc);
-    const col = await this.engine._records();
-
-    if (opts?.ifMatch !== undefined) {
-      await this.assertVersion(id, opts.ifMatch);
-    }
-
-    const updated = await col.findOneAndUpdate(
-      this.scope({ _id: id }),
+    const updated = await this.writeOne(
+      id,
       {
         $set: { data: doc, 'envelope.updatedAt': new Date().toISOString() },
         $inc: { 'envelope.version': 1, 'envelope.eventSequence': 1 },
       },
-      { returnDocument: 'after' },
+      opts,
     );
-    if (!updated) throw new DocumentNotFoundError(this.entity, id);
-    return flattenStored(updated as unknown as StoredDoc);
+    return flattenStored(updated);
   }
 
-  async delete(id: string, _opts?: WriteOpts): Promise<void> {
-    const col = await this.engine._records();
-    const updated = await col.findOneAndUpdate(
-      this.scope({ _id: id }),
+  async delete(id: string, opts?: WriteOpts): Promise<void> {
+    const now = new Date().toISOString();
+    await this.writeOne(
+      id,
       {
         $set: {
           'envelope.status': 'deleted',
-          'envelope.deletedAt': new Date().toISOString(),
+          'envelope.deletedAt': now,
+          'envelope.updatedAt': now,
+        },
+        $inc: { 'envelope.version': 1, 'envelope.eventSequence': 1 },
+      },
+      opts,
+    );
+  }
+
+  async restore(id: string, opts?: WriteOpts): Promise<DocResult> {
+    const restored = await this.writeOne(
+      id,
+      {
+        $set: {
+          'envelope.status': 'active',
+          'envelope.deletedAt': null,
           'envelope.updatedAt': new Date().toISOString(),
         },
         $inc: { 'envelope.version': 1, 'envelope.eventSequence': 1 },
       },
-      { returnDocument: 'after' },
+      opts,
+      { deleted: true },
     );
-    if (!updated) throw new DocumentNotFoundError(this.entity, id);
+    return flattenStored(restored);
+  }
+
+  async purge(): Promise<number> {
+    const col = await this.engine._records();
+    const result = await col.deleteMany({
+      'envelope.projectId': this.projectId,
+      'envelope.entity': this.entity,
+    });
+    return result?.deletedCount ?? 0;
   }
 
   async query(q: EntityQuery): Promise<Page<DocResult>> {
     const col = await this.engine._records();
 
-    const base = q.includeSoftDeleted
-      ? {
-          'envelope.projectId': this.projectId,
-          'envelope.entity': this.entity,
-        }
-      : this.scope();
+    const base = this.scope(undefined, q.includeSoftDeleted === true);
     const filter = q.filter
       ? { $and: [base, filterToMongo(q.filter)] }
       : base;
@@ -434,10 +496,13 @@ class MongoEntityCollection implements EntityCollection {
     const limit = Math.min(Math.max(q.limit ?? 50, 1), 1000);
     const offset = Math.max(q.offset ?? 0, 0);
 
-    let cursor = col.find(filter);
-    cursor = q.sort?.length
-      ? cursor.sort(sortToMongo(q.sort))
-      : cursor.sort({ 'envelope.createdAt': -1 });
+    // _id is the final tiebreaker so equal sort keys still page deterministically.
+    const sort: Record<string, 1 | -1> = q.sort?.length
+      ? sortToMongo(q.sort)
+      : { 'envelope.createdAt': -1 };
+    if (!('_id' in sort)) sort._id = 1;
+
+    let cursor = col.find(filter).sort(sort);
     if (q.select?.length) cursor = cursor.project(selectToMongo(q.select));
     cursor = cursor.skip(offset).limit(limit);
 
@@ -450,15 +515,14 @@ class MongoEntityCollection implements EntityCollection {
       data: rows.map((r) => flattenStored(r as unknown as StoredDoc)),
       total,
       hasMore: offset + rows.length < total,
-      nextCursor: offset + rows.length < total ? String(offset + limit) : undefined,
+      nextCursor: offset + rows.length < total ? String(offset + rows.length) : undefined,
     };
   }
 
-  async count(filter?: Filter): Promise<number> {
+  async count(filter?: Filter, opts?: ReadOpts): Promise<number> {
     const col = await this.engine._records();
-    const query = filter
-      ? { $and: [this.scope(), filterToMongo(filter)] }
-      : this.scope();
+    const base = this.scope(undefined, opts?.includeSoftDeleted === true);
+    const query = filter ? { $and: [base, filterToMongo(filter)] } : base;
     return col.countDocuments(query, { limit: COUNT_LIMIT });
   }
 
@@ -478,16 +542,6 @@ class MongoEntityCollection implements EntityCollection {
       } catch {
         // Index creation is best-effort (name/spec conflicts are non-fatal).
       }
-    }
-  }
-
-  private async assertVersion(id: string, expected: number): Promise<void> {
-    const col = await this.engine._records();
-    const current = await col.findOne(this.scope({ _id: id }));
-    if (!current) throw new DocumentNotFoundError(this.entity, id);
-    const actual = (current as unknown as StoredDoc).envelope.version;
-    if (actual !== expected) {
-      throw new ConcurrencyError(this.entity, id, expected, actual);
     }
   }
 }

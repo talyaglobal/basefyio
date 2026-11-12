@@ -7,18 +7,21 @@ import Link from "next/link";
 // session was active on app.basefyio.com.
 const AUTH_MARKER_KEYS = ["basefyio_logged_in", "bf_logged_in"];
 
-export async function AuthNav({ appUrl }: { appUrl: string }) {
+/** True when the dashboard's cross-subdomain sign-in marker is present. */
+export async function isSignedIn(): Promise<boolean> {
   const cookieStore = await cookies();
-  const loggedIn = AUTH_MARKER_KEYS.some(
-    (key) => cookieStore.get(key)?.value === "1",
-  );
+  return AUTH_MARKER_KEYS.some((key) => cookieStore.get(key)?.value === "1");
+}
+
+export async function AuthNav({ appUrl }: { appUrl: string }) {
+  const loggedIn = await isSignedIn();
 
   if (loggedIn) {
     // Green pill with white text so it's obvious the visitor is signed in.
     return (
       <Link
         href={`${appUrl}/dashboard`}
-        className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-emerald-700"
+        className="whitespace-nowrap rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-emerald-700"
       >
         Dashboard
       </Link>
@@ -28,7 +31,7 @@ export async function AuthNav({ appUrl }: { appUrl: string }) {
   return (
     <Link
       href={appUrl}
-      className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+      className="whitespace-nowrap text-sm text-muted-foreground transition-colors hover:text-foreground"
     >
       Sign In
     </Link>

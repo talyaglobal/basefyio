@@ -153,4 +153,21 @@ describe('createProvider / endpointFor', () => {
     expect(endpointFor({ provider: 'openai' })).toBe('https://api.openai.com/v1');
     expect(endpointFor({ provider: 'cohere', baseUrl: 'https://gw/' })).toBe('https://gw');
   });
+
+  it('builds Gemini with its key, default model and endpoint, and reads GEMINI_API_KEY as the platform key', () => {
+    const p = createProvider({ provider: 'gemini', apiKey: 'AIza-key' });
+    expect(p.id).toBe('gemini');
+    expect(p.model).toBe('gemini-embedding-001');
+    expect(p.endpoint).toBe('https://generativelanguage.googleapis.com/v1beta');
+    expect(modelTag('gemini', 'gemini-embedding-001')).toBe('gemini/gemini-embedding-001');
+    expect(() => createProvider({ provider: 'gemini' })).toThrow(
+      'No Google Gemini API key configured. Set a per-project key or the platform GEMINI_API_KEY.',
+    );
+
+    const s = resolvePlatformSettings(
+      config({ 'embedding.provider': 'gemini', 'embedding.gemini.apiKey': 'AIza-platform' }),
+    );
+    expect(s.primary).toMatchObject({ provider: 'gemini', model: 'gemini-embedding-001', apiKey: 'AIza-platform' });
+    expect(s.keys.gemini).toBe('AIza-platform');
+  });
 });

@@ -5,9 +5,7 @@ import {
   ForbiddenException,
   OnModuleInit,
   OnModuleDestroy,
-  Optional,
 } from '@nestjs/common';
-import { BootTaskService } from '../cluster/boot-task.service';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
@@ -15,38 +13,14 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { firstValueFrom } from 'rxjs';
 import { Pool } from 'pg';
-import { randomUUID } from 'crypto';
+import { randomBytes, randomUUID } from 'crypto';
 import { Readable } from 'stream';
 import Docker = require('dockerode');
 import { readFile, unlink } from 'fs/promises';
 import { join } from 'path';
 import { ProjectsService } from './projects.service';
-import {
-  KeycloakAdminService,
-  type ImportedRealmUser,
-  type ImportedRealmUserResult,
-} from '../auth/keycloak-admin.service';
-import { ImportedPasswordService, type PasswordHashEntry } from './imported-password.service';
+import { KeycloakAdminService } from '../auth/keycloak-admin.service';
 import { StorageService } from '../storage/storage.service';
-import {
-  DESTINATION_UID_RETURN_SQL,
-  DEST_UPSERT_BUCKET_SQL,
-  DEST_UPSERT_OBJECT_SQL,
-  SOURCE_STORAGE_BUCKETS_SQL,
-  SOURCE_STORAGE_OBJECTS_LEGACY_SQL,
-  SOURCE_STORAGE_OBJECTS_SQL,
-  SOURCE_STORAGE_POLICIES_SQL,
-  type SourceStorageBucket,
-  type SourceStorageObject,
-  type SourceStoragePolicy,
-  buildStoragePolicyStatements,
-  createRoleIfAbsentSql,
-  destBucketParams,
-  destObjectParams,
-  extraRolesIn,
-  logicalBucketName,
-  ownerMetaFor,
-} from './supabase-storage-catalog';
 import { PrismaService } from '../../prisma/prisma.service';
 import { IMPORT_QUEUE } from '../queue/queue.module';
 import type { ImportJobData } from '../queue/import.processor';
@@ -78,12 +52,7 @@ const KNOWN_PG_BASE_TYPES = new Set([
 
 export interface ImportProgress {
   database: { tables: number; rows: number; failedTables: string[] };
-  auth: {
-    users: number;
-    skipped: number;
-    /** Users whose source password waits for their first sign-in (see ImportedPasswordService). */
-    passwords?: number;
-  };
+  auth: { users: number; skipped: number };
   storage: {
     buckets: number;
     objects: number;
@@ -173,19 +142,6 @@ interface SupabaseTable {
   table_schema: string;
 }
 
-/** Why no direct Postgres route to the source opened, in one line, password never included. */
-export interface SourceRouteFailure {
-  /** `direct: <reason>; pooler: <commonest reason>, N of M candidates` */
-  summary: string;
-  /** Some route answered 28P01: the password itself is wrong. */
-  passwordRejected: boolean;
-}
-
-interface SourceRoute {
-  pool: Pool | null;
-  failure: SourceRouteFailure | null;
-}
-
 interface SupabaseUser {
   id: string;
   email: string;
@@ -193,10 +149,7 @@ interface SupabaseUser {
   role: string;
   created_at: string;
   user_metadata?: Record<string, any>;
-  app_metadata?: Record<string, any>;
   email_confirmed_at?: string;
-  banned_until?: string | null;
-  deleted_at?: string | null;
 }
 
 interface SupabaseBucket {
@@ -210,14 +163,6 @@ interface SupabaseStorageObject {
   name: string;
   id?: string;
   metadata?: { size?: number; mimetype?: string };
-}
-
-/** The source database's `storage` catalog, read when the password is known. */
-interface SourceStorageCatalog {
-  buckets: SourceStorageBucket[];
-  /** Keyed `<source bucket id>/<object name>`. */
-  objects: Map<string, SourceStorageObject>;
-  policies: SourceStoragePolicy[];
 }
 
 @Injectable()
@@ -255,9 +200,6 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
   private static readonly SCHEMA_SCRATCH_VOLUME =
     process.env.PITR_SCRATCH_VOLUME || 'kolaybase_pitr_scratch';
 
-  /** GoTrue's admin listing fails outright above this page size. */
-  private static readonly AUTH_USERS_PER_PAGE = 100;
-
   /** Which host and user actually reached a given source project. */
   private readonly sourceConnByRef = new Map<string, { host: string; user: string }>();
 
@@ -270,10 +212,7 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly activity: ProjectActivityService,
     private readonly keys: SupabaseImportKeysService,
-    private readonly importedPasswords: ImportedPasswordService,
     @InjectQueue(IMPORT_QUEUE) private readonly importQueue: Queue,
-    // Optional so a hand-built instance in a test needs no cluster module.
-    @Optional() private readonly bootTasks?: BootTaskService,
   ) {}
 
   private async notifyAutoCancelledJob(
@@ -309,16 +248,7 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /**
-   * Jobs a dead process left "active" are failed and their owners told —
-   * but only jobs active long enough to be orphans. A job a sibling replica
-   * started a minute ago is not stale, and failing every active job on boot
-   * would cancel a running import on every deploy once there is more than
-   * one process. The first replica to boot does the sweep; the others skip.
-   */
   private async cleanStaleActiveJobs() {
-    if (!((await this.bootTasks?.claim('import-stale-jobs')) ?? true)) return;
-    const staleAfterMs = Number.parseInt(process.env.IMPORT_STALE_AFTER_MS ?? '', 10) || 30 * 60_000;
     try {
       const active = await this.importQueue.getActive();
       if (active.length === 0) {
@@ -327,8 +257,6 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       }
       let cleaned = 0;
       for (const job of active) {
-        const startedAt = job.processedOn ?? job.timestamp ?? 0;
-        if (Date.now() - startedAt < staleAfterMs) continue; // a sibling is probably still on it
         try {
           await job.moveToFailed(
             new Error('Stale import job recovered after server restart'),
@@ -1443,8 +1371,6 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       throw new Error(`Failed to fetch storage buckets: ${err.message}`);
     }
 
-    const sourceCatalog = await this.loadSourceStorageCatalog(baseUrl, headers, project);
-
     for (let b = 0; b < buckets.length; b++) {
       if (this.cancelledJobs.has(jobId)) return;
 
@@ -1490,7 +1416,6 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
             project.id, undefined, logicalBucketName, obj.name, stream,
             obj.metadata?.size ?? size ?? 0,
             obj.metadata?.mimetype || contentType || 'application/octet-stream',
-            ownerMetaFor(sourceCatalog?.objects.get(`${supabaseBucketId}/${obj.name}`)),
           );
           progress.storage.objects++;
         } catch (err: any) {
@@ -1498,10 +1423,6 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
           progress.warnings.push(`Storage object "${logicalBucketName}/${obj.name}" failed: ${err.message}`);
         }
       }
-    }
-
-    if (!this.cancelledJobs.has(jobId)) {
-      await this.applySourceStorageCatalog(project, sourceCatalog, progress);
     }
   }
 
@@ -1728,16 +1649,6 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
    * immediately.
    */
   private async openSupabaseSourcePool(ref: string, password: string): Promise<Pool | null> {
-    return (await this.openSupabaseSourceRoute(ref, password)).pool;
-  }
-
-  /**
-   * Like `openSupabaseSourcePool`, but when no route opens it also says why,
-   * in words the person at the panel can act on. A wrong password and a host
-   * without a route to Supabase used to produce the same silent fallback; the
-   * first is theirs to fix, the second is ours.
-   */
-  private async openSupabaseSourceRoute(ref: string, password: string): Promise<SourceRoute> {
     const direct = new Pool({
       host: `db.${ref}.supabase.co`,
       port: 5432,
@@ -1750,19 +1661,17 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       statement_timeout: 120_000,
     });
 
-    let directReason = '';
     try {
       await this.connectPoolWithRetry(direct, `supabase-direct-${ref}`, 2);
       this.sourceConnByRef.set(ref, { host: `db.${ref}.supabase.co`, user: 'postgres' });
       this.logger.log(
         `Direct Postgres copy enabled (db.${ref}.supabase.co) — bypasses PostgREST row-level grants`,
       );
-      return { pool: direct, failure: null };
+      return direct;
     } catch (err: any) {
       await direct.end().catch(() => undefined);
-      directReason = SupabaseImportService.describeConnectionError(err, password);
       this.logger.warn(
-        `Direct Postgres connection failed (${directReason}); trying the IPv4 connection pooler`,
+        `Direct Postgres connection failed (${err.message}); trying the IPv4 connection pooler`,
       );
     }
 
@@ -1772,11 +1681,7 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       candidates.push(`aws-0-${region}.pooler.supabase.com`);
     }
 
-    // Each candidate either opens or reports why not. The reasons are kept per
-    // class rather than per host: a wrong password is rejected by the one
-    // region that knows the tenant, while the other thirty-three say the
-    // tenant does not exist, and only the former is worth telling anyone.
-    const probe = async (host: string): Promise<{ pool: Pool | null; reason: string }> => {
+    const probe = async (host: string): Promise<Pool | null> => {
       const pool = new Pool({
         host,
         port: 5432, // session mode; transaction mode (6543) drops prepared statements
@@ -1791,23 +1696,19 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       try {
         const client = await pool.connect();
         client.release();
-        return { pool, reason: '' };
-      } catch (err: any) {
+        return pool;
+      } catch {
         await pool.end().catch(() => undefined);
-        return { pool: null, reason: SupabaseImportService.describeConnectionError(err, password) };
+        return null;
       }
     };
 
     const results = await Promise.all(candidates.map(probe));
     let winner: Pool | null = null;
     let winnerHost = '';
-    const poolerReasons = new Map<string, number>();
     for (let i = 0; i < results.length; i++) {
-      const { pool, reason } = results[i];
-      if (!pool) {
-        poolerReasons.set(reason, (poolerReasons.get(reason) ?? 0) + 1);
-        continue;
-      }
+      const pool = results[i];
+      if (!pool) continue;
       if (!winner) {
         winner = pool;
         winnerHost = candidates[i];
@@ -1821,90 +1722,13 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       this.logger.log(
         `Direct Postgres copy enabled via pooler (${winnerHost}, user postgres.${ref}) — bypasses PostgREST row-level grants`,
       );
-      return { pool: winner, failure: null };
+      return winner;
     }
 
-    const failure = SupabaseImportService.summariseRouteFailure(
-      directReason,
-      poolerReasons,
-      candidates.length,
-    );
     this.logger.warn(
-      `No reachable Postgres route to Supabase project "${ref}" (${failure.summary}); falling back to PostgREST for data`,
+      `No reachable Postgres route to Supabase project "${ref}" (direct endpoint is IPv6-only and no pooler region accepted the credentials); falling back to PostgREST for data`,
     );
-    return { pool: null, failure };
-  }
-
-  /**
-   * The panel line for a schema that had to be reconstructed. The reason is
-   * trimmed so the whole line stays under 500 characters: the panel shows it
-   * in one row, and a pg_dump log is not something to read there anyway.
-   */
-  static schemaNotCopiedWarning(reason: string): string {
-    const head = 'The source schema could not be copied (';
-    const tail =
-      '), so tables were rebuilt from column types alone — without indexes, keys, defaults, triggers or row-level security.';
-    const room = 500 - head.length - tail.length;
-    const why = reason.replace(/\s+/g, ' ').trim();
-    return `${head}${why.length > room ? `${why.slice(0, room - 1)}…` : why}${tail}`;
-  }
-
-  /** The panel line for an import that had to fall back to PostgREST. */
-  static unreachableSourceWarning(failure: SourceRouteFailure | null): string {
-    const why = failure ? ` (${failure.summary})` : '';
-    const line = `Could not reach the source database directly${why}. Tables protected by RLS may have imported empty; passwords were not carried.`;
-    return failure?.passwordRejected
-      ? `${line} The database password was rejected — check Supabase → Settings → Database.`
-      : line;
-  }
-
-  /**
-   * One line for a failed connection attempt: the driver's code when it has
-   * one, else the message, never the password. Postgres and the OS phrase the
-   * same failure a dozen ways; the code is what people search for.
-   */
-  static describeConnectionError(err: any, password: string): string {
-    const scrub = (text: string) =>
-      (password ? text.split(password).join('***') : text).replace(/\s+/g, ' ').trim();
-    const message = scrub(String(err?.message ?? err ?? 'unknown error'));
-    const code = typeof err?.code === 'string' ? err.code : '';
-    if (code === '28P01') return '28P01 password authentication failed';
-    if (/tenant or user not found/i.test(message)) return 'tenant or user not found';
-    // Supavisor and the OS both put the useful part first; the rest is noise.
-    const short = message.length > 120 ? `${message.slice(0, 119)}…` : message;
-    if (code && code !== 'XX000') return `${code} ${short}`;
-    return short;
-  }
-
-  /**
-   * Condense the direct attempt and the pooler probes into one explanation.
-   * A password rejection anywhere outranks the crowd: every wrong-region
-   * probe says "tenant not found" whether or not the password was right, so
-   * the majority verdict would hide the one finding that matters.
-   */
-  static summariseRouteFailure(
-    directReason: string,
-    poolerReasons: Map<string, number>,
-    candidates: number,
-  ): SourceRouteFailure {
-    const rejected = [...poolerReasons.keys()].find((r) => r.startsWith('28P01'));
-    let top: string | undefined = rejected;
-    let topCount = rejected ? (poolerReasons.get(rejected) ?? 0) : 0;
-    if (!top) {
-      for (const [reason, count] of poolerReasons) {
-        if (count > topCount) {
-          top = reason;
-          topCount = count;
-        }
-      }
-    }
-    const passwordRejected =
-      Boolean(rejected) || directReason.startsWith('28P01');
-    const pooler = top
-      ? `${top}, ${topCount} of ${candidates} candidates`
-      : `no answer, ${candidates} candidates`;
-    const summary = `direct: ${directReason || 'not attempted'}; pooler: ${pooler}`;
-    return { summary, passwordRejected };
+    return null;
   }
 
   /**
@@ -1925,26 +1749,20 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
    * container matching the source's major version, writing to the volume this
    * process can read.
    *
-   * Returns the SQL, or the reason none could be produced — the import then
-   * falls back to the reconstructed tables rather than failing outright, and
-   * the reason reaches the panel, since the API host's log is the only other
-   * place it would ever appear.
+   * Returns the SQL, or null if the dump could not be produced — the import
+   * then falls back to the reconstructed tables rather than failing outright.
    */
   private async dumpSourceSchema(
     ref: string,
     password: string,
     majorVersion: number,
-  ): Promise<{ sql: string | null; reason?: string }> {
+  ): Promise<string | null> {
     const runId = randomUUID().slice(0, 8);
     const fileName = `schema-${runId}.sql`;
     const hostPath = join(SupabaseImportService.SCHEMA_SCRATCH_ROOT, fileName);
     const image = `postgres:${majorVersion}-alpine`;
     const docker = new Docker({ socketPath: '/var/run/docker.sock' });
     let container: Docker.Container | null = null;
-    // Which step was underway when something threw, so the reason names it.
-    let step = `pulling ${image}`;
-    const scrub = (text: string) =>
-      (password ? text.split(password).join('***') : text).replace(/\s+/g, ' ').trim();
 
     try {
       await new Promise<void>((resolve, reject) => {
@@ -1957,10 +1775,9 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       // Reuse whichever route actually connected — the direct endpoint when the
       // host has IPv6, the pooler otherwise. They take different usernames.
       const conn = this.sourceConnByRef.get(ref);
-      if (!conn) return { sql: null, reason: 'no direct route to the source was recorded' };
+      if (!conn) return null;
       const url = `postgresql://${encodeURIComponent(conn.user)}@${conn.host}:5432/postgres?sslmode=require`;
 
-      step = 'starting the pg_dump container';
       container = await docker.createContainer({
         Image: image,
         // The password travels in the environment rather than the URL so it
@@ -1980,7 +1797,6 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       } as Docker.ContainerCreateOptions);
 
       await container.start();
-      step = 'waiting for pg_dump';
       const { StatusCode } = await container.wait();
 
       if (StatusCode !== 0) {
@@ -1989,20 +1805,15 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
           .then((b) => b.toString().replace(/[^\x20-\x7e\n]/g, '').trim())
           .catch(() => '');
         this.logger.warn(`Schema dump exited ${StatusCode}: ${why}`);
-        const tail = scrub(why).slice(0, 300);
-        return {
-          sql: null,
-          reason: `pg_dump exited ${StatusCode}${tail ? `: ${tail}` : ''}`,
-        };
+        return null;
       }
 
-      step = `reading ${fileName} from the scratch volume`;
       const sql = await readFile(hostPath, 'utf8');
       await unlink(hostPath).catch(() => undefined);
-      return { sql };
+      return sql;
     } catch (err: any) {
-      this.logger.warn(`Schema dump failed while ${step}: ${err.message}`);
-      return { sql: null, reason: `${step} failed: ${scrub(String(err?.message ?? err))}` };
+      this.logger.warn(`Schema dump failed: ${err.message}`);
+      return null;
     } finally {
       if (container) await container.remove({ force: true }).catch(() => undefined);
     }
@@ -2143,7 +1954,7 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     pool: Pool,
     sql: string,
     progress: ImportProgress,
-  ): Promise<{ applied: number; failed: number; deferred: string[]; failures: string[] }> {
+  ): Promise<{ applied: number; failed: number; deferred: string[] }> {
     const client = await pool.connect();
     let applied = 0;
     let failed = 0;
@@ -2188,7 +1999,7 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
         `${failed} schema statement(s) could not be applied. First few: ${failures.join(' | ')}`,
       );
     }
-    return { applied, failed, deferred, failures };
+    return { applied, failed, deferred };
   }
 
   /**
@@ -2404,10 +2215,11 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
         if (onProgress) {
           await onProgress('Connecting to the Supabase database...', 7);
         }
-        const route = await this.openSupabaseSourceRoute(ref, pwd);
-        sourcePool = route.pool;
+        sourcePool = await this.openSupabaseSourcePool(ref, pwd);
         if (!sourcePool) {
-          progress.warnings.push(SupabaseImportService.unreachableSourceWarning(route.failure));
+          progress.warnings.push(
+            'Could not reach the source database directly, so tables protected by row-level security may have imported empty. Check the verification counts below.',
+          );
         }
       } else {
         this.logger.warn(
@@ -2423,30 +2235,16 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     let deferredSchema: string[] = [];
     if (sourcePool) {
       const ref = this.resolveSupabaseProjectRef(baseUrl, jwt || '');
-      let schemaReason = 'no reason recorded';
       try {
         const { rows } = await sourcePool.query<{ v: string }>('show server_version');
         const major = parseInt(String(rows[0]?.v ?? ''), 10);
-        if (!Number.isFinite(major)) {
-          schemaReason = `the source reported an unreadable server version "${rows[0]?.v ?? ''}"`;
-        } else if (ref && pwd) {
+        if (ref && pwd && Number.isFinite(major)) {
           if (onProgress) await onProgress('Copying the source schema...', 8);
-          const dump = await this.dumpSourceSchema(ref, pwd, major);
-          const sql = dump.sql;
-          if (!sql) {
-            schemaReason = dump.reason ?? 'pg_dump produced nothing';
-          } else {
-            const { applied, failed, deferred, failures } = await this.applySourceSchema(
-              pool,
-              sql,
-              progress,
-            );
+          const sql = await this.dumpSourceSchema(ref, pwd, major);
+          if (sql) {
+            const { applied, failed, deferred } = await this.applySourceSchema(pool, sql, progress);
             schemaApplied = applied > 0;
             deferredSchema = deferred;
-            if (!schemaApplied) {
-              schemaReason = `none of the ${failed} dumped statement(s) could be applied`;
-              if (failures.length) schemaReason += `: ${failures.slice(0, 3).join(' | ')}`;
-            }
 
             if (schemaApplied) {
               try {
@@ -2469,10 +2267,11 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
         }
       } catch (err: any) {
         this.logger.warn(`Could not copy the source schema: ${err.message}`);
-        schemaReason = String(err?.message ?? err);
       }
       if (!schemaApplied) {
-        progress.warnings.push(SupabaseImportService.schemaNotCopiedWarning(schemaReason));
+        progress.warnings.push(
+          'The source schema could not be copied, so tables were rebuilt from column types alone — without indexes, keys, defaults, triggers or row-level security.',
+        );
       }
     }
 
@@ -3758,6 +3557,10 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
 
   // ── Auth Import ───────────────────────────────────────
 
+  private generateReadablePassword(): string {
+    return `Bf-${randomBytes(6).toString('base64url').slice(0, 10)}`;
+  }
+
   private async importAuth(
     baseUrl: string,
     headers: Record<string, string>,
@@ -3768,9 +3571,7 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
   ) {
     let allUsers: SupabaseUser[] = [];
     let page = 1;
-    // GoTrue answers `per_page` above 100 with a 500 ("Database error finding
-    // users") on hosted projects, so pages stay at its documented ceiling.
-    const perPage = SupabaseImportService.AUTH_USERS_PER_PAGE;
+    const perPage = 500;
 
     while (true) {
       try {
@@ -3792,249 +3593,89 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
             `Failed to fetch Supabase auth users: ${err.message}`,
           );
         }
-        // Earlier pages are already in hand; losing the rest silently would
-        // look like a smaller project, so say which page stopped the listing.
-        this.logger.warn(`Auth users page ${page} failed: ${err.message}`);
-        progress.warnings.push(
-          `Auth users page ${page} failed (${err.message}), so only the ${allUsers.length} user(s) listed before it were imported. Run a sync to fetch the rest.`,
-        );
         break;
       }
     }
 
     this.logger.log(`Found ${allUsers.length} auth users to import`);
 
-    // The admin API never returns password hashes. They come from the source
-    // database, so only when its password was given.
-    const hashes = await this.readSourcePasswordHashes(baseUrl, headers, project);
-
     let skippedNoEmail = 0;
-    let skippedDeleted = 0;
     let skippedDuplicate = 0;
-    let idClashes = 0;
-    let banned = 0;
-    let unsupportedHashes = 0;
-    const toStash: PasswordHashEntry[] = [];
 
-    const reps: ImportedRealmUser[] = [];
-    for (const user of allUsers) {
-      const email = user.email?.trim();
-      if (!email) {
-        progress.auth.skipped++;
-        skippedNoEmail++;
-        continue;
-      }
-      if (user.deleted_at) {
-        progress.auth.skipped++;
-        skippedDeleted++;
-        continue;
-      }
-
-      const meta = user.user_metadata || {};
-      const fullName = typeof meta.full_name === 'string' ? meta.full_name.trim() : '';
-      // Keycloak 24's user profile requires both names; an empty one makes the
-      // password grant fail with "Account is not fully set up".
-      const local = email.split('@')[0] || 'user';
-      const firstName = String(meta.first_name || fullName.split(' ')[0] || '').trim() || local;
-      const lastName =
-        String(meta.last_name || fullName.split(' ').slice(1).join(' ') || '').trim() || local;
-
-      const bannedUntil = user.banned_until ? Date.parse(user.banned_until) : NaN;
-      const isBanned = bannedUntil > Date.now();
-      if (isBanned) banned++;
-
-      reps.push({
-        // The source's id, kept: rows, foreign keys and policies all name it,
-        // and auth.uid() reports it once the user signs in here.
-        id: user.id,
-        username: email.toLowerCase(),
-        email,
-        firstName,
-        lastName,
-        enabled: !isBanned,
-        // Only what the source confirmed. The token's email_verified claim is
-        // read as proof the address belongs to the person holding it.
-        emailVerified: !!user.email_confirmed_at,
-        createdTimestamp: Date.parse(user.created_at) || undefined,
-        // Both metadata documents, as the user had them: the realm's claim mappers copy
-        // them into every token, which is what policies written against
-        // `auth.jwt() -> 'app_metadata'` read.
-        attributes: {
-          app_metadata: [JSON.stringify(user.app_metadata ?? { provider: 'email', providers: ['email'] })],
-          user_metadata: [JSON.stringify(user.user_metadata ?? {})],
-        },
-      });
-    }
-
-    // One user at a time took longer than the queue's no-progress window on a
-    // large project, and a step that reports nothing for its whole duration is
-    // indistinguishable from a wedged one. Batches, reported as they go.
+    // Creating thousands of users one at a time takes far longer than the
+    // queue's no-progress window, and a step that reports nothing for its whole
+    // duration is indistinguishable from a wedged one. Report as it goes.
+    let done = 0;
     let lastReport = 0;
-    for (let i = 0; i < reps.length; i += 100) {
-      const batch = reps.slice(i, i + 100);
-      const results = await this.importUserBatch(project.keycloakRealm, batch, progress);
 
-      for (const rep of batch) {
-        const result = results.get(rep.username);
-        if (!result) continue; // counted and reported by importUserBatch
-        if (result.action === 'ADDED') {
-          progress.auth.users++;
-        } else {
+    for (const user of allUsers) {
+      done++;
+      if (onProgress && (Date.now() - lastReport > 5_000 || done === allUsers.length)) {
+        lastReport = Date.now();
+        const share = allUsers.length ? done / allUsers.length : 1;
+        await onProgress(
+          `Importing auth users... (${done} of ${allUsers.length})`,
+          55 + Math.round(share * 25),
+        );
+      }
+      try {
+        const email = user.email;
+        if (!email) {
+          progress.auth.skipped++;
+          skippedNoEmail++;
+          continue;
+        }
+
+        const meta = user.user_metadata || {};
+        const username =
+          meta.preferred_username ||
+          meta.user_name ||
+          meta.name ||
+          email.split('@')[0];
+        const firstName =
+          meta.first_name || meta.full_name?.split(' ')[0] || '';
+        const lastName =
+          meta.last_name ||
+          meta.full_name?.split(' ').slice(1).join(' ') ||
+          '';
+
+        const tempPassword = this.generateReadablePassword();
+
+        await this.keycloak.createUser(project.keycloakRealm, {
+          email,
+          password: tempPassword,
+          firstName,
+          lastName,
+        });
+
+        progress.auth.users++;
+      } catch (err: any) {
+        if (
+          err.response?.status === 409 ||
+          err.message?.includes('exists')
+        ) {
           progress.auth.skipped++;
           skippedDuplicate++;
-          if (result.id !== rep.id) idClashes++;
-          // A sync: the user exists with their own id, so bring their metadata up to
-          // date (the partial import leaves an existing user untouched). Best-effort.
-          if (result.id === rep.id && rep.attributes) {
-            try {
-              await this.keycloak.setRealmUserMetadata(project.keycloakRealm, rep.id, {
-                app_metadata: JSON.parse(rep.attributes.app_metadata?.[0] ?? '{}'),
-                user_metadata: JSON.parse(rep.attributes.user_metadata?.[0] ?? '{}'),
-              });
-            } catch (err: any) {
-              this.logger.warn(`Could not update metadata of "${rep.email}": ${err?.message ?? err}`);
-            }
-          }
-        }
-
-        // Only for the account that carries the source's id: a clash means the
-        // address belongs to a different account here, and its password with it.
-        const hash = hashes?.get(rep.id);
-        if (!hash || result.id !== rep.id) continue;
-        if (ImportedPasswordService.isSupportedHash(hash)) {
-          toStash.push({ userId: rep.id, email: rep.email, hash });
         } else {
-          unsupportedHashes++;
+          const email = user.email || user.id || '(unknown)';
+          this.logger.warn(
+            `Failed to import user "${email}": ${err.message}`,
+          );
+          progress.auth.skipped++;
+          progress.warnings.push(`Auth user "${email}": ${err.message}`);
         }
       }
-
-      const done = Math.min(i + batch.length, reps.length);
-      if (onProgress && (Date.now() - lastReport > 5_000 || done === reps.length)) {
-        lastReport = Date.now();
-        await onProgress(
-          `Importing auth users... (${done} of ${reps.length})`,
-          55 + Math.round((done / reps.length) * 25),
-        );
-      }
     }
 
-    if (toStash.length) {
-      try {
-        progress.auth.passwords = await this.importedPasswords.stash(project.id, toStash);
-      } catch (err: any) {
-        this.logger.warn(`Could not keep imported password hashes: ${err.message}`);
-        progress.warnings.push(
-          `Auth: passwords could not be carried over (${err.message}). Users can still sign in after a password reset.`,
-        );
-      }
-    }
-
-    if (hashes === null && reps.length > 0) {
-      const why = project.supabaseDatabasePassword
-        ? 'the source database could not be read'
-        : 'reading them needs the source database password';
-      progress.warnings.push(
-        `Auth: passwords were not carried over, because ${why}. ` +
-          'Users keep their accounts and ids and can sign in after a password reset; a sync with the database password brings the passwords over.',
-      );
-    }
-    if (unsupportedHashes > 0) {
-      progress.warnings.push(
-        `Auth: ${unsupportedHashes} user(s) have a password in a format that cannot be verified here; they need a password reset.`,
-      );
-    }
-    if (idClashes > 0) {
-      progress.warnings.push(
-        `Auth: ${idClashes} user(s) already existed in this project under a different id, so rows that reference them through auth.uid() will not match until they are relinked.`,
-      );
-    }
-    if (banned > 0) {
-      progress.warnings.push(
-        `Auth: ${banned} user(s) banned at the source were imported disabled.`,
-      );
-    }
     if (skippedNoEmail > 0) {
       progress.warnings.push(
         `Auth: ${skippedNoEmail} user(s) skipped (no email address).`,
-      );
-    }
-    if (skippedDeleted > 0) {
-      progress.warnings.push(
-        `Auth: ${skippedDeleted} user(s) skipped (deleted at the source).`,
       );
     }
     if (skippedDuplicate > 0) {
       progress.warnings.push(
         `Auth: ${skippedDuplicate} user(s) skipped (already exists in Keycloak).`,
       );
-    }
-  }
-
-  /**
-   * Create a batch of users, keyed in the result by username. A single bad
-   * user fails the whole batch, so a failed batch is retried one user at a
-   * time rather than losing the other ninety-nine.
-   */
-  private async importUserBatch(
-    realm: string,
-    batch: ImportedRealmUser[],
-    progress: ImportProgress,
-  ): Promise<Map<string, ImportedRealmUserResult>> {
-    const out = new Map<string, ImportedRealmUserResult>();
-    const record = (results: ImportedRealmUserResult[]) => {
-      for (const r of results) out.set(r.username.toLowerCase(), r);
-    };
-
-    try {
-      record(await this.keycloak.importRealmUsers(realm, batch));
-      return out;
-    } catch (err: any) {
-      if (batch.length > 1) {
-        this.logger.warn(`A batch of ${batch.length} users failed (${err.message}); retrying one by one`);
-      }
-    }
-
-    for (const rep of batch) {
-      try {
-        record(await this.keycloak.importRealmUsers(realm, [rep]));
-      } catch (err: any) {
-        this.logger.warn(`Failed to import user "${rep.email}": ${err.message}`);
-        progress.auth.skipped++;
-        progress.warnings.push(`Auth user "${rep.email}": ${err.message}`);
-      }
-    }
-    return out;
-  }
-
-  /**
-   * Password hashes from the source's auth.users, by user id. Null when they
-   * cannot be read: no database password, or the database is unreachable.
-   */
-  private async readSourcePasswordHashes(
-    baseUrl: string,
-    headers: Record<string, string>,
-    project: any,
-  ): Promise<Map<string, string> | null> {
-    const pwd: string | undefined = project.supabaseDatabasePassword;
-    if (!pwd) return null;
-    const jwt = headers['Authorization']?.replace(/^Bearer\s+/i, '') || headers['apikey'];
-    const ref = this.resolveSupabaseProjectRef(baseUrl, jwt || '');
-    if (!ref) return null;
-
-    const pool = await this.openSupabaseSourcePool(ref, pwd);
-    if (!pool) return null;
-    try {
-      const { rows } = await pool.query<{ id: string; encrypted_password: string }>(
-        `select id::text as id, encrypted_password
-           from auth.users
-          where encrypted_password is not null and encrypted_password <> ''`,
-      );
-      return new Map(rows.map((r) => [r.id, r.encrypted_password]));
-    } catch (err: any) {
-      this.logger.warn(`Could not read password hashes from the source: ${err.message}`);
-      return null;
-    } finally {
-      await pool.end().catch(() => undefined);
     }
   }
 
@@ -4067,11 +3708,6 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       const n = (b.name || b.id || '').trim();
       if (n) desiredLogicalNames.add(n);
     }
-
-    // Owners, ids, timestamps and the row-level security policies live in the
-    // source database, not behind the storage API; with the password they
-    // come across too, so the facade can apply the app's own policies here.
-    const sourceCatalog = await this.loadSourceStorageCatalog(baseUrl, headers, project);
 
     for (const bucket of buckets) {
       const logicalBucketName = (bucket.name || bucket.id || '').trim();
@@ -4171,7 +3807,6 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
               stream,
               byteLength,
               obj.metadata?.mimetype || contentType || 'application/octet-stream',
-              ownerMetaFor(sourceCatalog?.objects.get(`${supabaseBucketId}/${obj.name}`)),
             );
             progress.storage.objects++;
             copiedHere++;
@@ -4224,165 +3859,12 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    if (!this.cancelledJobs.has(jobId)) {
-      await this.applySourceStorageCatalog(project, sourceCatalog, progress);
-    }
-
     if (desiredLogicalNames.size > 0) {
       try {
         await this.storage.pruneProjectStorageBuckets(project.id, desiredLogicalNames);
       } catch (err: any) {
         this.logger.warn(`Storage prune after import failed: ${err.message}`);
         progress.warnings.push(`Storage cleanup (extra buckets) failed: ${err.message}`);
-      }
-    }
-  }
-
-  /**
-   * The source's `storage` catalog: bucket rows, object rows (keyed
-   * `<bucket id>/<name>`) and the policies on both tables. Needs the database
-   * password; without it the import still copies every file, just without
-   * owners and policies, and the project stays on the preset access rules.
-   */
-  private async loadSourceStorageCatalog(
-    baseUrl: string,
-    headers: Record<string, string>,
-    project: any,
-  ): Promise<SourceStorageCatalog | null> {
-    const pwd: string | undefined = project?.supabaseDatabasePassword;
-    if (!pwd) return null;
-    const jwt = headers['Authorization']?.replace(/^Bearer\s+/i, '') || headers['apikey'];
-    const ref = this.resolveSupabaseProjectRef(baseUrl, jwt || '');
-    if (!ref) return null;
-    const pool = await this.openSupabaseSourcePool(ref, pwd);
-    if (!pool) return null;
-    try {
-      const { rows: buckets } = await pool.query<SourceStorageBucket>(SOURCE_STORAGE_BUCKETS_SQL);
-      let objectRows: SourceStorageObject[];
-      try {
-        ({ rows: objectRows } = await pool.query<SourceStorageObject>(SOURCE_STORAGE_OBJECTS_SQL));
-      } catch {
-        ({ rows: objectRows } = await pool.query<SourceStorageObject>(SOURCE_STORAGE_OBJECTS_LEGACY_SQL));
-      }
-      const objects = new Map<string, SourceStorageObject>();
-      for (const row of objectRows) objects.set(`${row.bucket_id}/${row.name}`, row);
-      let policies: SourceStoragePolicy[] = [];
-      try {
-        ({ rows: policies } = await pool.query<SourceStoragePolicy>(SOURCE_STORAGE_POLICIES_SQL));
-      } catch (err: any) {
-        this.logger.warn(`Could not read storage policies from the source: ${err.message}`);
-      }
-      this.logger.log(
-        `Source storage catalog: ${buckets.length} bucket(s), ${objects.size} object row(s), ${policies.length} policy(ies)`,
-      );
-      return { buckets, objects, policies };
-    } catch (err: any) {
-      this.logger.warn(`Could not read the source storage catalog: ${err.message}`);
-      return null;
-    } finally {
-      await pool.end().catch(() => undefined);
-    }
-  }
-
-  /**
-   * Writes the source's storage rows and policies into the project database
-   * and, when policies came across, switches the project's storage
-   * authorisation to them (`storageAuthz = 'rls'`).
-   *
-   * The catalog tables come from the RLS bootstrap, re-run here because a
-   * project provisioned before they existed will not have them. Failures are
-   * reported as warnings: the files are already in place by this point.
-   */
-  private async applySourceStorageCatalog(
-    project: any,
-    source: SourceStorageCatalog | null,
-    progress: ImportProgress,
-  ): Promise<void> {
-    if (!source) return;
-    try {
-      await this.projectsService.ensureRlsBootstrap(project.id);
-    } catch (err: any) {
-      this.logger.warn(`Storage catalog: RLS bootstrap not applied for ${project.id}: ${err.message}`);
-    }
-
-    const pool = new Pool({
-      host: project.dbHost || 'postgres',
-      port: project.dbPort || 5432,
-      database: project.dbName,
-      user: project.dbUser,
-      password: project.dbPassword,
-      max: 2,
-      statement_timeout: 120_000,
-      connectionTimeoutMillis: 15_000,
-    });
-    let policiesApplied = 0;
-    try {
-      const { rows: probe } = await pool.query<{ ok: boolean }>(`select to_regclass('storage.objects') is not null as ok`);
-      if (!probe[0]?.ok) {
-        progress.warnings.push(
-          'Storage policies and owners were not copied: the project database has no storage catalog yet. ' +
-            'Run POST /projects/:id/ensure-rls-bootstrap, then the storage catalog backfill.',
-        );
-        return;
-      }
-
-      const bucketIdToName = new Map<string, string>();
-      for (const bucket of source.buckets) {
-        const name = logicalBucketName(bucket);
-        if (!name) continue;
-        bucketIdToName.set(bucket.id, name);
-        await pool.query(DEST_UPSERT_BUCKET_SQL, destBucketParams(bucket));
-      }
-      let objectRows = 0;
-      for (const object of source.objects.values()) {
-        try {
-          await pool.query(DEST_UPSERT_OBJECT_SQL, destObjectParams(object, bucketIdToName));
-          objectRows++;
-        } catch (err: any) {
-          this.logger.debug(`Storage catalog row "${object.bucket_id}/${object.name}" not copied: ${err.message}`);
-        }
-      }
-
-      const { rows: uid } = await pool.query<{ returns: string }>(DESTINATION_UID_RETURN_SQL);
-      const castAuthUid = (uid[0]?.returns || '').toLowerCase() === 'text';
-      for (const role of extraRolesIn(source.policies)) {
-        await pool.query(createRoleIfAbsentSql(role)).catch(() => undefined);
-      }
-      const failures: string[] = [];
-      for (const statement of buildStoragePolicyStatements(source.policies, { castAuthUid })) {
-        try {
-          // One query string = one implicit transaction: a CREATE that fails rolls the DROP
-          // back, so a policy is replaced or left as it was, never removed (two pool.query
-          // calls could even run on different connections).
-          await pool.query(`${statement.drop};
-${statement.create}`);
-          policiesApplied++;
-        } catch (err: any) {
-          failures.push(`${statement.name}: ${err.message}`);
-        }
-      }
-      if (failures.length) {
-        progress.warnings.push(
-          `${failures.length} storage policy(ies) could not be replayed: ${failures.slice(0, 3).join(' | ')}`,
-        );
-      }
-      this.logger.log(
-        `Storage catalog copied for ${project.id}: ${bucketIdToName.size} bucket(s), ${objectRows} object row(s), ${policiesApplied} policy(ies)`,
-      );
-    } catch (err: any) {
-      this.logger.warn(`Storage catalog not copied for ${project.id}: ${err.message}`);
-      progress.warnings.push(`Storage policies and owners were not copied: ${err.message}`);
-      return;
-    } finally {
-      await pool.end().catch(() => undefined);
-    }
-
-    if (policiesApplied > 0) {
-      try {
-        await this.prisma.project.update({ where: { id: project.id }, data: { storageAuthz: 'rls' } });
-        this.logger.log(`Project ${project.id} storage authorisation set to "rls" (${policiesApplied} policies copied)`);
-      } catch (err: any) {
-        progress.warnings.push(`Storage policies were copied but the project could not be switched to them: ${err.message}`);
       }
     }
   }
