@@ -1,0 +1,79 @@
+# One tenant = one namespace. Render with envsubst, then `kubectl apply -f -`.
+# Required vars: TENANT_ID (organization public id, lowercase, [a-z0-9-]), CPU, MEMORY, EPHEMERAL, PVC_STORAGE, PVC_COUNT, POD_COUNT
+# Example (Phase 1 test tenant): TENANT_ID=test1 CPU=1 MEMORY=2Gi EPHEMERAL=5Gi PVC_STORAGE=10Gi PVC_COUNT=1 POD_COUNT=10
+# Plan values are NOT final: the owner has not set the plan table yet.
+# Assumes a shared SeaweedFS in namespace "seaweedfs" (S3 on 8333) and the bundled Traefik in "kube-system".
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: t-${TENANT_ID}
+  labels:
+    basefyio.com/tenant: "${TENANT_ID}"
+    pod-security.kubernetes.io/enforce: baseline
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: tenant-quota
+  namespace: t-${TENANT_ID}
+spec:
+  hard:
+    requests.cpu: "${CPU}"
+    limits.cpu: "${CPU}"
+    requests.memory: ${MEMORY}
+    limits.memory: ${MEMORY}
+    requests.ephemeral-storage: ${EPHEMERAL}
+    requests.storage: ${PVC_STORAGE}
+    persistentvolumeclaims: "${PVC_COUNT}"
+    pods: "${POD_COUNT}"
+    services.loadbalancers: "0"   # tenants never get their own LB (cost)
+    services.nodeports: "0"
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: tenant-defaults
+  namespace: t-${TENANT_ID}
+spec:
+  limits:
+    - type: Container
+      defaultRequest: { cpu: 50m, memory: 64Mi, ephemeral-storage: 100Mi }
+      default: { cpu: 250m, memory: 256Mi, ephemeral-storage: 500Mi }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: t-${TENANT_ID}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-baseline
+  namespace: t-${TENANT_ID}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: {}   # own namespace
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }   # Traefik
+  egress:
+    - to:
+        - podSelector: {}   # own namespace (incl. an enterprise SeaweedFS)
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+      ports: [{ protocol: UDP, port: 53 }, { protocol: TCP, port: 53 }]   # DNS
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: seaweedfs }
+      ports: [{ protocol: TCP, port: 8333 }]   # shared S3 (non-enterprise tenants)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16]   # internet only; blocks other tenants, nodes, Hetzner metadata
