@@ -2106,7 +2106,7 @@ export default function ManagementPage() {
                       const p = userPackages.find((x) => x.userId === u.id);
                       if (!p) return 'N/A';
                       return (
-                        <select
+                        <select aria-label={`Package for ${u.email}`}
                           value={p.planName || ''}
                           disabled={savingPackageUserId === u.id || !p.teamId}
                           onChange={async (e) => {
@@ -2158,7 +2158,7 @@ export default function ManagementPage() {
                     {formatDate(u.createdAt)}
                   </td>
                   <td className="px-2 py-2">
-                    <select
+                    <select aria-label={`Role for ${u.email}`}
                       value={u.role}
                       disabled={savingRoleUserId === u.id}
                       onChange={async (e) => {
@@ -2797,7 +2797,7 @@ export default function ManagementPage() {
                 className="h-9 rounded-md border bg-background px-3 text-sm text-foreground"
               />
             </label>
-            <select
+            <select aria-label="Severity filter"
               value={auditSeverityFilter}
               onChange={(e) =>
                 setAuditSeverityFilter(
@@ -2812,7 +2812,7 @@ export default function ManagementPage() {
               <option value="HIGH">Severity: High</option>
               <option value="CRITICAL">Severity: Critical</option>
             </select>
-            <select
+            <select aria-label="Result filter"
               value={auditResultFilter}
               onChange={(e) =>
                 setAuditResultFilter(e.target.value as 'ALL' | 'SUCCESS' | 'FAILED')

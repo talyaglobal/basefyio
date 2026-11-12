@@ -480,7 +480,7 @@ function PolicyDialog({
         <div className="space-y-4">
           <div className="space-y-1.5">
             <Label>Start from a template (optional)</Label>
-            <select value={templateId} onChange={(e) => chooseTemplate(e.target.value)}
+            <select aria-label="Policy template" value={templateId} onChange={(e) => chooseTemplate(e.target.value)}
               className="h-9 w-full rounded-md border bg-background px-3 text-sm">
               <option value="">Write the expressions by hand</option>
               {RLS_POLICY_TEMPLATES.map((t) => (
@@ -493,7 +493,7 @@ function PolicyDialog({
           {template?.column && (
             <div className="space-y-1.5">
               <Label>{template.column === 'owner' ? 'Owner column (holds the user id)' : 'Email column'}</Label>
-              <select value={columnName} onChange={(e) => chooseColumn(e.target.value)}
+              <select aria-label="Policy column" value={columnName} onChange={(e) => chooseColumn(e.target.value)}
                 className="h-9 w-full rounded-md border bg-background px-3 text-sm">
                 {columns.length === 0 && <option value="">No columns found</option>}
                 {columns.map((c) => (
@@ -511,7 +511,7 @@ function PolicyDialog({
             </div>
             <div className="space-y-1.5">
               <Label>Command</Label>
-              <select value={form.command}
+              <select aria-label="Policy command" value={form.command}
                 onChange={(e) => setForm((f) => ({ ...f, command: e.target.value as RlsPolicyCommand }))}
                 className="h-9 w-full rounded-md border bg-background px-3 text-sm">
                 {RLS_POLICY_COMMANDS.map((c) => <option key={c} value={c}>{c}</option>)}

@@ -521,7 +521,8 @@ function ColumnSidePanel({
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-6 w-6 opacity-0 group-hover:opacity-100 text-destructive hover:text-destructive"
+                    className="h-6 w-6 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-destructive hover:text-destructive"
+                    aria-label="Remove foreign key"
                     onClick={async () => {
                       try {
                         await api.projects.deleteForeignKey(projectId, tableName, fk.constraintName);
@@ -637,7 +638,7 @@ function AddForeignKeyDialog({
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-1.5">
             <Label>Column</Label>
-            <select
+            <select aria-label="Column"
               value={columnName}
               onChange={(e) => setColumnName(e.target.value)}
               className="h-9 w-full rounded-md border bg-background px-3 text-sm"
@@ -651,7 +652,7 @@ function AddForeignKeyDialog({
           </div>
           <div className="space-y-1.5">
             <Label>References table</Label>
-            <select
+            <select aria-label="References table"
               value={foreignTableName}
               onChange={(e) => setForeignTableName(e.target.value)}
               className="h-9 w-full rounded-md border bg-background px-3 text-sm"
@@ -665,7 +666,7 @@ function AddForeignKeyDialog({
           </div>
           <div className="space-y-1.5">
             <Label>References column</Label>
-            <select
+            <select aria-label="References column"
               value={foreignColumnName}
               onChange={(e) => setForeignColumnName(e.target.value)}
               className="h-9 w-full rounded-md border bg-background px-3 text-sm"
@@ -1881,6 +1882,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
                                   className="h-3.5 w-3.5 rounded"
                                   checked={!!filteredRows && filteredRows.length > 0 && selectedRows.size === filteredRows.length}
                                   onChange={toggleSelectAllRows}
+                                  aria-label="Select all rows"
                                 />
                               </th>
                               <th className="w-10 px-2 py-2 text-center text-xs font-medium text-muted-foreground">
@@ -2015,6 +2017,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
                                         className="h-3.5 w-3.5 rounded"
                                         checked={isRowSelected}
                                         onChange={() => toggleRowSelect(rowIdx)}
+                                        aria-label={`Select row ${((data?.page ?? page) - 1) * (data?.limit ?? 50) + actualIdx + 1}`}
                                       />
                                     </td>
                                     <td className="px-2 py-1.5 text-center text-xs text-muted-foreground tabular-nums">
@@ -2068,12 +2071,13 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
                                       'sticky right-0 z-[1] px-1 py-0.5 text-right',
                                       isRowSelected ? 'bg-primary/5' : 'bg-card group-hover:bg-muted/30',
                                     )}>
-                                      <div className="flex justify-end gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                      <div className="flex justify-end gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
                                         <Button
                                           variant="ghost"
                                           size="icon"
                                           className="h-6 w-6 text-destructive/70 hover:text-destructive"
                                           onClick={() => handleDeleteRow(row)}
+                                          aria-label="Delete row"
                                         >
                                           <Trash2 className="h-3 w-3" />
                                         </Button>

@@ -581,7 +581,7 @@ engine = create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True)`;
               value={framework}
               onValueChange={(value) => setFramework(value as FrameworkPreset)}
             >
-              <SelectTrigger>
+              <SelectTrigger aria-label="Framework">
                 <SelectValue placeholder="Select framework" />
               </SelectTrigger>
               <SelectContent>
@@ -897,7 +897,7 @@ engine = create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True)`;
               onValueChange={(v) => void handleConnectionLimit(v)}
               disabled={limitBusy}
             >
-              <SelectTrigger className="w-64">
+              <SelectTrigger aria-label="Connection limit" className="w-64">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

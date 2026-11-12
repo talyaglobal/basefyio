@@ -70,10 +70,18 @@ function TeamRow({ team, expanded, onToggle }: { team: PlatformTeamCost; expande
   const sum = (pick: (p: ProjectCostReport) => number) => team.projects.reduce((s, p) => s + pick(p), 0);
   return (
     <>
-      <tr className="cursor-pointer border-b hover:bg-muted/40 transition-colors" onClick={onToggle} aria-expanded={expanded}>
+      <tr className="cursor-pointer border-b hover:bg-muted/40 transition-colors" onClick={onToggle}>
         <td className="py-2.5 pr-3">
           <div className="flex items-center gap-2">
-            <Chevron className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onToggle(); }}
+              aria-expanded={expanded}
+              aria-label={`${expanded ? "Hide" : "Show"} projects of ${team.teamName}`}
+              className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <Chevron className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            </button>
             <div className="min-w-0">
               <div className="font-medium text-foreground truncate">{team.teamName}</div>
               <div className="text-[11px] text-muted-foreground truncate">

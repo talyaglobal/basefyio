@@ -890,7 +890,7 @@ export default function FeedbacksPage() {
                   <div className="flex-shrink-0">
                     <div className="flex flex-col gap-2">
                       {isRoot ? (
-                        <select
+                        <select aria-label={`Status: ${fb.title}`}
                           value={fb.status}
                           onChange={(e) => handleStatusChange(fb.id, e.target.value)}
                           disabled={updatingId === fb.id || isDeleted}

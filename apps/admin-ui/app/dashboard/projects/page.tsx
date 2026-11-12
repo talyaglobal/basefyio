@@ -1167,6 +1167,7 @@ export default function ProjectsPage() {
               type="checkbox"
               checked={selectedProjects.size === filtered.length && filtered.length > 0}
               onChange={toggleSelectAll}
+              aria-label="Select all projects"
               className="h-4 w-4 rounded border-border accent-primary cursor-pointer"
             />
             <span className="text-sm font-medium">
@@ -1606,6 +1607,7 @@ export default function ProjectsPage() {
                   type="checkbox"
                   checked={selectedProjects.size === filtered.length && filtered.length > 0}
                   onChange={toggleSelectAll}
+                  aria-label="Select all projects"
                   className="h-4 w-4 rounded border-border accent-primary cursor-pointer"
                 />
                 <span className="text-xs text-muted-foreground">
@@ -2991,6 +2993,11 @@ function Modal({
   size?: 'sm' | 'md';
 }) {
   useEscape(onClose);
+  // Give focus back to the button that opened the modal.
+  useEffect(() => {
+    const opener = document.activeElement;
+    return () => { if (opener instanceof HTMLElement && opener.isConnected) opener.focus(); };
+  }, []);
   const maxW = size === 'md' ? 'max-w-md' : 'max-w-sm';
   return (
     <>

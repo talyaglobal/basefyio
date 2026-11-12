@@ -1015,19 +1015,19 @@ export default function BillingPage() {
               </div>
               <div>
                 <label className="block text-sm text-muted-foreground mb-1">City</label>
-                <input type="text" value={accountForm.city} onChange={(e) => setAccountForm({ ...accountForm, city: e.target.value })} className="w-full px-3 py-2 bg-background border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary" />
+                <input type="text" aria-label="City" value={accountForm.city} onChange={(e) => setAccountForm({ ...accountForm, city: e.target.value })} className="w-full px-3 py-2 bg-background border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary" />
               </div>
               <div>
                 <label className="block text-sm text-muted-foreground mb-1">State / Region</label>
-                <input type="text" value={accountForm.state} onChange={(e) => setAccountForm({ ...accountForm, state: e.target.value })} className="w-full px-3 py-2 bg-background border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary" />
+                <input type="text" aria-label="State / Region" value={accountForm.state} onChange={(e) => setAccountForm({ ...accountForm, state: e.target.value })} className="w-full px-3 py-2 bg-background border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary" />
               </div>
               <div>
                 <label className="block text-sm text-muted-foreground mb-1">Postal Code</label>
-                <input type="text" value={accountForm.postalCode} onChange={(e) => setAccountForm({ ...accountForm, postalCode: e.target.value })} className="w-full px-3 py-2 bg-background border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary" />
+                <input type="text" aria-label="Postal Code" value={accountForm.postalCode} onChange={(e) => setAccountForm({ ...accountForm, postalCode: e.target.value })} className="w-full px-3 py-2 bg-background border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary" />
               </div>
               <div>
                 <label className="block text-sm text-muted-foreground mb-1">Country</label>
-                <select value={accountForm.country} onChange={(e) => setAccountForm({ ...accountForm, country: e.target.value })} className="w-full px-3 py-2 bg-background border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary">
+                <select aria-label="Country" value={accountForm.country} onChange={(e) => setAccountForm({ ...accountForm, country: e.target.value })} className="w-full px-3 py-2 bg-background border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary">
                   <option value="">Select a country</option>
                   {countryOptions(accountForm.country).map(([code, name]) => (
                     <option key={code} value={code}>{name}</option>

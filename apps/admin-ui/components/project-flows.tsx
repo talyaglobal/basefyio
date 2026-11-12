@@ -203,7 +203,7 @@ function FlowCard({
         </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
-            <Switch checked={flow.enabled} onCheckedChange={toggleEnabled} disabled={busy} />
+            <Switch checked={flow.enabled} onCheckedChange={toggleEnabled} disabled={busy} aria-label="Flow enabled" />
             <span className="text-xs text-muted-foreground">{flow.enabled ? 'Enabled' : 'Disabled'}</span>
           </div>
           <Button size="sm" variant="outline" onClick={run} disabled={busy || !flow.enabled}>

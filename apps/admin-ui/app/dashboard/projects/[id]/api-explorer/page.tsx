@@ -305,8 +305,9 @@ export default function ApiExplorerPage() {
       {/* Table selector + base URL */}
       <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
         <div className="flex items-center gap-2">
-          <label className="text-sm font-medium shrink-0">Table</label>
+          <label htmlFor="api-explorer-table" className="text-sm font-medium shrink-0">Table</label>
           <select
+            id="api-explorer-table"
             value={selected}
             onChange={(e) => setSelected(e.target.value)}
             className="h-9 rounded-md border bg-background px-3 text-sm min-w-[180px]"

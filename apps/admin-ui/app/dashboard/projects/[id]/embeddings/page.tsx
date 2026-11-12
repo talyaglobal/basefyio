@@ -284,6 +284,7 @@ export default function EmbeddingsPage() {
           <Switch
             checked={status?.pgvectorEnabled ?? false}
             onCheckedChange={handleToggle}
+            aria-label="Enable pgvector"
             disabled={toggling}
           />
         </div>

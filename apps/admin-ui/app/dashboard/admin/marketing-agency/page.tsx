@@ -553,7 +553,7 @@ export default function MarketingAgencyPage() {
                   Record voiceover
                 </Button>
                 {voices.length ? (
-                  <select
+                  <select aria-label="Voiceover voice"
                     value={voiceId}
                     onChange={(e) => setVoiceId(e.target.value)}
                     className="h-9 rounded-md border bg-background px-3 text-sm"
@@ -619,7 +619,7 @@ export default function MarketingAgencyPage() {
               </p>
               <div className="flex flex-wrap items-center gap-2">
                 {selected.channel === 'instagram' ? (
-                  <select
+                  <select aria-label="Instagram post type"
                     value={postType}
                     onChange={(e) => setPostType(e.target.value as 'post' | 'story')}
                     className="h-9 rounded-md border bg-background px-3 text-sm"

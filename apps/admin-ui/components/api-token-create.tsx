@@ -219,7 +219,11 @@ export function ApiTokenCreate({ tokenId }: { tokenId?: string } = {}) {
                 {scopes.size} of {allScopes.length} enabled
               </p>
             </div>
-            <Switch checked={allOn} onCheckedChange={(on) => setMany(allScopes, on)} />
+            <Switch
+              checked={allOn}
+              onCheckedChange={(on) => setMany(allScopes, on)}
+              aria-label="All permissions"
+            />
           </div>
 
           {categories.map(([category, gs]) => {
@@ -259,6 +263,7 @@ export function ApiTokenCreate({ tokenId }: { tokenId?: string } = {}) {
                             <Switch
                               checked={gAllOn}
                               onCheckedChange={(on) => setMany(gScopes, on)}
+                              aria-label={`All ${g.label} permissions`}
                             />
                           </div>
                         </div>
@@ -277,6 +282,7 @@ export function ApiTokenCreate({ tokenId }: { tokenId?: string } = {}) {
                               <Switch
                                 checked={scopes.has(s.scope)}
                                 onCheckedChange={() => toggleOne(s.scope)}
+                                aria-label={s.scope}
                               />
                             </div>
                           ))}

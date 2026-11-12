@@ -1626,7 +1626,7 @@ function EmailTab({
 
         <div className="space-y-1.5">
           <Label>Provider</Label>
-          <select
+          <select aria-label="Provider"
             className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             value={provider}
             onChange={(e) => setProvider(e.target.value)}
@@ -1688,7 +1688,7 @@ function EmailTab({
             </div>
             <div className="space-y-1.5 sm:col-span-2">
               <Label>Region</Label>
-              <select
+              <select aria-label="Region"
                 className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 value={sesRegion}
                 onChange={(e) => setSesRegion(e.target.value)}

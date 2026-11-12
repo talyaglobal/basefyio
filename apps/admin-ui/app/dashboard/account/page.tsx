@@ -318,7 +318,7 @@ export default function AccountPage() {
   return (
     <div className="mx-auto max-w-2xl space-y-8">
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => router.push('/dashboard')}>
+        <Button variant="ghost" size="icon" aria-label="Back to dashboard" onClick={() => router.push('/dashboard')}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div>
@@ -348,6 +348,7 @@ export default function AccountPage() {
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
+              aria-label="Change profile photo"
               className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md hover:bg-primary/90 transition-colors"
             >
               <Camera className="h-3.5 w-3.5" />
@@ -559,6 +560,9 @@ export default function AccountPage() {
             </div>
             <button
               type="button"
+              role="switch"
+              aria-checked={notifyTeamInvite}
+              aria-label="Team invitations"
               onClick={() => setNotifyTeamInvite(!notifyTeamInvite)}
               className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out ${
                 notifyTeamInvite ? 'bg-primary' : 'bg-muted'

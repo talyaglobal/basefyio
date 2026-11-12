@@ -552,7 +552,7 @@ function BucketSettings({
                 <p className="text-sm font-medium">Access rule for API keys</p>
                 <p className="text-xs text-muted-foreground mt-0.5">{POLICY_HELP[policyMode]}</p>
               </div>
-              <select
+              <select aria-label="Access rule for API keys"
                 value={policyMode}
                 disabled={policySaving || bucketInfo.public}
                 onChange={(e) => handlePolicyChange(e.target.value as PolicyChoice)}

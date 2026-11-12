@@ -310,7 +310,7 @@ export default function DatabasePage() {
             <div className="space-y-3">
               <div className="space-y-1.5">
                 <Label>Table</Label>
-                <select value={ixTable} onChange={(e) => setIxTable(e.target.value)} className="h-9 w-full rounded-md border bg-background px-3 text-sm">
+                <select aria-label="Index table" value={ixTable} onChange={(e) => setIxTable(e.target.value)} className="h-9 w-full rounded-md border bg-background px-3 text-sm">
                   <option value="">Select table…</option>
                   {tables.map((t) => <option key={t} value={t}>{t}</option>)}
                 </select>
@@ -327,7 +327,7 @@ export default function DatabasePage() {
                 <label className="flex items-center gap-2 text-sm">
                   <input type="checkbox" checked={ixUnique} onChange={(e) => setIxUnique(e.target.checked)} /> Unique
                 </label>
-                <select value={ixMethod} onChange={(e) => setIxMethod(e.target.value)} className="h-9 rounded-md border bg-background px-3 text-sm">
+                <select aria-label="Index method" value={ixMethod} onChange={(e) => setIxMethod(e.target.value)} className="h-9 rounded-md border bg-background px-3 text-sm">
                   {['btree', 'hash', 'gin', 'gist', 'brin'].map((m) => <option key={m} value={m}>{m}</option>)}
                 </select>
               </div>
@@ -343,18 +343,18 @@ export default function DatabasePage() {
                 </div>
                 <div className="space-y-1.5">
                   <Label>Table</Label>
-                  <select value={trTable} onChange={(e) => setTrTable(e.target.value)} className="h-9 w-full rounded-md border bg-background px-3 text-sm">
+                  <select aria-label="Trigger table" value={trTable} onChange={(e) => setTrTable(e.target.value)} className="h-9 w-full rounded-md border bg-background px-3 text-sm">
                     <option value="">Select…</option>
                     {tables.map((t) => <option key={t} value={t}>{t}</option>)}
                   </select>
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-4">
-                <select value={trTiming} onChange={(e) => setTrTiming(e.target.value as 'BEFORE' | 'AFTER')} className="h-9 rounded-md border bg-background px-3 text-sm">
+                <select aria-label="Trigger timing" value={trTiming} onChange={(e) => setTrTiming(e.target.value as 'BEFORE' | 'AFTER')} className="h-9 rounded-md border bg-background px-3 text-sm">
                   <option value="BEFORE">BEFORE</option>
                   <option value="AFTER">AFTER</option>
                 </select>
-                <select value={trForEach} onChange={(e) => setTrForEach(e.target.value as 'ROW' | 'STATEMENT')} className="h-9 rounded-md border bg-background px-3 text-sm">
+                <select aria-label="Trigger fires for each" value={trForEach} onChange={(e) => setTrForEach(e.target.value as 'ROW' | 'STATEMENT')} className="h-9 rounded-md border bg-background px-3 text-sm">
                   <option value="ROW">FOR EACH ROW</option>
                   <option value="STATEMENT">FOR EACH STATEMENT</option>
                 </select>
@@ -369,7 +369,7 @@ export default function DatabasePage() {
               <div className="space-y-1.5">
                 <Label>Function to execute (must return trigger)</Label>
                 {triggerFns.length > 0 ? (
-                  <select value={trFn} onChange={(e) => setTrFn(e.target.value)} className="h-9 w-full rounded-md border bg-background px-3 text-sm">
+                  <select aria-label="Trigger function" value={trFn} onChange={(e) => setTrFn(e.target.value)} className="h-9 w-full rounded-md border bg-background px-3 text-sm">
                     <option value="">Select function…</option>
                     {triggerFns.map((f) => <option key={f} value={f}>{f}</option>)}
                   </select>

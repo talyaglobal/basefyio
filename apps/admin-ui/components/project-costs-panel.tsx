@@ -55,11 +55,18 @@ function ProjectRow({
       <tr
         className="cursor-pointer border-b hover:bg-muted/40 transition-colors"
         onClick={onToggle}
-        aria-expanded={expanded}
       >
         <td className="py-2.5 pr-3">
           <div className="flex items-center gap-2">
-            <Chevron className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onToggle(); }}
+              aria-expanded={expanded}
+              aria-label={`${expanded ? "Hide" : "Show"} cost details for ${project.name}`}
+              className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <Chevron className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            </button>
             <Link
               href={`/dashboard/projects/${project.projectId}`}
               className="font-medium text-foreground hover:underline"

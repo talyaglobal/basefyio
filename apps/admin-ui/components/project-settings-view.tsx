@@ -197,7 +197,7 @@ export function ProjectSettingsView() {
                   value={folderId ?? NONE_FOLDER}
                   onValueChange={(v) => setFolderId(v === NONE_FOLDER ? null : v)}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger aria-label="Folder">
                     <SelectValue placeholder="No folder" />
                   </SelectTrigger>
                   <SelectContent>
@@ -355,7 +355,7 @@ function TransferTeamCard({
       ) : (
         <div className="flex flex-wrap items-center gap-3">
           <Select value={target} onValueChange={setTarget} disabled={moving}>
-            <SelectTrigger className="w-64">
+            <SelectTrigger aria-label="Move to team" className="w-64">
               <SelectValue placeholder="Select a team…" />
             </SelectTrigger>
             <SelectContent>
@@ -519,7 +519,7 @@ function MaxRowsCard({
           }}
           disabled={saving}
         >
-          <SelectTrigger className="w-48">
+          <SelectTrigger aria-label="Rows per table" className="w-48">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
