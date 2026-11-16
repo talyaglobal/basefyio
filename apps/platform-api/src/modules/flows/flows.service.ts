@@ -3,11 +3,13 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { Prisma } from '@prisma/client';
 import axios from 'axios';
+import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProjectsService } from '../projects/projects.service';
 import { EntitlementService } from '../entitlement/entitlement.service';
@@ -19,6 +21,74 @@ import {
   FlowStepResult,
 } from './flow.types';
 import { assertSafeUrl } from './flow-url-guard';
+
+/**
+ * Header keys that may carry secrets. Matched case-insensitively.
+ * Values are replaced with "***" in read responses so callers cannot
+ * exfiltrate secrets they set when creating/updating a flow.
+ */
+const SENSITIVE_HEADER_PATTERNS = [
+  /^authorization$/i,
+  /^x-api-key$/i,
+  /^x-auth-token$/i,
+  /^x-secret$/i,
+  /^x-webhook-secret$/i,
+  /^proxy-authorization$/i,
+];
+
+function maskHeaders(headers?: Record<string, string>): Record<string, string> | undefined {
+  if (!headers) return headers;
+  const masked: Record<string, string> = {};
+  for (const [k, v] of Object.entries(headers)) {
+    masked[k] = SENSITIVE_HEADER_PATTERNS.some(re => re.test(k)) ? '***' : v;
+  }
+  return masked;
+}
+
+/** Mask sensitive headers in every action of a flow's actions array. */
+function maskFlowActions(actions: FlowAction[]): FlowAction[] {
+  return actions.map(a => ({
+    ...a,
+    headers: a.type === 'http.request' ? maskHeaders(a.headers) : a.headers,
+  }));
+}
+
+/** Strip the webhookSecret from a flow record before sending to the caller. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function sanitizeFlow(flow: any) {
+  if (!flow) return flow;
+  const { webhookSecret: _secret, actions, ...rest } = flow;
+  return {
+    ...rest,
+    // Expose a stable boolean so the UI knows whether a webhook secret is configured.
+    webhookSecretConfigured: !!_secret,
+    actions: Array.isArray(actions) ? maskFlowActions(actions as FlowAction[]) : actions,
+  };
+}
+
+/** Generate a cryptographically random 32-byte hex webhook secret. */
+function generateWebhookSecret(): string {
+  return randomBytes(32).toString('hex');
+}
+
+/**
+ * Verify an HMAC-SHA256 signature supplied in the `x-basefyio-signature` header.
+ * The expected signature is `sha256=<hex>` over the raw request body.
+ * Returns true when the signature matches, false otherwise.
+ */
+export function verifyWebhookSignature(
+  secret: string,
+  rawBody: Buffer,
+  signature: string,
+): boolean {
+  if (!signature?.startsWith('sha256=')) return false;
+  const expected = 'sha256=' + createHmac('sha256', secret).update(rawBody).digest('hex');
+  try {
+    return timingSafeEqual(Buffer.from(expected, 'utf8'), Buffer.from(signature, 'utf8'));
+  } catch {
+    return false;
+  }
+}
 
 // cron-parser is a CommonJS module; require() avoids esModuleInterop issues.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -98,14 +168,22 @@ export class FlowsService {
 
   async list(projectId: string, userId?: string) {
     await this.assertProject(projectId, userId);
-    return this.prisma.flow.findMany({
+    const flows = await this.prisma.flow.findMany({
       where: { projectId },
       orderBy: { createdAt: 'desc' },
     });
+    return flows.map(sanitizeFlow);
   }
 
   async get(projectId: string, id: string, userId?: string) {
     await this.assertProject(projectId, userId);
+    const flow = await this.prisma.flow.findFirst({ where: { id, projectId } });
+    if (!flow) throw new NotFoundException('Flow not found');
+    return sanitizeFlow(flow);
+  }
+
+  /** Internal get — returns the raw record including webhookSecret. Used by the webhook handler. */
+  async getRaw(projectId: string, id: string) {
     const flow = await this.prisma.flow.findFirst({ where: { id, projectId } });
     if (!flow) throw new NotFoundException('Flow not found');
     return flow;
@@ -117,7 +195,9 @@ export class FlowsService {
     await this.validate(dto);
     const enabled = dto.enabled ?? true;
     const nextRunAt = enabled ? this.computeNextRunAt(dto.trigger) : null;
-    return this.prisma.flow.create({
+    // Auto-assign a webhook secret for webhook-triggered flows.
+    const webhookSecret = dto.trigger.type === 'webhook' ? generateWebhookSecret() : null;
+    const created = await this.prisma.flow.create({
       data: {
         projectId,
         name: dto.name.trim(),
@@ -125,16 +205,33 @@ export class FlowsService {
         trigger: dto.trigger as unknown as Prisma.InputJsonValue,
         actions: dto.actions as unknown as Prisma.InputJsonValue,
         nextRunAt,
+        webhookSecret,
       },
     });
+    // Return the secret once at creation time so the user can record it.
+    if (webhookSecret) {
+      return { ...sanitizeFlow(created), webhookSecret };
+    }
+    return sanitizeFlow(created);
   }
 
   async update(projectId: string, id: string, dto: FlowDefinitionInput, userId?: string) {
-    await this.get(projectId, id, userId);
+    // assertProject first so an unauthorized caller cannot infer whether the flow exists.
+    await this.assertProject(projectId, userId);
+    // getRaw so we can carry the existing secret forward when trigger type stays webhook.
+    const existing = await this.getRaw(projectId, id);
     await this.validate(dto);
     const enabled = dto.enabled ?? true;
     const nextRunAt = enabled ? this.computeNextRunAt(dto.trigger) : null;
-    return this.prisma.flow.update({
+    // Preserve the existing webhook secret if the trigger stays webhook; generate
+    // a new one if it was not webhook before but is now; clear it if no longer webhook.
+    let webhookSecret: string | null = existing.webhookSecret ?? null;
+    if (dto.trigger.type !== 'webhook') {
+      webhookSecret = null;
+    } else if (!webhookSecret) {
+      webhookSecret = generateWebhookSecret();
+    }
+    const updated = await this.prisma.flow.update({
       where: { id },
       data: {
         name: dto.name.trim(),
@@ -142,12 +239,28 @@ export class FlowsService {
         trigger: dto.trigger as unknown as Prisma.InputJsonValue,
         actions: dto.actions as unknown as Prisma.InputJsonValue,
         nextRunAt,
+        webhookSecret,
       },
     });
+    return sanitizeFlow(updated);
+  }
+
+  /** Rotate the webhook secret for a webhook-triggered flow. Returns the new secret. */
+  async rotateWebhookSecret(projectId: string, id: string, userId?: string) {
+    const flow = await this.getRaw(projectId, id);
+    // Confirm user has access to this project
+    await this.assertProject(projectId, userId);
+    if ((flow.trigger as unknown as FlowDefinitionInput['trigger']).type !== 'webhook') {
+      throw new BadRequestException('Flow is not a webhook-triggered flow');
+    }
+    const webhookSecret = generateWebhookSecret();
+    await this.prisma.flow.update({ where: { id }, data: { webhookSecret } });
+    return { webhookSecret };
   }
 
   async setEnabled(projectId: string, id: string, enabled: boolean, userId?: string) {
-    const flow = await this.get(projectId, id, userId);
+    const flow = await this.getRaw(projectId, id);
+    await this.assertProject(projectId, userId);
     const trigger = flow.trigger as unknown as FlowDefinitionInput['trigger'];
     // When re-enabling a schedule flow, set the next run time from now so it
     // doesn't immediately fire for every missed minute while it was disabled.
@@ -171,10 +284,42 @@ export class FlowsService {
   }
 
   async trigger(projectId: string, id: string, input: unknown, userId?: string) {
-    const flow = await this.get(projectId, id, userId);
+    const flow = await this.getRaw(projectId, id);
+    await this.assertProject(projectId, userId);
     await this.entitlement.assertCan(projectId, EntitlementKey.FLOWS);
     if (!flow.enabled) throw new BadRequestException('Flow is disabled');
     return this.enqueue(flow.id, projectId, input);
+  }
+
+  /**
+   * Trigger a webhook-type flow from an external caller.
+   * Validates the HMAC-SHA256 signature and fires the flow.
+   * No user auth — authentication is the per-flow HMAC secret.
+   */
+  async triggerViaWebhook(
+    flowId: string,
+    rawBody: Buffer,
+    signature: string,
+    input: unknown,
+  ) {
+    // Look up the flow by ID alone; we don't require a projectId in the URL so the
+    // caller only needs the flow ID and the secret — not the project ID.
+    const flow = await this.prisma.flow.findUnique({ where: { id: flowId } });
+    if (!flow) throw new NotFoundException('Flow not found');
+    if (!flow.enabled) throw new BadRequestException('Flow is disabled');
+    const trigger = flow.trigger as unknown as FlowDefinitionInput['trigger'];
+    if (trigger.type !== 'webhook') {
+      throw new BadRequestException('Flow is not a webhook-triggered flow');
+    }
+    if (!flow.webhookSecret) {
+      // Should never happen for webhook flows, but guard defensively.
+      throw new BadRequestException('Webhook secret not configured');
+    }
+    if (!verifyWebhookSignature(flow.webhookSecret, rawBody, signature)) {
+      throw new UnauthorizedException('Invalid webhook signature');
+    }
+    await this.entitlement.assertCan(flow.projectId, EntitlementKey.FLOWS);
+    return this.enqueue(flow.id, flow.projectId, input);
   }
 
   /**
