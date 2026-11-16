@@ -1243,6 +1243,17 @@ export class ProjectDataService {
               poolerUri: buildPostgresUri(extPoolerHost, extPoolerPort, project.dbReadonlyUser, project.dbReadonlyPassword, db),
             }
           : null,
+      // Extra named login roles; empty array until any are created.
+      extraRoles: ((project as any).extraRoles ?? []).map((r: any) => ({
+        id: r.id as string,
+        label: r.label as string,
+        user: r.roleName as string,
+        password: r.password as string,
+        memberOf: r.memberOf as string,
+        uri: buildPostgresUri(directHost, directPort, r.roleName, r.password, db),
+        poolerUri: buildPostgresUri(extPoolerHost, extPoolerPort, r.roleName, r.password, db),
+        createdAt: r.createdAt instanceof Date ? r.createdAt.toISOString() : (r.createdAt as string),
+      })),
     };
   }
 }

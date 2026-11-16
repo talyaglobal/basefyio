@@ -366,6 +366,7 @@ model Project {
   usage            ProjectUsage?
   userMfa          ProjectUserMfa[]
   importedPasswordHashes ImportedPasswordHash[]
+  extraRoles       ProjectExtraRole[]
 
   // Preview branches
   /// The project this one was branched from. Null = ordinary project.
@@ -386,6 +387,33 @@ model Project {
   @@unique([parentProjectId, branchName])
   @@index([parentProjectId])
   @@map("projects")
+}
+
+/// An extra named LOGIN role scoped to a project. Project owners create these
+/// so individual services can connect with least-privilege identities (e.g. a
+/// worker role that is a member of service_role, an app role that can only
+/// SET ROLE anon or authenticated). The roleName is unique per Postgres
+/// cluster (kb_xr_ prefix + 10 random hex chars). Password is encrypted at
+/// rest by the same Prisma middleware as Project.dbPassword.
+model ProjectExtraRole {
+  id        String   @id @default(uuid())
+  projectId String   @map("project_id")
+  /// Human-readable label shown in the dashboard (e.g. "Academy Worker").
+  label     String   @db.VarChar(80)
+  /// Actual Postgres role name — kb_xr_<10 hex chars>. Cluster-unique.
+  roleName  String   @map("role_name") @db.VarChar(63)
+  /// Encrypted at rest (same middleware as Project.dbPassword).
+  password  String
+  /// Which built-in role this role is a member of: anon | authenticated | service_role | none.
+  /// Membership is INHERIT FALSE, SET TRUE (the caller must SET LOCAL ROLE explicitly).
+  memberOf  String   @default("none") @map("member_of") @db.VarChar(16)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, roleName])
+  @@index([projectId])
+  @@map("project_extra_roles")
 }
 
 /// Per-table/collection opt-in for public realtime change events

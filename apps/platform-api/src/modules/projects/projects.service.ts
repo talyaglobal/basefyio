@@ -29,6 +29,7 @@ import {
 import { RealtimeEventsService } from '../../common/realtime/realtime-events.service';
 import { AdminTarget, ProjectProvisioningService } from './project-provisioning.service';
 import { ProjectReadonlyRoleService, readonlyRoleNameFor } from './project-readonly-role.service';
+import { ProjectExtraRoleService, type ExtraRoleMemberOf } from './project-extra-role.service';
 import { previewBranchOf } from './branches/preview-branch';
 import { BootTaskService } from '../cluster/boot-task.service';
 import {
@@ -78,6 +79,7 @@ export class ProjectsService implements OnApplicationBootstrap {
     private readonly dataEngine: DataEngineService,
     private readonly provisioning: ProjectProvisioningService,
     private readonly readonlyRole: ProjectReadonlyRoleService,
+    private readonly extraRole: ProjectExtraRoleService,
     @Optional() private readonly bootTasks?: BootTaskService,
   ) {}
 
@@ -851,6 +853,129 @@ export class ProjectsService implements OnApplicationBootstrap {
       this.logger.warn(`PgBouncer config update failed: ${err}`),
     );
     return { message: 'Read-only role removed', warnings };
+  }
+
+  /* ─────────────────────────── Extra database roles ─────────────────────── */
+
+  async listExtraRoles(projectId: string, userId: string) {
+    const project = await this.loadProjectForDbCredentials(projectId, userId);
+    return this.prisma.projectExtraRole.findMany({
+      where: { projectId: project.id },
+      select: { id: true, label: true, roleName: true, password: true, memberOf: true, createdAt: true },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  async createExtraRole(
+    projectId: string,
+    userId: string,
+    label: string,
+    memberOf: ExtraRoleMemberOf,
+  ) {
+    const project = await this.loadProjectForDbCredentials(projectId, userId);
+    const trimmedLabel = label?.trim();
+    if (!trimmedLabel || trimmedLabel.length > 80) {
+      throw new BadRequestException('Label must be 1–80 characters');
+    }
+
+    const existing = await this.prisma.projectExtraRole.count({
+      where: { projectId: project.id },
+    });
+    if (existing >= 10) {
+      throw new BadRequestException('Maximum of 10 extra database roles per project');
+    }
+
+    // kb_xr_ prefix + 10 random hex chars — unique across the shared cluster.
+    const roleName = 'kb_xr_' + randomBytes(5).toString('hex');
+    const password = randomBytes(24).toString('base64url');
+    const target = this.provisioning.resolveAdminTarget(project);
+
+    try {
+      await this.extraRole.provision({
+        ...target,
+        dbName: project.dbName,
+        roleName,
+        rolePassword: password,
+        memberOf,
+      });
+    } catch (err: any) {
+      if (err instanceof BadRequestException) throw err;
+      throw new InternalServerErrorException(`Failed to create extra role: ${err.message}`);
+    }
+
+    const row = await this.prisma.projectExtraRole.create({
+      data: { projectId: project.id, label: trimmedLabel, roleName, password, memberOf },
+      select: { id: true, label: true, roleName: true, password: true, memberOf: true, createdAt: true },
+    });
+    await this.activity.append(project.id, {
+      userId,
+      kind: ProjectActivityKind.PROJECT_UPDATED,
+      title: `Extra database role created: ${trimmedLabel}`,
+    });
+    this.pgbouncer.regenerateConfig().catch((err) =>
+      this.logger.warn(`PgBouncer config update failed: ${err}`),
+    );
+    return row;
+  }
+
+  async rotateExtraRolePassword(
+    projectId: string,
+    userId: string,
+    roleId: string,
+    nextPassword?: string,
+  ) {
+    const project = await this.loadProjectForDbCredentials(projectId, userId);
+    const row = await this.prisma.projectExtraRole.findFirst({
+      where: { id: roleId, projectId: project.id },
+    });
+    if (!row) throw new NotFoundException('Extra role not found');
+
+    const password = nextPassword?.trim() || randomBytes(24).toString('base64url');
+    this.assertStrongDbPassword(password);
+    const target = this.provisioning.resolveAdminTarget(project);
+    try {
+      await this.extraRole.setPassword({ ...target, roleName: row.roleName, rolePassword: password });
+    } catch (err: any) {
+      throw new InternalServerErrorException(`Failed to rotate extra role password: ${err.message}`);
+    }
+    await this.prisma.projectExtraRole.update({
+      where: { id: roleId },
+      data: { password },
+    });
+    await this.activity.append(project.id, {
+      userId,
+      kind: ProjectActivityKind.PROJECT_UPDATED,
+      title: `Extra database role password rotated: ${row.label}`,
+    });
+    this.pgbouncer.regenerateConfig().catch((err) =>
+      this.logger.warn(`PgBouncer config update failed: ${err}`),
+    );
+    return { password };
+  }
+
+  async dropExtraRole(projectId: string, userId: string, roleId: string) {
+    const project = await this.loadProjectForDbCredentials(projectId, userId);
+    const row = await this.prisma.projectExtraRole.findFirst({
+      where: { id: roleId, projectId: project.id },
+    });
+    if (!row) throw new NotFoundException('Extra role not found');
+
+    const target = this.provisioning.resolveAdminTarget(project);
+    const { warnings } = await this.extraRole.drop({
+      ...target,
+      roleName: row.roleName,
+      dbName: project.dbName,
+    });
+    await this.prisma.projectExtraRole.delete({ where: { id: roleId } });
+    await this.activity.append(project.id, {
+      userId,
+      kind: ProjectActivityKind.PROJECT_UPDATED,
+      title: `Extra database role removed: ${row.label}`,
+    });
+    this.pgbouncer.regenerateConfig().catch((err) =>
+      this.logger.warn(`PgBouncer config update failed: ${err}`),
+    );
+    return { message: 'Extra role removed', warnings };
   }
 
   /**

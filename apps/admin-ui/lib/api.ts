@@ -1663,6 +1663,29 @@ export const api = {
         { method: 'DELETE' },
       );
     },
+    listExtraRoles(projectId: string) {
+      return request<Array<{ id: string; label: string; roleName: string; password: string; memberOf: string; createdAt: string }>>(
+        `/projects/${projectId}/db-extra-roles`,
+      );
+    },
+    createExtraRole(projectId: string, label: string, memberOf: string) {
+      return request<{ id: string; label: string; roleName: string; password: string; memberOf: string; createdAt: string }>(
+        `/projects/${projectId}/db-extra-roles`,
+        { method: 'POST', body: JSON.stringify({ label, memberOf }) },
+      );
+    },
+    rotateExtraRolePassword(projectId: string, roleId: string, password?: string) {
+      return request<{ password: string }>(
+        `/projects/${projectId}/db-extra-roles/${roleId}/password`,
+        { method: 'PATCH', body: JSON.stringify(password ? { password } : {}) },
+      );
+    },
+    dropExtraRole(projectId: string, roleId: string) {
+      return request<{ message: string; warnings: string[] }>(
+        `/projects/${projectId}/db-extra-roles/${roleId}`,
+        { method: 'DELETE' },
+      );
+    },
     setDbConnectionLimit(projectId: string, maxDbConnections: number | null) {
       return request<{
         maxDbConnections: number | null;

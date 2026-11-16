@@ -343,7 +343,12 @@ export class ProjectDataController {
     }
 
     const project = await this.projectsService.findOne(projectId, user?.sub);
-    const connStrings = this.dataService.getConnectionStrings(project);
+    const extraRoles = await this.prisma.projectExtraRole.findMany({
+      where: { projectId },
+      select: { id: true, label: true, roleName: true, password: true, memberOf: true, createdAt: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    const connStrings = this.dataService.getConnectionStrings({ ...project, extraRoles });
 
     // Include permission info for the current user
     let canResetDbPassword = false;

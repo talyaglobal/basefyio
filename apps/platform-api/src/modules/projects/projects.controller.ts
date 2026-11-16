@@ -345,6 +345,44 @@ export class ProjectsController {
     return this.projectsService.dropReadonlyRole(id, user.sub);
   }
 
+  /**
+   * Extra database roles: named LOGIN roles a project owner creates so each
+   * service or worker can connect with its own least-privilege identity.
+   */
+  @Get(':id/db-extra-roles')
+  async listExtraRoles(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    return this.projectsService.listExtraRoles(id, user.sub);
+  }
+
+  @Post(':id/db-extra-roles')
+  async createExtraRole(
+    @Param('id') id: string,
+    @Body() body: { label: string; memberOf?: string },
+    @CurrentUser() user: JwtPayload,
+  ) {
+    const memberOf = (body?.memberOf as any) || 'none';
+    return this.projectsService.createExtraRole(id, user.sub, body?.label, memberOf);
+  }
+
+  @Patch(':id/db-extra-roles/:roleId/password')
+  async rotateExtraRolePassword(
+    @Param('id') id: string,
+    @Param('roleId') roleId: string,
+    @Body() body: { password?: string },
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.projectsService.rotateExtraRolePassword(id, user.sub, roleId, body?.password);
+  }
+
+  @Delete(':id/db-extra-roles/:roleId')
+  async dropExtraRole(
+    @Param('id') id: string,
+    @Param('roleId') roleId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.projectsService.dropExtraRole(id, user.sub, roleId);
+  }
+
   /** Pooler connection cap for this database; null = back to the plan default. */
   @Patch(':id/db-connection-limit')
   async setDbConnectionLimit(

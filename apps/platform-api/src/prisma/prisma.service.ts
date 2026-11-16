@@ -43,18 +43,22 @@ export class PrismaService
    */
   private installCredentialCrypto() {
     this.$use(async (params, next) => {
-      if (
-        params.model === 'Project' &&
-        params.action &&
-        WRITE_ACTIONS.has(params.action)
-      ) {
+      if (params.action && WRITE_ACTIONS.has(params.action)) {
         const a: any = params.args ?? {};
-        if (a.data) encryptDbPassword(a.data);
-        if (a.create) encryptDbPassword(a.create); // upsert
-        if (a.update) encryptDbPassword(a.update); // upsert
+        if (params.model === 'Project') {
+          if (a.data) encryptDbPassword(a.data);
+          if (a.create) encryptDbPassword(a.create); // upsert
+          if (a.update) encryptDbPassword(a.update); // upsert
+        }
+        if (params.model === 'ProjectExtraRole') {
+          if (a.data) encryptExtraRolePassword(a.data);
+          if (a.create) encryptExtraRolePassword(a.create);
+          if (a.update) encryptExtraRolePassword(a.update);
+        }
       }
       const result = await next(params);
-      if (params.model === 'Project') decryptResult(result);
+      if (params.model === 'Project') decryptResult(result, PROJECT_CREDENTIAL_FIELDS);
+      if (params.model === 'ProjectExtraRole') decryptResult(result, EXTRA_ROLE_FIELDS);
       return result;
     });
   }
@@ -81,30 +85,39 @@ export class PrismaService
   }
 }
 
-/** Project columns that hold a Postgres password; every one is encrypted the same way. */
-const CREDENTIAL_FIELDS = ['dbPassword', 'dbReadonlyPassword'] as const;
+const PROJECT_CREDENTIAL_FIELDS = ['dbPassword', 'dbReadonlyPassword'] as const;
+const EXTRA_ROLE_FIELDS = ['password'] as const;
 
 function encryptDbPassword(obj: any) {
   if (!obj) return;
-  for (const field of CREDENTIAL_FIELDS) {
+  for (const field of PROJECT_CREDENTIAL_FIELDS) {
     if (typeof obj[field] === 'string' && !isEncrypted(obj[field])) {
       obj[field] = encryptField(obj[field]);
     }
   }
 }
 
-function decryptResult(result: any) {
-  if (!result) return;
-  if (Array.isArray(result)) {
-    for (const r of result) decryptOne(r);
-  } else {
-    decryptOne(result);
+function encryptExtraRolePassword(obj: any) {
+  if (!obj) return;
+  for (const field of EXTRA_ROLE_FIELDS) {
+    if (typeof obj[field] === 'string' && !isEncrypted(obj[field])) {
+      obj[field] = encryptField(obj[field]);
+    }
   }
 }
 
-function decryptOne(r: any) {
+function decryptResult(result: any, fields: readonly string[]) {
+  if (!result) return;
+  if (Array.isArray(result)) {
+    for (const r of result) decryptOne(r, fields);
+  } else {
+    decryptOne(result, fields);
+  }
+}
+
+function decryptOne(r: any, fields: readonly string[]) {
   if (!r) return;
-  for (const field of CREDENTIAL_FIELDS) {
+  for (const field of fields) {
     if (typeof r[field] === 'string' && isEncrypted(r[field])) {
       r[field] = decryptField(r[field]);
     }

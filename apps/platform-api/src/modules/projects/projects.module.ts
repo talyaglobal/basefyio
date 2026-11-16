@@ -8,6 +8,7 @@ import { ProjectDatabaseController } from './project-database.controller';
 import { ProjectDatabaseService } from './project-database.service';
 import { ProjectProvisioningService } from './project-provisioning.service';
 import { ProjectReadonlyRoleService } from './project-readonly-role.service';
+import { ProjectExtraRoleService } from './project-extra-role.service';
 import { ProjectPoliciesController } from './project-policies.controller';
 import { ProjectPoliciesService } from './project-policies.service';
 import { ProjectDataService } from './project-data.service';
@@ -88,6 +89,7 @@ import { ProjectBranchesController } from './branches/project-branches.controlle
     ProjectDatabaseService,
     ProjectProvisioningService,
     ProjectReadonlyRoleService,
+    ProjectExtraRoleService,
     ProjectPoliciesService,
     ProjectsService,
     ProjectDataService,

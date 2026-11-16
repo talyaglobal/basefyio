@@ -63,6 +63,7 @@ function build(opts: { status: 'ACTIVE' | 'PAUSED' | 'DEACTIVATED'; role?: 'OWNE
     unused,
     unused,
     unused,
+    unused, // ProjectExtraRoleService
   );
   return { svc, prisma, pgbouncer, activity, realtime, keycloak };
 }

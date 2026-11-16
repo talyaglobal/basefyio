@@ -32,6 +32,8 @@ import {
   Layers,
   Sparkles,
   RefreshCw,
+  UserPlus,
+  Users,
 } from 'lucide-react';
 
 interface ConnectionStringsViewProps {
@@ -289,6 +291,11 @@ export function ConnectionStringsView({
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [readonlyBusy, setReadonlyBusy] = useState(false);
   const [limitBusy, setLimitBusy] = useState(false);
+  const [extraRoleBusy, setExtraRoleBusy] = useState<Record<string, boolean>>({});
+  const [showCreateExtraRole, setShowCreateExtraRole] = useState(false);
+  const [extraRoleLabel, setExtraRoleLabel] = useState('');
+  const [extraRoleMemberOf, setExtraRoleMemberOf] = useState('none');
+  const [creatingExtraRole, setCreatingExtraRole] = useState(false);
 
   useEffect(() => {
     api.projects
@@ -503,6 +510,50 @@ engine = create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True)`;
       toast.error(err.message || 'Read-only role update failed');
     } finally {
       setReadonlyBusy(false);
+    }
+  }
+
+  async function handleCreateExtraRole() {
+    if (!extraRoleLabel.trim()) return;
+    setCreatingExtraRole(true);
+    try {
+      await api.projects.createExtraRole(projectId, extraRoleLabel.trim(), extraRoleMemberOf);
+      await refreshConnection();
+      setShowCreateExtraRole(false);
+      setExtraRoleLabel('');
+      setExtraRoleMemberOf('none');
+      toast.success('Database user created');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to create database user');
+    } finally {
+      setCreatingExtraRole(false);
+    }
+  }
+
+  async function handleExtraRoleAction(roleId: string, action: 'rotate' | 'remove') {
+    if (action === 'remove') {
+      const ok = await confirmDialog({
+        title: 'Remove database user',
+        description: 'Applications connecting with this role will lose access immediately.',
+        destructive: true,
+      });
+      if (!ok) return;
+    }
+    setExtraRoleBusy((prev) => ({ ...prev, [roleId]: true }));
+    try {
+      if (action === 'rotate') {
+        await api.projects.rotateExtraRolePassword(projectId, roleId);
+        await refreshConnection();
+        toast.success('Password rotated');
+      } else {
+        await api.projects.dropExtraRole(projectId, roleId);
+        await refreshConnection();
+        toast.success('Database user removed');
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Operation failed');
+    } finally {
+      setExtraRoleBusy((prev) => ({ ...prev, [roleId]: false }));
     }
   }
 
@@ -866,6 +917,120 @@ engine = create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True)`;
           </p>
         )}
       </section>
+
+      {/* Extra database users */}
+      {conn.canResetDbPassword && (
+        <section className="space-y-3">
+          <h2 className="flex items-center gap-2 text-lg font-semibold">
+            <Users className="h-5 w-5" />
+            Extra database users
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            Named login roles for individual services or workers. Each role can be a member of{' '}
+            <code className="rounded bg-muted px-1">anon</code>,{' '}
+            <code className="rounded bg-muted px-1">authenticated</code> or{' '}
+            <code className="rounded bg-muted px-1">service_role</code> with{' '}
+            <code className="rounded bg-muted px-1">INHERIT FALSE, SET TRUE</code> — the caller
+            must issue <code className="rounded bg-muted px-1">SET LOCAL ROLE</code> explicitly.
+          </p>
+
+          {(conn.extraRoles ?? []).map((role) => (
+            <div key={role.id} className="rounded-lg border bg-card p-4 space-y-3">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div>
+                  <p className="font-medium text-sm">{role.label}</p>
+                  <p className="text-xs text-muted-foreground font-mono">{role.user}</p>
+                </div>
+                {role.memberOf !== 'none' && (
+                  <span className="rounded-full border bg-muted px-2 py-0.5 text-xs font-mono">
+                    {role.memberOf}
+                  </span>
+                )}
+              </div>
+              <CopyBlock label="Pooler URI" value={role.poolerUri} icon={Link2} />
+              <div className="basefyio-grid-row-hover grid gap-3 sm:grid-cols-2">
+                <CopyBlock label="User" value={role.user} icon={Database} />
+                <CopyBlock label="Password" value={role.password} icon={Key} />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  className="gap-2"
+                  disabled={extraRoleBusy[role.id]}
+                  onClick={() => void handleExtraRoleAction(role.id, 'rotate')}
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  Rotate password
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="text-destructive"
+                  disabled={extraRoleBusy[role.id]}
+                  onClick={() => void handleExtraRoleAction(role.id, 'remove')}
+                >
+                  Remove
+                </Button>
+              </div>
+            </div>
+          ))}
+
+          {showCreateExtraRole ? (
+            <div className="rounded-lg border bg-card p-4 space-y-3">
+              <p className="text-sm font-medium">New database user</p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground" htmlFor="extra-role-label">Label</label>
+                  <Input
+                    id="extra-role-label"
+                    placeholder="e.g. Academy Worker"
+                    value={extraRoleLabel}
+                    onChange={(e) => setExtraRoleLabel(e.target.value)}
+                    maxLength={80}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground" htmlFor="extra-role-member-of">Member of</label>
+                  <Select value={extraRoleMemberOf} onValueChange={setExtraRoleMemberOf}>
+                    <SelectTrigger id="extra-role-member-of" aria-label="Member of">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None (direct grants only)</SelectItem>
+                      <SelectItem value="anon">anon — public requests</SelectItem>
+                      <SelectItem value="authenticated">authenticated — signed-in users</SelectItem>
+                      <SelectItem value="service_role">service_role — backend workers</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  disabled={creatingExtraRole || !extraRoleLabel.trim()}
+                  onClick={() => void handleCreateExtraRole()}
+                >
+                  {creatingExtraRole ? 'Creating…' : 'Create'}
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => { setShowCreateExtraRole(false); setExtraRoleLabel(''); setExtraRoleMemberOf('none'); }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <Button
+              variant="outline"
+              className="gap-2"
+              disabled={(conn.extraRoles?.length ?? 0) >= 10}
+              onClick={() => setShowCreateExtraRole(true)}
+            >
+              <UserPlus className="h-4 w-4" />
+              Add database user
+            </Button>
+          )}
+        </section>
+      )}
 
       {/* Pooler connection limit */}
       {conn.pooler && (

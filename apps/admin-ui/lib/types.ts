@@ -939,6 +939,17 @@ export interface ConnectionStrings {
   canResetDbPassword?: boolean;
   /** SELECT-only companion role (<user>_readonly); null until the team creates it. */
   readonly?: { user: string; password: string; uri: string; poolerUri: string } | null;
+  /** Extra named login roles created by the project owner. */
+  extraRoles?: Array<{
+    id: string;
+    label: string;
+    user: string;
+    password: string;
+    memberOf: string;
+    uri: string;
+    poolerUri: string;
+    createdAt: string;
+  }>;
   /** Pooler connection cap for this database and where it comes from. */
   pooler?: {
     effective: number | null;
