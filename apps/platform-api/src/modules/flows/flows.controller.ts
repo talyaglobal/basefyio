@@ -100,6 +100,19 @@ export class FlowsController {
     return this.flows.trigger(projectId, id, body?.input, user?.sub);
   }
 
+  /**
+   * Rotate the webhook secret for a webhook-triggered flow.
+   * Returns the new secret once — store it immediately as it cannot be retrieved again.
+   */
+  @Post(':id/rotate-webhook-secret')
+  rotateWebhookSecret(
+    @Param('projectId') projectId: string,
+    @Param('id') id: string,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    return this.flows.rotateWebhookSecret(projectId, id, user?.sub);
+  }
+
   @Get(':id/runs')
   runs(
     @Param('projectId') projectId: string,

@@ -1811,7 +1811,10 @@ model Flow {
   trigger   Json
   actions   Json
   /// Next scheduled fire time for schedule-triggered flows; null for manual/webhook.
-  nextRunAt DateTime? @map("next_run_at")
+  nextRunAt     DateTime? @map("next_run_at")
+  /// HMAC-SHA256 secret for webhook-triggered flows. Auto-generated on creation.
+  /// Callers sign the raw request body with this secret; basefyio verifies before firing.
+  webhookSecret String?   @map("webhook_secret")
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
 
