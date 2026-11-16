@@ -63,6 +63,7 @@ docs/scoreboard.md
 docs/*.pdf
 docs/*.xlsx
 docs/*.docx
+docs/competitive-analysis/
 
 # Environment files and their backups. A pre-publication .env.production.example
 # reached the public history and carried live production secrets; the pattern
