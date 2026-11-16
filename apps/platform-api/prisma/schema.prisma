@@ -1776,18 +1776,21 @@ model TechDoc {
 
 /// Project automation flow: a trigger + an ordered list of actions.
 model Flow {
-  id        String   @id @default(uuid())
-  projectId String   @map("project_id")
+  id        String    @id @default(uuid())
+  projectId String    @map("project_id")
   name      String
-  enabled   Boolean  @default(true)
+  enabled   Boolean   @default(true)
   trigger   Json
   actions   Json
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  /// Next scheduled fire time for schedule-triggered flows; null for manual/webhook.
+  nextRunAt DateTime? @map("next_run_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
 
   runs FlowRun[]
 
   @@index([projectId])
+  @@index([enabled, nextRunAt])
   @@map("flow")
 }
 
@@ -1797,6 +1800,8 @@ model FlowRun {
   flowId     String    @map("flow_id")
   projectId  String    @map("project_id")
   status     String    @default("queued")
+  /// BullMQ attempt number (1-based). 1 = first try; >1 = retry.
+  attempt    Int       @default(1)
   input      Json?
   result     Json?
   error      String?
