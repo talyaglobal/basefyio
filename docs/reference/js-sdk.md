@@ -110,6 +110,14 @@ await bf.from('settings').upsert({ key: 'theme', value: 'dark' }, { onConflict: 
 Column and table names are quoted as identifiers; values are always bound. A refused statement
 (see the SQL guard in [sql-api.md](./sql-api.md)) comes back as `error`.
 
+**Writes need a filter.** `update()` and `delete()` without at least one filter (`eq`, `in`, `or`, …)
+throw before anything is sent, so a missing `.eq()` can never change or remove a whole table. To
+change every row on purpose, write the statement yourself with `bf.sql()`.
+
+**`single()` and `maybeSingle()`** return one object instead of an array. `single()` expects exactly
+one row: zero rows or more than one comes back as `error` (`code: 'PGRST116'`). `maybeSingle()` accepts
+zero rows (`data: null`, no error) and still errors on more than one.
+
 ## SQL and functions
 
 ```ts

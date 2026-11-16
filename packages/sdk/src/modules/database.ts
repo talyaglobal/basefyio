@@ -140,6 +140,29 @@ export class OrConditionBuilder {
 
 type Operation = 'select' | 'insert' | 'update' | 'delete' | 'upsert';
 
+/**
+ * A `QueryBuilder` after `.single()` has been called. The `PromiseLike`
+ * implementation resolves to `BasefyioResponse<T | null>` — matching the
+ * runtime behaviour where either one row is returned or an error/null is set.
+ */
+export interface SingleQueryBuilder<T> extends PromiseLike<BasefyioResponse<T | null>> {
+  // Expose the same filter/modifier API so callers can keep chaining.
+  eq(column: string, value: unknown): this;
+  neq(column: string, value: unknown): this;
+  gt(column: string, value: unknown): this;
+  gte(column: string, value: unknown): this;
+  lt(column: string, value: unknown): this;
+  lte(column: string, value: unknown): this;
+  like(column: string, pattern: string): this;
+  ilike(column: string, pattern: string): this;
+  is(column: string, value: null | boolean): this;
+  in(column: string, values: unknown[]): this;
+  not(column: string, operator: FilterOperator, value: unknown): this;
+  order(column: string, options?: { ascending?: boolean; nullsFirst?: boolean }): this;
+  toSQL(): string;
+  toQuery(): { text: string; params: unknown[] };
+}
+
 export class QueryBuilder<T = Record<string, unknown>> implements PromiseLike<BasefyioResponse<T[]>> {
   private http: BasefyioFetchClient;
   private projectId: string;
@@ -156,6 +179,7 @@ export class QueryBuilder<T = Record<string, unknown>> implements PromiseLike<Ba
   private _limit?: number;
   private _offset?: number;
   private _single = false;
+  private _maybeSingle = false;
   private _count: 'exact' | null = null;
 
   constructor(http: BasefyioFetchClient, projectId: string, table: string) {
@@ -320,16 +344,29 @@ export class QueryBuilder<T = Record<string, unknown>> implements PromiseLike<Ba
     return this;
   }
 
-  single(): QueryBuilder<T> {
+  /**
+   * Expect exactly one row. Returns `{data: T, error: null}` when exactly one
+   * row is returned. Returns an error when zero or more than one rows match.
+   *
+   * Use `.maybeSingle()` when zero rows is an acceptable outcome.
+   */
+  single(): SingleQueryBuilder<T> {
     this._single = true;
-    this._limit = 1;
-    return this;
+    this._maybeSingle = false;
+    this._limit = 2; // fetch up to 2 so we can detect >1 at the SDK layer
+    return this as unknown as SingleQueryBuilder<T>;
   }
 
-  maybeSingle(): QueryBuilder<T> {
+  /**
+   * Expect zero or one rows. Returns `{data: null, error: null}` when no rows
+   * match, `{data: T, error: null}` when exactly one row matches, and an error
+   * when more than one row matches.
+   */
+  maybeSingle(): SingleQueryBuilder<T> {
     this._single = true;
-    this._limit = 1;
-    return this;
+    this._maybeSingle = true;
+    this._limit = 2; // fetch up to 2 so we can detect >1 at the SDK layer
+    return this as unknown as SingleQueryBuilder<T>;
   }
 
   // ── SQL generation ───────────────────────────────────
@@ -416,6 +453,10 @@ export class QueryBuilder<T = Record<string, unknown>> implements PromiseLike<Ba
     return s;
   }
 
+  private hasFilters(): boolean {
+    return this._filters.length > 0 || this._or.length > 0 || this._orRaw.length > 0;
+  }
+
   /** The statement, with every value handed to `bind`. One builder, two modes. */
   private build(bind: Binder): string {
     const table = quoteIdent(this._table);
@@ -440,6 +481,12 @@ export class QueryBuilder<T = Record<string, unknown>> implements PromiseLike<Ba
       }
 
       case 'update': {
+        if (!this.hasFilters()) {
+          throw new Error(
+            'update() requires at least one filter — call .eq(), .in(), or another filter method before executing. ' +
+            'To update all rows intentionally, use bf.db.sql() with an explicit query.',
+          );
+        }
         const sets = Object.entries(this._updateData)
           .map(([k, v]) => `${quoteIdent(k)} = ${bind(v)}`)
           .join(', ');
@@ -448,6 +495,12 @@ export class QueryBuilder<T = Record<string, unknown>> implements PromiseLike<Ba
       }
 
       case 'delete': {
+        if (!this.hasFilters()) {
+          throw new Error(
+            'delete() requires at least one filter — call .eq(), .in(), or another filter method before executing. ' +
+            'To delete all rows intentionally, use bf.db.sql() with an explicit query.',
+          );
+        }
         return `DELETE FROM ${table}${this.buildWhereClause(bind)} RETURNING *`;
       }
 
@@ -510,8 +563,27 @@ export class QueryBuilder<T = Record<string, unknown>> implements PromiseLike<Ba
       const rows = (result.rows ?? []) as T[];
 
       if (this._single) {
+        if (rows.length > 1) {
+          return {
+            data: null,
+            error: {
+              message: `${this._maybeSingle ? 'maybeSingle' : 'single'}() expected at most 1 row, got ${rows.length}`,
+              code: 'PGRST116',
+            },
+          } as BasefyioResponse<T[]>;
+        }
         if (rows.length === 0) {
-          return { data: null, error: null } as BasefyioResponse<T[]>;
+          if (this._maybeSingle) {
+            // maybeSingle: zero rows is not an error
+            return { data: null, error: null } as BasefyioResponse<T[]>;
+          }
+          return {
+            data: null,
+            error: {
+              message: 'single() expected exactly 1 row, got 0',
+              code: 'PGRST116',
+            },
+          } as BasefyioResponse<T[]>;
         }
         return { data: rows[0] as any, error: null };
       }

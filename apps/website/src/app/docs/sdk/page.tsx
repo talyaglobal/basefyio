@@ -101,6 +101,11 @@ const { error } = await bf.from('posts')
 // Upsert
 const { data } = await bf.from('posts')
   .upsert({ id: 1, title: 'Upserted' }, { onConflict: 'id' })`}</code></pre>
+      <p>
+        <code>update()</code> and <code>delete()</code> require at least one filter. Without one they throw before
+        anything is sent, so a missing <code>.eq()</code> can never change or remove a whole table. To change every
+        row on purpose, write the statement yourself with <code>bf.sql()</code>.
+      </p>
 
       <h3>Filters</h3>
       <table>
@@ -134,7 +139,7 @@ const { data } = await bf.from('posts')
           <tr><td><code>.offset(n)</code></td><td>Skip rows</td></tr>
           <tr><td><code>.range(from, to)</code></td><td>Pagination range</td></tr>
           <tr><td><code>.single()</code></td><td>Return single object (error if not exactly one)</td></tr>
-          <tr><td><code>.maybeSingle()</code></td><td>Return single object or null</td></tr>
+          <tr><td><code>.maybeSingle()</code></td><td>Return single object or null (error if more than one)</td></tr>
         </tbody>
       </table>
 

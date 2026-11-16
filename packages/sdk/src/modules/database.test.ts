@@ -23,17 +23,17 @@ interface Sent {
   body: Record<string, unknown>;
 }
 
-function fakeHttp(sent: Sent[]) {
+function fakeHttp(sent: Sent[], rows: Record<string, unknown>[] = []) {
   return {
     json: async (path: string, init: { body: string }) => {
       sent.push({ path, body: JSON.parse(init.body) });
-      return { rows: [], rowCount: 0 };
+      return { rows, rowCount: rows.length };
     },
   } as never;
 }
 
-function table(sent: Sent[] = []): QueryBuilder {
-  return new QueryBuilder(fakeHttp(sent), 'project-1', 'agency_plan');
+function table(sent: Sent[] = [], rows: Record<string, unknown>[] = []): QueryBuilder {
+  return new QueryBuilder(fakeHttp(sent, rows), 'project-1', 'agency_plan');
 }
 
 function wordIn(text: string, word: string): boolean {
@@ -182,5 +182,86 @@ describe('what goes over the wire', () => {
 
     expect(sent[0]!.body.params).toEqual(['myfyio copy would post there']);
     expect(String(sent[0]!.body.query)).not.toContain('copy');
+  });
+});
+
+describe('filterless mutation guard — update() and delete() without filters throw', () => {
+  it('update() without a filter throws before hitting the network', () => {
+    expect(() => table().update({ title: 'x' }).toSQL()).toThrow(/update\(\) requires at least one filter/);
+  });
+
+  it('update() without a filter throws in toQuery() too', () => {
+    expect(() => table().update({ title: 'x' }).toQuery()).toThrow(/update\(\) requires at least one filter/);
+  });
+
+  it('delete() without a filter throws', () => {
+    expect(() => table().delete().toSQL()).toThrow(/delete\(\) requires at least one filter/);
+  });
+
+  it('update() with a filter proceeds normally', () => {
+    const { text } = table().update({ title: 'x' }).eq('id', 1).toQuery();
+    expect(text).toBe('UPDATE "agency_plan" SET "title" = $1 WHERE "id" = $2 RETURNING *');
+  });
+
+  it('delete() with a filter proceeds normally', () => {
+    const { text } = table().delete().eq('id', 5).toQuery();
+    expect(text).toBe('DELETE FROM "agency_plan" WHERE "id" = $1 RETURNING *');
+  });
+
+  it('update() with an in() filter proceeds normally', () => {
+    const { text } = table().update({ status: 'done' }).in('id', [1, 2, 3]).toQuery();
+    expect(text).toBe('UPDATE "agency_plan" SET "status" = $1 WHERE "id" = ANY($2) RETURNING *');
+  });
+});
+
+describe('single() and maybeSingle() row-count semantics', () => {
+  it('single() returns the row when exactly 1 row is returned', async () => {
+    const row = { id: 1, name: 'Alice' };
+    const result = await table([], [row]).select().eq('id', 1).single();
+    expect(result.error).toBeNull();
+    expect(result.data).toEqual(row);
+  });
+
+  it('single() returns an error when 0 rows are returned', async () => {
+    const result = await table([], []).select().eq('id', 999).single();
+    expect(result.data).toBeNull();
+    expect(result.error?.message).toMatch(/single\(\) expected exactly 1 row/);
+    expect(result.error?.code).toBe('PGRST116');
+  });
+
+  it('single() returns an error when more than 1 row is returned', async () => {
+    const rows = [{ id: 1 }, { id: 2 }];
+    const result = await table([], rows).select().single();
+    expect(result.data).toBeNull();
+    expect(result.error?.message).toMatch(/single\(\) expected at most 1 row/);
+    expect(result.error?.code).toBe('PGRST116');
+  });
+
+  it('maybeSingle() returns null when 0 rows are returned (not an error)', async () => {
+    const result = await table([], []).select().eq('id', 999).maybeSingle();
+    expect(result.data).toBeNull();
+    expect(result.error).toBeNull();
+  });
+
+  it('maybeSingle() returns the row when exactly 1 row is returned', async () => {
+    const row = { id: 7, name: 'Bob' };
+    const result = await table([], [row]).select().eq('id', 7).maybeSingle();
+    expect(result.error).toBeNull();
+    expect(result.data).toEqual(row);
+  });
+
+  it('maybeSingle() returns an error when more than 1 row is returned', async () => {
+    const rows = [{ id: 1 }, { id: 2 }];
+    const result = await table([], rows).select().maybeSingle();
+    expect(result.data).toBeNull();
+    expect(result.error?.message).toMatch(/maybeSingle\(\) expected at most 1 row/);
+    expect(result.error?.code).toBe('PGRST116');
+  });
+
+  it('single() uses LIMIT 2 in the generated SQL', () => {
+    // toSQL() is exposed on SingleQueryBuilder so callers can inspect the query.
+    const qb = table().select().eq('id', 1);
+    const sq = qb.single();
+    expect(sq.toSQL()).toContain('LIMIT 2');
   });
 });
