@@ -36,6 +36,17 @@ export interface ForeignKeyInfo {
   foreignColumnName: string;
 }
 
+/**
+ * Appends a deterministic tie-breaker to a page's ORDER BY: the primary key
+ * columns, or the physical row id for tables without one.
+ */
+export function buildStableOrderClause(userOrder: string, pkColumns: string[]): string {
+  const tie = pkColumns.length
+    ? pkColumns.map((c) => `t."${c.replace(/"/g, '""')}" ASC`).join(', ')
+    : 't.ctid ASC';
+  return userOrder ? `${userOrder}, ${tie}` : `ORDER BY ${tie}`;
+}
+
 @Injectable()
 export class ProjectDataService {
   private readonly logger = new Logger(ProjectDataService.name);
@@ -320,7 +331,9 @@ export class ProjectDataService {
     // Cap the page size at the project's configured per-table row limit
     // (plan-gated). Never below 1 — a misconfigured 0 would break the grid.
     const cap = Math.max(1, (project as { maxRowsPerTable?: number }).maxRowsPerTable ?? 1000);
+    if (!Number.isFinite(limit) || limit < 1) limit = 1;
     if (limit > cap) limit = cap;
+    if (!Number.isFinite(page) || page < 1) page = 1;
     const client = await pool.connect();
     const offset = (page - 1) * limit;
 
@@ -362,10 +375,13 @@ export class ProjectDataService {
           [schema, tableName],
         );
         const TEXT_TYPES = new Set([
-          'text', 'character varying', 'character', 'citext', 'name', 'uuid',
+          'text', 'character varying', 'character', 'citext', 'name',
         ]);
+        // uuid has no ILIKE operator (`uuid ~~* unknown` is a 42883 error that
+        // surfaced as a 500 on every table with a uuid column), so it is cast
+        // to text like the other non-text scalar types.
         const NUMERIC_TYPES = new Set([
-          'integer', 'bigint', 'smallint', 'numeric', 'real', 'double precision',
+          'uuid', 'integer', 'bigint', 'smallint', 'numeric', 'real', 'double precision',
           'date', 'timestamp without time zone', 'timestamp with time zone',
           'time without time zone', 'time with time zone',
           'boolean',
@@ -441,6 +457,23 @@ export class ProjectDataService {
           orderClause = `ORDER BY t."${orderBy}" ${dir} NULLS LAST`;
         }
       }
+
+      // Without an ORDER BY, Postgres returns rows in whatever order the scan
+      // produces (synchronized seqscans on big tables), so LIMIT/OFFSET pages
+      // overlap and skip rows. Always finish the ordering with the primary
+      // key (or the physical row id when there is none) so a page is stable.
+      const pkResult = await client.query(
+        `SELECT a.attname AS column_name
+           FROM pg_index i
+           JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+          WHERE i.indrelid = $1::regclass AND i.indisprimary
+          ORDER BY array_position(i.indkey::int2[], a.attnum)`,
+        [qualified],
+      );
+      orderClause = buildStableOrderClause(
+        orderClause,
+        (pkResult.rows ?? []).map((r: { column_name: string }) => r.column_name),
+      );
 
       // Raise timeout for filtered queries — ILIKE on 1M+ rows needs more than 15s
       if (trimmedSearch) {
