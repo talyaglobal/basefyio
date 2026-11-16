@@ -290,10 +290,25 @@ export class ApiClient {
   }
 
   // SQL endpoints
-  async executeSQL(projectId: string, query: string): Promise<{ rows: Record<string, unknown>[]; rowCount: number }> {
+  async executeSQL(
+    projectId: string,
+    query: string,
+    opts?: { page?: number; limit?: number; countTotal?: boolean; params?: unknown[] },
+  ): Promise<{
+    rows: Record<string, unknown>[];
+    rowCount: number;
+    page?: number;
+    limit?: number;
+    total?: number | null;
+    totalIsApprox?: boolean;
+  }> {
     const { data } = await this.client.post('/api/sql/execute', {
       projectId,
       query,
+      ...(opts?.page != null ? { page: opts.page } : {}),
+      ...(opts?.limit != null ? { limit: opts.limit } : {}),
+      ...(opts?.countTotal != null ? { countTotal: opts.countTotal } : {}),
+      ...(opts?.params != null ? { params: opts.params } : {}),
     });
     return data;
   }

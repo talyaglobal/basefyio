@@ -37,18 +37,111 @@ function parseMigration(content: string): { up: string; down: string | null } {
   return { up: content.trim(), down: null };
 }
 
-// ── Get applied migration names from DB ──────────────────────
+// ── Read the applied migration set ───────────────────────────
+//
+// The SQL endpoint pages every SELECT (default 100, max 1000 rows per page), so
+// a single unpaged request silently truncated the applied set once a project
+// passed 100 migrations — `status` under-counted and `up` re-ran migrations that
+// were already applied. We page through the whole set here, and we never treat a
+// failed read as "nothing applied": that turned a transient 5xx into "re-apply
+// every migration from the first". Only a missing tracking table means empty,
+// and ensureTrackingTable() creates it before any read, so a read that fails is
+// a real failure and must stop the command.
 
-async function getApplied(projectId: string): Promise<Set<string>> {
-  try {
-    const result = await apiClient.executeSQL(
-      projectId,
-      `SELECT name FROM "${TRACKING_TABLE}" ORDER BY applied_at`,
-    );
-    return new Set((result?.rows ?? []).map((r: any) => r.name));
-  } catch {
-    return new Set();
+const PAGE_SIZE = 1000;
+const MAX_PAGES = 1000; // 1,000,000 tracked migrations — a loop backstop, never reached in practice
+
+/** A thin, mockable view of the SQL endpoint for the pieces that need paging. */
+export type SqlExecutor = (
+  query: string,
+  opts?: { page?: number; limit?: number; countTotal?: boolean },
+) => Promise<{ rows: Record<string, unknown>[]; total?: number | null }>;
+
+/**
+ * Read every applied migration name, paging until a short page ends the set.
+ * Throws on any read failure (so the caller aborts rather than guessing), and
+ * refuses to return a short list when the server reports a larger exact total.
+ */
+export async function fetchAppliedSet(
+  exec: SqlExecutor,
+  table = TRACKING_TABLE,
+): Promise<Set<string>> {
+  const names = new Set<string>();
+  let page = 1;
+  let total: number | null | undefined = null;
+
+  for (;;) {
+    const res = await exec(`SELECT name FROM "${table}" ORDER BY applied_at`, {
+      page,
+      limit: PAGE_SIZE,
+      countTotal: page === 1,
+    });
+    const rows = res?.rows ?? [];
+    for (const r of rows) {
+      const name = (r as { name?: unknown }).name;
+      if (typeof name === 'string') names.add(name);
+    }
+    if (page === 1) total = res?.total;
+
+    if (rows.length < PAGE_SIZE) break; // a short (or empty) page is the last one
+    page += 1;
+    if (page > MAX_PAGES) {
+      throw new Error(
+        `Refusing to guess the applied set: more than ${MAX_PAGES * PAGE_SIZE} tracked migrations.`,
+      );
+    }
   }
+
+  // The server caps its exact count at 10000; below that it is reliable. If we
+  // read fewer names than it reports, do not proceed with a short list — that is
+  // exactly the state that re-runs already-applied migrations.
+  if (typeof total === 'number' && total <= 10000 && names.size < total) {
+    throw new Error(
+      `Read ${names.size} of ${total} applied migrations; aborting rather than re-running the rest. Please try again.`,
+    );
+  }
+  return names;
+}
+
+/** Pending = local files not yet applied, capped at maxStep (Infinity = all). */
+export function computePending(
+  local: string[],
+  applied: Set<string>,
+  maxStep: number,
+): string[] {
+  return local.filter((f) => !applied.has(f)).slice(0, maxStep);
+}
+
+/**
+ * One multi-statement body: the up SQL and its tracking INSERT. The SQL endpoint
+ * runs a multi-statement body unpaginated in a single implicit transaction, so
+ * the change and its record commit together or not at all — no more "applied but
+ * not recorded, so the next run applies it again".
+ */
+export function buildApplySql(table: string, file: string, up: string): string {
+  const name = file.replace(/'/g, "''");
+  const body = up.replace(/;\s*$/, '');
+  return `${body};\nINSERT INTO "${table}" (name) VALUES ('${name}')`;
+}
+
+/** The down SQL and the tracking DELETE as one atomic body (mirror of apply). */
+export function buildRollbackSql(table: string, file: string, down: string): string {
+  const name = file.replace(/'/g, "''");
+  const body = down.replace(/;\s*$/, '');
+  return `${body};\nDELETE FROM "${table}" WHERE name = '${name}'`;
+}
+
+/** Surface the server's status code and message, not axios's generic string. */
+export function serverErrorMessage(err: any): string {
+  const status = err?.response?.status;
+  const body = err?.response?.data;
+  const message = body?.message || body?.error || err?.message || String(err);
+  return status ? `${status} — ${message}` : message;
+}
+
+/** Bind the SQL endpoint to a project as a mockable executor. */
+function projectExecutor(projectId: string): SqlExecutor {
+  return (query, opts) => apiClient.executeSQL(projectId, query, opts);
 }
 
 // ── Get local migration files sorted by timestamp ────────────
@@ -114,7 +207,7 @@ export async function migrationStatus() {
 
   try {
     await ensureTrackingTable(config.projectId);
-    const applied = await getApplied(config.projectId);
+    const applied = await fetchAppliedSet(projectExecutor(config.projectId));
     const local = await getLocalMigrations();
     spinner.stop();
 
@@ -167,9 +260,9 @@ export async function migrationUp(options: UpOptions = {}) {
 
   try {
     await ensureTrackingTable(config.projectId);
-    const applied = await getApplied(config.projectId);
+    const applied = await fetchAppliedSet(projectExecutor(config.projectId));
     const local = await getLocalMigrations();
-    const pending = local.filter((f) => !applied.has(f)).slice(0, maxStep);
+    const pending = computePending(local, applied, maxStep);
     spinner.stop();
 
     if (!pending.length) {
@@ -200,17 +293,17 @@ export async function migrationUp(options: UpOptions = {}) {
           continue;
         }
 
-        await apiClient.executeSQL(config.projectId!, up);
-        await apiClient.executeSQL(
-          config.projectId!,
-          `INSERT INTO "${TRACKING_TABLE}" (name) VALUES ('${file.replace(/'/g, "''")}')`,
-        );
+        // Apply the migration and record it in one atomic request, so a failure
+        // can never leave a migration applied but unrecorded (which would re-run
+        // it next time). If the tracking row violates UNIQUE(name), the up rolls
+        // back with it.
+        await apiClient.executeSQL(config.projectId!, buildApplySql(TRACKING_TABLE, file, up));
 
         sp.succeed(`Applied ${chalk.cyan(file)}`);
         applied_count++;
       } catch (err: any) {
         sp.fail(`Failed: ${file}`);
-        error(err.message || String(err));
+        error(serverErrorMessage(err));
         error('Migration stopped. Fix the error and run  basefyio migration up  again.');
         process.exit(1);
       }
@@ -242,7 +335,7 @@ export async function migrationDown(options: DownOptions = {}) {
 
   try {
     await ensureTrackingTable(config.projectId);
-    const applied = await getApplied(config.projectId);
+    const applied = await fetchAppliedSet(projectExecutor(config.projectId));
     const local = await getLocalMigrations();
 
     // Rollback in reverse order
@@ -279,16 +372,15 @@ export async function migrationDown(options: DownOptions = {}) {
           continue;
         }
 
-        await apiClient.executeSQL(config.projectId!, down);
-        await apiClient.executeSQL(
-          config.projectId!,
-          `DELETE FROM "${TRACKING_TABLE}" WHERE name = '${file.replace(/'/g, "''")}'`,
-        );
+        // Run the down SQL and remove the tracking row in one atomic request,
+        // so a rollback is never recorded as undone while its SQL failed, or
+        // vice versa.
+        await apiClient.executeSQL(config.projectId!, buildRollbackSql(TRACKING_TABLE, file, down));
 
         sp.succeed(`Rolled back ${chalk.cyan(file)}`);
       } catch (err: any) {
         sp.fail(`Failed: ${file}`);
-        error(err.message || String(err));
+        error(serverErrorMessage(err));
         process.exit(1);
       }
     }
