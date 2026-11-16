@@ -9,6 +9,24 @@ interface LinkOptions {
   projectId?: string;
 }
 
+/**
+ * Order the picker so the most recently created project is first (and therefore
+ * pre-selected by the list prompt) — the one you just made is what you usually
+ * want to link. Projects with no creation date sink below the dated ones, and
+ * ties fall back to a locale-aware name sort for a stable order.
+ */
+export function sortProjectsByNewest<T extends { createdAt?: string; name: string }>(
+  projects: T[],
+): T[] {
+  const ts = (p: { createdAt?: string }) => {
+    const t = p.createdAt ? new Date(p.createdAt).getTime() : NaN;
+    return Number.isFinite(t) ? t : -Infinity;
+  };
+  return [...projects].sort(
+    (a, b) => ts(b) - ts(a) || a.name.localeCompare(b.name, 'tr', { sensitivity: 'base' }),
+  );
+}
+
 export async function linkCommand(options: LinkOptions) {
   if (!isLoggedIn()) {
     error('Not logged in. Run:  basefyio login');
@@ -31,7 +49,7 @@ export async function linkCommand(options: LinkOptions) {
       }
       spinner.stop();
 
-      allProjects.sort((a, b) => a.name.localeCompare(b.name, 'tr', { sensitivity: 'base' }));
+      allProjects = sortProjectsByNewest(allProjects);
 
       if (!allProjects.length) {
         error('No projects found. Create one first:  basefyio init');
@@ -43,8 +61,10 @@ export async function linkCommand(options: LinkOptions) {
           type: 'list',
           name: 'selected',
           message: 'Select a project to link:',
-          choices: allProjects.map((p) => ({
-            name: `${p.name}  ${chalk.gray(p.slug)}  ${chalk.gray('— ' + p.teamName)}`,
+          choices: allProjects.map((p, i) => ({
+            name:
+              `${p.name}  ${chalk.gray(p.slug)}  ${chalk.gray('— ' + p.teamName)}` +
+              (i === 0 ? chalk.green('  · newest') : ''),
             value: p.id,
           })),
         },

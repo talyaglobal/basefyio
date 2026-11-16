@@ -2,6 +2,15 @@
 
 All notable changes to `basefyio-cli` are documented here.
 
+## 2.3.0
+
+### Changed
+
+- **`basefyio link` lists your projects most-recently-created first.** The project you just
+  created is now at the top of the picker, pre-selected and tagged `· newest`, so linking it is
+  a single keypress. (Previously the list was alphabetical, so a new project could be buried.)
+  Projects with no creation date sort below dated ones; ties fall back to a name sort.
+
 ## 2.2.0
 
 ### Fixed — migrations past 100 (upgrade before running `migration up`)
