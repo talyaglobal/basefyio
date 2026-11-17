@@ -6,6 +6,7 @@ jest.mock('@prisma/client', () => ({
   },
 }));
 
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { of, throwError, lastValueFrom } from 'rxjs';
 import { AuditLogInterceptor } from './audit-log.interceptor';
 
@@ -60,10 +61,12 @@ describe('AuditLogInterceptor → audit sink', () => {
   it('forwards a failed request and re-throws the error', async () => {
     const sink = { enqueue: jest.fn() };
     const interceptor = new AuditLogInterceptor(sink as any);
-    const ctx = context({ method: 'DELETE', url: '/api/teams/t1', user, traceId: 'tr-2' }, 403);
+    // The response still holds its default 200 when the error reaches the
+    // interceptor; the exception filter writes the real status after it.
+    const ctx = context({ method: 'DELETE', url: '/api/teams/t1', user, traceId: 'tr-2' }, 200);
 
     await expect(
-      lastValueFrom(interceptor.intercept(ctx, { handle: () => throwError(() => new Error('nope')) })),
+      lastValueFrom(interceptor.intercept(ctx, { handle: () => throwError(() => new ForbiddenException('nope')) })),
     ).rejects.toThrow('nope');
     await flush();
 
@@ -73,6 +76,24 @@ describe('AuditLogInterceptor → audit sink', () => {
       action: 'DELETE /api/teams/t1',
       statusCode: 403,
     });
+  });
+
+  it.each([
+    ['a 400 validation error', new BadRequestException('bad'), 400],
+    ['a 404', new NotFoundException('missing'), 404],
+    ['an unexpected error', new Error('boom'), 500],
+    ['a plain error carrying a status', Object.assign(new Error('x'), { status: 409 }), 409],
+  ])('records the real status for %s, never the default success code', async (_label, error, expected) => {
+    const sink = { enqueue: jest.fn() };
+    const interceptor = new AuditLogInterceptor(sink as any);
+    const ctx = context({ method: 'POST', url: '/api/projects', user, traceId: 'tr-x' }, 201);
+
+    await expect(
+      lastValueFrom(interceptor.intercept(ctx, { handle: () => throwError(() => error) })),
+    ).rejects.toBeDefined();
+    await flush();
+
+    expect(sink.enqueue.mock.calls[0][0].statusCode).toBe(expected);
   });
 
   it('still forwards when the database write fails, without a row id', async () => {

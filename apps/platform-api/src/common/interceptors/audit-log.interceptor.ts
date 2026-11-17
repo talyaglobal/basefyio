@@ -5,6 +5,7 @@ import {
   CallHandler,
   Logger,
   Optional,
+  HttpException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaClient } from '@prisma/client';
@@ -160,6 +161,20 @@ export class AuditLogInterceptor implements NestInterceptor {
     }
   }
 
+  /**
+   * The status a failed request will be answered with. By the time `catchError`
+   * runs, the exception filter has not written the response yet, so
+   * `response.statusCode` still holds the default (200, or 201 for a POST):
+   * reading it recorded every failure as a success code. The error carries the
+   * real one.
+   */
+  private failureStatus(err: unknown): number {
+    if (err instanceof HttpException) return err.getStatus();
+    const carried = (err as { status?: unknown; statusCode?: unknown } | null) ?? {};
+    const code = typeof carried.status === 'number' ? carried.status : carried.statusCode;
+    return typeof code === 'number' && code >= 400 && code < 600 ? code : 500;
+  }
+
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
     const request = context.switchToHttp().getRequest();
     const response = context.switchToHttp().getResponse();
@@ -210,7 +225,7 @@ export class AuditLogInterceptor implements NestInterceptor {
             metadataJson: {
               method,
               url: url.split('?')[0],
-              statusCode: response?.statusCode,
+              statusCode: this.failureStatus(err),
             },
           });
         }
