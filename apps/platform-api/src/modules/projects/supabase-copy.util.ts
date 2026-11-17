@@ -71,6 +71,8 @@ export interface BackoffOptions {
   baseMs?: number;
   sleep?: (ms: number) => Promise<void>;
   onRetry?: (attempt: number, delayMs: number, err: unknown) => void;
+  /** What counts as worth retrying; defaults to a transient source-database error. */
+  isRetryable?: (err: any) => boolean;
 }
 
 /**
@@ -86,7 +88,7 @@ export async function withTransientRetry<T>(fn: () => Promise<T>, options: Backo
     try {
       return await fn();
     } catch (err: any) {
-      if (attempt >= retries || !isTransientSourceError(err)) throw err;
+      if (attempt >= retries || !(options.isRetryable ?? isTransientSourceError)(err)) throw err;
       const delay = baseMs * 2 ** attempt;
       options.onRetry?.(attempt + 1, delay, err);
       await sleep(delay);

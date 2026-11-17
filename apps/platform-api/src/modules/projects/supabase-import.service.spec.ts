@@ -743,6 +743,70 @@ describe('SupabaseImportService.applySourceSchema', () => {
   });
 });
 
+describe('SupabaseImportService.importDatabase — a project that is already serving', () => {
+  function run(opts: { publicTables: number; tableExists: boolean }) {
+    const svc = service();
+    const queries: string[] = [];
+    const fakePool = {
+      query: jest.fn(async (sql: string) => {
+        queries.push(sql);
+        if (/count\(\*\)::int as n from information_schema\.tables/.test(sql)) return { rows: [{ n: opts.publicTables }] };
+        if (/from information_schema\.tables where table_schema = 'public' and table_name = \$1/.test(sql)) {
+          return { rows: opts.tableExists ? [{ '?column?': 1 }] : [] };
+        }
+        return { rows: [] };
+      }),
+      connect: jest.fn(async () => ({ query: jest.fn(async () => ({ rows: [] })), release: jest.fn() })),
+      end: jest.fn(async () => undefined),
+    };
+    (Pool as unknown as jest.Mock).mockImplementation(() => fakePool);
+
+    svc.fetchOpenApiSpec = jest.fn(async () => ({}));
+    svc.extractTablesFromOpenApi = jest.fn(() => [{ table_name: 'players' }]);
+    svc.connectPoolWithRetry = jest.fn(async () => undefined);
+    svc.readLocalTableColumns = jest.fn(async () => [{ column_name: 'id', data_type: 'uuid' }]);
+    svc.extractColumnsFromOpenApi = jest.fn(() => [{ column_name: 'id', data_type: 'uuid' }]);
+    svc.createLocalTable = jest.fn(async () => ({}));
+    svc.copyTableDataFromRest = jest.fn(async () => ({ rowCount: 3, strategyLabel: 'PostgREST' }));
+    svc.countSourceRows = jest.fn(async () => ({ rows: 3, method: 'rest' }));
+    svc.restClient = jest.fn(() => ({}));
+    svc.finalizeSchema = jest.fn(async () => undefined);
+    svc.applyDeferredSchema = jest.fn(async () => undefined);
+    svc.applySourceSchema = jest.fn(async () => ({ applied: 0, failed: 0, skipped: 0, deferred: [], failures: [] }));
+
+    const progress = progressOf();
+    const project = { dbHost: 'h', dbPort: 5432, dbUser: 'u', dbPassword: 'p', dbName: 'd' };
+    return { svc, progress, project, queries, go: () => svc.importDatabase('https://x.supabase.co', { apikey: 'k' }, project, progress) };
+  }
+
+  it('never recreates a table that is already here, so its policies, views and rows survive', async () => {
+    const { svc, progress, go } = run({ publicTables: 40, tableExists: true });
+    await go();
+    expect(svc.createLocalTable).not.toHaveBeenCalled();
+    expect(svc.readLocalTableColumns).toHaveBeenCalledWith(expect.anything(), 'players');
+    expect(svc.copyTableDataFromRest).toHaveBeenCalledTimes(1);
+    expect(progress.database.failedTables).toEqual([]);
+  });
+
+  it('keeps the schema of a project that already has tables, and says so', async () => {
+    const { svc, progress, go } = run({ publicTables: 40, tableExists: true });
+    await go();
+    expect(progress.warnings.join('\n')).toMatch(/already has 40 table\(s\), so its schema was kept/);
+  });
+
+  it('on an empty project it still builds the table, as before', async () => {
+    const { svc, go } = run({ publicTables: 0, tableExists: false });
+    await go();
+    expect(svc.createLocalTable).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats an unreadable table count as "there may be tables" instead of replacing anything', async () => {
+    const svc = service();
+    const pool = { query: jest.fn(async () => { throw new Error('connection reset'); }) };
+    await expect(svc.countLocalPublicTables(pool)).resolves.toBe(1);
+  });
+});
+
 describe('SupabaseImportService.copyTableDataFromDirectPostgres', () => {
   const COLUMNS = [
     { column_name: 'id', data_type: 'uuid' },
@@ -834,6 +898,52 @@ describe('SupabaseImportService.importAuth', () => {
 
   const run = (svc: any, progress: ImportProgress) =>
     svc.importAuth('https://x.supabase.co', {}, PROJECT, progress, 'Shop');
+
+  it('reports the real status and body of a user the identity service refused', async () => {
+    const owner = sourceUser('95365bd6-0000-4000-8000-000000000001', 'boostedscout@commitcamp.com');
+    const svc = authService([owner], {
+      importRealmUsers: async () => {
+        throw Object.assign(new Error('Network response was not OK'), {
+          response: { status: 400 },
+          responseData: { errorMessage: 'Attribute value too long' },
+        });
+      },
+    });
+    const progress = progressOf();
+    await run(svc, progress);
+    expect(progress.auth.skipped).toBe(1);
+    expect(progress.warnings.join('\n')).toContain(
+      'Auth user "boostedscout@commitcamp.com" was not imported: HTTP 400 — Attribute value too long',
+    );
+    expect(progress.warnings.join('\n')).not.toContain('Network response was not OK');
+  });
+
+  it('retries a user when the identity service is busy, and imports them', async () => {
+    let calls = 0;
+    const svc = authService([sourceUser('aaaaaaaa-0000-4000-8000-000000000001', 'busy@example.com')], {
+      importRealmUsers: async (_realm, batch) => {
+        calls++;
+        // the first call is the whole batch, the second the single retry, then a 503, then success
+        if (calls <= 2) throw Object.assign(new Error('Network response was not OK'), { response: { status: 503 } });
+        return batch.map((u) => ({ action: 'ADDED', username: u.username, id: u.id }));
+      },
+    });
+    const progress = progressOf();
+    jest.useFakeTimers();
+    const done = run(svc, progress);
+    await jest.runAllTimersAsync();
+    await done;
+    jest.useRealTimers();
+    expect(progress.auth.users).toBe(1);
+    expect(progress.warnings.join('\n')).not.toMatch(/was not imported/);
+  });
+
+  it('says so when the source returns no users at all, instead of importing nothing silently', async () => {
+    const svc = authService([]);
+    const progress = progressOf();
+    await run(svc, progress);
+    expect(progress.warnings.join('\n')).toMatch(/the source returned no users, so none were imported/);
+  });
 
   it('creates users with their source ids and carries their passwords over', async () => {
     const svc = authService(
@@ -974,6 +1084,6 @@ describe('SupabaseImportService.importAuth', () => {
     await run(svc, progress);
     expect(svc.keycloak.importRealmUsers).toHaveBeenCalledTimes(3);
     expect(progress.auth).toMatchObject({ users: 1, skipped: 1 });
-    expect(progress.warnings).toContain('Auth user "bad@example.com": duplicate key');
+    expect(progress.warnings).toContain('Auth user "bad@example.com" was not imported: duplicate key');
   });
 });

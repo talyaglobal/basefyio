@@ -57,8 +57,15 @@ import {
   type PrimaryKeyRepairSummary,
 } from './supabase-import-keys.service';
 import type { RepairImportKeysDto } from './dto/repair-import-keys.dto';
-import { isAlreadyPresentError, makeIdempotent, sanitizeSchemaDump } from './supabase-schema-dump.util';
+import {
+  isAlreadyPresentError,
+  makeIdempotent,
+  referencesAuthUsers,
+  runStatementGroup,
+  sanitizeSchemaDump,
+} from './supabase-schema-dump.util';
 import { sourceSelectList, withTransientRetry } from './supabase-copy.util';
+import { describeKeycloakError, isTransientUserError } from './supabase-user-error.util';
 
 /** Known built-in PostgreSQL base type identifiers (without [] suffix).
  *  Anything NOT in this set is treated as a custom/enum type and falls back
@@ -2165,11 +2172,12 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     pool: Pool,
     sql: string,
     progress: ImportProgress,
-  ): Promise<{ applied: number; failed: number; deferred: string[]; failures: string[] }> {
+  ): Promise<{ applied: number; failed: number; skipped: number; deferred: string[]; failures: string[] }> {
     const client = await pool.connect();
     let applied = 0;
     let failed = 0;
     let skipped = 0;
+    let authKeysLeftOut = 0;
     const failures: string[] = [];
     const deferred: string[] = [];
 
@@ -2179,6 +2187,12 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       // Cleaned here as well as where the dump is read: the statements that follow
       // must never carry a psql meta-command or a setting this server rejects.
       for (const raw of this.splitSqlStatements(sanitizeSchemaDump(sql))) {
+        // A key into auth.users can never hold for a user created after the import:
+        // the project's users live in its identity service, not in a table. Left out.
+        if (referencesAuthUsers(raw)) {
+          authKeysLeftOut++;
+          continue;
+        }
         // Foreign keys and triggers cannot be in place while the rows load:
         // tables are filled in listing order, which no key ordering respects,
         // and the source's triggers would fire a second time on data they
@@ -2194,25 +2208,31 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
         // Applied so that a second import over the same project leaves every
         // object as the source defines it, instead of failing on each one that
         // already exists.
-        for (const statement of makeIdempotent(raw)) {
-          try {
-            await client.query(statement);
-            applied++;
-          } catch (err: any) {
-            if (isAlreadyPresentError(err)) {
-              skipped++;
-              continue;
-            }
-            failed++;
-            if (failures.length < 8) {
-              // The statement as the source wrote it, not as it was rewritten to be re-runnable.
-              failures.push(`${raw.slice(0, 70).replace(/\s+/g, ' ')}… — ${err.message}`);
-            }
+        // One object's statements run as a unit: a policy or trigger that is dropped
+        // to be created again keeps its old definition if the new one is refused.
+        try {
+          await runStatementGroup(client, makeIdempotent(raw));
+          applied++;
+        } catch (err: any) {
+          if (isAlreadyPresentError(err)) {
+            skipped++;
+            continue;
+          }
+          failed++;
+          if (failures.length < 8) {
+            // The statement as the source wrote it, not as it was rewritten to be re-runnable.
+            failures.push(`${raw.slice(0, 70).replace(/\s+/g, ' ')}… — ${err.message}`);
           }
         }
       }
     } finally {
       client.release();
+    }
+
+    if (authKeysLeftOut > 0) {
+      progress.warnings.push(
+        `${authKeysLeftOut} foreign key(s) to auth.users were left out: this project's users live in its identity service, not in a table, so such a key would refuse every user created after the import.`,
+      );
     }
 
     this.logger.log(
@@ -2223,7 +2243,7 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
         `${failed} schema statement(s) could not be applied. First few: ${failures.join(' | ')}`,
       );
     }
-    return { applied, failed, deferred, failures };
+    return { applied, failed, skipped, deferred, failures };
   }
 
   /**
@@ -2247,22 +2267,19 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     let present = 0;
     try {
       for (const raw of statements) {
-        let ok = true;
-        for (const statement of makeIdempotent(raw)) {
-          try {
-            await client.query(statement);
-          } catch (err: any) {
-            if (isAlreadyPresentError(err)) {
-              present++;
-              continue;
-            }
-            ok = false;
-            if (failures.length < 8) {
-              failures.push(`${raw.slice(0, 70).replace(/\s+/g, ' ')}… — ${err.message}`);
-            }
+        try {
+          await runStatementGroup(client, makeIdempotent(raw));
+          applied++;
+        } catch (err: any) {
+          if (isAlreadyPresentError(err)) {
+            present++;
+            applied++;
+            continue;
+          }
+          if (failures.length < 8) {
+            failures.push(`${raw.slice(0, 70).replace(/\s+/g, ' ')}… — ${err.message}`);
           }
         }
-        if (ok) applied++;
       }
     } finally {
       client.release();
@@ -2471,7 +2488,19 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     // keys, indexes, defaults and everything else that makes them work.
     let schemaApplied = false;
     let deferredSchema: string[] = [];
-    if (sourcePool) {
+    // A project that already has tables is serving someone. Its functions, policies,
+    // views and keys are not replaced by the source's, which may differ from them on
+    // purpose (the owner has since rewritten them for this platform). A re-import
+    // then brings the data over and leaves the schema as it is.
+    const existingTables = await this.countLocalPublicTables(pool);
+    const keepExistingSchema = existingTables > 0;
+    if (keepExistingSchema) {
+      this.logger.log(`Destination already has ${existingTables} table(s): keeping its schema, copying data only`);
+      progress.warnings.push(
+        `This project already has ${existingTables} table(s), so its schema was kept as it is and only data was copied. Functions, policies, views and keys were not replaced.`,
+      );
+    }
+    if (sourcePool && !keepExistingSchema) {
       const ref = this.resolveSupabaseProjectRef(baseUrl, jwt || '');
       let schemaReason = 'no reason recorded';
       try {
@@ -2485,29 +2514,23 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
           if (!sql) {
             schemaReason = dump.reason ?? 'pg_dump produced nothing';
           } else {
-            const { applied, failed, deferred, failures } = await this.applySourceSchema(
+            const { applied, failed, skipped, deferred, failures } = await this.applySourceSchema(
               pool,
               sql,
               progress,
             );
-            schemaApplied = applied > 0;
+            // Objects that were already in place count: only a schema that applied
+            // nothing and found nothing falls back to rebuilding tables from column types.
+            schemaApplied = applied + skipped > 0;
             deferredSchema = deferred;
             if (!schemaApplied) {
               schemaReason = `none of the ${failed} dumped statement(s) could be applied`;
               if (failures.length) schemaReason += `: ${failures.slice(0, 3).join(' | ')}`;
             }
 
-            if (schemaApplied) {
-              try {
-                const copied = await this.copyAuthUsers(sourcePool, pool);
-                this.logger.log(`Copied ${copied} identities into auth.users for referential integrity`);
-              } catch (err: any) {
-                this.logger.warn(`Could not copy auth.users: ${err.message}`);
-                progress.warnings.push(
-                  `Identities could not be copied into auth.users (${err.message}), so foreign keys pointing at them may not restore.`,
-                );
-              }
-            }
+            // The source's users are not copied into an auth.users table here: the
+            // project's users live in its identity service, and a table of them is a
+            // copy that goes stale the moment the next person signs up.
             if (onProgress) {
               await onProgress(
                 `Source schema applied (${applied} objects${failed ? `, ${failed} skipped` : ''})`,
@@ -2528,7 +2551,7 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     // With the real schema in place, the source's own catalogue is the correct
     // list of what to fill. The API's schema description omits anything it does
     // not publish, which would leave those tables created and empty.
-    if (schemaApplied && sourcePool) {
+    if ((schemaApplied || keepExistingSchema) && sourcePool) {
       try {
         const { rows } = await sourcePool.query<{ table_name: string }>(
           `select table_name from information_schema.tables
@@ -2562,11 +2585,15 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
           // When the schema came from the source, the table already exists as
           // it should. Recreating it here would throw all of that away — this
           // path drops the table first.
-          const columns = schemaApplied
-            ? await this.readLocalTableColumns(pool, table.table_name)
-            : this.extractColumnsFromOpenApi(openApi, table.table_name);
+          // A table that is already here is never recreated: that drops it, with its
+          // policies, views, keys and every row written since the last import.
+          const existsLocally = await this.localTableExists(pool, table.table_name);
+          const columns =
+            schemaApplied || existsLocally
+              ? await this.readLocalTableColumns(pool, table.table_name)
+              : this.extractColumnsFromOpenApi(openApi, table.table_name);
 
-          if (!schemaApplied) {
+          if (!schemaApplied && !existsLocally) {
             const created = await this.createLocalTable(pool, table.table_name, columns);
             if (created.error) {
               progress.warnings.push(
@@ -2793,7 +2820,10 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
             typeMap[col.column_name.replace(/[^a-zA-Z0-9_]/g, '')] = col.data_type;
           }
 
-          await this.createLocalTable(pool, table, columns);
+          // Never recreated over a table that is already here: that drops it and its rows.
+          if (!(await this.localTableExists(pool, table))) {
+            await this.createLocalTable(pool, table, columns);
+          }
 
           // Paginate and import all rows
           let totalRows = rows.length;
@@ -3026,6 +3056,29 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
    * refuses is dropped rather than losing the table over it, and reported so
    * the repair path can add it later.
    */
+  /** Whether `public.<name>` already exists in the project's own database. */
+  private async localTableExists(pool: Pool, tableName: string): Promise<boolean> {
+    const name = tableName.replace(/[^a-zA-Z0-9_]/g, '');
+    const { rows } = await pool.query(
+      `select 1 from information_schema.tables where table_schema = 'public' and table_name = $1 and table_type = 'BASE TABLE'`,
+      [name],
+    );
+    return rows.length > 0;
+  }
+
+  /** How many tables `public` holds in the project's own database. */
+  private async countLocalPublicTables(pool: Pool): Promise<number> {
+    try {
+      const { rows } = await pool.query(
+        `select count(*)::int as n from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE'`,
+      );
+      return Number(rows[0]?.n ?? 0);
+    } catch {
+      // Unknown is treated as "there may be tables": nothing gets replaced on a guess.
+      return 1;
+    }
+  }
+
   private async createLocalTable(
     pool: Pool,
     tableName: string,
@@ -3873,6 +3926,13 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     }
 
     this.logger.log(`Found ${allUsers.length} auth users to import`);
+    if (allUsers.length === 0) {
+      // "0 users" with no message looks like a project that has none. The usual cause is
+      // a key that cannot list them (the anon key, or a project whose auth service is down).
+      progress.warnings.push(
+        'Auth: the source returned no users, so none were imported. If the project has users, check that the service role key was used and that its auth service is running, then run the import again.',
+      );
+    }
 
     // The admin API never returns password hashes. They come from the source
     // database, so only when its password was given.
@@ -4060,17 +4120,26 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       return out;
     } catch (err: any) {
       if (batch.length > 1) {
-        this.logger.warn(`A batch of ${batch.length} users failed (${err.message}); retrying one by one`);
+        this.logger.warn(`A batch of ${batch.length} users failed (${describeKeycloakError(err)}); retrying one by one`);
       }
     }
 
     for (const rep of batch) {
       try {
-        record(await this.keycloak.importRealmUsers(realm, [rep]));
+        // A busy or restarting identity service is retried; anything else is a
+        // real answer about this user and is reported with its status and body.
+        record(
+          await withTransientRetry(() => this.keycloak.importRealmUsers(realm, [rep]), {
+            retries: 3,
+            baseMs: 800,
+            isRetryable: isTransientUserError,
+          }),
+        );
       } catch (err: any) {
-        this.logger.warn(`Failed to import user "${rep.email}": ${err.message}`);
+        const why = describeKeycloakError(err);
+        this.logger.warn(`Failed to import user "${rep.email}": ${why}`);
         progress.auth.skipped++;
-        progress.warnings.push(`Auth user "${rep.email}": ${err.message}`);
+        progress.warnings.push(`Auth user "${rep.email}" was not imported: ${why}`);
       }
     }
     return out;

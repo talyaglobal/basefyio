@@ -16,6 +16,7 @@ import { RealtimeDataService } from '../realtime-data/realtime-data.service';
 import { mapPgError } from './pg-error.util';
 import { jwtClaimSettings } from './jwt-claim-settings';
 import { parseQuery } from './postgrest/parser';
+import { describeRpcMismatch } from './postgrest/rpc-mismatch';
 import { SelectBuilder } from './postgrest/builder';
 import { SchemaCache } from './postgrest/schema-cache';
 import { ParsedQuery, PostgrestParseError } from './postgrest/types';
@@ -408,7 +409,12 @@ export class PublicApiService {
             ),
           );
         }
-        throw new BadRequestException(`Function "${fnName}" not found`);
+        // The function is there but the call does not fit it: say which argument is missing
+        // or unknown, instead of "not found", which sends the caller looking for a function
+        // that exists.
+        throw new BadRequestException(
+          meta.rowCount ? describeRpcMismatch(fnName, meta.rows, keys) : `Function "${fnName}" not found`,
+        );
       }
       if (chosen.meta.definer && ctx.role === 'anon') {
         const message = `Function "${fnName}" is SECURITY DEFINER, so it runs as the database owner and row-level policies do not apply to it. It cannot be called anonymously — send a signed-in user's access token, or call it from your server with the service key.`;

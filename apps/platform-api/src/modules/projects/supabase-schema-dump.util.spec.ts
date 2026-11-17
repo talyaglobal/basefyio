@@ -108,3 +108,54 @@ describe('isAlreadyPresentError', () => {
     expect(isAlreadyPresentError(null)).toBe(false);
   });
 });
+
+import { referencesAuthUsers, runStatementGroup } from './supabase-schema-dump.util';
+
+describe('runStatementGroup', () => {
+  function client(failOn?: RegExp) {
+    const seen: string[] = [];
+    return {
+      seen,
+      query: async (sql: string) => {
+        seen.push(sql);
+        if (failOn?.test(sql)) throw new Error('operator does not exist: uuid = text');
+      },
+    };
+  }
+  const group = ['DROP POLICY IF EXISTS p ON public.t', 'CREATE POLICY p ON public.t USING (user_id = auth.uid())'];
+
+  it('wraps a drop-and-create in one transaction', async () => {
+    const c = client();
+    await runStatementGroup(c, group);
+    expect(c.seen).toEqual(['BEGIN', ...group, 'COMMIT']);
+  });
+
+  it('rolls the drop back when the create fails, so the existing policy survives', async () => {
+    const c = client(/^CREATE POLICY/);
+    await expect(runStatementGroup(c, group)).rejects.toThrow(/uuid = text/);
+    expect(c.seen).toEqual(['BEGIN', group[0], group[1], 'ROLLBACK']);
+    expect(c.seen).not.toContain('COMMIT');
+  });
+
+  it('runs a single statement with no transaction', async () => {
+    const c = client();
+    await runStatementGroup(c, ['CREATE TABLE IF NOT EXISTS public.t (id int)']);
+    expect(c.seen).toEqual(['CREATE TABLE IF NOT EXISTS public.t (id int)']);
+  });
+});
+
+describe('referencesAuthUsers', () => {
+  it.each([
+    'ALTER TABLE ONLY public.players ADD CONSTRAINT players_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE',
+    'ALTER TABLE ONLY public.plates ADD CONSTRAINT p FOREIGN KEY (user_id) REFERENCES "auth"."users"(id)',
+  ])('recognises a key into auth.users: %s', (sql) => {
+    expect(referencesAuthUsers(sql)).toBe(true);
+  });
+
+  it('leaves keys between the project\'s own tables alone', () => {
+    expect(
+      referencesAuthUsers('ALTER TABLE ONLY public.tyre_marks ADD CONSTRAINT m FOREIGN KEY (player_id) REFERENCES public.players(id)'),
+    ).toBe(false);
+    expect(referencesAuthUsers('ALTER TABLE ONLY public.t ADD CONSTRAINT k PRIMARY KEY (id)')).toBe(false);
+  });
+});

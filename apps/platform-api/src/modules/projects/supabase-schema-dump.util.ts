@@ -89,3 +89,41 @@ export function isAlreadyPresentError(err: { code?: string; message?: string } |
   // "column … is already an identity column" has no dedicated SQLSTATE.
   return /already (?:exists|an identity column)/i.test(err.message ?? '') && err.code !== '42P01';
 }
+
+/**
+ * Run the statements of one dumped object as a unit.
+ *
+ * A policy or trigger is replaced by dropping it and creating it again. Done as
+ * two separate statements, a CREATE that fails (a policy written against the
+ * source's `auth.uid()` that returns uuid, compared here with text) leaves the
+ * object dropped, and the table keeps row level security with fewer policies
+ * than it had. Inside a transaction the failed CREATE rolls the DROP back, so an
+ * existing object is only ever replaced by one that was created.
+ */
+export async function runStatementGroup(
+  client: { query: (sql: string) => Promise<unknown> },
+  statements: string[],
+): Promise<void> {
+  if (statements.length <= 1) {
+    for (const s of statements) await client.query(s);
+    return;
+  }
+  await client.query('BEGIN');
+  try {
+    for (const s of statements) await client.query(s);
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => undefined);
+    throw err;
+  }
+}
+
+/**
+ * A foreign key into `auth.users`. Users of the project live in its identity
+ * service, not in a table, so such a key can never be satisfied for a user
+ * created after the import: new sign-ups failed with "Key (user_id) is not
+ * present in table users". These are left out and reported instead.
+ */
+export function referencesAuthUsers(statement: string): boolean {
+  return /^\s*ALTER\s+TABLE[\s\S]*?\bFOREIGN\s+KEY[\s\S]*?\bREFERENCES\s+"?auth"?\s*\.\s*"?users"?\b/i.test(statement);
+}
