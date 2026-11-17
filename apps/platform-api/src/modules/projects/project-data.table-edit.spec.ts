@@ -65,3 +65,26 @@ describe('ProjectDataService.editColumn unique flag', () => {
     await expect(svc.editColumn('p1', 'u1', 't', 'email', { isUnique: false })).rejects.toThrow(/plain index/);
   });
 });
+
+describe('ProjectDataService.createTable name length', () => {
+  const column = { name: 'id', type: 'uuid', nullable: false, isPrimary: true };
+
+  it('refuses a table name over 63 characters before touching the database', async () => {
+    const { svc, sent } = service(() => undefined);
+    await expect(svc.createTable('p1', 'u1', 'a'.repeat(64), [column])).rejects.toThrow(/63/);
+    expect(sent).toEqual([]);
+  });
+
+  it('refuses a column name over 63 characters', async () => {
+    const { svc, sent } = service(() => undefined);
+    await expect(svc.createTable('p1', 'u1', 'ok', [{ ...column, name: 'c'.repeat(64) }])).rejects.toThrow(
+      /Column name must be at most 63/,
+    );
+    expect(sent).toEqual([]);
+  });
+
+  it('accepts exactly 63 characters', async () => {
+    const { svc } = service(() => undefined);
+    await expect(svc.createTable('p1', 'u1', 'a'.repeat(63), [column])).resolves.toBeDefined();
+  });
+});

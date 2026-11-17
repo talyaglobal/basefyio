@@ -525,6 +525,11 @@ export class ProjectDataService {
     if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableName)) {
       throw new BadRequestException('Invalid table name');
     }
+    // PostgreSQL cuts an identifier to 63 bytes without saying so: the table was
+    // created under a shorter name than the one the caller then asked for.
+    if (Buffer.byteLength(tableName) > 63) {
+      throw new BadRequestException('Table name must be at most 63 characters');
+    }
 
     if (!columns.length) {
       throw new BadRequestException('At least one column is required');
@@ -546,6 +551,9 @@ export class ProjectDataService {
     const colDefs = columns.map((col) => {
       if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(col.name)) {
         throw new BadRequestException(`Invalid column name: ${col.name}`);
+      }
+      if (Buffer.byteLength(col.name) > 63) {
+        throw new BadRequestException(`Column name must be at most 63 characters: ${col.name.slice(0, 20)}…`);
       }
       if (!ALLOWED_TYPES.includes(col.type)) {
         throw new BadRequestException(`Unsupported column type: ${col.type}`);
