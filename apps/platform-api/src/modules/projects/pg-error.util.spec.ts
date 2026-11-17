@@ -60,3 +60,20 @@ describe('mapPgError', () => {
     expect(mapPgError({ code: '99999' })).toEqual({ code: '99999' });
   });
 });
+
+describe('mapPgError — raise exception', () => {
+  it('turns P0001 into a 400 that carries the function\'s own message', () => {
+    const out = mapPgError({ code: 'P0001', message: 'Not enough coins' }) as any;
+    expect(out).toBeInstanceOf(BadRequestException);
+    expect(out.message).toBe('Not enough coins');
+  });
+
+  it('has a fallback when the message is empty', () => {
+    expect((mapPgError({ code: 'P0001' }) as any).message).toBe('The function raised an error');
+  });
+
+  it('still leaves other PL/pgSQL codes alone', () => {
+    const err = { code: 'P0002', message: 'no data found' };
+    expect(mapPgError(err)).toBe(err);
+  });
+});

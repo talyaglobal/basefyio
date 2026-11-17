@@ -39,6 +39,11 @@ export function mapPgError(e: any): unknown {
     case '22P02': // invalid_text_representation
     case '22007': // invalid_datetime_format
       return new BadRequestException(e.message ? `Invalid input value: ${e.message}` : 'Invalid input value');
+    case 'P0001': // raise_exception — `raise exception '…'` in the project's own function
+      // The text is written by the project owner for the caller (a validation
+      // message, "not enough coins"), so it is shown; it used to be a bare
+      // "Internal server error" that said nothing about what to fix.
+      return new BadRequestException(e.message || 'The function raised an error');
     case '42703': // undefined_column
       return new BadRequestException('Unknown column in request');
     case '25006': // read_only_sql_transaction — a function called over GET/HEAD tried to write
