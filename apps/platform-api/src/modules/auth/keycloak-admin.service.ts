@@ -1162,12 +1162,15 @@ export class KeycloakAdminService implements OnModuleInit {
 
   async createUser(
     realmName: string,
-    data: { email: string; password: string; firstName?: string; lastName?: string; username?: string },
+    data: { email: string; password: string; firstName?: string; lastName?: string; username?: string; id?: string },
   ) {
     await this.ensureAuth();
 
-    await this.client.users.create({
+    const created = await this.client.users.create({
       realm: realmName,
+      // A given id is kept, so a user moved from another project keeps the id
+      // that rows elsewhere in the database point at.
+      ...(data.id ? { id: data.id } : {}),
       username: data.email,
       email: data.email,
       // Keycloak 24's User Profile requires firstName/lastName; empty values make
@@ -1187,7 +1190,7 @@ export class KeycloakAdminService implements OnModuleInit {
     });
 
     this.logger.log(`User "${data.email}" created in realm "${realmName}"`);
-    return { message: `User created in realm` };
+    return { message: `User created in realm`, id: (created as { id?: string } | undefined)?.id ?? data.id };
   }
 
   async createProjectUser(

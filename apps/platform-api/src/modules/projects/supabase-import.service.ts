@@ -2429,6 +2429,11 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       user: project.dbUser,
       password: project.dbPassword,
       database: project.dbName,
+      // The copy holds two destination connections at most (a batch and its row-by-row
+      // retry). The cluster is shared and close to its connection limit, so an import
+      // must not take the default ten.
+      max: 4,
+      idleTimeoutMillis: 10_000,
       connectionTimeoutMillis: 15_000,
       statement_timeout: 120_000,
       idle_in_transaction_session_timeout: 120_000,

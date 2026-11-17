@@ -165,6 +165,8 @@ function parsePasswordPolicy(s: string) {
  * users from the panel. End-user flows (sign-up, sign-in, password-reset
  * requests) live on ProjectSdkAuthController and stay public.
  */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 @Controller('projects/:projectId/auth')
 @UseGuards(JwtOrApiKeyGuard)
 @ServiceKeyOnly()
@@ -514,13 +516,19 @@ export class ProjectAuthController {
   @Post('users')
   async createUser(
     @Param('projectId') projectId: string,
-    @Body() body: { email: string; password: string; firstName?: string; lastName?: string },
+    @Body() body: { email: string; password: string; firstName?: string; lastName?: string; id?: string },
     @CurrentUser() user?: JwtPayload,
   ) {
     const project = await this.projectsService.findOne(projectId, user?.sub);
     const email = body.email?.trim();
     if (!email) {
       throw new BadRequestException('Email is required');
+    }
+    // An id may be given to keep a user's identity when moving them from another
+    // project (rows elsewhere point at it); it has to be a UUID. It used to be
+    // ignored, and the user came back under a fresh id.
+    if (body.id !== undefined && !(typeof body.id === 'string' && UUID_RE.test(body.id))) {
+      throw new BadRequestException('id must be a UUID');
     }
     // Enforce one account per email in the project's auth realm (the SDK signup
     // path already does this; the dashboard "Add User" path did not, which let
