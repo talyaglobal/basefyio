@@ -137,7 +137,11 @@ export class StorageBucketApi {
       const ct = options?.contentType || 'application/octet-stream';
 
       if (file instanceof Blob) {
-        formData.append('file', file, fileName);
+        // The multipart part carries the Blob's own type, so an explicit
+        // contentType has to be put on a copy; sharing the bytes costs nothing.
+        const wanted = options?.contentType;
+        const blob = wanted && wanted !== file.type ? new Blob([file], { type: wanted }) : file;
+        formData.append('file', blob, fileName);
       } else {
         const blob = new Blob([file as BlobPart], { type: ct });
         formData.append('file', blob, fileName);
@@ -164,9 +168,18 @@ export class StorageBucketApi {
     }
   }
 
-  async createSignedUrl(path: string, options?: SignedUrlOptions): Promise<BasefyioResponse<{ url: string; expiresIn: number }>> {
+  /**
+   * A time-limited URL for a private object. The second argument is either the
+   * lifetime in seconds (`createSignedUrl(path, 600)`) or `{ expiresIn: 600 }`;
+   * the default is one hour. The answer is `{ url, expiresIn }`.
+   */
+  async createSignedUrl(
+    path: string,
+    options?: SignedUrlOptions | number,
+  ): Promise<BasefyioResponse<{ url: string; expiresIn: number }>> {
     try {
-      const expiry = options?.expiresIn ?? 3600;
+      const requested = typeof options === 'number' ? options : options?.expiresIn;
+      const expiry = requested ?? 3600;
       const data = await this.http.json<{ url: string; expiresIn: number }>(
         `${this.basePath()}/objects/url?path=${encodeURIComponent(path)}&expiry=${expiry}`,
       );

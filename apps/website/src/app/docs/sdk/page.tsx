@@ -277,13 +277,13 @@ const { data } = await bucket.download('user-123/photo.jpg')
 // List files
 const { data } = await bucket.list('user-123/')
 
-// Signed URL (temporary access)
-const { data } = await bucket.createSignedUrl('user-123/photo.jpg', {
-  expiresIn: 3600 // seconds
-})
+// Signed URL (temporary access). data is { url, expiresIn }.
+// The lifetime is in seconds: pass a number or { expiresIn }.
+const { data } = await bucket.createSignedUrl('user-123/photo.jpg', 3600)
 
-// Public URL (for public buckets)
-const { data } = bucket.getPublicUrl('user-123/photo.jpg')
+// Download-route URL (a plain string). It carries no key, so a browser
+// cannot open it for a private object: use createSignedUrl() for that.
+const url = bucket.getPublicUrl('user-123/photo.jpg')
 
 // Delete
 await bucket.remove(['user-123/photo.jpg', 'user-123/old.jpg'])`}</code></pre>

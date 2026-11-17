@@ -251,3 +251,52 @@ describe('access rules', () => {
     expect(calls[2]).toMatchObject({ method: 'DELETE', path: `${BASE}/policy?pathPrefix=private%2F` });
   });
 });
+
+describe('upload contentType', () => {
+  const sentFile = (calls: Call[]) => (calls[0].body as FormData).get('file') as File;
+
+  it('puts an explicit contentType on a Blob that carries a different type', async () => {
+    const { http, calls } = fakeHttp(() => ({ data: { name: 'p.jpg' }, response: { headers: new Headers() } }));
+    const api = new StorageBucketApi(http, 'project-1', 'avatars');
+    await api.upload('u/p.jpg', new Blob(['x'], { type: 'application/octet-stream' }), { contentType: 'image/jpeg' });
+    expect(sentFile(calls).type).toBe('image/jpeg');
+  });
+
+  it('keeps the Blob\'s own type when no contentType is given', async () => {
+    const { http, calls } = fakeHttp(() => ({ data: { name: 'p.png' }, response: { headers: new Headers() } }));
+    const api = new StorageBucketApi(http, 'project-1', 'avatars');
+    await api.upload('u/p.png', new Blob(['x'], { type: 'image/png' }));
+    expect(sentFile(calls).type).toBe('image/png');
+  });
+
+  it('uses contentType for raw bytes, and octet-stream when there is none', async () => {
+    const { http, calls } = fakeHttp(() => ({ data: { name: 'a' }, response: { headers: new Headers() } }));
+    const api = new StorageBucketApi(http, 'project-1', 'avatars');
+    await api.upload('a.bin', new Uint8Array([1, 2]), { contentType: 'application/pdf' });
+    await api.upload('b.bin', new Uint8Array([1, 2]));
+    expect(sentFile(calls).type).toBe('application/pdf');
+    expect(((calls[1].body as FormData).get('file') as File).type).toBe('application/octet-stream');
+  });
+});
+
+describe('createSignedUrl lifetime', () => {
+  const expiryOf = (path: string) => new URL(`https://x${path}`).searchParams.get('expiry');
+
+  it('takes the lifetime as a number of seconds', async () => {
+    const { http, calls } = fakeHttp(() => ({ url: 'u', expiresIn: 600 }));
+    await new StorageBucketApi(http, 'project-1', 'avatars').createSignedUrl('a.txt', 600);
+    expect(expiryOf(calls[0].path)).toBe('600');
+  });
+
+  it('still takes { expiresIn }', async () => {
+    const { http, calls } = fakeHttp(() => ({ url: 'u', expiresIn: 60 }));
+    await new StorageBucketApi(http, 'project-1', 'avatars').createSignedUrl('a.txt', { expiresIn: 60 });
+    expect(expiryOf(calls[0].path)).toBe('60');
+  });
+
+  it('defaults to an hour', async () => {
+    const { http, calls } = fakeHttp(() => ({ url: 'u', expiresIn: 3600 }));
+    await new StorageBucketApi(http, 'project-1', 'avatars').createSignedUrl('a.txt');
+    expect(expiryOf(calls[0].path)).toBe('3600');
+  });
+});

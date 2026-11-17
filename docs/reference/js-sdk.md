@@ -136,7 +136,7 @@ statement text — string literals included — for forbidden operations.
 const avatars = bf.storage.from('avatars');
 await avatars.upload(`${user.id}/me.png`, file, { contentType: 'image/png' });
 const { data: objects } = await avatars.list(`${user.id}/`);
-const { data: signed } = await avatars.createSignedUrl(`${user.id}/me.png`, { expiresIn: 600 });
+const { data: signed } = await avatars.createSignedUrl(`${user.id}/me.png`, { expiresIn: 600 });   // or just 600 (seconds)
 const { data: blob } = await avatars.download(`${user.id}/me.png`);
 await avatars.remove([`${user.id}/me.png`]);
 const url = avatars.getPublicUrl('banner.png');                                   // download route

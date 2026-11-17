@@ -89,8 +89,9 @@ const { data: user } = await bf.auth.signUp({
 // Upload a file
 await bf.storage.from('avatars').upload('user-123.jpg', file)
 
-// Get a signed URL
-const { data: url } = await bf.storage.from('avatars').createSignedUrl('user-123.jpg', 3600)`}</code></pre>
+// Get a signed URL (valid for one hour); data is { url, expiresIn }
+const { data } = await bf.storage.from('avatars').createSignedUrl('user-123.jpg', 3600)
+console.log(data?.url)`}</code></pre>
 
       {/* ── Explore ──────────────────────────────────────── */}
 
