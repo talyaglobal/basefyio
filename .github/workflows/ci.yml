@@ -40,6 +40,11 @@ jobs:
         run: npm run lint:rebrand
 
       - name: Unit + integration tests
+        # The suite runs in one process on a two-core runner, and its heap grows with
+        # every suite. At node's default (about 2 GB) a worker died with an
+        # out-of-memory error and took unrelated suites with it; the runner has 7 GB.
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
         run: npm test -- --no-coverage --forceExit
 
   typecheck-admin-ui:
