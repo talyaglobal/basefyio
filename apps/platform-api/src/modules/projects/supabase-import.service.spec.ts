@@ -678,6 +678,69 @@ describe('SupabaseImportService.applySourceSchema', () => {
     expect(progress.warnings[0]).toMatch(/^2 schema statement\(s\) could not be applied\. First few: /);
     expect(client.release).toHaveBeenCalled();
   });
+
+  // A re-import over a project that already has the schema: every object exists.
+  describe('re-import over an existing schema', () => {
+    const DUMP = [
+      '\\restrict abc123',
+      'SET transaction_timeout = 0;',
+      'CREATE SCHEMA public;',
+      'CREATE FUNCTION public.f() RETURNS int LANGUAGE sql AS $$ select 1 $$;',
+      'CREATE TABLE public.t (id integer);',
+      'ALTER TABLE ONLY public.t ADD CONSTRAINT t_pkey PRIMARY KEY (id);',
+      'CREATE POLICY p ON public.t FOR SELECT USING (true);',
+      '\\unrestrict abc123',
+    ].join('\n');
+
+    function run(behaviour: (sql: string) => void) {
+      const svc = service();
+      svc.prepareDestinationForSchema = jest.fn(async () => undefined);
+      const seen: string[] = [];
+      const client = {
+        query: jest.fn(async (sql: string) => {
+          seen.push(sql);
+          behaviour(sql);
+        }),
+        release: jest.fn(),
+      };
+      const progress = progressOf();
+      return { svc, client, seen, progress, pool: { connect: jest.fn(async () => client) } };
+    }
+
+    it('counts objects that are already in place as present, not as failures', async () => {
+      const { svc, pool, progress } = run((sql) => {
+        if (/PRIMARY KEY/.test(sql)) throw Object.assign(new Error('multiple primary keys for table "t" are not allowed'), { code: '42P16' });
+        if (/CREATE OR REPLACE FUNCTION/.test(sql)) return; // replaced
+        if (/CREATE SCHEMA/.test(sql)) throw Object.assign(new Error('schema "public" already exists'), { code: '42P06' });
+        if (/CREATE TABLE/.test(sql)) throw Object.assign(new Error('relation "t" already exists'), { code: '42P07' });
+      });
+
+      const result = await svc.applySourceSchema(pool, DUMP, progress);
+
+      expect(result.failed).toBe(0);
+      expect(result.failures).toEqual([]);
+      expect(progress.warnings).toEqual([]);
+    });
+
+    it('never sends the psql meta-commands or the setting this server rejects', async () => {
+      const { svc, pool, seen, progress } = run(() => undefined);
+      await svc.applySourceSchema(pool, DUMP, progress);
+      expect(seen.join('\n')).not.toMatch(/restrict|transaction_timeout/);
+      expect(seen.some((s) => s.startsWith('\\'))).toBe(false);
+      expect(seen).toContain('CREATE SCHEMA IF NOT EXISTS public;');
+      expect(seen.some((s) => /^CREATE OR REPLACE FUNCTION public\.f/.test(s))).toBe(true);
+      expect(seen).toContain('DROP POLICY IF EXISTS p ON public.t');
+    });
+
+    it('still reports a statement that really fails, as the source wrote it', async () => {
+      const { svc, pool, progress } = run((sql) => {
+        if (/CREATE TABLE/.test(sql)) throw Object.assign(new Error('type "vector" does not exist'), { code: '42704' });
+      });
+      const result = await svc.applySourceSchema(pool, 'CREATE TABLE a (v vector);', progress);
+      expect(result.failed).toBe(1);
+      expect(result.failures[0]).toMatch(/^CREATE TABLE a \(v vector\);… — type "vector" does not exist/);
+    });
+  });
 });
 
 describe('SupabaseImportService.importAuth', () => {

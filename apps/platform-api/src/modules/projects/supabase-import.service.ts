@@ -57,6 +57,7 @@ import {
   type PrimaryKeyRepairSummary,
 } from './supabase-import-keys.service';
 import type { RepairImportKeysDto } from './dto/repair-import-keys.dto';
+import { isAlreadyPresentError, makeIdempotent, sanitizeSchemaDump } from './supabase-schema-dump.util';
 
 /** Known built-in PostgreSQL base type identifiers (without [] suffix).
  *  Anything NOT in this set is treated as a custom/enum type and falls back
@@ -2015,7 +2016,9 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       }
 
       step = `reading ${fileName} from the scratch volume`;
-      const sql = await readFile(hostPath, 'utf8');
+      // The dump is taken by a client matching the source, which can be newer than
+      // this cluster: strip the psql meta-commands and settings it does not know.
+      const sql = sanitizeSchemaDump(await readFile(hostPath, 'utf8'));
       await unlink(hostPath).catch(() => undefined);
       return { sql };
     } catch (err: any) {
@@ -2165,32 +2168,45 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     const client = await pool.connect();
     let applied = 0;
     let failed = 0;
+    let skipped = 0;
     const failures: string[] = [];
     const deferred: string[] = [];
 
     try {
       await this.prepareDestinationForSchema(client);
 
-      for (const statement of this.splitSqlStatements(sql)) {
+      // Cleaned here as well as where the dump is read: the statements that follow
+      // must never carry a psql meta-command or a setting this server rejects.
+      for (const raw of this.splitSqlStatements(sanitizeSchemaDump(sql))) {
         // Foreign keys and triggers cannot be in place while the rows load:
         // tables are filled in listing order, which no key ordering respects,
         // and the source's triggers would fire a second time on data they
         // already produced. Both go on after the data does.
         if (
-          /^\s*ALTER TABLE[\s\S]*ADD CONSTRAINT[\s\S]*FOREIGN KEY/i.test(statement) ||
-          /^\s*CREATE(\s+OR\s+REPLACE)?\s+(CONSTRAINT\s+)?TRIGGER/i.test(statement)
+          /^\s*ALTER TABLE[\s\S]*ADD CONSTRAINT[\s\S]*FOREIGN KEY/i.test(raw) ||
+          /^\s*CREATE(\s+OR\s+REPLACE)?\s+(CONSTRAINT\s+)?TRIGGER/i.test(raw)
         ) {
-          deferred.push(statement);
+          deferred.push(raw);
           continue;
         }
 
-        try {
-          await client.query(statement);
-          applied++;
-        } catch (err: any) {
-          failed++;
-          if (failures.length < 8) {
-            failures.push(`${statement.slice(0, 70).replace(/\s+/g, ' ')}… — ${err.message}`);
+        // Applied so that a second import over the same project leaves every
+        // object as the source defines it, instead of failing on each one that
+        // already exists.
+        for (const statement of makeIdempotent(raw)) {
+          try {
+            await client.query(statement);
+            applied++;
+          } catch (err: any) {
+            if (isAlreadyPresentError(err)) {
+              skipped++;
+              continue;
+            }
+            failed++;
+            if (failures.length < 8) {
+              // The statement as the source wrote it, not as it was rewritten to be re-runnable.
+              failures.push(`${raw.slice(0, 70).replace(/\s+/g, ' ')}… — ${err.message}`);
+            }
           }
         }
       }
@@ -2199,7 +2215,7 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     }
 
     this.logger.log(
-      `Source schema applied: ${applied} statements, ${failed} rejected, ${deferred.length} held back until the data is in`,
+      `Source schema applied: ${applied} statements, ${skipped} already in place, ${failed} rejected, ${deferred.length} held back until the data is in`,
     );
     if (failed > 0) {
       progress.warnings.push(
@@ -2227,22 +2243,32 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     let applied = 0;
     const failures: string[] = [];
 
+    let present = 0;
     try {
-      for (const statement of statements) {
-        try {
-          await client.query(statement);
-          applied++;
-        } catch (err: any) {
-          if (failures.length < 8) {
-            failures.push(`${statement.slice(0, 70).replace(/\s+/g, ' ')}… — ${err.message}`);
+      for (const raw of statements) {
+        let ok = true;
+        for (const statement of makeIdempotent(raw)) {
+          try {
+            await client.query(statement);
+          } catch (err: any) {
+            if (isAlreadyPresentError(err)) {
+              present++;
+              continue;
+            }
+            ok = false;
+            if (failures.length < 8) {
+              failures.push(`${raw.slice(0, 70).replace(/\s+/g, ' ')}… — ${err.message}`);
+            }
           }
         }
+        if (ok) applied++;
       }
     } finally {
       client.release();
     }
 
     const failed = statements.length - applied;
+    if (present > 0) this.logger.log(`Deferred schema: ${present} object(s) were already in place`);
     this.logger.log(`Deferred schema: ${applied} of ${statements.length} applied`);
     if (failed > 0) {
       progress.warnings.push(
