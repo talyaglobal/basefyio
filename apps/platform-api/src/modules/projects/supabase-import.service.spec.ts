@@ -743,6 +743,60 @@ describe('SupabaseImportService.applySourceSchema', () => {
   });
 });
 
+describe('SupabaseImportService.copyTableDataFromDirectPostgres', () => {
+  const COLUMNS = [
+    { column_name: 'id', data_type: 'uuid' },
+    { column_name: 'created_at', data_type: 'timestamp with time zone' },
+  ] as any;
+
+  function pools(sourceQuery: (sql: string) => Promise<any>) {
+    const sourceClient = { query: jest.fn(sourceQuery), release: jest.fn() };
+    const sourcePool = { connect: jest.fn(async () => sourceClient) };
+    const destClient = { query: jest.fn(async (..._args: any[]) => ({})), release: jest.fn() };
+    const destPool = { connect: jest.fn(async () => destClient) };
+    return { sourceClient, sourcePool, destClient, destPool };
+  }
+
+  it('asks for timestamps as text, so no microseconds are lost to a JavaScript Date', async () => {
+    const svc = service();
+    const { sourceClient, sourcePool, destPool } = pools(async () => ({ rows: [] }));
+    await svc.copyTableDataFromDirectPostgres(sourcePool, destPool, 'drag_runs', COLUMNS);
+    const sql = sourceClient.query.mock.calls[0][0] as string;
+    expect(sql).toContain('"created_at"::text AS "created_at"');
+    expect(sql).toContain('SELECT "id", ');
+  });
+
+  it('raises a read failure instead of counting the table as empty', async () => {
+    const svc = service();
+    const { sourcePool, destPool } = pools(async () => {
+      throw Object.assign(new Error('permission denied for table drag_runs'), { code: '42501' });
+    });
+    await expect(svc.copyTableDataFromDirectPostgres(sourcePool, destPool, 'drag_runs', COLUMNS)).rejects.toThrow(
+      /reading "drag_runs" from the source failed after 0 row\(s\) were copied \(permission denied/,
+    );
+  });
+
+  it('releases the source connection even when the read fails', async () => {
+    const svc = service();
+    const { sourceClient, sourcePool, destPool } = pools(async () => {
+      throw Object.assign(new Error('nope'), { code: '42501' });
+    });
+    await svc.copyTableDataFromDirectPostgres(sourcePool, destPool, 't', COLUMNS).catch(() => undefined);
+    expect(sourceClient.release).toHaveBeenCalledTimes(1);
+  });
+
+  it('copies the rows it read, with the timestamp text untouched', async () => {
+    const svc = service();
+    const { sourcePool, destPool, destClient } = pools(async () => ({
+      rows: [{ id: 'a1', created_at: '2026-11-17 10:00:00.123456+00' }],
+    }));
+    const copied = await svc.copyTableDataFromDirectPostgres(sourcePool, destPool, 't', COLUMNS);
+    expect(copied).toBe(1);
+    const insert = destClient.query.mock.calls.find(([q]) => String(q).startsWith('INSERT'));
+    expect(insert![1]).toContain('2026-11-17 10:00:00.123456+00');
+  });
+});
+
 describe('SupabaseImportService.importAuth', () => {
   const HASH = '$2a$05$CCCCCCCCCCCCCCCCCCCCC.E5YPO9kmyuRGyh0XouQYb4YMJKvyOeW';
   const PROJECT = { id: 'p1', keycloakRealm: 'realm-p1' };

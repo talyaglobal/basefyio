@@ -58,6 +58,7 @@ import {
 } from './supabase-import-keys.service';
 import type { RepairImportKeysDto } from './dto/repair-import-keys.dto';
 import { isAlreadyPresentError, makeIdempotent, sanitizeSchemaDump } from './supabase-schema-dump.util';
+import { sourceSelectList, withTransientRetry } from './supabase-copy.util';
 
 /** Known built-in PostgreSQL base type identifiers (without [] suffix).
  *  Anything NOT in this set is treated as a custom/enum type and falls back
@@ -3492,7 +3493,9 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     const columnNames = columns.map((c) =>
       c.column_name.replace(/[^a-zA-Z0-9_]/g, ''),
     );
-    const colList = columnNames.map((n) => `"${n}"`).join(', ');
+    // Timestamps, dates and bytea are read as text: the driver would otherwise
+    // hand back a Date (milliseconds only) or a Buffer, and the copy loses them.
+    const colList = sourceSelectList(columns);
     const typeMap: Record<string, string> = {};
     for (const col of columns) {
       const cleanName = col.column_name.replace(/[^a-zA-Z0-9_]/g, '');
@@ -3505,22 +3508,41 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     let firstPageLogged = false;
 
     while (true) {
-      const src = await sourcePool.connect();
       let rows: any[];
       try {
-        const res = await src.query(
-          `SELECT ${colList} FROM public."${sanitized}" ORDER BY ctid LIMIT $1 OFFSET $2`,
-          [pageSize, offset],
+        // A page that cannot be read is retried while the failure is the kind
+        // that passes (no free connection slot, a dropped connection), and
+        // otherwise raised. It used to be swallowed: a first page that failed
+        // counted as an empty table and the copy fell back to a read that RLS
+        // filters to nothing; a later page that failed quietly cut the table short.
+        rows = await withTransientRetry(
+          async () => {
+            const src = await sourcePool.connect();
+            try {
+              const res = await src.query(
+                `SELECT ${colList} FROM public."${sanitized}" ORDER BY ctid LIMIT $1 OFFSET $2`,
+                [pageSize, offset],
+              );
+              return res.rows;
+            } finally {
+              src.release();
+            }
+          },
+          {
+            onRetry: (attempt, delayMs, err: any) =>
+              this.logger.warn(
+                `Direct PG SELECT for "${sanitized}" offset=${offset} hit "${err?.message}"; retry ${attempt} in ${delayMs}ms`,
+              ),
+          },
         );
-        rows = res.rows;
       } catch (err: any) {
         this.logger.warn(
           `Direct PG SELECT failed for "${sanitized}" offset=${offset}: ${err.message}`,
         );
-        if (offset === 0) return 0;
-        break;
-      } finally {
-        src.release();
+        throw new Error(
+          `reading "${sanitized}" from the source failed after ${totalRows} row(s) were copied (${err.message}); ` +
+            'the table is incomplete and needs to be copied again',
+        );
       }
 
       if (!rows.length) break;
