@@ -100,6 +100,25 @@ export function pageObjects<T extends { name: string; prefix?: string; size?: nu
   return limit === undefined && !offset ? out : out.slice(offset, limit === undefined ? undefined : offset + limit);
 }
 
+/**
+ * What a request may say when it creates a bucket. Checked here, at the HTTP
+ * edge, and not in StorageService: the importers call the service with names
+ * and flags copied from another project, and refusing those there would drop
+ * buckets without a word.
+ *
+ * The store folds a bucket name to lowercase, so accepting "My-Bucket" answered
+ * with that name, listed "my-bucket", and made the lowercase spelling a 409.
+ */
+export function assertBucketBody(body: { name?: unknown; public?: unknown } | undefined): void {
+  const name = body?.name;
+  if (typeof name === 'string' && /[A-Z]/.test(name)) {
+    throw new BadRequestException('Bucket name must use lowercase letters, digits and hyphens only');
+  }
+  if (body?.public !== undefined && typeof body.public !== 'boolean') {
+    throw new BadRequestException('"public" must be true or false');
+  }
+}
+
 /** A non-empty list of non-empty strings. */
 const isPathList = (v: unknown): v is string[] =>
   Array.isArray(v) && v.length > 0 && v.every((p) => typeof p === 'string' && p.trim() !== '');
@@ -156,6 +175,7 @@ export class StorageController {
     @Body() body: { name: string; public?: boolean },
     @CurrentUser() user?: JwtPayload,
   ) {
+    assertBucketBody(body);
     const result = await this.storage.createBucket(projectId, user?.sub, body.name, body.public);
     await this.activity.append(projectId, {
       userId: user?.sub,
@@ -188,6 +208,11 @@ export class StorageController {
     @Body() body: { public: boolean },
     @CurrentUser() user?: JwtPayload,
   ) {
+    // {"public":"yes"} used to be truthy and made the bucket public; {} was
+    // answered 200 without changing anything.
+    if (typeof body?.public !== 'boolean') {
+      throw new BadRequestException('"public" must be true or false');
+    }
     const result = await this.storage.toggleBucketPublic(projectId, user?.sub, bucketName, body.public);
     await this.activity.append(projectId, {
       userId: user?.sub,

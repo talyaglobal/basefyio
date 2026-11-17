@@ -88,7 +88,9 @@ const { data, error } = await bucket.upload(
 
 // Uploading to the same path overwrites the existing object.`}</code></pre>
       <blockquote>
-        Max upload size is 50&nbsp;MB per file via the API. For folders, see the dashboard&apos;s
+        A single upload request accepts files up to 500&nbsp;MB by default (a self-hosted install can change
+        this with <code>STORAGE_MAX_UPLOAD_MB</code>); a larger file is refused with 413. For bigger files, use
+        <code> uploadResumable()</code>, which sends them in chunks. For folders, see the dashboard&apos;s
         <strong> Upload folder</strong> action below.
       </blockquote>
 

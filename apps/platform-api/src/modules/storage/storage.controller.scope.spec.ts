@@ -383,3 +383,62 @@ describe('StorageController — handler behaviour', () => {
     expect(stream.pipe).toHaveBeenCalledWith(res);
   });
 });
+
+describe('StorageController — bucket request validation', () => {
+  function build() {
+    const storage = {
+      createBucket: jest.fn().mockResolvedValue({ id: 'b', name: 'docs' }),
+      toggleBucketPublic: jest.fn().mockResolvedValue({ public: true }),
+    };
+    const activity = { append: jest.fn().mockResolvedValue(undefined) };
+    const controller = new StorageController(storage as any, activity as any, {} as any, {} as any);
+    return { storage, activity, controller };
+  }
+  const user = { sub: 'u1' } as any;
+
+  it.each([['yes'], ['true'], [1], [0], [null], [{}]])(
+    'updateBucket refuses public=%p instead of treating it as true',
+    async (value) => {
+      const { storage, controller } = build();
+      await expect(controller.updateBucket('p1', 'docs', { public: value } as any, user)).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      expect(storage.toggleBucketPublic).not.toHaveBeenCalled();
+    },
+  );
+
+  it('updateBucket refuses a body with no public field', async () => {
+    const { storage, controller } = build();
+    await expect(controller.updateBucket('p1', 'docs', {} as any, user)).rejects.toThrow(/true or false/);
+    await expect(controller.updateBucket('p1', 'docs', undefined as any, user)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(storage.toggleBucketPublic).not.toHaveBeenCalled();
+  });
+
+  it('updateBucket still accepts real booleans', async () => {
+    const { storage, controller } = build();
+    await controller.updateBucket('p1', 'docs', { public: false }, user);
+    expect(storage.toggleBucketPublic).toHaveBeenCalledWith('p1', 'u1', 'docs', false);
+  });
+
+  it('createBucket refuses a non-boolean public flag before any bucket exists', async () => {
+    const { storage, controller } = build();
+    await expect(controller.createBucket('p1', { name: 'docs', public: 'yes' as any }, user)).rejects.toThrow(
+      /true or false/,
+    );
+    expect(storage.createBucket).not.toHaveBeenCalled();
+  });
+
+  it('createBucket refuses a name with capital letters, with a message that says why', async () => {
+    const { storage, controller } = build();
+    await expect(controller.createBucket('p1', { name: 'QA-E2E-API-Bad' }, user)).rejects.toThrow(/lowercase/);
+    expect(storage.createBucket).not.toHaveBeenCalled();
+  });
+
+  it('createBucket still accepts a lowercase name and an omitted public flag', async () => {
+    const { storage, controller } = build();
+    await controller.createBucket('p1', { name: 'qa-bucket' }, user);
+    expect(storage.createBucket).toHaveBeenCalledWith('p1', 'u1', 'qa-bucket', undefined);
+  });
+});
