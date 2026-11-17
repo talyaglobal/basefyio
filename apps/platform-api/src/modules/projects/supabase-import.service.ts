@@ -220,6 +220,24 @@ interface SourceStorageCatalog {
   policies: SourceStoragePolicy[];
 }
 
+/**
+ * The source database's major version, which picks the pg_dump client.
+ *
+ * `show server_version` answers in a column called `server_version`, so reading
+ * `rows[0].v` was always empty: every import reported an "unreadable server
+ * version" and skipped copying the schema, leaving no functions, views,
+ * triggers, foreign keys, policies or sequences behind. `current_setting` lets
+ * the column be named.
+ */
+export async function readSourceMajorVersion(pool: {
+  query: (sql: string) => Promise<{ rows: Array<Record<string, unknown>> }>;
+}): Promise<{ major: number | null; raw: string }> {
+  const { rows } = await pool.query(`select current_setting('server_version') as v`);
+  const raw = String(rows?.[0]?.v ?? '');
+  const major = parseInt(raw, 10);
+  return { major: Number.isFinite(major) ? major : null, raw };
+}
+
 @Injectable()
 export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(SupabaseImportService.name);
@@ -2425,10 +2443,9 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       const ref = this.resolveSupabaseProjectRef(baseUrl, jwt || '');
       let schemaReason = 'no reason recorded';
       try {
-        const { rows } = await sourcePool.query<{ v: string }>('show server_version');
-        const major = parseInt(String(rows[0]?.v ?? ''), 10);
-        if (!Number.isFinite(major)) {
-          schemaReason = `the source reported an unreadable server version "${rows[0]?.v ?? ''}"`;
+        const { major, raw } = await readSourceMajorVersion(sourcePool);
+        if (major === null) {
+          schemaReason = `the source reported an unreadable server version "${raw}"`;
         } else if (ref && pwd) {
           if (onProgress) await onProgress('Copying the source schema...', 8);
           const dump = await this.dumpSourceSchema(ref, pwd, major);
