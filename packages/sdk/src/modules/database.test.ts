@@ -265,3 +265,18 @@ describe('single() and maybeSingle() row-count semantics', () => {
     expect(sq.toSQL()).toContain('LIMIT 2');
   });
 });
+
+describe('upsert conflict target', () => {
+  const tbl = () => table();
+
+  it('uses DO NOTHING when only the conflict column is supplied', () => {
+    const sql = tbl().upsert({ id: 1 }, { onConflict: 'id' }).toSQL();
+    expect(sql).toContain('DO NOTHING');
+    expect(sql).not.toContain('DO UPDATE SET  ');
+  });
+
+  it('defaults the conflict target to id, not the first key', () => {
+    const sql = tbl().upsert({ title: 'a', id: 1 }).toSQL();
+    expect(sql).toContain('ON CONFLICT ("id") DO UPDATE SET "title" = EXCLUDED."title"');
+  });
+});

@@ -512,14 +512,16 @@ export class QueryBuilder<T = Record<string, unknown>> implements PromiseLike<Ba
           const vals = allKeys.map((k) => bind(row[k] ?? null));
           return `(${vals.join(', ')})`;
         });
-        const conflict = this._upsertConflict.length
-          ? this._upsertConflict.map(quoteIdent).join(', ')
-          : allKeys[0] ? quoteIdent(allKeys[0]) : 'id';
+        // Without onConflict the target is the conventional primary key `id`,
+        // never the first key of the object (which is rarely unique).
+        const conflictCols = this._upsertConflict.length ? this._upsertConflict : ['id'];
+        const conflict = conflictCols.map(quoteIdent).join(', ');
         const updateCols = allKeys
-          .filter((k) => !this._upsertConflict.includes(k))
+          .filter((k) => !conflictCols.includes(k))
           .map((k) => `${quoteIdent(k)} = EXCLUDED.${quoteIdent(k)}`)
           .join(', ');
-        return `INSERT INTO ${table} (${cols}) VALUES ${rows.join(', ')} ON CONFLICT (${conflict}) DO UPDATE SET ${updateCols} RETURNING *`;
+        const action = updateCols ? `DO UPDATE SET ${updateCols}` : 'DO NOTHING';
+        return `INSERT INTO ${table} (${cols}) VALUES ${rows.join(', ')} ON CONFLICT (${conflict}) ${action} RETURNING *`;
       }
     }
   }

@@ -112,6 +112,9 @@ export class AuthClient {
   }
 
   async signUp(credentials: SignUpCredentials): Promise<BasefyioResponse<AuthTokens>> {
+    if (!credentials?.email || !credentials?.password) {
+      return { data: null, error: { message: 'Email and password are required', status: 400 } };
+    }
     try {
       const data = await this.http.json<AuthTokens>('/rest/v1/auth/signup', {
         method: 'POST',
