@@ -137,7 +137,10 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
 
   useEffect(() => {
     if (!activeTabId || tabs.length === 0) return;
-    writeSavedTabs(storageKey, JSON.stringify({ tabs, activeTabId }));
+    // Result rows are table data: they stay in memory, never in browser storage
+    // (size limit, and customer data should not linger on disk).
+    const slim = tabs.map((t) => ({ ...t, result: null }));
+    writeSavedTabs(storageKey, JSON.stringify({ tabs: slim, activeTabId }));
   }, [tabs, activeTabId, storageKey]);
 
   const activeTab = useMemo(
@@ -423,7 +426,7 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
             <div className="flex flex-wrap items-center gap-4">
               <span>
                 {result.resultSets && result.resultSets.length > 1
-                  ? `${result.resultSets.length} statements`
+                  ? `${result.resultSets.length} statements${result.capped ? ' (first 1,000 rows of each result shown)' : ''}`
                   : result.paginated && (result.total ?? null) !== null
                     ? `${result.total}${result.totalIsApprox ? '+' : ''} total · page ${result.page ?? 1}`
                     : `${countOf(result.rowCount ?? 0, 'row')}${result.paginated ? ` (page ${result.page ?? 1})` : ''}`}

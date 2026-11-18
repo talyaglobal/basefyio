@@ -300,3 +300,27 @@ describe('SqlService.execute — columns that share a name', () => {
     expect(res.fields?.map((f) => f.name)).toEqual(['count', 'count_1']);
   });
 });
+
+describe('SqlService.execute — a script that cannot be paged is still bounded', () => {
+  const big = (n: number) => ({
+    rows: Array.from({ length: n }, (_, i) => [i]),
+    fields: [{ name: 'n', dataTypeID: 23 }],
+    rowCount: n,
+  });
+
+  it('cuts every result set of a multi-statement script to 1000 rows and says so', async () => {
+    const { svc } = harness([big(5000), big(3)]);
+    const r: any = await svc.execute('p1', 'select n from t; select 1', 'u1');
+    expect(r.paginated).toBe(false);
+    expect(r.capped).toBe(true);
+    expect(r.resultSets[0].rows).toHaveLength(1000);
+    expect(r.resultSets[1].rows).toHaveLength(3);
+    expect(r.rowCount).toBe(3);
+  });
+
+  it('does not flag a small script', async () => {
+    const { svc } = harness([big(2), big(3)]);
+    const r: any = await svc.execute('p1', 'select 1; select 2', 'u1');
+    expect(r.capped).toBe(false);
+  });
+});

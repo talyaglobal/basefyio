@@ -604,6 +604,8 @@ export interface SqlResult {
   page?: number;
   limit?: number;
   paginated?: boolean;
+  /** True when an unpaged script's rows were cut to the server cap (1000 per result set). */
+  capped?: boolean;
   /** Bounded count of total rows; null when not requested or query failed. */
   total?: number | null;
   /** True when total was capped at 10k. */

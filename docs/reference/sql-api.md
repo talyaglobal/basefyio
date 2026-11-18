@@ -53,7 +53,9 @@ names. A bound value is never scanned as SQL and can never become syntax.
 `rowCount` is the number of rows returned (for `SELECT`) or affected (for writes). With
 `countTotal: true` the response also carries the total of the unpaginated result. A `SELECT`
 is wrapped as `SELECT * FROM (<your query>) AS _bf_paged LIMIT <limit> OFFSET <offset>`;
-non-`SELECT` statements are run as written.
+non-`SELECT` statements and multi-statement scripts are run as written and are not paged;
+they return at most 1,000 rows per result set, and the response carries `capped: true` when
+rows were cut.
 
 Each row is an object keyed by column name. When a query returns two columns with the same
 name (`select count(*), count(*) filter (where done) from todos`), the repeats are renamed

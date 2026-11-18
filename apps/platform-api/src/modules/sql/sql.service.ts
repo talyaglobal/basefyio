@@ -41,6 +41,9 @@ export interface SqlRlsContext {
 /** Whether every executed statement is queued for semantic indexing; on unless switched off. */
 const SQL_QUERY_EMBEDDING = aiEnabled() && (process.env.SQL_QUERY_EMBEDDING ?? 'on').toLowerCase() !== 'off';
 
+/** Rows returned per result set when a statement cannot be paged. */
+const MAX_UNPAGED_ROWS = 1000;
+
 @Injectable()
 export class SqlService implements OnModuleDestroy {
   private readonly logger = new Logger(SqlService.name);
@@ -297,6 +300,17 @@ export class SqlService implements OnModuleDestroy {
       const allResults: QueryResult[] = (
         Array.isArray(rawResult) ? (rawResult as QueryResult[]) : [rawResult as QueryResult]
       ).map((r) => this.objectRows(r));
+      // A script that cannot be paged (several statements, a write) still must
+      // not ship an unbounded result: cap each result set, and say so.
+      let capped = false;
+      if (!canPaginate) {
+        for (const r of allResults) {
+          if (r.rows && r.rows.length > MAX_UNPAGED_ROWS) {
+            r.rows = r.rows.slice(0, MAX_UNPAGED_ROWS);
+            capped = true;
+          }
+        }
+      }
       // Each statement in a multi-statement script gets its own result set so
       // the UI can show every query's output, not just the last one.
       const resultSets = allResults.map((r) => ({
@@ -380,6 +394,7 @@ export class SqlService implements OnModuleDestroy {
         page,
         limit,
         paginated: canPaginate,
+        capped,
         total,
         totalIsApprox,
         resultSets,
