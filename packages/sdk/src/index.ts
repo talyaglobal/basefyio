@@ -13,6 +13,7 @@ export type {
 } from './modules/auth.js';
 export { CollectionManager, CollectionClient, DocumentQuery } from './modules/collection.js';
 
+export { VERSION } from './lib/version.js';
 export { BASEFYIO_DEFAULT_API_URL } from './lib/types.js';
 
 export type {

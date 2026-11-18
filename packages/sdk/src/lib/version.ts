@@ -1,0 +1,2 @@
+/** basefyio-js package version (keep in sync with package.json). */
+export const VERSION = '2.3.1';

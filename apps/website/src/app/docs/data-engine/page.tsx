@@ -105,6 +105,7 @@ export default function DataEngineDocs() {
         </tbody>
       </table>
 
+      <p>Filters use Mongo-style operators (<code>$eq</code>, <code>$ne</code>, <code>$gt</code>, <code>$in</code>, <code>$contains</code>, <code>$and</code>, <code>$or</code>, <code>$not</code>, ...). <code>sort</code> accepts the array form or <code>{`{"field":-1}`}</code>. A malformed filter or sort returns <code>400</code>. Writes are validated against the entity fields (required fields and scalar types), the body must be a JSON object up to 1 MB (<code>413</code> above that), arrays are limited to 1000 items and nesting to 8 levels.</p>
       <h3>Query Parameters</h3>
       <table>
         <thead><tr><th>Parameter</th><th>Type</th><th>Example</th></tr></thead>

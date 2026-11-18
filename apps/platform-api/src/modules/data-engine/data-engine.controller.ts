@@ -15,6 +15,8 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
+import { parseFilterParam, parseSortParam } from './data-query-params';
+import { validateDocument } from './document-validation';
 import { DataEngineService } from './data-engine.service';
 import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
 import { AnonKeyAllowed, ServiceKeyOnly } from '../../common/decorators/api-key-scope.decorator';
@@ -86,6 +88,7 @@ export class DataEngineController {
   ) {
     this.assertEngineAvailable();
     const col = await this.dataEngine.getEntityCollection(projectId, entity);
+    validateDocument(body, (await this.dataEngine.getEntityDefinition(projectId, entity))?.fields);
     return col.insert(body as any, { userId: user?.sub });
   }
 
@@ -110,8 +113,8 @@ export class DataEngineController {
       );
     }
 
-    const filter = filterRaw ? JSON.parse(filterRaw) : undefined;
-    const sort = sortRaw ? JSON.parse(sortRaw) : undefined;
+    const filter = parseFilterParam(filterRaw);
+    const sort = parseSortParam(sortRaw);
     const limit = limitRaw ? parseInt(limitRaw, 10) : undefined;
     const offset = offsetRaw ? parseInt(offsetRaw, 10) : undefined;
 
@@ -154,6 +157,7 @@ export class DataEngineController {
   ) {
     this.assertEngineAvailable();
     const col = await this.dataEngine.getEntityCollection(projectId, entity);
+    validateDocument(body, (await this.dataEngine.getEntityDefinition(projectId, entity))?.fields, { partial: true });
     return col.update(id, body as any, { userId: user?.sub });
   }
 
@@ -167,6 +171,7 @@ export class DataEngineController {
   ) {
     this.assertEngineAvailable();
     const col = await this.dataEngine.getEntityCollection(projectId, entity);
+    validateDocument(body, (await this.dataEngine.getEntityDefinition(projectId, entity))?.fields);
     return col.replace(id, body as any, { userId: user?.sub });
   }
 
