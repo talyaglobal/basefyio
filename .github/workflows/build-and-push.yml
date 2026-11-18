@@ -254,7 +254,19 @@ jobs:
               printf '\nInstall or upgrade a self-hosted stack with `scripts/install.sh` (docs/SELF_HOSTING_OFFLINE.md).\n'
             } >> /tmp/notes.md
           fi
+          # Third-party licences of this release (npm lockfiles + pinned images). A
+          # failure here must never fail a deploy that already succeeded.
+          LIC=""
+          if node scripts/third-party-licenses.mjs /tmp/THIRD_PARTY_LICENSES.md; then
+            LIC=/tmp/THIRD_PARTY_LICENSES.md
+            printf '\nThird-party licenses of this release are attached as `THIRD_PARTY_LICENSES.md`.\n' >> /tmp/notes.md
+          else
+            echo "::warning::third-party licence file could not be generated"
+          fi
           if ! gh release view "v$VER" >/dev/null 2>&1; then
             gh release create "v$VER" --title "v$VER — ${TITLE:-release}" --notes-file /tmp/notes.md --verify-tag
+          fi
+          if [ -n "$LIC" ]; then
+            gh release upload "v$VER" "$LIC" --clobber || echo "::warning::licence upload failed"
           fi
           echo "Released v$VER"
