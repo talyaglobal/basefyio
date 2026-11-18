@@ -21,7 +21,8 @@ export default function SelfHostingDocs() {
         single machine), and <code>docker-compose.prod.yml</code> runs pre-built images behind Traefik with
         Let&apos;s Encrypt certificates (production). This page covers both. The complete, step-by-step version
         lives in the repository:{" "}
-        <a href={`${REPO_DOCS}/SELF_HOSTING_OFFLINE.md`}>docs/SELF_HOSTING_OFFLINE.md</a>.
+        <a href={`${REPO_DOCS}/SELF_HOSTING_OFFLINE.md`}>docs/SELF_HOSTING_OFFLINE.md</a>. A Turkish
+        installation guide is available too: <a href={`${REPO_DOCS}/KURULUM.md`}>docs/KURULUM.md</a>.
       </p>
 
       <h2>What runs</h2>
