@@ -6,6 +6,7 @@ import {
   isEncrypted,
   isEncryptionEnabled,
 } from '../common/crypto/field-crypto';
+import { confineToTokenTeam } from '../common/request-context/token-context';
 
 const WRITE_ACTIONS = new Set([
   'create',
@@ -24,6 +25,8 @@ export class PrismaService
 
   async onModuleInit() {
     this.installCredentialCrypto();
+    // A team-restricted platform API token only ever sees its own team (no-op otherwise).
+    this.$use(confineToTokenTeam);
     await this.$connect();
     // Encrypt any existing plaintext project passwords (no-op without a key).
     this.backfillProjectCredentials().catch((e) =>

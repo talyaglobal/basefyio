@@ -196,4 +196,37 @@ export class ApiTokensService {
     }
     return { id: t.id, userId: t.userId, teamId: t.teamId, scopes: t.scopes };
   }
+
+  /** The owner's account email, so handlers that read `user.email` see the same value as for a session. */
+  async ownerEmail(userId: string): Promise<string> {
+    try {
+      const u = await this.prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
+      return u?.email ?? '';
+    } catch {
+      return '';
+    }
+  }
+
+  /**
+   * Team confinement for a token created for one team: every project and team the request names
+   * must belong to that team. A project that does not exist is left to the handler (404). Tokens
+   * without a team restriction are bounded by the owner's own memberships, checked by the handlers.
+   */
+  async assertWithinTeam(
+    token: { teamId: string | null },
+    target: { projectIds: string[]; teamIds: string[] },
+  ): Promise<void> {
+    if (!token.teamId) return;
+    const refuse = () => {
+      throw new ForbiddenException('This API token is limited to another team.');
+    };
+    if (target.teamIds.some((t) => t !== token.teamId)) refuse();
+    const ids = [...new Set(target.projectIds)];
+    if (ids.length === 0) return;
+    const projects = await this.prisma.project.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, teamId: true },
+    });
+    if (projects.some((p) => p.teamId !== token.teamId)) refuse();
+  }
 }

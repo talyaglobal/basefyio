@@ -21,7 +21,9 @@ import { ProjectPitrService } from './project-pitr.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { ImportSupabaseDto } from './dto/import-supabase.dto';
 import { RepairImportKeysDto } from './dto/repair-import-keys.dto';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { JwtOrPlatformTokenGuard } from '../api-tokens/jwt-or-platform-token.guard';
+import { ScopesGuard } from '../api-tokens/scopes.guard';
+import { JwtOnly, Scopes } from '../api-tokens/scopes.decorator';
 import {
   CurrentUser,
   JwtPayload,
@@ -30,7 +32,7 @@ import { ProjectActivityService } from './project-activity.service';
 import { ProjectArchiveImportService } from './project-archive-import.service';
 
 @Controller('projects')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtOrPlatformTokenGuard, ScopesGuard)
 export class ProjectsController {
   constructor(
     private readonly projectsService: ProjectsService,
@@ -44,11 +46,13 @@ export class ProjectsController {
   // Typed as the class itself, not an intersection: an intersection compiles
   // to `Object` and the validation pipe silently skipped it, so nothing in
   // the body was ever checked.
+  @Scopes('projects:write')
   @Post()
   async create(@Body() body: CreateProjectDto, @CurrentUser() user: JwtPayload) {
     return this.projectsService.create(body, user.sub);
   }
 
+  @Scopes('projects:write')
   @Post('import-supabase')
   async importFromSupabase(
     @Body() body: ImportSupabaseDto,
@@ -72,6 +76,7 @@ export class ProjectsController {
    * Dry run by request; otherwise DDL runs on the project database as its own
    * user, one table per transaction, only where the rows are unique on the key.
    */
+  @Scopes('projects:write')
   @Post(':id/import-supabase/repair-keys')
   async repairSupabaseImportKeys(
     @Param('id') id: string,
@@ -81,6 +86,7 @@ export class ProjectsController {
     return this.supabaseImport.repairImportedPrimaryKeys(id, user.sub, body);
   }
 
+  @Scopes('projects:write')
   @Post('import-export-zip')
   @UseInterceptors(FileInterceptor('file', { storage: undefined }))
   async importExportZip(
@@ -98,6 +104,7 @@ export class ProjectsController {
     return this.projectArchiveImport.importArchive(file, user.sub, body);
   }
 
+  @Scopes('projects:write')
   @Post('import-supabase/validate')
   async validateSupabase(
     @Body() body: { supabaseUrl: string; serviceRoleKey: string },
@@ -108,6 +115,7 @@ export class ProjectsController {
     );
   }
 
+  @Scopes('projects:write')
   @Post('import-supabase/jobs/:jobId/cancel')
   async cancelImport(
     @Param('jobId') jobId: string,
@@ -116,6 +124,7 @@ export class ProjectsController {
     return this.supabaseImport.cancelImport(jobId, user.sub);
   }
 
+  @Scopes('projects:read')
   @Get('import-supabase/jobs/:jobId/status')
   async getJobStatus(@Param('jobId') jobId: string) {
     const status = await this.supabaseImport.getJobStatus(jobId);
@@ -125,6 +134,7 @@ export class ProjectsController {
     return status;
   }
 
+  @Scopes('projects:read')
   @Get('import-supabase/jobs/:jobId/events')
   async streamJobEvents(
     @Param('jobId') jobId: string,
@@ -226,6 +236,7 @@ export class ProjectsController {
     });
   }
 
+  @Scopes('projects:read')
   @Get()
   async findAll(
     @Query('teamId') teamId: string,
@@ -234,6 +245,7 @@ export class ProjectsController {
     return this.projectsService.findAll(teamId, user.sub);
   }
 
+  @Scopes('projects:read')
   @Get('deleted')
   async findDeleted(
     @Query('teamId') teamId: string,
@@ -242,6 +254,7 @@ export class ProjectsController {
     return this.projectsService.findDeleted(teamId, user.sub);
   }
 
+  @Scopes('projects:read')
   @Get('deactivated')
   async findDeactivated(
     @Query('teamId') teamId: string,
@@ -251,11 +264,13 @@ export class ProjectsController {
   }
 
   // Declared before the ':id/...' routes so "pitr" is not read as a project id.
+  @JwtOnly()
   @Post('pitr/run-base-backup')
   async runClusterBaseBackup(@CurrentUser() user: JwtPayload) {
     return this.projectPitr.runClusterBaseBackupNow(user.sub);
   }
 
+  @Scopes('settings:write')
   @Patch(':id/max-rows')
   async setMaxRowsPerTable(
     @Param('id') id: string,
@@ -265,6 +280,7 @@ export class ProjectsController {
     return this.projectsService.setMaxRowsPerTable(id, user.sub, Number(maxRowsPerTable));
   }
 
+  @JwtOnly() // platform operators only (ROOT)
   @Get('deletion-reasons')
   async listDeletionReasons(
     @CurrentUser() user: JwtPayload,
@@ -274,6 +290,7 @@ export class ProjectsController {
     return this.projectsService.listDeletionReasons(user.sub, limit);
   }
 
+  @Scopes('logs:read')
   @Get(':id/activity')
   async listProjectActivity(
     @Param('id') id: string,
@@ -286,6 +303,7 @@ export class ProjectsController {
     return this.projectActivity.listForProject(id, user.sub, { limit, page });
   }
 
+  @Scopes('projects:read')
   @Get(':id')
   async findOne(
     @Param('id') id: string,
@@ -294,6 +312,7 @@ export class ProjectsController {
     return this.projectsService.findOne(id, user.sub);
   }
 
+  @Scopes('projects:write')
   @Patch(':id')
   async update(
     @Param('id') id: string,
@@ -303,6 +322,7 @@ export class ProjectsController {
     return this.projectsService.update(id, user.sub, body);
   }
 
+  @JwtOnly()
   @Post(':id/move-to-team')
   async moveToTeam(
     @Param('id') id: string,
@@ -312,6 +332,7 @@ export class ProjectsController {
     return this.projectsService.moveToTeam(id, targetTeamId, user.sub);
   }
 
+  @Scopes('secrets:write')
   @Patch(':id/db-password')
   async rotateDbPassword(
     @Param('id') id: string,
@@ -326,11 +347,13 @@ export class ProjectsController {
    * writes. Create (or repair) it, rotate its password, or remove it. Same
    * permission as rotating the owner password.
    */
+  @Scopes('secrets:write')
   @Post(':id/db-readonly-role')
   async createReadonlyRole(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
     return this.projectsService.createReadonlyRole(id, user.sub);
   }
 
+  @Scopes('secrets:write')
   @Patch(':id/db-readonly-password')
   async rotateReadonlyPassword(
     @Param('id') id: string,
@@ -340,6 +363,7 @@ export class ProjectsController {
     return this.projectsService.rotateReadonlyPassword(id, user.sub, body?.password);
   }
 
+  @Scopes('secrets:write')
   @Delete(':id/db-readonly-role')
   async dropReadonlyRole(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
     return this.projectsService.dropReadonlyRole(id, user.sub);
@@ -349,11 +373,13 @@ export class ProjectsController {
    * Extra database roles: named LOGIN roles a project owner creates so each
    * service or worker can connect with its own least-privilege identity.
    */
+  @Scopes('secrets:read')
   @Get(':id/db-extra-roles')
   async listExtraRoles(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
     return this.projectsService.listExtraRoles(id, user.sub);
   }
 
+  @Scopes('secrets:write')
   @Post(':id/db-extra-roles')
   async createExtraRole(
     @Param('id') id: string,
@@ -364,6 +390,7 @@ export class ProjectsController {
     return this.projectsService.createExtraRole(id, user.sub, body?.label, memberOf);
   }
 
+  @Scopes('secrets:write')
   @Patch(':id/db-extra-roles/:roleId/password')
   async rotateExtraRolePassword(
     @Param('id') id: string,
@@ -374,6 +401,7 @@ export class ProjectsController {
     return this.projectsService.rotateExtraRolePassword(id, user.sub, roleId, body?.password);
   }
 
+  @Scopes('secrets:write')
   @Delete(':id/db-extra-roles/:roleId')
   async dropExtraRole(
     @Param('id') id: string,
@@ -384,6 +412,7 @@ export class ProjectsController {
   }
 
   /** Pooler connection cap for this database; null = back to the plan default. */
+  @Scopes('settings:write')
   @Patch(':id/db-connection-limit')
   async setDbConnectionLimit(
     @Param('id') id: string,
@@ -399,6 +428,7 @@ export class ProjectsController {
    * use to recover legacy projects whose data API returns
    * "permission denied to set role anon" / "service_role".
    */
+  @Scopes('schema:write')
   @Post(':id/ensure-rls-bootstrap')
   async ensureRlsBootstrap(
     @Param('id') id: string,
@@ -417,6 +447,7 @@ export class ProjectsController {
    * Use this when the data API returns 500 "permission denied to set role <X>"
    * to figure out which step is broken before triggering a re-bootstrap.
    */
+  @Scopes('schema:read')
   @Get(':id/rls-diagnose')
   async diagnoseRls(
     @Param('id') id: string,
@@ -426,6 +457,7 @@ export class ProjectsController {
     return this.projectsService.diagnoseRls(id);
   }
 
+  @Scopes('projects:write')
   @Post(':id/restore')
   async restore(
     @Param('id') id: string,
@@ -434,6 +466,7 @@ export class ProjectsController {
     return this.projectsService.restore(id, user.sub);
   }
 
+  @Scopes('projects:write')
   @Post(':id/deactivate')
   async deactivate(
     @Param('id') id: string,
@@ -442,6 +475,7 @@ export class ProjectsController {
     return this.projectsService.deactivate(id, user.sub);
   }
 
+  @Scopes('projects:write')
   @Post(':id/reactivate')
   async reactivate(
     @Param('id') id: string,
@@ -450,6 +484,7 @@ export class ProjectsController {
     return this.projectsService.reactivate(id, user.sub);
   }
 
+  @Scopes('projects:write')
   @Post(':id/sleep')
   async sleep(
     @Param('id') id: string,
@@ -458,6 +493,7 @@ export class ProjectsController {
     return this.projectsService.sleep(id, user.sub);
   }
 
+  @Scopes('projects:write')
   @Delete(':id/permanent')
   async permanentDelete(
     @Param('id') id: string,
@@ -466,6 +502,7 @@ export class ProjectsController {
     return this.projectsService.permanentDelete(id, user.sub);
   }
 
+  @Scopes('projects:write')
   @Delete(':id')
   async remove(
     @Param('id') id: string,
@@ -480,6 +517,7 @@ export class ProjectsController {
     return this.projectsService.remove(id, user.sub, body);
   }
 
+  @Scopes('backups:write')
   @Post(':id/export')
   async startExport(
     @Param('id') id: string,
@@ -495,6 +533,7 @@ export class ProjectsController {
     return this.projectExport.startExport(id, user.sub, body);
   }
 
+  @Scopes('backups:read')
   @Get(':id/export/jobs/:jobId/status')
   async getExportStatus(
     @Param('id') id: string,
@@ -508,6 +547,7 @@ export class ProjectsController {
     return status;
   }
 
+  @Scopes('backups:read')
   @Get(':id/export/jobs/:jobId/events')
   async streamExportEvents(
     @Param('id') id: string,
@@ -587,6 +627,7 @@ export class ProjectsController {
     });
   }
 
+  @Scopes('backups:read')
   @Get(':id/export/jobs/:jobId/download')
   async downloadExport(
     @Param('id') id: string,
@@ -606,6 +647,7 @@ export class ProjectsController {
     file.stream.pipe(res);
   }
 
+  @Scopes('backups:read')
   @Get(':id/backups')
   async listCloudBackups(
     @Param('id') id: string,
@@ -614,6 +656,7 @@ export class ProjectsController {
     return this.projectExport.listCloudBackups(id, user.sub);
   }
 
+  @Scopes('backups:write')
   @Post(':id/backups/restore')
   async restoreCloudBackup(
     @Param('id') id: string,
@@ -632,6 +675,7 @@ export class ProjectsController {
   }
 
   /** What range of timestamps this project can be recovered to right now. */
+  @Scopes('backups:read')
   @Get(':id/pitr/window')
   async getRecoveryWindow(
     @Param('id') id: string,
@@ -641,6 +685,7 @@ export class ProjectsController {
   }
 
   /** Recover the project database to an exact instant inside the window. */
+  @Scopes('backups:write')
   @Post(':id/pitr/restore')
   async restoreToTimestamp(
     @Param('id') id: string,

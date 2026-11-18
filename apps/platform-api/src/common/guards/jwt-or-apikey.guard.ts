@@ -22,7 +22,11 @@ export class JwtOrApiKeyGuard implements CanActivate {
       try {
         const result = await this.jwtGuard.canActivate(context);
         if (result) return true;
-      } catch {}
+      } catch (err) {
+        // A platform API token (`bf_pat_…`) is refused with a reason: these routes take a
+        // dashboard session or a project key, never an account token.
+        if (err instanceof ForbiddenException) throw err;
+      }
     }
 
     if (request.headers['apikey']) {

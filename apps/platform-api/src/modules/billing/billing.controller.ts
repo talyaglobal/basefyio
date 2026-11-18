@@ -17,6 +17,9 @@ import {
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { JwtOrPlatformTokenGuard } from '../api-tokens/jwt-or-platform-token.guard';
+import { ScopesGuard } from '../api-tokens/scopes.guard';
+import { Scopes } from '../api-tokens/scopes.decorator';
 import { ManagementPermissionGuard } from '../../common/guards/management-permission.guard';
 import { RequireManagementPermission } from '../../common/decorators/management-permission.decorator';
 import { BillingService } from './billing.service';
@@ -60,7 +63,8 @@ export class BillingController {
     return this.projectCosts.getPublicRates();
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtOrPlatformTokenGuard, ScopesGuard)
+  @Scopes('billing:read')
   @Get('subscription')
   async getSubscription(@Req() req: any, @Query('teamId') teamId?: string) {
     const userId = req.user.sub;
@@ -70,7 +74,8 @@ export class BillingController {
     return this.billing.getTeamSubscriptionForUser(teamId, userId);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtOrPlatformTokenGuard, ScopesGuard)
+  @Scopes('billing:read')
   @Get('usage')
   async getUsage(@Req() req: any, @Query('teamId') teamId?: string) {
     const userId = req.user.sub;
@@ -85,7 +90,8 @@ export class BillingController {
    * Per-project cost breakdown for the current billing period. Customers only
    * ever see priced figures; the raw infrastructure cost stays in management.
    */
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtOrPlatformTokenGuard, ScopesGuard)
+  @Scopes('billing:read')
   @Get('project-costs')
   async getProjectCosts(@Req() req: any, @Query('teamId') teamId?: string) {
     const userId = req.user.sub;
@@ -96,7 +102,8 @@ export class BillingController {
     return this.projectCosts.getTeamReport(teamId);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtOrPlatformTokenGuard, ScopesGuard)
+  @Scopes('billing:read')
   @Get('invoices')
   async getInvoices(@Req() req: any, @Query('teamId') teamId?: string) {
     const userId = req.user.sub;
@@ -106,7 +113,8 @@ export class BillingController {
     return this.billing.getInvoices(teamId, userId);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtOrPlatformTokenGuard, ScopesGuard)
+  @Scopes('billing:read')
   @Get('invoices/:invoiceId/pdf')
   async downloadInvoicePdf(
     @Req() req: any,
@@ -173,7 +181,8 @@ export class BillingController {
     return this.billing.createPortalSession(body.teamId, req.user.sub, body.returnUrl);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtOrPlatformTokenGuard, ScopesGuard)
+  @Scopes('billing:read')
   @Get('account')
   async getBillingAccount(@Req() req: any, @Query('teamId') teamId?: string) {
     const userId = req.user.sub;
@@ -205,7 +214,8 @@ export class BillingController {
     return this.billing.upsertBillingAccount(teamId, req.user.sub, data);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtOrPlatformTokenGuard, ScopesGuard)
+  @Scopes('billing:read')
   @Get('payment-method')
   async getPaymentMethod(@Req() req: any, @Query('teamId') teamId?: string) {
     const userId = req.user.sub;

@@ -9,7 +9,9 @@ import {
   HttpCode,
   UseGuards,
 } from '@nestjs/common';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { JwtOrPlatformTokenGuard } from '../api-tokens/jwt-or-platform-token.guard';
+import { ScopesGuard } from '../api-tokens/scopes.guard';
+import { Scopes } from '../api-tokens/scopes.decorator';
 import {
   CurrentUser,
   JwtPayload,
@@ -20,7 +22,7 @@ import { SetEmbeddingProviderDto } from './dto/set-embedding-provider.dto';
 import { assertProjectTeamMember } from './tenant-embedding.access';
 
 @Controller('projects/:projectId/embeddings')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtOrPlatformTokenGuard, ScopesGuard)
 export class TenantEmbeddingController {
   constructor(
     private readonly tenantEmbedding: TenantEmbeddingService,
@@ -28,6 +30,7 @@ export class TenantEmbeddingController {
   ) {}
 
   /** Get the pgvector / embedding status for a project. */
+  @Scopes('embeddings:read')
   @Get('status')
   async getStatus(
     @Param('projectId') projectId: string,
@@ -38,6 +41,7 @@ export class TenantEmbeddingController {
   }
 
   /** Enable pgvector on the project's database (creates extension + tables). */
+  @Scopes('embeddings:write')
   @Post('enable')
   async enable(
     @Param('projectId') projectId: string,
@@ -49,6 +53,7 @@ export class TenantEmbeddingController {
   }
 
   /** Disable pgvector for the project (tables are preserved). */
+  @Scopes('embeddings:write')
   @Delete('enable')
   async disable(
     @Param('projectId') projectId: string,
@@ -60,6 +65,7 @@ export class TenantEmbeddingController {
   }
 
   /** Set or clear the per-project API key for the selected embedding provider. */
+  @Scopes('embeddings:write')
   @Post('api-key')
   async setApiKey(
     @Param('projectId') projectId: string,
@@ -72,6 +78,7 @@ export class TenantEmbeddingController {
   }
 
   /** Providers the project may choose from, and which platform keys exist. */
+  @Scopes('embeddings:read')
   @Get('providers')
   async providers(
     @Param('projectId') projectId: string,
@@ -87,6 +94,7 @@ export class TenantEmbeddingController {
    * `reembed` was not confirmed; EMBEDDING_DIMENSION_TOO_LARGE when the model is
    * wider than the store.
    */
+  @Scopes('embeddings:write')
   @Put('provider')
   async setProvider(
     @Param('projectId') projectId: string,
@@ -98,6 +106,7 @@ export class TenantEmbeddingController {
   }
 
   /** Re-embed every stored vector with the project's current provider. */
+  @Scopes('embeddings:write')
   @Post('reembed')
   @HttpCode(202)
   async reembed(

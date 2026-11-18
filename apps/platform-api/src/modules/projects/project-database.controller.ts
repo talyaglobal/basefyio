@@ -9,7 +9,9 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { JwtOrPlatformTokenGuard } from '../api-tokens/jwt-or-platform-token.guard';
+import { ScopesGuard } from '../api-tokens/scopes.guard';
+import { Scopes } from '../api-tokens/scopes.decorator';
 import {
   CurrentUser,
   JwtPayload,
@@ -22,7 +24,7 @@ import {
 } from './project-activity.service';
 
 @Controller('projects/:projectId/database')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtOrPlatformTokenGuard, ScopesGuard)
 export class ProjectDatabaseController {
   constructor(
     private readonly db: ProjectDatabaseService,
@@ -40,11 +42,13 @@ export class ProjectDatabaseController {
   }
 
   // Indexes
+  @Scopes('schema:read')
   @Get('indexes')
   listIndexes(@Param('projectId') id: string, @CurrentUser() u: JwtPayload) {
     return this.db.listIndexes(id, u.sub);
   }
 
+  @Scopes('schema:write')
   @Post('indexes')
   async createIndex(
     @Param('projectId') id: string,
@@ -56,6 +60,7 @@ export class ProjectDatabaseController {
     return r;
   }
 
+  @Scopes('schema:write')
   @Delete('indexes/:name')
   async dropIndex(
     @Param('projectId') id: string,
@@ -68,11 +73,13 @@ export class ProjectDatabaseController {
   }
 
   // Triggers
+  @Scopes('schema:read')
   @Get('triggers')
   listTriggers(@Param('projectId') id: string, @CurrentUser() u: JwtPayload) {
     return this.db.listTriggers(id, u.sub);
   }
 
+  @Scopes('schema:write')
   @Post('triggers')
   async createTrigger(
     @Param('projectId') id: string,
@@ -88,6 +95,7 @@ export class ProjectDatabaseController {
     return r;
   }
 
+  @Scopes('schema:write')
   @Put('triggers/toggle')
   toggleTrigger(
     @Param('projectId') id: string,
@@ -97,6 +105,7 @@ export class ProjectDatabaseController {
     return this.db.toggleTrigger(id, u.sub, body);
   }
 
+  @Scopes('schema:write')
   @Delete('triggers/:table/:name')
   async dropTrigger(
     @Param('projectId') id: string,
@@ -110,11 +119,13 @@ export class ProjectDatabaseController {
   }
 
   // Functions
+  @Scopes('schema:read')
   @Get('functions')
   listFunctions(@Param('projectId') id: string, @CurrentUser() u: JwtPayload) {
     return this.db.listFunctions(id, u.sub);
   }
 
+  @Scopes('schema:write')
   @Post('functions')
   async createFunction(
     @Param('projectId') id: string,
@@ -126,6 +137,7 @@ export class ProjectDatabaseController {
     return r;
   }
 
+  @Scopes('schema:write')
   @Delete('functions/:name')
   async dropFunction(
     @Param('projectId') id: string,
@@ -139,11 +151,13 @@ export class ProjectDatabaseController {
   }
 
   // Extensions
+  @Scopes('schema:read')
   @Get('extensions')
   listExtensions(@Param('projectId') id: string, @CurrentUser() u: JwtPayload) {
     return this.db.listExtensions(id, u.sub);
   }
 
+  @Scopes('schema:write')
   @Put('extensions')
   async setExtension(
     @Param('projectId') id: string,
@@ -160,6 +174,7 @@ export class ProjectDatabaseController {
    * database. Idempotent; extensions already present are left alone and any
    * the cluster lacks are reported, not fatal.
    */
+  @Scopes('schema:write')
   @Post('extensions/defaults')
   async installDefaultExtensions(@Param('projectId') id: string, @CurrentUser() u: JwtPayload) {
     const r = await this.provisioning.installDefaultExtensionsForProject(id, u.sub);

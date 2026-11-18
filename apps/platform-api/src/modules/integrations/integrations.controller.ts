@@ -12,19 +12,22 @@ import {
 import { IntegrationsService } from './integrations.service';
 import { ConnectGitHubDto } from './dto/connect-github.dto';
 import { ConnectVercelDto } from './dto/connect-vercel.dto';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { JwtOrPlatformTokenGuard } from '../api-tokens/jwt-or-platform-token.guard';
+import { ScopesGuard } from '../api-tokens/scopes.guard';
+import { Scopes } from '../api-tokens/scopes.decorator';
 import {
   CurrentUser,
   JwtPayload,
 } from '../../common/decorators/current-user.decorator';
 
 @Controller('projects/:projectId/integrations')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtOrPlatformTokenGuard, ScopesGuard)
 export class IntegrationsController {
   constructor(private readonly service: IntegrationsService) {}
 
   // ── GitHub ──────────────────────────────────────────
 
+  @Scopes('integrations:write')
   @Put('github')
   async connectGitHub(
     @Param('projectId') projectId: string,
@@ -41,6 +44,7 @@ export class IntegrationsController {
     });
   }
 
+  @Scopes('integrations:write')
   @Delete('github')
   async disconnectGitHub(
     @Param('projectId') projectId: string,
@@ -49,6 +53,7 @@ export class IntegrationsController {
     return this.service.disconnectGitHub(projectId, user.sub);
   }
 
+  @Scopes('integrations:read')
   @Get('github')
   async getGitHubStatus(
     @Param('projectId') projectId: string,
@@ -57,6 +62,7 @@ export class IntegrationsController {
     return this.service.getGitHubStatus(projectId, user.sub);
   }
 
+  @Scopes('integrations:read')
   @Get('github/repos')
   async listGitHubRepos(
     @Param('projectId') projectId: string,
@@ -66,6 +72,7 @@ export class IntegrationsController {
     return this.service.listGitHubRepos(projectId, user.sub, token);
   }
 
+  @Scopes('integrations:read')
   @Get('github/commits')
   async getGitHubCommits(
     @Param('projectId') projectId: string,
@@ -74,6 +81,7 @@ export class IntegrationsController {
     return this.service.getGitHubCommits(projectId, user.sub);
   }
 
+  @Scopes('integrations:read')
   @Get('github/branches')
   async getGitHubBranches(
     @Param('projectId') projectId: string,
@@ -82,6 +90,7 @@ export class IntegrationsController {
     return this.service.getGitHubBranches(projectId, user.sub);
   }
 
+  @Scopes('integrations:read')
   @Get('github/branches/preview')
   async previewGitHubBranches(
     @Param('projectId') projectId: string,
@@ -95,6 +104,7 @@ export class IntegrationsController {
 
   // ── Vercel ──────────────────────────────────────────
 
+  @Scopes('integrations:write')
   @Put('vercel')
   async connectVercel(
     @Param('projectId') projectId: string,
@@ -110,6 +120,7 @@ export class IntegrationsController {
     });
   }
 
+  @Scopes('integrations:write')
   @Delete('vercel')
   async disconnectVercel(
     @Param('projectId') projectId: string,
@@ -118,6 +129,7 @@ export class IntegrationsController {
     return this.service.disconnectVercel(projectId, user.sub);
   }
 
+  @Scopes('integrations:read')
   @Get('vercel')
   async getVercelStatus(
     @Param('projectId') projectId: string,
@@ -126,6 +138,7 @@ export class IntegrationsController {
     return this.service.getVercelStatus(projectId, user.sub);
   }
 
+  @Scopes('integrations:read')
   @Get('vercel/projects')
   async listVercelProjects(
     @Param('projectId') projectId: string,
@@ -136,6 +149,7 @@ export class IntegrationsController {
     return this.service.listVercelProjects(projectId, user.sub, token, teamId);
   }
 
+  @Scopes('integrations:read')
   @Get('vercel/deployments')
   async getVercelDeployments(
     @Param('projectId') projectId: string,
@@ -144,6 +158,7 @@ export class IntegrationsController {
     return this.service.getVercelDeployments(projectId, user.sub);
   }
 
+  @Scopes('integrations:write')
   @Post('vercel/sync-env')
   async syncEnvToVercel(
     @Param('projectId') projectId: string,

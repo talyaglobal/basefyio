@@ -9,7 +9,7 @@ row-level security (RLS) in the project's own PostgreSQL database decides what i
 |---|---|---|---|
 | **Project keys** — `anon` and `service_role` | your application | the data API of one project: `/api/rest/v1/*`, `/api/sql/execute`, `/api/realtime/v1/*`, `/api/projects/:id/storage/*`, and the service-key administration routes | this page |
 | **Dashboard session** — a Keycloak JWT of the platform realm | a person signed in to the dashboard | the platform API: projects, teams, billing, database administration | — |
-| **API token** — `bf_pat_…` | an automation acting as a person | the management routes that declare `JwtOrPlatformTokenGuard`, limited by scopes | [../API_TOKENS.md](../API_TOKENS.md) |
+| **API token** — `bf_pat_…` | an automation acting as a person | the management routes that name a scope, limited by its scopes and its team; every other route answers 403 | [../API_TOKENS.md](../API_TOKENS.md) |
 
 A project key identifies exactly one project. The guard compares the key with every place a
 request names a project — path, body and query — and refuses a key used against another

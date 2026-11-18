@@ -1,5 +1,7 @@
 import { Controller, Get, Param, UseGuards } from '@nestjs/common';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { JwtOrPlatformTokenGuard } from '../api-tokens/jwt-or-platform-token.guard';
+import { ScopesGuard } from '../api-tokens/scopes.guard';
+import { Scopes } from '../api-tokens/scopes.decorator';
 import {
   CurrentUser,
   JwtPayload,
@@ -14,7 +16,7 @@ import { assertProjectTeamMember } from './tenant-embedding.access';
  * text is sent to, and the provider's retention statement.
  */
 @Controller('projects/:projectId/ai')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtOrPlatformTokenGuard, ScopesGuard)
 export class AiDisclosureController {
   constructor(
     private readonly tenantEmbedding: TenantEmbeddingService,
@@ -22,6 +24,7 @@ export class AiDisclosureController {
   ) {}
 
   /** GET /projects/:projectId/ai/disclosure */
+  @Scopes('settings:read')
   @Get('disclosure')
   async disclosure(
     @Param('projectId') projectId: string,

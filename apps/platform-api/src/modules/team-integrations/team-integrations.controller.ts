@@ -12,7 +12,9 @@ import {
 import { Response } from 'express';
 import { TeamIntegrationsService } from './team-integrations.service';
 import { TeamsService } from '../teams/teams.service';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { JwtOrPlatformTokenGuard } from '../api-tokens/jwt-or-platform-token.guard';
+import { ScopesGuard } from '../api-tokens/scopes.guard';
+import { Scopes } from '../api-tokens/scopes.decorator';
 import {
   CurrentUser,
   JwtPayload,
@@ -28,13 +30,19 @@ export class TeamIntegrationsController {
   // ── GitHub ──────────────────────────────────────────────────
 
   @Get(':teamId/github/status')
-  @UseGuards(JwtAuthGuard)
+
+  @UseGuards(JwtOrPlatformTokenGuard, ScopesGuard)
+
+  @Scopes('integrations:read')
   getGitHubStatus(@Param('teamId') teamId: string) {
     return this.service.getGitHubStatus(teamId);
   }
 
   @Get(':teamId/github/connect-url')
-  @UseGuards(JwtAuthGuard)
+
+  @UseGuards(JwtOrPlatformTokenGuard, ScopesGuard)
+
+  @Scopes('integrations:read')
   async getGitHubConnectUrl(
     @Param('teamId') teamId: string,
     @CurrentUser() user: JwtPayload,
@@ -55,7 +63,10 @@ export class TeamIntegrationsController {
   }
 
   @Post(':teamId/github/connect-pat')
-  @UseGuards(JwtAuthGuard)
+
+  @UseGuards(JwtOrPlatformTokenGuard, ScopesGuard)
+
+  @Scopes('integrations:write')
   async connectGitHubWithPat(
     @Param('teamId') teamId: string,
     @Body('token') token: string,
@@ -67,7 +78,10 @@ export class TeamIntegrationsController {
   }
 
   @Delete(':teamId/github')
-  @UseGuards(JwtAuthGuard)
+
+  @UseGuards(JwtOrPlatformTokenGuard, ScopesGuard)
+
+  @Scopes('integrations:write')
   async disconnectGitHub(
     @Param('teamId') teamId: string,
     @CurrentUser() user: JwtPayload,
@@ -77,13 +91,19 @@ export class TeamIntegrationsController {
   }
 
   @Get(':teamId/github/repos')
-  @UseGuards(JwtAuthGuard)
+
+  @UseGuards(JwtOrPlatformTokenGuard, ScopesGuard)
+
+  @Scopes('integrations:read')
   listGitHubRepos(@Param('teamId') teamId: string) {
     return this.service.listGitHubRepos(teamId);
   }
 
   @Get(':teamId/github/branches')
-  @UseGuards(JwtAuthGuard)
+
+  @UseGuards(JwtOrPlatformTokenGuard, ScopesGuard)
+
+  @Scopes('integrations:read')
   listGitHubBranches(
     @Param('teamId') teamId: string,
     @Query('owner') owner: string,
@@ -95,13 +115,19 @@ export class TeamIntegrationsController {
   // ── Vercel ──────────────────────────────────────────────────
 
   @Get(':teamId/vercel/status')
-  @UseGuards(JwtAuthGuard)
+
+  @UseGuards(JwtOrPlatformTokenGuard, ScopesGuard)
+
+  @Scopes('integrations:read')
   getVercelStatus(@Param('teamId') teamId: string) {
     return this.service.getVercelStatus(teamId);
   }
 
   @Get(':teamId/vercel/connect-url')
-  @UseGuards(JwtAuthGuard)
+
+  @UseGuards(JwtOrPlatformTokenGuard, ScopesGuard)
+
+  @Scopes('integrations:read')
   async getVercelConnectUrl(
     @Param('teamId') teamId: string,
     @CurrentUser() user: JwtPayload,
@@ -122,7 +148,10 @@ export class TeamIntegrationsController {
   }
 
   @Post(':teamId/vercel/connect')
-  @UseGuards(JwtAuthGuard)
+
+  @UseGuards(JwtOrPlatformTokenGuard, ScopesGuard)
+
+  @Scopes('integrations:write')
   async connectVercel(
     @Param('teamId') teamId: string,
     @Body('token') token: string,
@@ -133,7 +162,10 @@ export class TeamIntegrationsController {
   }
 
   @Delete(':teamId/vercel')
-  @UseGuards(JwtAuthGuard)
+
+  @UseGuards(JwtOrPlatformTokenGuard, ScopesGuard)
+
+  @Scopes('integrations:write')
   async disconnectVercel(
     @Param('teamId') teamId: string,
     @CurrentUser() user: JwtPayload,
@@ -143,7 +175,10 @@ export class TeamIntegrationsController {
   }
 
   @Get(':teamId/vercel/projects')
-  @UseGuards(JwtAuthGuard)
+
+  @UseGuards(JwtOrPlatformTokenGuard, ScopesGuard)
+
+  @Scopes('integrations:read')
   listVercelProjects(@Param('teamId') teamId: string) {
     return this.service.listVercelProjects(teamId);
   }

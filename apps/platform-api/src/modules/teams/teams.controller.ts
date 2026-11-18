@@ -11,7 +11,9 @@ import {
   Req,
 } from '@nestjs/common';
 import { TeamsService } from './teams.service';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { JwtOrPlatformTokenGuard } from '../api-tokens/jwt-or-platform-token.guard';
+import { ScopesGuard } from '../api-tokens/scopes.guard';
+import { JwtOnly, Scopes } from '../api-tokens/scopes.decorator';
 import {
   CurrentUser,
   JwtPayload,
@@ -21,13 +23,14 @@ import { RequestWithTraceId } from '../../common/middleware/trace-id.middleware'
 import { UpdateTeamSecurityDto } from './dto/update-team-security.dto';
 
 @Controller('teams')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtOrPlatformTokenGuard, ScopesGuard)
 export class TeamsController {
   constructor(
     private readonly teamsService: TeamsService,
     private readonly observability: ObservabilityService,
   ) {}
 
+  @JwtOnly()
   @Post()
   async create(
     @Body() body: { name: string },
@@ -36,17 +39,20 @@ export class TeamsController {
     return this.teamsService.create(body.name, user.sub);
   }
 
+  @Scopes('team:read')
   @Get()
   async findAll(@CurrentUser() user: JwtPayload) {
     return this.teamsService.findAllForUser(user.sub);
   }
 
+  @JwtOnly()
   @Get('active')
   async getActive(@CurrentUser() user: JwtPayload) {
     const teamId = await this.teamsService.getActiveTeamId(user.sub);
     return { teamId };
   }
 
+  @JwtOnly()
   @Put('active')
   async setActive(
     @Body() body: { teamId: string },
@@ -55,11 +61,13 @@ export class TeamsController {
     return this.teamsService.setActiveTeam(user.sub, body.teamId);
   }
 
+  @JwtOnly()
   @Get('invites')
   async myInvites(@CurrentUser() user: JwtPayload) {
     return this.teamsService.listPendingInvites(user.sub);
   }
 
+  @JwtOnly()
   @Post('invites/:id/accept')
   async acceptInvite(
     @Param('id') id: string,
@@ -68,6 +76,7 @@ export class TeamsController {
     return this.teamsService.acceptInvite(id, user.sub);
   }
 
+  @JwtOnly()
   @Post('invites/:id/decline')
   async declineInvite(
     @Param('id') id: string,
@@ -76,6 +85,7 @@ export class TeamsController {
     return this.teamsService.declineInvite(id, user.sub);
   }
 
+  @Scopes('team:write')
   @Patch(':id')
   async updateTeam(
     @Req() req: RequestWithTraceId,
@@ -112,6 +122,7 @@ export class TeamsController {
     }
   }
 
+  @Scopes('team:read')
   @Get(':id/members')
   async listMembers(
     @Param('id') id: string,
@@ -120,6 +131,7 @@ export class TeamsController {
     return this.teamsService.listMembers(id, user.sub);
   }
 
+  @Scopes('team:read')
   @Get(':id/invites')
   async listTeamInvites(
     @Param('id') id: string,
@@ -128,6 +140,7 @@ export class TeamsController {
     return this.teamsService.listTeamInvites(id, user.sub);
   }
 
+  @Scopes('team:write')
   @Post(':id/invites')
   async sendInvite(
     @Req() req: RequestWithTraceId,
@@ -165,6 +178,7 @@ export class TeamsController {
     }
   }
 
+  @Scopes('team:write')
   @Delete(':id/invites/:inviteId')
   async cancelInvite(
     @Req() req: RequestWithTraceId,
@@ -203,6 +217,7 @@ export class TeamsController {
     }
   }
 
+  @Scopes('team:write')
   @Post(':id/invites/:inviteId/reinvite')
   async reInvite(
     @Req() req: RequestWithTraceId,
@@ -241,6 +256,7 @@ export class TeamsController {
     }
   }
 
+  @Scopes('team:write')
   @Patch(':id/members/:userId/role')
   async updateMemberRole(
     @Param('id') id: string,
@@ -251,6 +267,7 @@ export class TeamsController {
     return this.teamsService.updateMemberRole(id, user.sub, targetUserId, body.role);
   }
 
+  @Scopes('team:write')
   @Delete(':id/members/:userId')
   async removeMember(
     @Req() req: RequestWithTraceId,
@@ -289,11 +306,13 @@ export class TeamsController {
     }
   }
 
+  @JwtOnly()
   @Post(':id/leave')
   async leaveTeam(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
     return this.teamsService.leaveTeam(id, user.sub);
   }
 
+  @JwtOnly()
   @Post(':id/transfer-ownership')
   async transferOwnership(
     @Req() req: RequestWithTraceId,
@@ -332,6 +351,7 @@ export class TeamsController {
     }
   }
 
+  @Scopes('team:read')
   @Get(':id/role-permissions')
   async getRolePermissions(
     @Param('id') id: string,
@@ -340,6 +360,7 @@ export class TeamsController {
     return this.teamsService.getRolePermissions(id, user.sub);
   }
 
+  @JwtOnly()
   @Put(':id/role-permissions/:role')
   async updateRolePermissions(
     @Param('id') id: string,
@@ -355,6 +376,7 @@ export class TeamsController {
     return this.teamsService.updateRolePermissions(id, user.sub, role, body);
   }
 
+  @JwtOnly()
   @Delete(':id')
   async deleteTeam(
     @Req() req: RequestWithTraceId,
@@ -393,11 +415,13 @@ export class TeamsController {
   // The dashboard's security page has called these two since the two-factor
   // policy shipped; the service existed, the routes did not, and the page
   // showed a 404 as "could not load".
+  @Scopes('team:read')
   @Get(':id/security')
   async getSecurity(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
     return this.teamsService.getSecurity(id, user.sub);
   }
 
+  @JwtOnly()
   @Patch(':id/security')
   async updateSecurity(
     @Param('id') id: string,

@@ -50,7 +50,10 @@ export const SCOPE_GROUPS: ScopeGroup[] = [
     description: 'Plan, subscription, invoices and usage',
     scopes: [
       { scope: 'billing:read', description: 'Read plan, subscription, usage and invoices' },
-      { scope: 'billing:write', description: 'Change plan and manage the subscription' },
+      {
+        scope: 'billing:write',
+        description: 'Reserved: plan and payment changes need a dashboard session, no route accepts a token for them',
+      },
     ],
   },
 

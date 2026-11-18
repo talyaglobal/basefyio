@@ -75,6 +75,7 @@ import { AiChatModule } from './modules/ai-chat/ai-chat.module';
 import { AgentModule } from './modules/agent/agent.module';
 import configuration from './config/configuration';
 import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
+import { TokenContextMiddleware } from './common/request-context/token-context';
 
 @Module({
   imports: [
@@ -174,6 +175,6 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
-    consumer.apply(TraceIdMiddleware, UsageTrackingMiddleware).forRoutes('*');
+    consumer.apply(TokenContextMiddleware, TraceIdMiddleware, UsageTrackingMiddleware).forRoutes('*');
   }
 }

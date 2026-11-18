@@ -9,7 +9,9 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { JwtOrPlatformTokenGuard } from '../api-tokens/jwt-or-platform-token.guard';
+import { ScopesGuard } from '../api-tokens/scopes.guard';
+import { Scopes } from '../api-tokens/scopes.decorator';
 import {
   CurrentUser,
   JwtPayload,
@@ -39,7 +41,7 @@ function flag(value: string | undefined): boolean {
  * (team membership is checked by the service); API keys never reach these.
  */
 @Controller('projects/:projectId/database/policies')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtOrPlatformTokenGuard, ScopesGuard)
 export class ProjectPoliciesController {
   constructor(
     private readonly policies: ProjectPoliciesService,
@@ -63,11 +65,13 @@ export class ProjectPoliciesController {
     });
   }
 
+  @Scopes('schema:read')
   @Get()
   list(@Param('projectId') id: string, @CurrentUser() u: JwtPayload) {
     return this.policies.listPolicies(id, u.sub);
   }
 
+  @Scopes('schema:write')
   @Post()
   async create(
     @Param('projectId') id: string,
@@ -79,6 +83,7 @@ export class ProjectPoliciesController {
     return r;
   }
 
+  @Scopes('schema:write')
   @Post('rls')
   async setRls(
     @Param('projectId') id: string,
@@ -91,6 +96,7 @@ export class ProjectPoliciesController {
     return r;
   }
 
+  @Scopes('schema:write')
   @Put(':table/:name')
   async replace(
     @Param('projectId') id: string,
@@ -104,6 +110,7 @@ export class ProjectPoliciesController {
     return r;
   }
 
+  @Scopes('schema:write')
   @Delete(':table/:name')
   async drop(
     @Param('projectId') id: string,

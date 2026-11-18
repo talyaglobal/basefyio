@@ -11,7 +11,7 @@ Your application's own data traffic belongs on the data API ([rest-api.md](./res
 | Tier | Credential |
 |---|---|
 | `service` | the project's **service key** in the `apikey` header, or a dashboard session. The anon key is refused with 403. |
-| `session` | a dashboard session (`Authorization: Bearer <Keycloak JWT>`) only. Keys and API tokens are refused with 401. |
+| `session` | a dashboard session (`Authorization: Bearer <Keycloak JWT>`) only. Keys are refused with 401; an API token is refused with 403 `API tokens are not accepted on this route; it needs a dashboard session.` |
 | `session · token` | a dashboard session or an [API token](../API_TOKENS.md) (`bf_pat_…`) holding the scope named in the row. |
 | `root` | a dashboard session of a platform operator (user role `ROOT`); every other account gets 403. |
 
@@ -28,20 +28,20 @@ not apply to them. That is why the anon key can never reach them.
 
 | Method | Path | Tier | Purpose |
 |---|---|---|---|
-| POST | `/api/projects` | session | create a project — `{ name, teamId, description?, databaseType? }` |
-| GET | `/api/projects` | session | `?teamId=` — the team's active projects |
-| GET | `/api/projects/deleted` | session | `?teamId=` — projects in the trash |
-| GET | `/api/projects/deactivated` | session | `?teamId=` — deactivated projects |
-| GET | `/api/projects/:id` | session | one project |
-| PATCH | `/api/projects/:id` | session | `{ name?, description?, folderId?, tags? }` |
-| GET | `/api/projects/:id/activity` | session | `?page=&limit=` — the project's activity log (limit 1–500, default 50) |
-| PATCH | `/api/projects/:id/max-rows` | session | `{ maxRowsPerTable }` — page-size ceiling of the dashboard data grid |
-| POST | `/api/projects/:id/move-to-team` | session | `{ teamId }` — move the project to another team |
-| POST | `/api/projects/:id/deactivate` | session | freeze the project without deleting data |
-| POST | `/api/projects/:id/reactivate` | session | bring a deactivated project back |
-| DELETE | `/api/projects/:id` | session | move the project to the trash — optional body `{ reasonCode?, reasonLabel?, details? }` |
-| POST | `/api/projects/:id/restore` | session | take a project out of the trash |
-| DELETE | `/api/projects/:id/permanent` | session | permanently delete a project that is in the trash |
+| POST | `/api/projects` | session · token `projects:write` | create a project — `{ name, teamId, description?, databaseType? }` |
+| GET | `/api/projects` | session · token `projects:read` | `?teamId=` — the team's active projects |
+| GET | `/api/projects/deleted` | session · token `projects:read` | `?teamId=` — projects in the trash |
+| GET | `/api/projects/deactivated` | session · token `projects:read` | `?teamId=` — deactivated projects |
+| GET | `/api/projects/:id` | session · token `projects:read` | one project |
+| PATCH | `/api/projects/:id` | session · token `projects:write` | `{ name?, description?, folderId?, tags? }` |
+| GET | `/api/projects/:id/activity` | session · token `logs:read` | `?page=&limit=` — the project's activity log (limit 1–500, default 50) |
+| PATCH | `/api/projects/:id/max-rows` | session · token `settings:write` | `{ maxRowsPerTable }` — page-size ceiling of the dashboard data grid |
+| POST | `/api/projects/:id/move-to-team` | session | `{ teamId }` — move the project to another team (an API token is refused) |
+| POST | `/api/projects/:id/deactivate` | session · token `projects:write` | freeze the project without deleting data |
+| POST | `/api/projects/:id/reactivate` | session · token `projects:write` | bring a deactivated project back |
+| DELETE | `/api/projects/:id` | session · token `projects:write` | move the project to the trash — optional body `{ reasonCode?, reasonLabel?, details? }` |
+| POST | `/api/projects/:id/restore` | session · token `projects:write` | take a project out of the trash |
+| DELETE | `/api/projects/:id/permanent` | session · token `projects:write` | permanently delete a project that is in the trash |
 | GET | `/api/projects/deletion-reasons` | root | `?limit=` — recent deletions and the reasons given (at most 500) |
 
 ### Create
@@ -90,11 +90,11 @@ per page; it does not limit how many rows a table can hold.
 | Method | Path | Tier | Purpose |
 |---|---|---|---|
 | GET | `/api/projects/:projectId/connect` | service | connection strings, keys, read-only role and pooler limit |
-| PATCH | `/api/projects/:id/db-password` | session | `{ password? }` — rotate the owner password (random when omitted) |
-| POST | `/api/projects/:id/db-readonly-role` | session | create the read-only companion role, or repair its grants |
-| PATCH | `/api/projects/:id/db-readonly-password` | session | `{ password? }` — rotate the read-only role's password |
-| DELETE | `/api/projects/:id/db-readonly-role` | session | remove the read-only role |
-| PATCH | `/api/projects/:id/db-connection-limit` | session | `{ maxDbConnections: number \| null }` — pooled connections allowed to this database |
+| PATCH | `/api/projects/:id/db-password` | session · token `secrets:write` | `{ password? }` — rotate the owner password (random when omitted) |
+| POST | `/api/projects/:id/db-readonly-role` | session · token `secrets:write` | create the read-only companion role, or repair its grants |
+| PATCH | `/api/projects/:id/db-readonly-password` | session · token `secrets:write` | `{ password? }` — rotate the read-only role's password |
+| DELETE | `/api/projects/:id/db-readonly-role` | session · token `secrets:write` | remove the read-only role |
+| PATCH | `/api/projects/:id/db-connection-limit` | session · token `settings:write` | `{ maxDbConnections: number \| null }` — pooled connections allowed to this database |
 
 *Who:* the four write routes need the team permission **reset database password** (team owners
 always have it); others get 403 `Your role does not have the "canResetDbPassword" permission in
@@ -144,6 +144,9 @@ back to the plan or platform default. Answer: `{ maxDbConnections, planCeiling, 
 The pooler configuration is regenerated right away.
 
 ## API keys
+
+These routes take a dashboard session or an [API token](../API_TOKENS.md): `GET` needs
+`secrets:read`, every `POST` and `DELETE` (revealing the service key included) needs `secrets:write`.
 
 | Method | Path | Who | What |
 |---|---|---|---|
@@ -203,19 +206,19 @@ All `session`; any member of the project's team may use them. Identifiers must m
 
 | Method | Path | Tier | Purpose |
 |---|---|---|---|
-| GET | `/api/projects/:projectId/database/indexes` | session | `name`, `table`, `definition`, `isUnique`, `isPrimary`, `size` |
-| POST | `/api/projects/:projectId/database/indexes` | session | `{ table, columns, unique?, method?, name? }` — `method` is `btree` (default), `hash`, `gin`, `gist` or `brin` |
-| DELETE | `/api/projects/:projectId/database/indexes/:name` | session | drop an index |
-| GET | `/api/projects/:projectId/database/triggers` | session | `name`, `table`, `definition`, `enabled` |
-| POST | `/api/projects/:projectId/database/triggers` | session | `{ name, table, timing: BEFORE\|AFTER, events: [INSERT\|UPDATE\|DELETE], functionName, forEach?: ROW\|STATEMENT }` |
-| PUT | `/api/projects/:projectId/database/triggers/toggle` | session | `{ name, table, enabled }` |
-| DELETE | `/api/projects/:projectId/database/triggers/:table/:name` | session | drop a trigger |
-| GET | `/api/projects/:projectId/database/functions` | session | SQL and PL/pgSQL functions with `args`, `returns`, `language`, `definition` |
-| POST | `/api/projects/:projectId/database/functions` | session | `{ sql }` — exactly one `CREATE [OR REPLACE] FUNCTION` statement |
-| DELETE | `/api/projects/:projectId/database/functions/:name` | session | `?args=` — the identity arguments, as listed |
-| GET | `/api/projects/:projectId/database/extensions` | session | the extensions a project may enable, with `installedVersion` and `enabled` |
-| PUT | `/api/projects/:projectId/database/extensions` | session | `{ name, enabled }` — install or remove one |
-| POST | `/api/projects/:projectId/database/extensions/defaults` | session | install the default set new projects get |
+| GET | `/api/projects/:projectId/database/indexes` | session · token `schema:read` | `name`, `table`, `definition`, `isUnique`, `isPrimary`, `size` |
+| POST | `/api/projects/:projectId/database/indexes` | session · token `schema:write` | `{ table, columns, unique?, method?, name? }` — `method` is `btree` (default), `hash`, `gin`, `gist` or `brin` |
+| DELETE | `/api/projects/:projectId/database/indexes/:name` | session · token `schema:write` | drop an index |
+| GET | `/api/projects/:projectId/database/triggers` | session · token `schema:read` | `name`, `table`, `definition`, `enabled` |
+| POST | `/api/projects/:projectId/database/triggers` | session · token `schema:write` | `{ name, table, timing: BEFORE\|AFTER, events: [INSERT\|UPDATE\|DELETE], functionName, forEach?: ROW\|STATEMENT }` |
+| PUT | `/api/projects/:projectId/database/triggers/toggle` | session · token `schema:write` | `{ name, table, enabled }` |
+| DELETE | `/api/projects/:projectId/database/triggers/:table/:name` | session · token `schema:write` | drop a trigger |
+| GET | `/api/projects/:projectId/database/functions` | session · token `schema:read` | SQL and PL/pgSQL functions with `args`, `returns`, `language`, `definition` |
+| POST | `/api/projects/:projectId/database/functions` | session · token `schema:write` | `{ sql }` — exactly one `CREATE [OR REPLACE] FUNCTION` statement |
+| DELETE | `/api/projects/:projectId/database/functions/:name` | session · token `schema:write` | `?args=` — the identity arguments, as listed |
+| GET | `/api/projects/:projectId/database/extensions` | session · token `schema:read` | the extensions a project may enable, with `installedVersion` and `enabled` |
+| PUT | `/api/projects/:projectId/database/extensions` | session · token `schema:write` | `{ name, enabled }` — install or remove one |
+| POST | `/api/projects/:projectId/database/extensions/defaults` | session · token `schema:write` | install the default set new projects get |
 
 Write routes answer `{ "message": "…" }`. Statements run with a 30-second timeout.
 
@@ -231,13 +234,13 @@ fatal.
 
 | Method | Path | Tier | Purpose |
 |---|---|---|---|
-| GET | `/api/projects/:projectId/database/policies` | session | every `public` table with its RLS flags and policies, plus the `auth.*` helpers present |
-| POST | `/api/projects/:projectId/database/policies` | session | create a policy |
-| PUT | `/api/projects/:projectId/database/policies/:table/:name` | session | replace a policy (drop and create in one transaction; the name may change) |
-| DELETE | `/api/projects/:projectId/database/policies/:table/:name` | session | `?dryRun=true&check=true` — drop a policy |
-| POST | `/api/projects/:projectId/database/policies/rls` | session | `{ table, enabled, force?, dryRun?, check? }` — switch RLS on or off for a table |
-| POST | `/api/projects/:id/ensure-rls-bootstrap` | session | (re)install the `anon` / `authenticated` / `service_role` roles, `auth.*` helpers and default grants |
-| GET | `/api/projects/:id/rls-diagnose` | session | check those roles from the data API's point of view, changing nothing |
+| GET | `/api/projects/:projectId/database/policies` | session · token `schema:read` | every `public` table with its RLS flags and policies, plus the `auth.*` helpers present |
+| POST | `/api/projects/:projectId/database/policies` | session · token `schema:write` | create a policy |
+| PUT | `/api/projects/:projectId/database/policies/:table/:name` | session · token `schema:write` | replace a policy (drop and create in one transaction; the name may change) |
+| DELETE | `/api/projects/:projectId/database/policies/:table/:name` | session · token `schema:write` | `?dryRun=true&check=true` — drop a policy |
+| POST | `/api/projects/:projectId/database/policies/rls` | session · token `schema:write` | `{ table, enabled, force?, dryRun?, check? }` — switch RLS on or off for a table |
+| POST | `/api/projects/:id/ensure-rls-bootstrap` | session · token `schema:write` | (re)install the `anon` / `authenticated` / `service_role` roles, `auth.*` helpers and default grants |
+| GET | `/api/projects/:id/rls-diagnose` | session · token `schema:read` | check those roles from the data API's point of view, changing nothing |
 
 A policy body is
 
@@ -271,17 +274,17 @@ are refused with 500.
 
 | Method | Path | Tier | Purpose |
 |---|---|---|---|
-| POST | `/api/projects/import-supabase/validate` | session | `{ supabaseUrl, serviceRoleKey }` → `{ valid, projectName, tableCount }` |
-| POST | `/api/projects/import-supabase` | session | start an import job (body below) |
-| GET | `/api/projects/import-supabase/jobs/:jobId/status` | session | `{ id, state, progress, result?, failedReason? }` |
-| GET | `/api/projects/import-supabase/jobs/:jobId/events` | session | the same as a server-sent event stream |
-| POST | `/api/projects/import-supabase/jobs/:jobId/cancel` | session | stop the job; a newly created project is removed, a re-import target is kept |
-| POST | `/api/projects/:id/import-supabase/repair-keys` | session | add the source's primary keys to imported tables that lack one |
-| POST | `/api/projects/import-export-zip` | session | create or overwrite a project from a basefyio export archive (multipart) |
-| POST | `/api/projects/:id/data-imports/inspect` | session | upload a CSV, XLSX or JSON file → preview and an inferred column plan |
-| POST | `/api/projects/:id/data-imports/jobs` | session | start the import into a new or existing table (plan body) |
-| GET | `/api/projects/:id/data-imports/jobs/:jobId/status`, `/events` | session | job state, or the same as an event stream; send the access token in the `Authorization` header |
-| GET | `/api/projects/:id/data-imports/jobs/:jobId/errors` | session | CSV of the rejected rows: row number, reason, raw row |
+| POST | `/api/projects/import-supabase/validate` | session · token `projects:write` | `{ supabaseUrl, serviceRoleKey }` → `{ valid, projectName, tableCount }` |
+| POST | `/api/projects/import-supabase` | session · token `projects:write` | start an import job (body below) |
+| GET | `/api/projects/import-supabase/jobs/:jobId/status` | session · token `projects:read` | `{ id, state, progress, result?, failedReason? }` |
+| GET | `/api/projects/import-supabase/jobs/:jobId/events` | session · token `projects:read` | the same as a server-sent event stream |
+| POST | `/api/projects/import-supabase/jobs/:jobId/cancel` | session · token `projects:write` | stop the job; a newly created project is removed, a re-import target is kept |
+| POST | `/api/projects/:id/import-supabase/repair-keys` | session · token `projects:write` | add the source's primary keys to imported tables that lack one |
+| POST | `/api/projects/import-export-zip` | session · token `projects:write` | create or overwrite a project from a basefyio export archive (multipart) |
+| POST | `/api/projects/:id/data-imports/inspect` | session · token `data:write` | upload a CSV, XLSX or JSON file → preview and an inferred column plan |
+| POST | `/api/projects/:id/data-imports/jobs` | session · token `data:write` | start the import into a new or existing table (plan body) |
+| GET | `/api/projects/:id/data-imports/jobs/:jobId/status`, `/events` | session · token `data:read` | job state, or the same as an event stream; send the access token in the `Authorization` header |
+| GET | `/api/projects/:id/data-imports/jobs/:jobId/errors` | session · token `data:read` | CSV of the rejected rows: row number, reason, raw row |
 
 ### Supabase import
 
@@ -356,14 +359,14 @@ belongs to the project and that the caller is a member of it.
 
 | Method | Path | Tier | Purpose |
 |---|---|---|---|
-| POST | `/api/projects/:id/export` | session | `{ includeDatabase?, includeAuth?, includeStorage?, includeConfig? }` → `{ jobId }` |
-| GET | `/api/projects/:id/export/jobs/:jobId/status` | session | `{ id, state, progress, result?, failedReason? }` |
-| GET | `/api/projects/:id/export/jobs/:jobId/events` | session | the same as a server-sent event stream |
-| GET | `/api/projects/:id/export/jobs/:jobId/download` | session | the finished archive (`application/zip`) |
-| GET | `/api/projects/:id/backups` | session | stored archives: manual exports and nightly backups |
-| POST | `/api/projects/:id/backups/restore` | session | restore a stored archive into this or a new project (the dashboard defaults to a new project; overwriting asks for the project name) |
-| GET | `/api/projects/:id/pitr/window` | session | the range of instants the database can be recovered to |
-| POST | `/api/projects/:id/pitr/restore` | session | `{ targetTime }` — recover the database to that instant |
+| POST | `/api/projects/:id/export` | session · token `backups:write` | `{ includeDatabase?, includeAuth?, includeStorage?, includeConfig? }` → `{ jobId }` |
+| GET | `/api/projects/:id/export/jobs/:jobId/status` | session · token `backups:read` | `{ id, state, progress, result?, failedReason? }` |
+| GET | `/api/projects/:id/export/jobs/:jobId/events` | session · token `backups:read` | the same as a server-sent event stream |
+| GET | `/api/projects/:id/export/jobs/:jobId/download` | session · token `backups:read` | the finished archive (`application/zip`) |
+| GET | `/api/projects/:id/backups` | session · token `backups:read` | stored archives: manual exports and nightly backups |
+| POST | `/api/projects/:id/backups/restore` | session · token `backups:write` | restore a stored archive into this or a new project (the dashboard defaults to a new project; overwriting asks for the project name) |
+| GET | `/api/projects/:id/pitr/window` | session · token `backups:read` | the range of instants the database can be recovered to |
+| POST | `/api/projects/:id/pitr/restore` | session · token `backups:write` | `{ targetTime }` — recover the database to that instant |
 | POST | `/api/projects/pitr/run-base-backup` | root | take a physical base backup of the whole cluster now |
 
 **Export.** Each part defaults to included. The archive is kept for 24 hours; download it before
@@ -444,8 +447,8 @@ createdBy }]`. Delete answers `{ "message": "Preview branch moved to trash" }`.
 | Status | When |
 |---|---|
 | 400 | validation; `Invalid <what> name`; a weak password; `Row limit must be 1,000, 10,000, or 100,000`; `targetTime` invalid or in the future; a branch name, mode or size that is not allowed; `This project has no read-only role` |
-| 401 | no credential, or a credential this tier does not accept (an API token on a `session` route) |
-| 403 | anon key on a `service` route; not a member of the team; missing team permission; plan ceiling exceeded; API token without the scope (`API token is missing required scope(s): …`); `root` routes for anyone else |
+| 401 | no credential, an invalid, revoked or expired API token, or a key on a `session` route |
+| 403 | anon key on a `service` route; not a member of the team; missing team permission; plan ceiling exceeded; API token without the scope (`API token is missing required scope(s): …`), on a `session` route, or limited to another team (`This API token is limited to another team.`); `root` routes for anyone else |
 | 404 | `Project not found`; `Preview branch not found`; `Export job not found` |
 | 409 | a restore verification is already running; a branch name is taken or the branch limit is reached; a policy name exists or the table is locked |
 | 500 | RLS bootstrap on a dedicated-host project; a database operation the server could not complete (the message names it) |

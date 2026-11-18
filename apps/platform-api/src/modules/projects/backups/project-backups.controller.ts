@@ -1,7 +1,7 @@
 import { Controller, Get, HttpCode, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtOrPlatformTokenGuard } from '../../api-tokens/jwt-or-platform-token.guard';
 import { ScopesGuard } from '../../api-tokens/scopes.guard';
-import { Scopes } from '../../api-tokens/scopes.decorator';
+import { JwtOnly, Scopes } from '../../api-tokens/scopes.decorator';
 import { CurrentUser, JwtPayload } from '../../../common/decorators/current-user.decorator';
 import { BackupOffsiteService } from './backup-offsite.service';
 import { BackupVerificationService } from './backup-verification.service';
@@ -21,6 +21,7 @@ export class ProjectBackupsController {
 
   /** Declared before the ':id' routes so "backups" is not read as a project id. ROOT only. */
   @Post('backups/offsite/reconcile')
+  @JwtOnly()
   @HttpCode(202)
   async reconcileOffsite(@CurrentUser() user: JwtPayload) {
     return this.offsite.reconcileNow(user.sub);

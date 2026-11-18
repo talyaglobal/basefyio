@@ -13,7 +13,9 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { JwtOrPlatformTokenGuard } from '../api-tokens/jwt-or-platform-token.guard';
+import { ScopesGuard } from '../api-tokens/scopes.guard';
+import { Scopes } from '../api-tokens/scopes.decorator';
 import {
   CurrentUser,
   JwtPayload,
@@ -46,10 +48,11 @@ function parseEncoding(raw: string | undefined): ImportEncoding | 'auto' {
  * not a runtime app concern.
  */
 @Controller('projects/:projectId/data-imports')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtOrPlatformTokenGuard, ScopesGuard)
 export class DataImportController {
   constructor(private readonly service: DataImportService) {}
 
+  @Scopes('data:write')
   @Post('inspect')
   @UseInterceptors(FileInterceptor('file', { storage: undefined }))
   async inspect(
@@ -84,6 +87,7 @@ export class DataImportController {
    * directly to MinIO. Avoids hitting reverse-proxy body limits and Multer's
    * memory buffering when the upload is multi-hundred-MB.
    */
+  @Scopes('data:write')
   @Post('presign')
   async presign(
     @Param('projectId') projectId: string,
@@ -101,6 +105,7 @@ export class DataImportController {
    * /presign flow. Body shape mirrors /inspect's response so the wizard can
    * use either code path interchangeably.
    */
+  @Scopes('data:write')
   @Post('inspect-staged')
   async inspectStaged(
     @Param('projectId') projectId: string,
@@ -121,6 +126,7 @@ export class DataImportController {
     );
   }
 
+  @Scopes('data:write')
   @Post('jobs')
   async start(
     @Param('projectId') projectId: string,
@@ -130,6 +136,7 @@ export class DataImportController {
     return this.service.start(projectId, user.sub, dto);
   }
 
+  @Scopes('data:read')
   @Get('jobs/:jobId/status')
   async status(
     @Param('projectId') projectId: string,
@@ -144,6 +151,7 @@ export class DataImportController {
    * SSE pattern in projects.controller.ts so the admin-ui can reuse the same
    * EventSource handling code with minor adjustments.
    */
+  @Scopes('data:read')
   @Get('jobs/:jobId/events')
   async events(
     @Param('projectId') projectId: string,
@@ -208,6 +216,7 @@ export class DataImportController {
     });
   }
 
+  @Scopes('data:write')
   @Post('jobs/:jobId/cancel')
   async cancel(
     @Param('projectId') projectId: string,
@@ -218,6 +227,7 @@ export class DataImportController {
     return { ok: true };
   }
 
+  @Scopes('data:read')
   @Get('jobs/:jobId/errors')
   async downloadErrors(
     @Param('projectId') projectId: string,
