@@ -37,7 +37,7 @@ auth_file = /etc/pgbouncer/userlist.txt
 pool_mode = transaction
 max_client_conn = 1000
 default_pool_size = 20
-min_pool_size = 5
+min_pool_size = 0
 reserve_pool_size = 5
 reserve_pool_timeout = 3
 server_lifetime = 3600
@@ -186,5 +186,14 @@ describe('buildUserlist', () => {
       '"kb_user_b" "pb"',
       expect.stringMatching(/^"pgbouncer_admin" /),
     ]);
+  });
+});
+
+describe('PgBouncer min_pool_size default', () => {
+  it('holds no idle server connection per database unless asked to', () => {
+    const src = require('fs').readFileSync(require('path').join(__dirname, 'pgbouncer.service.ts'), 'utf8');
+    expect(src).toContain("this.intSetting('pgbouncer.minPoolSize', 0)");
+    const cfg = require('fs').readFileSync(require('path').join(__dirname, '../../config/configuration.ts'), 'utf8');
+    expect(cfg).toMatch(/minPoolSize: parseInt\(process\.env\.PGBOUNCER_MIN_POOL_SIZE \?\? '0', 10\)/);
   });
 });

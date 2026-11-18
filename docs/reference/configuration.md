@@ -198,7 +198,7 @@ Customer connections go through PgBouncer; the API writes its `pgbouncer.ini` an
 | `PGBOUNCER_ADMIN_PASSWORD` | random per process, with a warning | no / yes | Pooler admin credential. Set it so the value survives a restart; required before running more than one API replica. |
 | `PGBOUNCER_MAX_CLIENT_CONN` | `1000` | no / no | `max_client_conn` in the generated ini. |
 | `PGBOUNCER_DEFAULT_POOL_SIZE` | `20` | no / no | `default_pool_size`. |
-| `PGBOUNCER_MIN_POOL_SIZE` | `5` | no / no | `min_pool_size` — server connections kept open per database even when idle. |
+| `PGBOUNCER_MIN_POOL_SIZE` | `0` | no / no | `min_pool_size` — server connections kept open per database even when idle. Zero lets an idle database give its connections back after `server_idle_timeout` (10 minutes); a value above zero holds that many per database, which on a shared cluster adds up quickly. |
 | `PGBOUNCER_RESERVE_POOL_SIZE` | `5` | no / no | `reserve_pool_size`. |
 | `PGBOUNCER_DEFAULT_MAX_DB_CONNECTIONS` | unset (no per-database cap) | no / no | Per-database `pool_size` + `max_db_connections` applied when neither the project nor its plan sets one. |
 | `PGBOUNCER_MAX_DB_CONNECTIONS_CEILING` | `100` | no / no | Highest value a project or plan may set. |

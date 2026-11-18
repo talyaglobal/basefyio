@@ -115,7 +115,10 @@ export default () => {
     /** Pooler globals written into pgbouncer.ini; the long-standing literal values stay the defaults. */
     maxClientConn: parseInt(process.env.PGBOUNCER_MAX_CLIENT_CONN || '1000', 10),
     defaultPoolSize: parseInt(process.env.PGBOUNCER_DEFAULT_POOL_SIZE || '20', 10),
-    minPoolSize: parseInt(process.env.PGBOUNCER_MIN_POOL_SIZE || '5', 10),
+    // 0: no server connection is held for an idle database. At 5, every project database kept five
+    // open for ever (about 175 of the cluster's 200 slots across the active projects), and an import
+    // or an MCP query was then refused with "remaining connection slots are reserved".
+    minPoolSize: parseInt(process.env.PGBOUNCER_MIN_POOL_SIZE ?? '0', 10),
     reservePoolSize: parseInt(process.env.PGBOUNCER_RESERVE_POOL_SIZE || '5', 10),
     /**
      * Per-database cap (pool_size + max_db_connections) applied when neither the
