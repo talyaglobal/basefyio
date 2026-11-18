@@ -77,7 +77,7 @@ What shipped: `modules/project-db/` (ProjectRlsRunner), `modules/storage-facade/
 
 ### Database (control plane)
 
-- `projects.storage_authz TEXT NOT NULL DEFAULT 'presets'` — `prisma/migrations/20261028120000_project_storage_authz/migration.sql`; production applies `schema.prisma` through `prisma db push` at container start, and the build runs `prisma generate` (`prebuild`). Nothing to run by hand beyond the usual image build.
+- `projects.storage_authz TEXT NOT NULL DEFAULT 'presets'` — `prisma/migrations/20261028120000_project_storage_authz/migration.sql`; the API container applies `prisma/migrations` with `prisma migrate deploy` at start (`scripts/migrate.mjs`; at the time of this spec it ran `prisma db push`, and that history now lives in `0_baseline`), and the build runs `prisma generate` (`prebuild`). Nothing to run by hand beyond the usual image build.
 
 ### Project databases
 

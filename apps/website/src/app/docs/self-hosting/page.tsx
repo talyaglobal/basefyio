@@ -172,8 +172,10 @@ open https://app.example.com/login`}</code></pre>
       <pre><code>{`# new images (pull + retag, or rebuild as above), then:
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d`}</code></pre>
       <p>
-        The API applies its schema on every start (<code>prisma db push</code>), so there is no separate
-        migration step. Compose recreates only the containers whose image or configuration changed; avoid
+        The API applies its versioned schema migrations on every start (<code>prisma migrate deploy</code>), so
+        there is no separate migration step; if a migration fails, the API container stops instead of starting
+        on a half-applied schema. A database created by an older release is baselined automatically on the first
+        start. Compose recreates only the containers whose image or configuration changed; avoid
         recreating Keycloak for an application update, because that signs every dashboard user out.
       </p>
 

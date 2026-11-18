@@ -165,12 +165,27 @@ cd apps/platform-api
 #   MINIO_ENDPOINT=localhost REDIS_URL=redis://localhost:6379  DB_CRED_ENC_KEY=<32 random bytes, base64>
 npm install
 npx prisma generate
-npx prisma db push
+node scripts/migrate.mjs     # apply prisma/migrations (the same step the API container runs on start)
 npm run start:dev
 ```
 
-The platform schema is applied with `prisma db push` — the same step the API container runs on
-every start — so there is no separate migration command.
+The platform schema moves by versioned migrations in `apps/platform-api/prisma/migrations`. The API
+container runs `scripts/migrate.mjs` on every start: it applies new migrations with
+`prisma migrate deploy` and refuses to start if one fails. A database created by an older release
+(which applied the schema with `prisma db push`) is baselined once, automatically, when its tables
+already match `schema.prisma`; the old history table is kept as `_prisma_migrations_pre_baseline`.
+Nothing is ever dropped implicitly.
+
+To change the schema, edit `prisma/schema.prisma`, then create the migration against your local
+database and commit the generated folder with the code:
+
+```bash
+npx prisma migrate dev --name add_widget_color   # writes prisma/migrations/<timestamp>_add_widget_color
+```
+
+Review the generated SQL before committing; a destructive statement (`DROP COLUMN`, a type change)
+ships exactly as written. `node scripts/migrate.mjs --check` reports what the start-up step would do
+without changing anything.
 
 ### 4. Start the Admin UI
 

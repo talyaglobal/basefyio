@@ -36,6 +36,7 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /packages/data-engine /packages/data-engine
 COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/package.json ./package.json
+COPY --from=build /app/scripts/migrate.mjs ./scripts/migrate.mjs
 # Ensure peer dependencies (pg, mongodb) are resolvable from the data-engine
 # package — it lives outside /app, so Node's upward walk never reaches
 # /app/node_modules without these links.
@@ -48,4 +49,8 @@ RUN mkdir -p /packages/data-engine/node_modules && \
     ln -sf /app/node_modules/bson /packages/data-engine/node_modules/bson
 
 EXPOSE 4000
-CMD ["sh", "-c", "npx prisma db push --skip-generate --accept-data-loss && node dist/main"]
+# Versioned migrations (prisma/migrations) at every start: a database built by
+# the old `db push` start command is baselined once, then `migrate deploy`
+# applies only committed SQL. A failed migration stops the container instead of
+# starting the API on a half-applied schema. Nothing is dropped implicitly.
+CMD ["sh", "-c", "node scripts/migrate.mjs && exec node dist/main"]

@@ -24,6 +24,8 @@ coverage/
 
 prisma/*.db
 prisma/migrations/**/migration_lock.toml
+# The platform API applies its schema with `prisma migrate deploy`, which needs the lock file.
+!apps/platform-api/prisma/migrations/migration_lock.toml
 
 # Local project link (created by `basefyio link`)
 .basefyio/

@@ -604,6 +604,10 @@ export const CATEGORIES = [
         if (fileHas('apps/platform-api/Dockerfile', /prisma db push/)) {
           return no('schema is applied with db push at container start — apps/platform-api/Dockerfile');
         }
+        // Start-up runs scripts/migrate.mjs (baseline once, then `prisma migrate deploy`).
+        if (fileHas('apps/platform-api/Dockerfile', /scripts\/migrate\.mjs|prisma migrate deploy/)) {
+          return yes('versioned migrations: prisma migrate deploy at container start — apps/platform-api/Dockerfile');
+        }
         const pushOnly = marker(/prisma db push/, ['.github', 'docker', 'apps/platform-api/package.json', 'scripts']);
         return pushOnly.n
           ? no(`schema is applied with db push at container start — ${pushOnly.where}`)
