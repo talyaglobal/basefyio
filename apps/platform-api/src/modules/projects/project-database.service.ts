@@ -21,7 +21,7 @@ const IDENT_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 export const ALLOWED_EXTENSIONS = new Set([
   'uuid-ossp', 'pgcrypto', 'pg_trgm', 'citext', 'hstore', 'unaccent',
   'fuzzystrmatch', 'btree_gin', 'btree_gist', 'intarray', 'ltree',
-  'tablefunc', 'cube', 'earthdistance', 'vector',
+  'tablefunc', 'cube', 'earthdistance', 'vector', 'postgis',
 ]);
 
 @Injectable()

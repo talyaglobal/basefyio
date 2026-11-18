@@ -221,7 +221,7 @@ Write routes answer `{ "message": "…" }`. Statements run with a 30-second time
 
 Extensions a project may enable: `uuid-ossp`, `pgcrypto`, `pg_trgm`, `citext`, `hstore`,
 `unaccent`, `fuzzystrmatch`, `btree_gin`, `btree_gist`, `intarray`, `ltree`, `tablefunc`, `cube`,
-`earthdistance`, `vector`; anything else is 400 `Extension is not in the allowed list`.
+`earthdistance`, `vector`, `postgis`; anything else is 400 `Extension is not in the allowed list`.
 `POST …/extensions/defaults` installs `pg_trgm`, `pgcrypto`, `unaccent`, `btree_gist`, `uuid-ossp`
 and `vector` (plus `pg_stat_statements` where the server preloads it) and answers
 `{ installed, skipped: [{ statement, error }], error? }` — a missing extension is reported, never
