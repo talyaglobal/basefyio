@@ -30,4 +30,8 @@ module.exports = {
     '^@keycloak/keycloak-admin-client$': '<rootDir>/../test/keycloak-admin-client.stub.js',
   },
   testEnvironment: 'node',
+  // Jest's default is one worker per CPU core minus one. On a 16-core laptop that is 15 node processes, each
+  // holding a ts-jest compiler, which freezes the machine while the suite runs. Two workers keep it usable;
+  // CI (which has the machine to itself) uses half the cores. Override with JEST_WORKERS=<n> or --maxWorkers.
+  maxWorkers: process.env.JEST_WORKERS || (process.env.CI ? '50%' : 2),
 };
