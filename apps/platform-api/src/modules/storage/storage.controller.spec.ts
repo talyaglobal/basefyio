@@ -57,6 +57,7 @@ function deps() {
     getPresignedUrl: jest.fn().mockResolvedValue({ url: 'signed', expiresIn: 3600 }),
     resolveBucket: jest.fn().mockResolvedValue({ project: { id: 'p1' }, minioBucket: 'bf-p-docs' }),
     statObjectIn: jest.fn().mockResolvedValue(null),
+    bucketIsPublic: jest.fn().mockResolvedValue(false),
   };
   const activity = { append: jest.fn().mockResolvedValue(undefined) };
   const transforms = {
@@ -261,6 +262,46 @@ describe('downloadObject', () => {
       'Content-Disposition': `attachment; filename="a.png"; filename*=UTF-8''a.png`,
     });
     expect(stream.pipe).toHaveBeenCalledWith(res);
+  });
+
+  it('lets a shared cache keep a file only when the bucket is public and no rule applies', async () => {
+    const { storage, controller } = deps();
+    storage.getObject.mockResolvedValue({ stream: sourceStream(), stat: { ...stat, lastModified: new Date(0) } });
+    storage.bucketIsPublic.mockResolvedValue(true);
+    const res = fakeRes();
+    await controller.downloadObject('p1', 'b', 'a.png', anonReq, undefined, res);
+    expect(res.headers['Cache-Control']).toMatch(/^public, max-age=300/);
+    expect(res.headers.ETag).toBe('"abc"');
+    expect(res.headers['Last-Modified']).toBe(new Date(0).toUTCString());
+  });
+
+  it('marks a private bucket, or a key under a rule, private', async () => {
+    const a = deps();
+    a.storage.getObject.mockResolvedValue({ stream: sourceStream(), stat });
+    const res1 = fakeRes();
+    await a.controller.downloadObject('p1', 'b', 'a.png', anonReq, undefined, res1);
+    expect(res1.headers['Cache-Control']).toBe('private, no-cache');
+
+    const b = deps();
+    b.storage.getObject.mockResolvedValue({ stream: sourceStream(), stat });
+    b.storage.bucketIsPublic.mockResolvedValue(true);
+    b.access.resolveMode.mockResolvedValue('authenticated-read');
+    const res2 = fakeRes();
+    await b.controller.downloadObject('p1', 'b', 'a.png', anonReq, undefined, res2);
+    expect(res2.headers['Cache-Control']).toBe('private, no-cache');
+    expect(b.storage.bucketIsPublic).not.toHaveBeenCalled();
+  });
+
+  it('answers 304 without the body when the ETag still matches', async () => {
+    const { storage, controller } = deps();
+    const stream = sourceStream();
+    storage.getObject.mockResolvedValue({ stream, stat });
+    storage.bucketIsPublic.mockResolvedValue(true);
+    const res = fakeRes();
+    await controller.downloadObject('p1', 'b', 'a.png', { ...anonReq, headers: { 'if-none-match': '"abc"' } } as any, undefined, res);
+    expect(res.statusCode).toBe(304);
+    expect(stream.destroy).toHaveBeenCalled();
+    expect(stream.pipe).not.toHaveBeenCalled();
   });
 
   it('closes the stream and refuses when the rule says no', async () => {

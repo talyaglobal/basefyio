@@ -28,7 +28,7 @@ import { Request, Response } from 'express';
 import { createReadStream } from 'fs';
 import { StorageService } from './storage.service';
 import { ImageTransformService } from './image-transform.service';
-import { StorageAccessService } from './storage-access.service';
+import { StorageAccessService, StoragePolicyMode } from './storage-access.service';
 import { isPrivileged, ownerMeta, storageCaller } from './storage-caller';
 import {
   ContentLengthGuard,
@@ -62,6 +62,19 @@ export const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB
 const maxUploadBytes = resolveMaxUploadBytes(MAX_FILE_SIZE);
 /** Uploads streaming to the store at once on this instance; beyond it the route answers 503. */
 const uploadSlots = new Semaphore(resolveMaxConcurrentUploads());
+
+/**
+ * Cache-Control for a publicly readable object. Short by default because a
+ * file can be replaced at the same path; STORAGE_PUBLIC_CACHE_SECONDS
+ * overrides it (0 keeps the response revalidating on every read).
+ */
+function publicCacheControl(): string {
+  const raw = Number.parseInt(process.env.STORAGE_PUBLIC_CACHE_SECONDS ?? '300', 10);
+  const seconds = Number.isFinite(raw) && raw >= 0 ? Math.min(raw, 31_536_000) : 300;
+  return seconds === 0
+    ? 'public, max-age=0, must-revalidate'
+    : `public, max-age=${seconds}, stale-while-revalidate=60`;
+}
 
 const SORT_KEYS = ['name', 'size', 'lastModified'] as const;
 
@@ -486,7 +499,33 @@ export class StorageController {
       bucketName,
       objectPath,
     );
-    await this.assertReadable(req, projectId, bucketName, objectPath, stat, stream);
+    const mode = await this.assertReadable(req, projectId, bucketName, objectPath, stat, stream);
+
+    // A shared cache (CDN, proxy) may keep a copy only when anyone could have
+    // fetched it: the bucket is public and no access rule narrows this key.
+    // Everything else says `private`, so a CDN placed in front never serves a
+    // protected object to somebody else.
+    let cacheable = false;
+    if (!mode) {
+      try {
+        const { minioBucket } = await this.storage.resolveBucket(projectId, user?.sub, bucketName);
+        cacheable = await this.storage.bucketIsPublic(minioBucket);
+      } catch {
+        cacheable = false;
+      }
+    }
+    const etag = stat.etag ? `"${String(stat.etag).replace(/"/g, '')}"` : undefined;
+    const cacheHeaders: Record<string, string> = {
+      'Cache-Control': cacheable ? publicCacheControl() : 'private, no-cache',
+      ...(etag ? { ETag: etag } : {}),
+      ...(stat.lastModified ? { 'Last-Modified': new Date(stat.lastModified).toUTCString() } : {}),
+    };
+    const ifNoneMatch = req.headers?.['if-none-match'];
+    if (etag && typeof ifNoneMatch === 'string' && ifNoneMatch.split(',').some((t) => t.trim().replace(/^W\//, '') === etag)) {
+      stream.destroy();
+      res.status(304).set(cacheHeaders).end();
+      return;
+    }
 
     const fileName = objectPath.split('/').pop() || 'download';
     const encodedName = encodeURIComponent(fileName);
@@ -495,6 +534,7 @@ export class StorageController {
       'Content-Type': stat.metaData?.['content-type'] || 'application/octet-stream',
       'Content-Length': stat.size,
       'Content-Disposition': `attachment; filename="${encodedName}"; filename*=UTF-8''${encodedName}`,
+      ...cacheHeaders,
     });
 
     stream.pipe(res);
@@ -595,15 +635,16 @@ export class StorageController {
     objectPath: string,
     stat: { metaData?: Record<string, unknown> },
     stream: { destroy: (err?: Error) => unknown },
-  ): Promise<void> {
+  ): Promise<StoragePolicyMode | null> {
     const mode = await this.access.resolveMode(projectId, bucketName, objectPath);
-    if (!mode) return;
+    if (!mode) return null;
     try {
       this.access.assertCanRead(storageCaller(req), mode, stat, objectPath);
     } catch (err) {
       stream.destroy();
       throw err;
     }
+    return mode;
   }
 
   @Get('buckets/:bucketName/objects/url')

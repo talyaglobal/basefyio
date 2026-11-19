@@ -146,6 +146,7 @@ Behaviour is described in [storage-api.md](./storage-api.md).
 | `S3_PUBLIC_ENDPOINT` | empty | no / no | Host for public and presigned URLs when it differs from the endpoint (CDN, custom domain). |
 | `S3_BUCKET_POLICIES` | on | no / no | `false` on stores without `PutBucketPolicy` (R2): making a bucket public is then refused with a clear message. |
 | `STORAGE_MAX_UPLOAD_MB` | `500` | no / no | Ceiling of a single-request upload; the body is spooled to disk and streamed to the store. |
+| `STORAGE_PUBLIC_CACHE_SECONDS` | `300` | no / no | `max-age` of a download from a public bucket with no access rule on the key (shared caches such as a CDN may keep it). `0` makes it revalidate on every read. |
 | `STORAGE_UPLOAD_TMP_DIR` | `<os tmp>/basefyio-uploads` | no / no | Disk spool for uploads in flight. |
 | `STORAGE_MAX_CONCURRENT_UPLOADS` | `8` | no / no | Uploads streaming to the store at once per API process; beyond it the API answers 503. |
 | `STORAGE_RESUMABLE_CHUNK_MB` | `8` | no / no | Default chunk size of a resumable upload (clamped to 5–64). |

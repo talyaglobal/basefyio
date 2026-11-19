@@ -379,6 +379,7 @@ describe('StorageController — handler behaviour', () => {
       'Content-Type': 'application/octet-stream',
       'Content-Length': 7,
       'Content-Disposition': `attachment; filename="${encoded}"; filename*=UTF-8''${encoded}`,
+      'Cache-Control': 'private, no-cache',
     });
     expect(stream.pipe).toHaveBeenCalledWith(res);
   });
