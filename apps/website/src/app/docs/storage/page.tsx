@@ -174,6 +174,58 @@ const { data } = await bf.storage.from('reports').createSignedUrl(
           <tr><td>DELETE</td><td><code>/buckets/:bucket/objects</code></td><td>Delete <code>{`{ paths }`}</code>; the count is of objects that existed</td></tr>
         </tbody>
       </table>
+
+      {/* ── S3 access keys ──────────────────────────── */}
+      <h2 id="s3-access-keys">S3 access keys</h2>
+      <p>
+        A server that already speaks S3 (an AWS SDK, <code>rclone</code>, a backup tool) can write to your
+        project&apos;s buckets directly with an <strong>S3 access key</strong>: standard AWS Signature V4,
+        path-style addressing, against <code>{`https://${storageHost}`}</code>. Each key reaches only this
+        project&apos;s buckets, by exact name. When this server offers S3 keys, create one with{" "}
+        <code>basefyio storage create-key</code>, the <code>create_s3_key</code> MCP tool or the REST
+        route below. Managing keys needs your team&apos;s credentials permission.
+      </p>
+      <ul>
+        <li>The secret is shown <strong>once</strong>, when the key is created. basefyio does not keep a copy; lost means revoke and create a new one.</li>
+        <li>S3 clients use the <strong>physical bucket name</strong>, <code>bf-&lt;project prefix&gt;-&lt;bucket&gt;</code>; <code>basefyio storage status</code> lists them.</li>
+        <li>Keys read, write, list and delete objects. They cannot create or delete buckets, change a bucket&apos;s visibility or list other buckets; do that through the API.</li>
+        <li>Revoking a key stops it on its next request. A project can hold 5 keys at a time.</li>
+      </ul>
+      <p>
+        <strong>Service-level credential.</strong> A key talks to the object store directly, so storage
+        access rules, per-bucket size and file-type limits, the upload quota check and upload activity do
+        not apply to it (stored bytes are still measured for billing). Treat it like the service key:
+        servers only, never a browser or a mobile app. Projects that authorise storage with database
+        policies cannot create keys.
+      </p>
+      <pre><code>{`import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
+
+const s3 = new S3Client({
+  endpoint: 'https://${storageHost}',
+  region: 'us-east-1',
+  forcePathStyle: true,
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+  },
+})
+
+await s3.send(new PutObjectCommand({
+  Bucket: 'bf-acme-x1y2z3-invoices', // physical name from \`basefyio storage status\`
+  Key: '2026/11/inv-1001.pdf',
+  Body: pdfBuffer,
+}))`}</code></pre>
+      <table>
+        <thead>
+          <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>GET</td><td><code>/s3-keys/info</code></td><td>Endpoint, region, path-style, physical bucket names; whether keys are available (<code>secrets:read</code>)</td></tr>
+          <tr><td>GET</td><td><code>/s3-keys</code></td><td>Keys: id, name, access key id, last four of the secret (<code>secrets:read</code>)</td></tr>
+          <tr><td>POST</td><td><code>/s3-keys</code></td><td>Create <code>{`{ name }`}</code>; the answer holds <code>secretAccessKey</code>, once (<code>secrets:write</code>)</td></tr>
+          <tr><td>DELETE</td><td><code>/s3-keys/:keyId</code></td><td>Revoke (<code>secrets:write</code>)</td></tr>
+        </tbody>
+      </table>
     </div>
   );
 }
