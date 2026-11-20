@@ -30,6 +30,10 @@
 # Before that, a development commit whose message carries "[build-images]" (or
 # "[build-images: api,website]") builds that commit; :latest is never touched.
 #
+# First builds (2026-11-20): run 44756627819 built api and website from c28783e;
+# the run triggered by this commit builds all three with the refreshed
+# publishable-key secret. ts_cluster pins the sha printed by the resolve job.
+#
 # Actions are pinned by commit SHA (the job holds packages: write); the release
 # is in the trailing comment. Same pins as build-cnpg-image.yml.
 name: Build app images (ts_cluster)
