@@ -360,3 +360,9 @@ describe('paging look-alike parameters', () => {
     expect(() => parseQuery({ title: 'x' })).toThrow(/needs an operator/);
   });
 });
+
+describe('unknown filter operator (#268)', () => {
+  it('is a parse error, not a crash', () => {
+    expect(() => parseQuery({ id: 'zz.1' })).toThrow(/Unknown operator "zz"/);
+  });
+});

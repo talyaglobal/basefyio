@@ -14,6 +14,24 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Pool } from 'pg';
 import { PrismaService } from '../../prisma/prisma.service';
+import { mapPgError } from './pg-error.util';
+
+/**
+ * A rejected statement in the project's own DDL (a trigger on a function that
+ * does not exist, a bad type, a duplicate name) is the caller's mistake and
+ * Postgres words it well, so it is a 400 with that message rather than a bare
+ * "Internal server error". Anything outside the syntax/definition classes keeps
+ * its 500.
+ */
+export function mapDdlError(e: any): unknown {
+  const mapped = mapPgError(e);
+  if (mapped !== e) return mapped;
+  const code: unknown = e?.code;
+  if (typeof code === 'string' && /^(42|22|23|2B|0A|44)[0-9A-Z]{3}$/.test(code) && e.message) {
+    return new BadRequestException(e.message);
+  }
+  return e;
+}
 
 const IDENT_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -66,6 +84,8 @@ export class ProjectDatabaseService {
     const client = await pool.connect();
     try {
       return await fn(client);
+    } catch (e) {
+      throw mapDdlError(e);
     } finally {
       client.release();
       await pool.end();
