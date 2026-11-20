@@ -1,0 +1,61 @@
+# Builds the CloudNativePG operand image (PostgreSQL 16 + pgvector + PostGIS)
+# that basefyio's Postgres runs on ts_cluster. CI only pushes: adopting a
+# build is an explicit image change in ts_cluster, in two places kept in step
+# by hand: projects/basefyio/data/cnpg/cluster.yaml `spec.imageName` and
+# projects/basefyio/data/pg-bootstrap.job.yaml container `image`. The
+# overlay's images: block does not apply, because kustomize does not rewrite
+# a CNPG Cluster's imageName. So a rebuild never restarts the database by
+# itself.
+#
+# Tags: every build pushes 16-vector-postgis-<sha>. Only production pushes the
+# moving 16-vector-postgis tag, so unreviewed development code can never
+# become the image a rescheduled database pod pulls. Run the first build from
+# production (workflow_dispatch on that ref), then pin its sha tag in
+# ts_cluster.
+#
+# Actions are pinned by commit SHA (the job holds packages: write and pushes
+# the production database image); the release is in the trailing comment.
+#
+# Separate from build-and-push.yml on purpose: that workflow deploys the
+# compose host on every production push; this one deploys nothing and runs
+# only when the image definition changes, on any branch of the flow.
+name: Build CNPG Postgres image
+
+on:
+  push:
+    branches: [development, main, production]
+    paths:
+      - 'docker/postgres-cnpg/**'
+      - '.github/workflows/build-cnpg-image.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: ./docker/postgres-cnpg
+          file: ./docker/postgres-cnpg/Dockerfile
+          platforms: linux/amd64
+          push: true
+          # GITHUB_TOKEN can push only to this repository's owner (talyaglobal).
+          # ts_cluster pins the sha tag; the moving tag follows production only.
+          tags: |
+            ghcr.io/talyaglobal/basefyio-cnpg-pg:16-vector-postgis-${{ github.sha }}
+            ${{ github.ref == 'refs/heads/production' && 'ghcr.io/talyaglobal/basefyio-cnpg-pg:16-vector-postgis' || '' }}
