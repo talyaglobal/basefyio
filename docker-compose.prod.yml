@@ -686,6 +686,9 @@ services:
       - traefik.http.routers.api.entrypoints=websecure
       - traefik.http.routers.api.tls.certresolver=le
       - traefik.http.services.api.loadbalancer.server.port=4000
+      # platform-api sits on several networks (web, internal, docker-api); without this Traefik may pick the
+      # docker-api address, which it cannot reach, and answer 503 for the whole API.
+      - traefik.docker.network=${COMPOSE_PROJECT_NAME:-kolaybase}_web
       # Flush SSE frames immediately instead of buffering
       - traefik.http.services.api.loadbalancer.responseforwarding.flushinterval=100ms
       # Only route once the app answers — avoids deploy-time 502/503s
