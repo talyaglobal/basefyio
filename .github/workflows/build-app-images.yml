@@ -22,10 +22,13 @@
 # key, because such an image cannot take a card; it prints only the key's mode.
 # The release stage comes from the RELEASE_STAGE variable (default beta).
 #
-# Run it by hand (the workflow file lives on development; ref picks what is
-# built, images an optional subset):
-#   gh workflow run build-app-images.yml --ref development -f ref=production
-#   gh workflow run build-app-images.yml --ref development -f ref=production -f images=api,website
+# Run it by hand once the file is on main (GitHub registers dispatchable
+# workflows from the default branch only); ref picks what is built, images an
+# optional subset:
+#   gh workflow run build-app-images.yml -f ref=production
+#   gh workflow run build-app-images.yml -f ref=production -f images=api,website
+# Before that, a development commit whose message carries "[build-images]" (or
+# "[build-images: api,website]") builds that commit; :latest is never touched.
 #
 # Actions are pinned by commit SHA (the job holds packages: write); the release
 # is in the trailing comment. Same pins as build-cnpg-image.yml.
@@ -43,7 +46,11 @@ on:
         type: string
         default: api,ui,website
   push:
-    branches: [production]
+    # production: every push builds. development: only a commit whose message
+    # carries "[build-images]" or "[build-images: api,website]" (GitHub can
+    # dispatch a workflow only once it exists on the default branch, so this is
+    # the way to build from development before the file has shipped to main).
+    branches: [production, development]
     paths:
       - 'apps/**'
       - 'packages/**'
@@ -61,6 +68,9 @@ concurrency:
 
 jobs:
   resolve:
+    # A development push builds only on request (marker in the commit message);
+    # the build job needs this one, so it is skipped with it.
+    if: github.event_name != 'push' || github.ref == 'refs/heads/production' || contains(github.event.head_commit.message, '[build-images')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -80,21 +90,31 @@ jobs:
         id: sha
         env:
           IS_PRODUCTION: ${{ inputs.ref == 'production' || inputs.ref == 'refs/heads/production' || (github.event_name == 'push' && github.ref == 'refs/heads/production') }}
-          # A push builds all three; a dispatch may build a subset.
+          # A production push builds all three; a dispatch may build a subset;
+          # a development push takes the subset from "[build-images: a,b]".
           IMAGES: ${{ inputs.images || 'api,ui,website' }}
+          HEAD_MSG: ${{ github.event.head_commit.message }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
         run: |
           SHA=$(git rev-parse HEAD)
           if ! printf '%s' "$SHA" | grep -Eq '^[0-9a-f]{40}$'; then
             echo "::error::could not resolve a 40-character commit sha (got '$SHA')"
             exit 1
           fi
+          if [ "$EVENT" = push ] && [ "$REF" != refs/heads/production ]; then
+            SUBSET=$(printf '%s' "$HEAD_MSG" | grep -oE '\[build-images: *[a-z,]+\]' | head -1 | sed -E 's/\[build-images: *([a-z,]+)\]/\1/')
+            [ -n "$SUBSET" ] && IMAGES="$SUBSET"
+          fi
           if ! printf '%s' "$IMAGES" | grep -Eq '^(api|ui|website)(,(api|ui|website))*$'; then
             echo "::error::images must be a comma-separated subset of api,ui,website (got '$IMAGES')"
             exit 1
           fi
-          echo "built_sha=$SHA" >> "$GITHUB_OUTPUT"
-          echo "is_production=$IS_PRODUCTION" >> "$GITHUB_OUTPUT"
-          echo "images=$IMAGES" >> "$GITHUB_OUTPUT"
+          {
+            echo "built_sha=$SHA"
+            echo "is_production=$IS_PRODUCTION"
+            echo "images=$IMAGES"
+          } >> "$GITHUB_OUTPUT"
           echo "Building $SHA (production: $IS_PRODUCTION, images: $IMAGES)"
 
   build:
