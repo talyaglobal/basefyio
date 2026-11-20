@@ -1,0 +1,254 @@
+# Postgres HA lab (plan #229/#230/#231, Stage 0). NEVER deployed: this file
+# runs on a developer machine only, driven by ./lab.sh. It is not referenced
+# by the deploy workflow, the installer or any production compose file.
+#
+#   pg-primary ──streaming (slot)──▶ pg-replica
+#        ▲                               ▲
+#   rc-primary (HTTP :8008)          rc-replica (HTTP :8008)   pg-role-check
+#        └────────── haproxy ────────────┘
+#                pg-rw :5432   → the node whose /primary answers 200
+#                pg-ro :5433   → nodes whose /replica answers 200, else pg-rw
+#                stats :7000
+#   pgbouncer :6432 → pg-rw        keycloak :8080 → jdbc pg-rw:5432/keycloak
+#
+# Use ./lab.sh (up / status / promote / failback / down); it writes the
+# generated passwords into ./state/lab.env and passes that file to compose.
+# Project name is fixed so the lab can never touch another stack's volumes.
+
+name: basefyio-ha-lab
+
+x-pg-node: &pg-node
+  # The production cluster image, pinned by digest (Appendix A of the plan).
+  # The ghcr package is private: `docker login ghcr.io` first, or run
+  # `./lab.sh build-image` and set LAB_PG_IMAGE=basefyio-postgres:lab
+  # (built from docker/postgres; same base, but not byte-identical to prod).
+  image: ${LAB_PG_IMAGE:-ghcr.io/fsipka/basefyio-postgres@sha256:a8083c2a705032571dd46a757b79765204f0420001cf6140392d81e945666eb9}
+  restart: "no"
+  # Same convention as docker-compose.prod.yml: a bash wrapper that prepares
+  # the WAL archive directory, then hands over to the image's own
+  # docker-entrypoint.sh. The lab wrapper also seeds a standby by
+  # pg_basebackup when its data directory is empty and ./state says it has
+  # an upstream.
+  entrypoint: ["bash", "/lab/node-entrypoint.sh"]
+  # Production's command (docker-compose.prod.yml) plus the HA parameters the
+  # plan's Stage 1 prepares for MW-1. A standby needs max_connections,
+  # max_wal_senders, max_worker_processes … >= the primary's, so both nodes
+  # run the identical list. cluster_name is appended per node by the wrapper.
+  command:
+    - postgres
+    - -c
+    - shared_buffers=256MB
+    - -c
+    - effective_cache_size=768MB
+    - -c
+    - work_mem=8MB
+    - -c
+    - maintenance_work_mem=128MB
+    - -c
+    - max_connections=200
+    - -c
+    - random_page_cost=1.1
+    - -c
+    - checkpoint_completion_target=0.9
+    - -c
+    - wal_buffers=16MB
+    - -c
+    - wal_level=replica
+    - -c
+    - archive_mode=on
+    - -c
+    - archive_command=test ! -f /var/lib/postgresql/wal_archive/%f && cp %p /var/lib/postgresql/wal_archive/%f
+    - -c
+    - archive_timeout=300
+    - -c
+    - wal_keep_size=512MB
+    # ── Stage 1 / MW-1 additions (not in prod yet) ──
+    - -c
+    - max_wal_senders=10
+    - -c
+    - max_replication_slots=10
+    - -c
+    - max_slot_wal_keep_size=2GB
+    - -c
+    - wal_log_hints=on
+    - -c
+    - hot_standby=on
+    - -c
+    - hot_standby_feedback=on
+    - -c
+    - max_standby_streaming_delay=30s
+  # environment is set per node below (a YAML merge is shallow).
+  shm_size: 256m
+  stop_grace_period: 30s
+  healthcheck:
+    test: ["CMD-SHELL", "pg_isready -U basefyio -d postgres"]
+    interval: 5s
+    timeout: 3s
+    retries: 30
+    start_period: 30s
+
+x-role-check: &role-check
+  build: ./role-check
+  image: basefyio-ha-lab/pg-role-check:local
+  restart: unless-stopped
+  environment: &rc-env
+    CHECK_USER: rolecheck
+    CHECK_PASSWORD: ${LAB_CHECK_PASSWORD:?run ./lab.sh up}
+    CHECK_PORT: "8008"
+
+services:
+  pg-primary:
+    <<: *pg-node
+    hostname: pg-primary
+    volumes:
+      - pg_primary_data:/var/lib/postgresql/data
+      - pg_primary_wal_archive:/var/lib/postgresql/wal_archive
+      - ../../scripts/init-db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./init/10-lab-roles.sh:/docker-entrypoint-initdb.d/10-lab-roles.sh:ro
+      - ./node-entrypoint.sh:/lab/node-entrypoint.sh:ro
+      - ./state:/lab-state:ro
+    environment:
+      POSTGRES_USER: basefyio
+      POSTGRES_PASSWORD: ${LAB_PG_PASSWORD:?run ./lab.sh up}
+      POSTGRES_DB: kolaybase
+      LAB_REPL_PASSWORD: ${LAB_REPL_PASSWORD:?run ./lab.sh up}
+      LAB_CHECK_PASSWORD: ${LAB_CHECK_PASSWORD:?run ./lab.sh up}
+      LAB_NODE: pg-primary
+    networks:
+      lab:
+        ipv4_address: 172.31.240.11
+
+  pg-replica:
+    <<: *pg-node
+    hostname: pg-replica
+    volumes:
+      - pg_replica_data:/var/lib/postgresql/data
+      - pg_replica_wal_archive:/var/lib/postgresql/wal_archive
+      - ../../scripts/init-db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./init/10-lab-roles.sh:/docker-entrypoint-initdb.d/10-lab-roles.sh:ro
+      - ./node-entrypoint.sh:/lab/node-entrypoint.sh:ro
+      - ./state:/lab-state:ro
+    environment:
+      POSTGRES_USER: basefyio
+      POSTGRES_PASSWORD: ${LAB_PG_PASSWORD:?run ./lab.sh up}
+      POSTGRES_DB: kolaybase
+      LAB_REPL_PASSWORD: ${LAB_REPL_PASSWORD:?run ./lab.sh up}
+      LAB_CHECK_PASSWORD: ${LAB_CHECK_PASSWORD:?run ./lab.sh up}
+      LAB_NODE: pg-replica
+    networks:
+      lab:
+        ipv4_address: 172.31.240.12
+
+  # One check sidecar per node, answering like Patroni's REST API so the
+  # HAProxy config does not change when Patroni arrives (plan §3.1).
+  # Fixed addresses: HAProxy's `addr` takes an IP, not a service name.
+  rc-primary:
+    <<: *role-check
+    environment:
+      <<: *rc-env
+      PG_HOST: pg-primary
+    networks:
+      lab:
+        ipv4_address: 172.31.240.21
+
+  rc-replica:
+    <<: *role-check
+    environment:
+      <<: *rc-env
+      PG_HOST: pg-replica
+    networks:
+      lab:
+        ipv4_address: 172.31.240.22
+
+  haproxy:
+    image: haproxy:3.0.31-alpine@sha256:7430e63d3052198b18a40665b59a5826bc428e8bceb0c561d82258149ef855ee
+    restart: unless-stopped
+    volumes:
+      - ./haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    ports:
+      - "127.0.0.1:${LAB_PG_RW_PORT:-15432}:5432"
+      - "127.0.0.1:${LAB_PG_RO_PORT:-15433}:5433"
+      - "127.0.0.1:${LAB_HAPROXY_STATS_PORT:-17000}:7000"
+    networks:
+      lab:
+        ipv4_address: 172.31.240.30
+        aliases: [pg-rw, pg-ro]
+    mem_limit: 64m
+
+  # Same image and pool shape as production (transaction mode, auth_type
+  # plain, the ini written by the API). In the lab ./lab.sh writes the ini and
+  # userlist into ./state/pgbouncer; the [databases] host is pg-rw, so a
+  # promotion needs no RELOAD.
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.25.1-p0@sha256:4a8371e79d6627e74f553d0aaa8e4c5ace20e30034fb296e569b71c89c99e108
+    restart: unless-stopped
+    volumes:
+      - ./state/pgbouncer:/etc/pgbouncer
+    ports:
+      - "127.0.0.1:${LAB_PGBOUNCER_PORT:-16432}:6432"
+    depends_on:
+      - haproxy
+    networks:
+      lab:
+        ipv4_address: 172.31.240.31
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 6432 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Production's Keycloak major (24, docker-compose.prod.yml defaults to
+  # quay.io/keycloak/keycloak:24.0; deploy/components.env pins 24.0.5).
+  # Pointed at pg-rw, and depending on haproxy, not on a Postgres node, so a
+  # promotion never restarts it. That is the property Stage 1 must prove.
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0.5@sha256:f8ade94c1d0ad2f2fa7734a455fee5392764f402c43ca35e9af6bf63a2541dc9
+    restart: "no"
+    command: start
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://pg-rw:5432/keycloak
+      KC_DB_USERNAME: basefyio
+      KC_DB_PASSWORD: ${LAB_PG_PASSWORD:?run ./lab.sh up}
+      KC_HOSTNAME: localhost
+      KC_HOSTNAME_PORT: ${LAB_KEYCLOAK_PORT:-18080}
+      KC_HOSTNAME_STRICT: "false"
+      KC_HOSTNAME_STRICT_HTTPS: "false"
+      KC_HTTP_ENABLED: "true"
+      KC_HEALTH_ENABLED: "true"
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: ${LAB_KC_ADMIN_PASSWORD:?run ./lab.sh up}
+      JAVA_OPTS_APPEND: "-Xms256m -Xmx512m"
+    ports:
+      - "127.0.0.1:${LAB_KEYCLOAK_PORT:-18080}:8080"
+    depends_on:
+      - haproxy
+    networks:
+      lab:
+        ipv4_address: 172.31.240.40
+    mem_limit: 1g
+
+  # psql for lab.sh and smoke.sh, so the owner's machine needs no client.
+  client:
+    image: ${LAB_PG_IMAGE:-ghcr.io/fsipka/basefyio-postgres@sha256:a8083c2a705032571dd46a757b79765204f0420001cf6140392d81e945666eb9}
+    restart: unless-stopped
+    entrypoint: ["sleep", "infinity"]
+    environment:
+      PGPASSWORD: ${LAB_PG_PASSWORD:?run ./lab.sh up}
+      PGUSER: basefyio
+      PGCONNECT_TIMEOUT: "3"
+    networks:
+      lab:
+        ipv4_address: 172.31.240.50
+
+networks:
+  lab:
+    ipam:
+      config:
+        - subnet: 172.31.240.0/24
+
+volumes:
+  pg_primary_data:
+  pg_primary_wal_archive:
+  pg_replica_data:
+  pg_replica_wal_archive:
