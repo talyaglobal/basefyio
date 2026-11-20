@@ -249,7 +249,7 @@ services:
       start_period: 60s
 
   minio:
-    image: ${MINIO_IMAGE:-ghcr.io/${GHCR_OWNER}/basefyio-minio:RELEASE.2025-09-07T16-13-09Z} # pin: docs/ops/image-pinning.md
+    image: ${MINIO_IMAGE:-ghcr.io/${GHCR_OWNER}/basefyio-minio:RELEASE.2025-09-07T16-13-09Z@sha256:52dfd5c0bbd38d3219f2058c7af216d9f9a27a994b7b5baad09bbd38866015ff} # pin: docs/ops/image-pinning.md
     restart: always
     oom_score_adj: -900
     environment:
@@ -282,7 +282,7 @@ services:
       - traefik.http.services.minio-console.loadbalancer.server.port=9001
 
   pgbouncer:
-    image: ${PGBOUNCER_IMAGE:-edoburu/pgbouncer:v1.25.1-p0@sha256:4a8371e79d6627e74f553d0aaa8e4c5ace20e30034fb296e569b71c89c99e108} # pin: docs/ops/image-pinning.md
+    image: ${PGBOUNCER_IMAGE:-edoburu/pgbouncer@sha256:85d1e38593617af1b5f7f285e97d407e56c29939683cc7cfe4c8f6dc19f1268b} # pin: v1.25.1 (what prod runs); docs/ops/image-pinning.md: docs/ops/image-pinning.md
     restart: always
     oom_score_adj: -900
     ports:
