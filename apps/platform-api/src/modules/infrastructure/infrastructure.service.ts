@@ -9,6 +9,12 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BootTaskService } from '../cluster/boot-task.service';
 import * as Docker from 'dockerode';
+import {
+  DockerConnection,
+  describeDockerConnection,
+  dockerConnectionFromConfig,
+  dockerodeOptions,
+} from '../../common/docker/docker-connection';
 import { randomBytes } from 'crypto';
 
 interface ProvisionPgOptions {
@@ -23,6 +29,9 @@ interface ProvisionMinioOptions {
   teamSlug: string;
 }
 
+/** Pings before giving up on the Engine API (one every `retryDelayMs`). */
+const DOCKER_CONNECT_ATTEMPTS = 30;
+
 @Injectable()
 export class InfrastructureService implements OnModuleInit {
   private readonly logger = new Logger(InfrastructureService.name);
@@ -32,6 +41,8 @@ export class InfrastructureService implements OnModuleInit {
   private minioImage!: string;
   private labelPrefix!: string;
   private enabled = false;
+  /** Delay between Engine API connection attempts at boot. */
+  protected retryDelayMs = 10_000;
 
   constructor(
     private readonly config: ConfigService,
@@ -50,7 +61,6 @@ export class InfrastructureService implements OnModuleInit {
   }
 
   async onModuleInit() {
-    const socketPath = this.config.get<string>('docker.socketPath');
     this.networkName =
       this.config.get<string>('docker.network') || 'v0-kolaybase_default';
     this.pgImage =
@@ -60,21 +70,52 @@ export class InfrastructureService implements OnModuleInit {
     this.labelPrefix =
       this.config.get<string>('docker.labelPrefix') || 'com.kolaybase';
 
-    try {
-      this.docker = new Docker({ socketPath });
-      await this.docker.ping();
-      this.enabled = true;
-      this.logger.log('Docker client connected');
+    const conn = dockerConnectionFromConfig(this.config);
+    this.docker = this.createClient(conn);
+    await this.connect(conn, 1);
+  }
 
+  /** Overridden in tests to hand the service a fake Engine API client. */
+  protected createClient(conn: DockerConnection): Docker {
+    return new Docker(dockerodeOptions(conn));
+  }
+
+  /**
+   * Ping the Engine API; on success enable dedicated infrastructure and
+   * reconcile once. The default deployment reaches Docker through the
+   * docker-proxy sidecar, which may start a moment after the API, so a failed
+   * first ping is retried in the background for a few minutes instead of
+   * disabling the feature until the next restart.
+   */
+  private async connect(conn: DockerConnection, attempt: number): Promise<void> {
+    try {
+      await this.docker.ping();
+    } catch (err: any) {
+      if (attempt === 1 || attempt === DOCKER_CONNECT_ATTEMPTS) {
+        this.logger.warn(
+          `Docker not available at ${describeDockerConnection(conn)}: ${err.message}. ` +
+            (attempt < DOCKER_CONNECT_ATTEMPTS
+              ? 'Dedicated infrastructure disabled until it answers; retrying.'
+              : 'Dedicated infrastructure disabled.'),
+        );
+      }
+      if (attempt < DOCKER_CONNECT_ATTEMPTS) {
+        const timer = setTimeout(() => void this.connect(conn, attempt + 1), this.retryDelayMs);
+        timer.unref?.();
+      }
+      return;
+    }
+
+    this.enabled = true;
+    this.logger.log(`Docker client connected (${describeDockerConnection(conn)})`);
+    try {
       // Reconciling managed containers is a platform task, not a per-replica
       // one: the first process to boot does it, its siblings skip it.
       if ((await this.bootTasks?.claim('infra-reconcile')) ?? true) {
         await this.reconcile();
       }
     } catch (err: any) {
-      this.logger.warn(
-        `Docker not available: ${err.message}. Dedicated infrastructure disabled.`,
-      );
+      this.logger.warn(`Infrastructure reconciliation failed: ${err.message}`);
     }
   }
 
@@ -390,8 +431,14 @@ export class InfrastructureService implements OnModuleInit {
       const container = this.docker.getContainer(containerName);
       const info = await container.inspect();
       return info.State?.Status || 'unknown';
-    } catch {
-      return 'not_found';
+    } catch (err: any) {
+      // Only the daemon's own 404 means the container is gone. Anything else —
+      // the socket proxy refusing the call (403), the proxy being restarted, a
+      // timeout — says nothing about the container, and must never be read as
+      // "missing": reconcile() would mark a live dedicated database FAILED.
+      if (err?.statusCode === 404) return 'not_found';
+      this.logger.warn(`Could not inspect ${containerName}: ${err?.message ?? err}`);
+      return 'unknown';
     }
   }
 

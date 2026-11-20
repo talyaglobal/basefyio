@@ -238,9 +238,55 @@ export class BillingController {
   @Post('attach-payment-method')
   async attachPaymentMethod(
     @Req() req: any,
-    @Body() body: { teamId: string; paymentMethodId: string },
+    @Body() body: { teamId: string; paymentMethodId: string; makeDefault?: boolean },
   ) {
-    return this.billing.attachPaymentMethod(body.teamId, req.user.sub, body.paymentMethodId);
+    return this.billing.attachPaymentMethod(body.teamId, req.user.sub, body.paymentMethodId, body.makeDefault !== false);
+  }
+
+  /** Every saved card, the default marked, and whether the last one may be removed. */
+  @UseGuards(JwtOrPlatformTokenGuard, ScopesGuard)
+  @Scopes('billing:read')
+  @Get('payment-methods')
+  async listPaymentMethods(@Req() req: any, @Query('teamId') teamId?: string) {
+    const userId = req.user.sub;
+    if (!teamId) teamId = await this.billing.getUserActiveTeamId(userId);
+    return this.billing.listPaymentMethods(teamId, userId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('payment-methods/:paymentMethodId/default')
+  async setDefaultPaymentMethod(
+    @Req() req: any,
+    @Param('paymentMethodId') paymentMethodId: string,
+    @Body() body: { teamId: string },
+  ) {
+    return this.billing.setDefaultPaymentMethod(body.teamId, req.user.sub, paymentMethodId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete('payment-methods/:paymentMethodId')
+  async removePaymentMethod(
+    @Req() req: any,
+    @Param('paymentMethodId') paymentMethodId: string,
+    @Query('teamId') teamId?: string,
+  ) {
+    const userId = req.user.sub;
+    if (!teamId) teamId = await this.billing.getUserActiveTeamId(userId);
+    return this.billing.removePaymentMethod(teamId, userId, paymentMethodId);
+  }
+
+  /** The three steps of a move to Free and what blocks each. */
+  @UseGuards(JwtAuthGuard)
+  @Post('downgrade-preview')
+  async previewDowngrade(@Req() req: any, @Body() body: { teamId: string }) {
+    return this.billing.previewDowngrade(body.teamId, req.user.sub);
+  }
+
+  /** Pay what is owed, check the Free limits, then switch (at the end of a paid period). */
+  @UseGuards(JwtAuthGuard)
+  @Post('downgrade')
+  async downgrade(@Req() req: any, @Body() body: { teamId: string }) {
+    return this.billing.downgradeToFree(body.teamId, req.user.sub);
   }
 
   /** Cancel subscription at period end */

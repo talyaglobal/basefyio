@@ -2,9 +2,11 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as fs from 'fs/promises';
 import * as http from 'http';
+import * as https from 'https';
 import * as path from 'path';
 import { Pool } from 'pg';
 import { PrismaService } from '../../prisma/prisma.service';
+import { dockerConnectionFromConfig, dockerHttpTarget } from '../../common/docker/docker-connection';
 import { BucketInventoryEntry, PLATFORM_BUCKETS, StorageService } from '../storage/storage.service';
 
 /**
@@ -480,12 +482,19 @@ export class DiskUsageService {
     };
   }
 
-  /** GET against the Docker daemon over its socket; null on any failure or timeout. */
+  /** GET against the Docker Engine API (socket or proxy); null on any failure or timeout. */
   private dockerGet<T>(apiPath: string): Promise<T | null> {
-    const socketPath = this.config.get<string>('docker.socketPath') || '/var/run/docker.sock';
+    let target: ReturnType<typeof dockerHttpTarget>;
+    try {
+      target = dockerHttpTarget(dockerConnectionFromConfig(this.config));
+    } catch (err: any) {
+      this.logger.debug(`Docker ${apiPath} unavailable: ${err.message}`);
+      return Promise.resolve(null);
+    }
+    const request = target.https ? https.request : http.request;
     return new Promise<T | null>((resolve) => {
-      const req = http.request(
-        { socketPath, path: apiPath, method: 'GET', timeout: DOCKER_TIMEOUT_MS },
+      const req = request(
+        { ...target.options, path: apiPath, method: 'GET', timeout: DOCKER_TIMEOUT_MS },
         (res) => {
           const chunks: Buffer[] = [];
           res.on('data', (c: Buffer) => chunks.push(c));

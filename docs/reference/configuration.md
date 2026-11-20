@@ -164,6 +164,8 @@ Behaviour is described in [storage-api.md](./storage-api.md).
 |---|---|---|---|
 | `REDIS_URL` | `redis://localhost:6379` | fixed `redis://redis:6379` / fixed | Caches, rate-limit counters, realtime fan-out. |
 | `REDIS_QUEUE_URL` | = `REDIS_URL` | `redis://redis-queue:6379` / same | Durable state: BullMQ job queues, the scheduled-job lease, usage counters. The compose files run it as a second instance with `maxmemory-policy noeviction` and an append-only log, because the cache instance's `allkeys-lru` may evict exactly these keys under memory pressure. Unset = everything on `REDIS_URL`, as before. |
+| `REDIS_PASSWORD` | unset | **required** / **required** | Password of the cache instance. The compose files start `redis` with `--requirepass` from it and refuse to start without it (`required variable REDIS_PASSWORD is missing a value`); the API fills it into `REDIS_URL` unless that URL already carries a password. Unset outside compose = no AUTH, as before. Use `openssl rand -hex 32`. |
+| `REDIS_QUEUE_PASSWORD` | unset | **required** / **required** | Password of `redis-queue`, filled into `REDIS_QUEUE_URL` the same way. When `REDIS_QUEUE_URL` is unset the durable state shares the cache instance and `REDIS_PASSWORD`. Never reuse the cache password. |
 | `TRUSTED_PROXY_HOPS` | `1` | `1` / `1` | Proxies between the client and the API (Traefik = 1; a load balancer in front of it = 2). Sets Express's `trust proxy`, which decides what `req.ip` means for rate limits, the sign-in audit and realtime connection keys. |
 | `SQL_QUERY_EMBEDDING` | `on` | `on` / `on` | `off` stops queueing an embedding job for every executed SQL statement (semantic search over past queries keeps what it already indexed). |
 | `IMPORT_STALE_AFTER_MS` | `1800000` | no / no | On boot, an import or export job still marked active after this long with no progress is failed as an orphan of a dead process; younger ones are left alone, since another replica may be running them. |
@@ -181,8 +183,8 @@ Behaviour is described in [storage-api.md](./storage-api.md).
 | `ADMISSION_MAX_WAITING` | `400` | `400` / `400` | How many may wait; beyond that a request is shed at once. |
 | `ADMISSION_MAX_WAIT_MS` | `1500` | `1500` / `1500` | The longest a request waits for a slot before it is shed. |
 | `ADMISSION_DASHBOARD_SHARE` | `30` | `30` / `30` | Per cent of the in-flight limit reserved for dashboard sessions (JWT), so customer traffic cannot lock the owner out of the console. |
-| `MESSAGE_BUS_URL` | unset | unset / `amqp://…@rabbitmq:5672` | The RabbitMQ connection the message bus uses (work queues with retries and dead-letter queues; WP-6 streams). Unset keeps the bus inert: producers answer that it is not configured, consumers stay idle, `GET /api/health` reports `checks.bus` as skipped. |
-| `RABBITMQ_USER` / `RABBITMQ_PASSWORD` | `basefyio` / `basefyio_bus` | set both | Credentials the `rabbitmq` compose service is created with; put the same pair in `MESSAGE_BUS_URL`. |
+| `MESSAGE_BUS_URL` | unset | unset / `amqp://rabbitmq:5672` | The RabbitMQ connection the message bus uses (work queues with retries and dead-letter queues; WP-6 streams). Unset keeps the bus inert: producers answer that it is not configured, consumers stay idle, `GET /api/health` reports `checks.bus` as skipped. |
+| `RABBITMQ_USER` / `RABBITMQ_PASSWORD` | unset | **required** / **required** | Credentials of the `rabbitmq` compose service; the compose files no longer fall back to a published default and refuse to start without them. The API fills them into `MESSAGE_BUS_URL` when that URL names no credentials (a URL with credentials is used as written). RabbitMQ applies them only to an empty data volume: on an existing broker change the password with `rabbitmqctl change_password` first (docs/ops/internal-network-hardening.md). The management UI (15672) is reachable only on the internal network. |
 | `BUS_CONSUMERS` | `all` | `all` / `all` | Which work queues this process consumes: `all`, `none` (a pure HTTP replica), or a comma-separated list of queue names. |
 
 ## PgBouncer and per-project pooling
@@ -451,7 +453,9 @@ Placing a project on its own Postgres container instead of the shared cluster. O
 | Variable | Default | Compose (dev / prod) | Purpose |
 |---|---|---|---|
 | `DEDICATED_DB_ENABLED` | off | no / no | `true` allows new projects on a dedicated container. Turn it on only on a host with capacity for another database. |
-| `DOCKER_SOCKET_PATH` | `/var/run/docker.sock` | fixed / fixed | Docker socket the API drives (both files mount it). |
+| `DOCKER_HOST` | unset (= `DOCKER_SOCKET_PATH`) | `tcp://docker-proxy:2375` / same | Where the API reaches the Docker Engine API. Both compose files run `docker-proxy` (tecnativa/docker-socket-proxy, pinned by digest) on the internal-only `docker-api` network and no longer mount the socket into the API; the proxy forwards only containers, volumes, exec, images, info, system, ping and version and refuses everything else with 403. `unix:///path` or unset means a mounted socket. A value the API cannot parse stops it at boot. |
+| `DOCKER_SOCKET_PATH` | `/var/run/docker.sock` | fixed / fixed | The socket used when `DOCKER_HOST` is unset or `unix://`. To mount the socket into the API instead of using the proxy, add `deploy/compose/docker-socket-direct.yml` to the compose files (it sets `DOCKER_HOST=unix:///var/run/docker.sock`); the allow-list then no longer applies. |
+| `DOCKER_PROXY_IMAGE` | `tecnativa/docker-socket-proxy:v0.5.0@sha256:1f5038b5…` | compose only | Image of the `docker-proxy` service. |
 | `DOCKER_NETWORK` | `v0-kolaybase_default` | fixed `v0-kolaybase_default` / yes (`kolaybase_default`) | Network dedicated containers join. Compose names a project's network `<project>_default`; the dev file's literal is stale and only matters if you enable dedicated provisioning in development. |
 | `DOCKER_PG_IMAGE` | `pgvector/pgvector:pg16` | no / no | Image of a dedicated Postgres. |
 | `DOCKER_MINIO_IMAGE` | `minio/minio:latest` | no / no | Image of a dedicated MinIO. |

@@ -6,6 +6,7 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  ConflictException,
   OnModuleInit,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -17,6 +18,16 @@ import { QuickbooksService } from '../quickbooks/quickbooks.service';
 import { PayPalService } from './paypal.service';
 import { ACADEMIC_DOMAINS } from './academic-domains';
 import { DEFAULT_PLANS } from './default-plans';
+import { UsageService } from './usage.service';
+import {
+  LimitFinding,
+  UNPAID_INVOICE_STATUSES,
+  UsageSnapshot,
+  invoiceOutstanding,
+  isCardExempt,
+  planLimitFindings,
+  planRequiresCard,
+} from './billing-plan-rules';
 import { grantedByRole, requireRolePermission } from '../teams/role-permissions';
 import PDFDocument = require('pdfkit');
 
@@ -44,6 +55,7 @@ export class BillingService implements OnModuleInit {
     private readonly email: EmailService,
     private readonly quickbooks: QuickbooksService,
     private readonly paypal: PayPalService,
+    private readonly usage?: UsageService,
   ) {}
 
   /** Fire-and-forget: push a paid sale to QuickBooks as a Sales Receipt. */
@@ -351,6 +363,11 @@ export class BillingService implements OnModuleInit {
         where: { id: sub.id },
         data: { stripeCustomerId: customer.id },
       });
+    }
+
+    // A paid plan is never chosen without a saved default card (owner, 2026-11-20).
+    if (planRequiresCard(plan) && !(await this.stripe.getDefaultPaymentMethod(customer.id))) {
+      throw this.cardRequired(plan);
     }
 
     const session = await this.stripe.createCheckoutSession({
@@ -1049,8 +1066,11 @@ export class BillingService implements OnModuleInit {
     return { clientSecret: intent.client_secret, customerId };
   }
 
-  /** Attach payment method after SetupIntent confirmation */
-  async attachPaymentMethod(teamId: string, userId: string, paymentMethodId: string) {
+  /**
+   * Attach a card after SetupIntent confirmation. It becomes the default unless
+   * the caller asks otherwise and the team already has a default card.
+   */
+  async attachPaymentMethod(teamId: string, userId: string, paymentMethodId: string, makeDefault = true) {
     await this.assertTeamOwner(teamId, userId);
 
     const sub = await this.prisma.subscription.findUnique({ where: { teamId } });
@@ -1065,44 +1085,519 @@ export class BillingService implements OnModuleInit {
     }
 
     await this.stripe.attachPaymentMethod(sub.stripeCustomerId, paymentMethodId);
-    await this.stripe.setDefaultPaymentMethod(sub.stripeCustomerId, paymentMethodId);
+    const keepCurrentDefault =
+      makeDefault === false && !!(await this.stripe.getDefaultPaymentMethod(sub.stripeCustomerId).catch(() => null));
+    if (!keepCurrentDefault) {
+      await this.stripe.setDefaultPaymentMethod(sub.stripeCustomerId, paymentMethodId);
+    }
     this.logger.log(`Payment method ${paymentMethodId} attached for team ${teamId}`);
 
     return { success: true };
   }
 
-  // ── Subscription Management ──────────────────────────
+  // ── Saved cards ──────────────────────────────────────
 
-  /** Cancel subscription at period end */
-  async cancelSubscription(teamId: string, userId: string) {
+  private cardRequired(plan: { displayName?: string; name: string }) {
+    return new BadRequestException({
+      statusCode: 400,
+      error: 'Bad Request',
+      code: 'card_required',
+      message: `Add a card and make it your default before choosing the ${plan.displayName || plan.name} plan.`,
+    });
+  }
+
+  /** What the team owes: unpaid invoices, a failed renewal, a failed upgrade still being retried. */
+  private async outstandingBalance(teamId: string, sub: any) {
+    const rows = await this.prisma.invoice.findMany({
+      where: { teamId, status: { in: UNPAID_INVOICE_STATUSES } },
+      orderBy: { createdAt: 'asc' },
+    });
+    const invoices = (rows as any[])
+      .map((inv) => ({
+        id: inv.id as string,
+        stripeInvoiceId: (inv.stripeInvoiceId ?? null) as string | null,
+        amount: invoiceOutstanding(inv),
+        currency: (inv.currency || 'usd') as string,
+      }))
+      .filter((i) => i.amount > 0);
+    const pendingUpgrade: number = sub?.pendingPlanId && (sub.pendingAmountDue ?? 0) > 0 ? sub.pendingAmountDue : 0;
+    // A renewal that failed leaves no invoice; the debt is the plan's own price (owner, 2026-11-20).
+    const renewal =
+      sub?.status === 'PAST_DUE' && !pendingUpgrade && (sub.plan?.priceMonthly ?? 0) > 0
+        ? this.withStudentDiscount(sub.plan.priceMonthly, sub.studentDiscountPercent)
+        : 0;
+    const invoiceTotal = invoices.reduce((s, i) => s + i.amount, 0);
+    return { invoices, renewal, pendingUpgrade, total: invoiceTotal + renewal };
+  }
+
+  /** Whether the team's last card may be removed, and why not. */
+  private async cardRemovalPolicy(teamId: string, sub: any) {
+    const plan = sub?.plan;
+    const cardRequired = planRequiresCard(plan);
+    if (isCardExempt(plan)) return { cardRequired: false, lastCardRemovable: true, lastCardReason: null as string | null };
+    if (cardRequired) {
+      return {
+        cardRequired,
+        lastCardRemovable: false,
+        lastCardReason: `Your ${plan.displayName || plan.name} plan needs a card on file. Add another card before removing this one, or move to the Free plan first.` as string | null,
+      };
+    }
+    const owed = await this.outstandingBalance(teamId, sub);
+    if (owed.total > 0 || owed.pendingUpgrade > 0) {
+      return {
+        cardRequired,
+        lastCardRemovable: false,
+        lastCardReason: 'Pay your outstanding balance before removing your last card.' as string | null,
+      };
+    }
+    return { cardRequired, lastCardRemovable: true, lastCardReason: null as string | null };
+  }
+
+  /** The card must be saved on this team's own customer; anything else is "not found". */
+  private async ownedCard(customerId: string, paymentMethodId: string) {
+    let pm: any;
+    try {
+      pm = await this.stripe.retrievePaymentMethod(paymentMethodId);
+    } catch {
+      throw new NotFoundException('Card not found');
+    }
+    const owner = typeof pm?.customer === 'string' ? pm.customer : pm?.customer?.id;
+    if (!owner || owner !== customerId) throw new NotFoundException('Card not found');
+    return pm;
+  }
+
+  /** Every saved card of the team, the default marked, plus the last-card rule for the UI. */
+  async listPaymentMethods(teamId: string, userId: string) {
+    await this.assertCanViewBilling(teamId, userId);
+    const sub = await this.prisma.subscription.findUnique({ where: { teamId }, include: { plan: true } });
+    const policy = await this.cardRemovalPolicy(teamId, sub);
+    if (!sub?.stripeCustomerId || !this.stripe.isEnabled()) return { methods: [], ...policy };
+    try {
+      const [cards, def] = await Promise.all([
+        this.stripe.listPaymentMethods(sub.stripeCustomerId),
+        this.stripe.getDefaultPaymentMethod(sub.stripeCustomerId).catch(() => null),
+      ]);
+      return {
+        methods: cards.map((pm) => ({
+          id: pm.id,
+          brand: pm.card?.brand || null,
+          last4: pm.card?.last4 || null,
+          expMonth: pm.card?.exp_month || null,
+          expYear: pm.card?.exp_year || null,
+          isDefault: !!def && def.id === pm.id,
+        })),
+        ...policy,
+      };
+    } catch (err: any) {
+      this.logger.warn(`Could not list cards for team ${teamId}: ${err.message}`);
+      return { methods: [], unavailable: true, ...policy };
+    }
+  }
+
+  async setDefaultPaymentMethod(teamId: string, userId: string, paymentMethodId: string) {
     await this.assertTeamOwner(teamId, userId);
-
     const sub = await this.prisma.subscription.findUnique({ where: { teamId } });
-    if (!sub?.stripeSubscriptionId) {
-      throw new BadRequestException('No active Stripe subscription to cancel');
+    if (!sub?.stripeCustomerId) throw new NotFoundException('Card not found');
+    await this.ownedCard(sub.stripeCustomerId, paymentMethodId);
+    await this.stripe.setDefaultPaymentMethod(sub.stripeCustomerId, paymentMethodId);
+    this.logger.log(`Default card ${paymentMethodId} set for team ${teamId}`);
+    return { success: true };
+  }
+
+  /**
+   * Remove a saved card. A paid plan keeps at least one card; legacy and
+   * grandfathered accounts may remove all; a Free team keeps its last card
+   * while it owes money. Removing the default promotes another card first.
+   */
+  async removePaymentMethod(teamId: string, userId: string, paymentMethodId: string) {
+    await this.assertTeamOwner(teamId, userId);
+    const sub = await this.prisma.subscription.findUnique({ where: { teamId }, include: { plan: true } });
+    if (!sub?.stripeCustomerId) throw new NotFoundException('Card not found');
+    const customerId = sub.stripeCustomerId;
+    await this.ownedCard(customerId, paymentMethodId);
+
+    // Two removals at once could each see "another card is left" and end at zero cards.
+    const lockKey = `billing:card-change:${teamId}`;
+    let locked = true;
+    try {
+      locked = (await this.redis.getClient().set(lockKey, '1', 'EX', 30, 'NX')) === 'OK';
+    } catch (err: any) {
+      this.logger.warn(`Card change lock unavailable for team ${teamId}: ${err.message}`);
+    }
+    if (!locked) {
+      throw new ConflictException('Another card change for this team is in progress. Try again in a moment.');
+    }
+    try {
+      const cards = await this.stripe.listPaymentMethods(customerId);
+      if (!cards.some((c) => c.id === paymentMethodId)) throw new NotFoundException('Card not found');
+      const remaining = cards.filter((c) => c.id !== paymentMethodId);
+      if (remaining.length === 0) {
+        const policy = await this.cardRemovalPolicy(teamId, sub);
+        if (!policy.lastCardRemovable) {
+          throw new BadRequestException({
+            statusCode: 400,
+            error: 'Bad Request',
+            code: 'last_card_required',
+            message: policy.lastCardReason,
+          });
+        }
+      } else {
+        const def = await this.stripe.getDefaultPaymentMethod(customerId).catch(() => null);
+        if (!def || def.id === paymentMethodId) {
+          await this.stripe.setDefaultPaymentMethod(customerId, remaining[0].id);
+        }
+      }
+      await this.stripe.detachPaymentMethod(paymentMethodId);
+      this.logger.log(`Card ${paymentMethodId} removed for team ${teamId}`);
+      return { success: true };
+    } finally {
+      await this.redis.del(lockKey).catch(() => undefined);
+    }
+  }
+
+  // ── Moving to the Free plan ──────────────────────────
+
+  private async usageSnapshot(teamId: string): Promise<UsageSnapshot> {
+    const [projects, members, usage] = await Promise.all([
+      // Counted as recalculateTeamUsage does: live projects, preview branches excluded.
+      this.prisma.project.count({
+        where: { teamId, status: { notIn: ['DELETED', 'DEACTIVATED'] }, parentProjectId: null },
+      }),
+      this.prisma.teamMember.count({ where: { teamId } }),
+      this.usage ? this.usage.getTeamUsage(teamId) : this.prisma.teamUsage.findUnique({ where: { teamId } }),
+    ]);
+    return {
+      projects,
+      members,
+      storageBytes: BigInt(usage?.storageBytes ?? 0),
+      dbSizeBytes: BigInt(usage?.dbSizeBytes ?? 0),
+      apiRequestsMonth: Number(usage?.apiRequestsMonth ?? 0),
+      bandwidthMonth: BigInt(usage?.bandwidthMonth ?? 0),
+      mau: Number(usage?.mauCount ?? 0),
+    };
+  }
+
+  /** When a move to Free takes effect: the end of a paid period still running, otherwise now (null). */
+  private downgradeEffectiveAt(sub: any): Date | null {
+    const end: Date | null = sub.stripeSubscriptionId
+      ? sub.currentPeriodEnd
+      : (sub.plan?.priceMonthly ?? 0) > 0
+        ? sub.nextBillingDate ?? sub.currentPeriodEnd
+        : null;
+    return end && new Date(end).getTime() > Date.now() ? new Date(end) : null;
+  }
+
+  private async downgradeContext(teamId: string) {
+    const sub: any = await this.prisma.subscription.findUnique({ where: { teamId }, include: { plan: true } });
+    if (!sub) throw new BadRequestException('No subscription found');
+    if (sub.plan?.name === 'free') throw new BadRequestException('You are already on the Free plan');
+    const freePlan = await this.prisma.plan.findUnique({ where: { name: 'free' } });
+    if (!freePlan) throw new NotFoundException('The Free plan is not available');
+    const [outstanding, usage] = await Promise.all([this.outstandingBalance(teamId, sub), this.usageSnapshot(teamId)]);
+    const limits = planLimitFindings(freePlan as any, usage);
+    let card: { brand: string | null; last4: string | null } | null = null;
+    if (sub.stripeCustomerId && this.stripe.isEnabled()) {
+      const pm = await this.stripe.getDefaultPaymentMethod(sub.stripeCustomerId).catch(() => null);
+      if (pm) card = { brand: pm.card?.brand || null, last4: pm.card?.last4 || null };
+    }
+    // Only a move this flow scheduled counts (a processor subscription's own flag, or our marker).
+    const scheduled =
+      !!sub.cancelAtPeriodEnd && (!!sub.stripeSubscriptionId || (await this.hasScheduledDowngrade(teamId)));
+    return { sub, freePlan, outstanding, limits, card, scheduled };
+  }
+
+  private describeLimit(f: LimitFinding): string {
+    const fmt = (v: string) =>
+      f.unit === 'bytes' ? `${(Number(v) / 1024 ** 3).toFixed(2)} GB` : Number(v).toLocaleString('en-US');
+    return `${f.label}: ${fmt(f.current)} of ${fmt(f.limit)}`;
+  }
+
+  /** The three steps of a move to Free, with what blocks each, for the confirmation dialog. */
+  async previewDowngrade(teamId: string, userId: string) {
+    await this.assertTeamOwner(teamId, userId);
+    const { sub, freePlan, outstanding, limits, card, scheduled } = await this.downgradeContext(teamId);
+    const effectiveAt = this.downgradeEffectiveAt(sub);
+    const needsCard = outstanding.total > 0 && !card;
+    return {
+      currentPlan: { name: sub.plan.name, displayName: sub.plan.displayName },
+      targetPlan: { name: freePlan.name, displayName: freePlan.displayName },
+      currency: 'usd',
+      alreadyScheduled: scheduled,
+      outstanding: {
+        invoices: outstanding.invoices.map(({ id, amount, currency }) => ({ id, amount, currency })),
+        renewal: outstanding.renewal,
+        total: outstanding.total,
+        droppedUpgrade: outstanding.pendingUpgrade,
+        card,
+      },
+      limits,
+      effectiveAt: effectiveAt ? effectiveAt.toISOString() : null,
+      canProceed: !scheduled && limits.blockers.length === 0 && !needsCard,
+      steps: [
+        {
+          key: 'pay',
+          title: 'Pay outstanding invoices',
+          status: outstanding.total === 0 ? 'done' : needsCard ? 'blocked' : 'pending',
+          detail:
+            outstanding.total === 0
+              ? 'Nothing is outstanding.'
+              : needsCard
+                ? 'Add a card to pay the outstanding balance.'
+                : `${(outstanding.total / 100).toFixed(2)} USD is charged to your default card first.`,
+        },
+        {
+          key: 'limits',
+          title: 'Fit within the Free plan limits',
+          status: limits.blockers.length ? 'blocked' : 'done',
+          detail: limits.blockers.length
+            ? `Reduce first: ${limits.blockers.map((b) => this.describeLimit(b)).join('; ')}.`
+            : 'Your usage fits the Free plan.',
+        },
+        {
+          key: 'switch',
+          title: 'Switch to Free',
+          status: 'pending',
+          detail: effectiveAt
+            ? `Your plan stays ${sub.plan.displayName} until ${effectiveAt.toISOString().slice(0, 10)}, then moves to Free. The remaining days are not refunded.`
+            : 'Your plan moves to Free right away.',
+        },
+      ],
+    };
+  }
+
+  /** Charge everything the team owes to its default card; any failure stops the move. */
+  private async settleOutstanding(
+    teamId: string,
+    sub: any,
+    outstanding: { invoices: Array<{ id: string; stripeInvoiceId: string | null; amount: number; currency: string }>; renewal: number },
+  ) {
+    const pm = sub.stripeCustomerId
+      ? await this.stripe.getDefaultPaymentMethod(sub.stripeCustomerId).catch(() => null)
+      : null;
+    if (!pm) {
+      throw new BadRequestException({
+        statusCode: 400,
+        error: 'Bad Request',
+        code: 'card_required',
+        message: 'Add a card to pay your outstanding balance before moving to the Free plan.',
+      });
+    }
+    const failed = (reason: string) =>
+      new BadRequestException({
+        statusCode: 400,
+        error: 'Bad Request',
+        code: 'payment_failed',
+        message: `We could not charge your card for the outstanding balance (${reason}). Your plan has not changed. Update your card and try again.`,
+      });
+
+    for (const inv of outstanding.invoices) {
+      let reference: string | null = inv.stripeInvoiceId;
+      try {
+        if (inv.stripeInvoiceId?.startsWith('in_')) {
+          const paid = await this.stripe.payInvoice(inv.stripeInvoiceId, pm.id);
+          if (paid.status !== 'paid') throw new Error(paid.status || 'not paid');
+        } else {
+          const pi = await this.stripe.createPaymentIntent({
+            amount: inv.amount,
+            currency: inv.currency,
+            customerId: sub.stripeCustomerId,
+            paymentMethodId: pm.id,
+            metadata: { teamId, invoiceId: inv.id, type: 'downgrade_settlement' },
+          });
+          if (pi.status !== 'succeeded') throw new Error(pi.status);
+          reference = inv.stripeInvoiceId || pi.id;
+        }
+      } catch (err: any) {
+        this.logger.error(`Downgrade settlement failed for team ${teamId}, invoice ${inv.id}: ${err.message}`);
+        throw failed(err.message);
+      }
+      const row = await this.prisma.invoice.findUnique({ where: { id: inv.id } });
+      await this.prisma.invoice.update({
+        where: { id: inv.id },
+        data: { status: 'paid', amountPaid: row?.amountDue ?? inv.amount, stripeInvoiceId: reference },
+      });
+      this.recordQbSale(inv.id);
     }
 
-    await this.stripe.cancelSubscription(sub.stripeSubscriptionId);
+    if (outstanding.renewal > 0) {
+      const now = new Date();
+      const nextBillingDate = new Date(now);
+      nextBillingDate.setMonth(nextBillingDate.getMonth() + 1);
+      let pi: any;
+      try {
+        pi = await this.stripe.createPaymentIntent({
+          amount: outstanding.renewal,
+          currency: 'usd',
+          customerId: sub.stripeCustomerId,
+          paymentMethodId: pm.id,
+          metadata: { teamId, subscriptionId: sub.id, type: 'downgrade_renewal' },
+        });
+        if (pi.status !== 'succeeded') throw new Error(pi.status);
+      } catch (err: any) {
+        this.logger.error(`Downgrade renewal charge failed for team ${teamId}: ${err.message}`);
+        throw failed(err.message);
+      }
+      const inv = await this.prisma.invoice.create({
+        data: {
+          teamId,
+          stripeInvoiceId: pi.id,
+          amountDue: outstanding.renewal,
+          amountPaid: outstanding.renewal,
+          currency: 'usd',
+          status: 'paid',
+          periodStart: now,
+          periodEnd: nextBillingDate,
+          retryCount: 0,
+        },
+      });
+      this.recordQbSale(inv.id);
+      // The renewal is paid, so the period it buys runs before the move to Free.
+      await this.prisma.subscription.update({
+        where: { id: sub.id },
+        data: { currentPeriodStart: now, currentPeriodEnd: nextBillingDate, nextBillingDate },
+      });
+    }
+
+    // As a successful retry does: lift the freeze and clear the failure counters.
+    await this.prisma.team.updateMany({ where: { id: teamId, accountStatus: 'FROZEN' }, data: { accountStatus: 'ACTIVE' } });
     await this.prisma.subscription.update({
       where: { id: sub.id },
-      data: { cancelAtPeriodEnd: true },
+      data: { status: 'ACTIVE', retryCount: 0, lastRetryDate: null, firstFailureAt: null },
     });
+  }
 
-    this.logger.log(`Subscription canceled for team ${teamId}`);
+  /**
+   * A move to Free scheduled by downgradeToFree is recorded in system_settings, so the
+   * renewal job only ever switches teams that asked for it: a cancelAtPeriodEnd flag set
+   * any other way (older rows, processor events) keeps being billed exactly as before.
+   */
+  private scheduledDowngradeKey(teamId: string) {
+    return `billing_scheduled_free:${teamId}`;
+  }
+
+  private async markScheduledDowngrade(teamId: string, at: Date, userId: string) {
+    const key = this.scheduledDowngradeKey(teamId);
+    const value = { at: at.toISOString(), requestedBy: userId, requestedAt: new Date().toISOString() };
+    await this.prisma.systemSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+  }
+
+  private async clearScheduledDowngrade(teamId: string) {
+    await this.prisma.systemSetting.deleteMany({ where: { key: this.scheduledDowngradeKey(teamId) } });
+  }
+
+  private async hasScheduledDowngrade(teamId: string): Promise<boolean> {
+    return !!(await this.prisma.systemSetting.findUnique({ where: { key: this.scheduledDowngradeKey(teamId) } }));
+  }
+
+  /** Put a subscription on the Free plan now. */
+  private async switchToFree(subscriptionId: string, freePlanId: string) {
+    await this.prisma.subscription.update({
+      where: { id: subscriptionId },
+      data: {
+        planId: freePlanId,
+        status: 'ACTIVE',
+        cancelAtPeriodEnd: false,
+        currentPeriodStart: null,
+        currentPeriodEnd: null,
+        nextBillingDate: null,
+        billingDayOfMonth: null,
+        pendingPlanId: null,
+        pendingAmountDue: null,
+        retryCount: 0,
+        lastRetryDate: null,
+        firstFailureAt: null,
+      },
+    });
+  }
+
+  /**
+   * Move to Free in the owner's order (2026-11-20): (a) pay what is owed with
+   * the default card, (b) fit within the Free limits (projects, members,
+   * storage, database size; monthly counters only warn), (c) switch — at the
+   * end of a paid period still running, otherwise now. Nothing is deleted.
+   */
+  async downgradeToFree(teamId: string, userId: string) {
+    await this.assertTeamOwner(teamId, userId);
+    const { sub, freePlan, outstanding, scheduled } = await this.downgradeContext(teamId);
+    if (scheduled) {
+      const at = this.downgradeEffectiveAt(sub);
+      return {
+        message: at ? `Your plan already moves to Free on ${at.toISOString().slice(0, 10)}` : 'Your plan already moves to Free',
+        scheduled: true,
+        effectiveAt: at ? at.toISOString() : null,
+      };
+    }
+
+    // (a) Pay outstanding invoices first.
+    if (outstanding.total > 0) await this.settleOutstanding(teamId, sub, outstanding);
+
+    // (b) Usage within the Free limits, measured now.
+    const { blockers } = planLimitFindings(freePlan as any, await this.usageSnapshot(teamId));
+    if (blockers.length) {
+      throw new BadRequestException({
+        statusCode: 400,
+        error: 'Bad Request',
+        code: 'over_free_limits',
+        message: `Reduce your usage to the Free plan limits first. ${blockers.map((b) => this.describeLimit(b)).join('; ')}.`,
+        blockers,
+      });
+    }
+
+    // (c) Switch. A failed upgrade still being retried never happened: it is dropped, not charged.
+    const fresh: any = await this.prisma.subscription.findUnique({ where: { id: sub.id }, include: { plan: true } });
+    const effectiveAt = this.downgradeEffectiveAt(fresh ?? sub);
+    if (sub.stripeSubscriptionId) await this.stripe.cancelSubscription(sub.stripeSubscriptionId);
+    if (effectiveAt) {
+      await this.prisma.subscription.update({
+        where: { id: sub.id },
+        data: { cancelAtPeriodEnd: true, pendingPlanId: null, pendingAmountDue: null },
+      });
+      if (!sub.stripeSubscriptionId) await this.markScheduledDowngrade(teamId, effectiveAt, userId);
+    } else {
+      await this.switchToFree(sub.id, freePlan.id);
+      await this.clearScheduledDowngrade(teamId);
+    }
+    if (outstanding.pendingUpgrade > 0) {
+      await this.prisma.subscription.update({
+        where: { id: sub.id },
+        data: { status: 'ACTIVE', retryCount: 0, lastRetryDate: null, firstFailureAt: null },
+      });
+      await this.prisma.team.updateMany({ where: { id: teamId, accountStatus: 'FROZEN' }, data: { accountStatus: 'ACTIVE' } });
+    }
+
+    this.logger.log(`Team ${teamId} moves to Free ${effectiveAt ? `on ${effectiveAt.toISOString()}` : 'now'}`);
     this.realtime.publish({
       entityType: 'billing', action: 'subscription_canceled', entityId: teamId,
       actorUserId: userId, teamId,
     }).catch(() => {});
-    return { message: 'Subscription will cancel at end of billing period' };
+    return {
+      message: effectiveAt
+        ? `Your plan moves to Free on ${effectiveAt.toISOString().slice(0, 10)}`
+        : 'Your plan is now Free',
+      scheduled: !!effectiveAt,
+      effectiveAt: effectiveAt ? effectiveAt.toISOString() : null,
+    };
   }
 
-  /** Resume a subscription that was set to cancel */
+  // ── Subscription Management ──────────────────────────
+
+  /** Cancel = move to Free at the end of the paid period, through the same checks. */
+  async cancelSubscription(teamId: string, userId: string) {
+    return this.downgradeToFree(teamId, userId);
+  }
+
+  /** Resume a subscription that was set to move to Free */
   async resumeSubscription(teamId: string, userId: string) {
     await this.assertTeamOwner(teamId, userId);
 
     const sub = await this.prisma.subscription.findUnique({ where: { teamId } });
     if (!sub?.stripeSubscriptionId) {
-      throw new BadRequestException('No Stripe subscription to resume');
+      // Prepaid billing: the scheduled move is only a flag the renewal job reads.
+      if (!sub?.cancelAtPeriodEnd) throw new BadRequestException('No scheduled change to undo');
+      await this.prisma.subscription.update({ where: { id: sub.id }, data: { cancelAtPeriodEnd: false } });
+      await this.clearScheduledDowngrade(teamId);
+      this.logger.log(`Scheduled move to Free undone for team ${teamId}`);
+      return { message: 'Subscription resumed' };
     }
 
     await this.stripe.resumeSubscription(sub.stripeSubscriptionId);
@@ -1131,6 +1626,8 @@ export class BillingService implements OnModuleInit {
     await this.assertTeamOwner(teamId, userId);
 
     let newPlan = await this.getPlanByName(newPlanName);
+    // Moving to Free has its own order: pay what is owed, fit the limits, then switch.
+    if (newPlan.name === 'free') return this.downgradeToFree(teamId, userId);
     if (!newPlan.stripePriceId) {
       if (!this.stripe.isEnabled() || newPlan.priceMonthly <= 0) {
         throw new BadRequestException(`Plan "${newPlanName}" has no Stripe price`);
@@ -1163,12 +1660,12 @@ export class BillingService implements OnModuleInit {
     }
 
     if (!sub?.stripeCustomerId) {
-      throw new BadRequestException('No payment method on file. Add a card first.');
+      throw this.cardRequired(newPlan);
     }
 
     const pm = await this.stripe.getDefaultPaymentMethod(sub.stripeCustomerId);
     if (!pm) {
-      throw new BadRequestException('No payment method on file. Add a card first.');
+      throw this.cardRequired(newPlan);
     }
 
     // Calculate proration credit (remaining value from current plan)
@@ -1264,6 +1761,8 @@ export class BillingService implements OnModuleInit {
         firstFailureAt: null,
         pendingPlanId: null,
         pendingAmountDue: null,
+        // An upgrade undoes a scheduled move to Free (prepaid billing; a processor subscription keeps its own flag).
+        ...(sub.stripeSubscriptionId ? {} : { cancelAtPeriodEnd: false }),
       },
     });
 
@@ -1276,6 +1775,11 @@ export class BillingService implements OnModuleInit {
       },
     });
     this.recordQbSale(upgradeInvoice.id);
+    if (!sub.stripeSubscriptionId) {
+      await this.clearScheduledDowngrade(teamId).catch((e: any) =>
+        this.logger.warn(`Could not clear a scheduled move to Free for team ${teamId}: ${e.message}`),
+      );
+    }
 
     // Ensure team account is active
     await this.prisma.team.update({
@@ -1454,6 +1958,18 @@ export class BillingService implements OnModuleInit {
 
     if (!sub) {
       throw new NotFoundException(`Subscription not found: ${subscriptionId}`);
+    }
+
+    // A move to Free was scheduled for the end of the paid period: switch instead of charging.
+    // Usage over the Free limits does not stop it; nothing is deleted, quotas stop new use.
+    if (sub.cancelAtPeriodEnd && !sub.stripeSubscriptionId && (await this.hasScheduledDowngrade(sub.teamId))) {
+      const freePlan = await this.prisma.plan.findUnique({ where: { name: 'free' } });
+      if (freePlan) {
+        await this.switchToFree(sub.id, freePlan.id);
+        await this.clearScheduledDowngrade(sub.teamId);
+        this.logger.log(`Team ${teamId} moved to the Free plan at the end of its paid period`);
+        return { teamId, status: 'success', message: 'Moved to the Free plan as scheduled' };
+      }
     }
 
     if (!sub.stripeCustomerId) {
@@ -1938,6 +2454,14 @@ export class BillingService implements OnModuleInit {
     }
     if (newPlan.priceMonthly < currentPlan.priceMonthly) {
       throw new BadRequestException('Downgrade preview is not supported');
+    }
+    // A paid plan is never chosen without a saved default card (owner, 2026-11-20).
+    if (planRequiresCard(newPlan)) {
+      const pm =
+        sub.stripeCustomerId && this.stripe.isEnabled()
+          ? await this.stripe.getDefaultPaymentMethod(sub.stripeCustomerId).catch(() => null)
+          : null;
+      if (!pm) throw this.cardRequired(newPlan);
     }
 
     // Calculate proration credit

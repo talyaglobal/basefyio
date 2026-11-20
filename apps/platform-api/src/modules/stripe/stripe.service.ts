@@ -206,14 +206,21 @@ export class StripeService implements OnModuleInit {
     await this.stripe.paymentMethods.detach(paymentMethodId);
   }
 
-  /** List payment methods for a customer */
+  /** List the cards saved on a customer (newest first, as the processor returns them). */
   async listPaymentMethods(customerId: string): Promise<Stripe.PaymentMethod[]> {
     this.assertEnabled();
     const result = await this.stripe.paymentMethods.list({
       customer: customerId,
       type: 'card',
+      limit: 100,
     });
     return result.data;
+  }
+
+  /** Pay an open processor-hosted invoice with a saved card. */
+  async payInvoice(invoiceId: string, paymentMethodId: string): Promise<Stripe.Invoice> {
+    this.assertEnabled();
+    return this.stripe.invoices.pay(invoiceId, { payment_method: paymentMethodId, off_session: true });
   }
 
   async createCheckoutSession(opts: {

@@ -32,10 +32,21 @@ for _ in $(seq 1 36); do
   sleep 5
 done
 echo "running: $running"
-for s in postgres keycloak minio redis redis-queue rabbitmq pgbouncer platform-api admin-ui website; do
+for s in postgres keycloak minio redis redis-queue rabbitmq pgbouncer platform-api admin-ui website docker-proxy; do
   [[ " $running " == *" $s "* ]] || fail "$s is not running"
 done
 pass "core services run"
+
+# Internal services refuse callers without a credential.
+for s in redis redis-queue; do
+  out="$(./basefyio exec -T "$s" sh -c 'unset REDISCLI_AUTH; redis-cli ping' 2>&1 || true)"
+  [[ "$out" == *NOAUTH* ]] || fail "$s answers without a password: $out"
+  [ "$(./basefyio exec -T "$s" redis-cli ping 2>/dev/null | tr -d '\r')" = PONG ] || fail "$s refuses its own password"
+done
+pass "redis and redis-queue require AUTH"
+[ -z "$(docker inspect --format '{{range .Mounts}}{{.Source}} {{end}}' "$(./basefyio ps -q platform-api | head -n1)" | grep docker.sock || true)" ] \
+  || fail "platform-api mounts the Docker socket"
+pass "platform-api reaches Docker only through docker-proxy"
 for s in nosql nosql-init mongodb couchdb; do
   [[ " $running " != *" $s "* ]] || fail "$s runs although the document store is off"
 done
