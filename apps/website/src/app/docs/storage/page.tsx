@@ -69,6 +69,13 @@ await bf.storage.deleteBucket('avatars')`}</code></pre>
         Bucket names are 3–63 characters, lowercase letters, numbers and hyphens, and can&apos;t
         start or end with a hyphen.
       </p>
+      <p className="text-sm">
+        A bucket belongs to the project that created it, and every route checks that before
+        it reads or writes anything. A bucket your project does not own answers exactly like a
+        missing one (<code>404 Bucket &quot;name&quot; not found</code>). A name that would land
+        in another project&apos;s storage namespace is refused with a 409; choose a different
+        name.
+      </p>
 
       {/* ── Upload ──────────────────────────────────── */}
       <h2>Uploading files</h2>

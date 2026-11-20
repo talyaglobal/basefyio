@@ -27,6 +27,26 @@ characters, letters, digits and hyphens, not starting or ending with a hyphen (4
 are created from the dashboard (Storage) or from your server — never from a browser, since
 creation needs the service key.
 
+### Bucket ownership
+
+Inside the object store a bucket is named `bf-<project prefix>-<bucket name>`. Because both
+parts may contain hyphens, two projects can spell the same stored name (project `a`'s bucket
+`b-x` and project `a-b`'s bucket `x`). Every route therefore checks that the stored bucket
+belongs to the calling project before it touches anything:
+
+- a bucket created through the API, the dashboard, the MCP tools or the CLI records its project
+  when it is created, and only that project reaches it;
+- an older bucket without a record is reached by the one project whose prefix it starts with,
+  and is recorded on first use;
+- an older bucket whose name starts with the prefixes of more than one project is reached by
+  none of them until the operator assigns it (`scripts/backfill-bucket-owners.ts --assign`);
+- the platform's own buckets are never reachable from a project.
+
+A bucket the project does not own answers exactly like a missing one: `404 Bucket "<name>" not
+found`. Creating a bucket whose stored name lies in another project's namespace answers 409.
+New projects get a storage prefix that overlaps no other project's, so their buckets are never
+ambiguous.
+
 A **public** bucket grants anonymous `GetObject` only: each file is readable at its URL, the bucket is never listed anonymously (listing goes through the API with a key). Files uploaded through the API as `text/html`, `application/xhtml+xml`, `image/svg+xml`, XML or JavaScript are stored with `Content-Disposition: attachment`, so the public storage host serves them as downloads rather than running them. Public URLs encode each path segment (`#`, `?` and spaces stay part of the key).
 
 ## Objects
@@ -199,8 +219,8 @@ curl -s "$API/buckets" -H "apikey: $SERVICE_KEY" -H "Content-Type: application/j
 |---|---|
 | 400 | `Bucket name must be 3-63 chars…`; `File path is required`; `Folder name is required`; `Invalid folder path`; `Invalid destination`; `Cannot move a folder into itself`; `Expiry must be between 60 and 604800 seconds`; a chunk at the wrong offset |
 | 403 | anon key on a service route; bare anon key on a user route; an access rule refused the read |
-| 404 | `Bucket "<name>" not found`; `Object "<key>" not found`; unknown upload session |
-| 409 | `Bucket "<name>" already exists`; `Bucket name "<name>" overlaps another project's storage namespace` |
+| 404 | `Bucket "<name>" not found` (also a bucket another project owns, an ambiguous legacy bucket or a platform bucket: the answer is the same as for a missing one); `Object "<key>" not found`; unknown upload session |
+| 409 | `Bucket "<name>" already exists`; `Bucket name "<name>" overlaps another project's storage namespace`; `Bucket name "<name>" is reserved` |
 | 502 | deleting a bucket whose S3 key policy could not be updated |
 | 413 | upload above `STORAGE_MAX_UPLOAD_MB`; render source above the transform limit |
 | 415 | render of a non-image |
@@ -209,5 +229,6 @@ curl -s "$API/buckets" -H "apikey: $SERVICE_KEY" -H "Content-Type: application/j
 Source: `apps/platform-api/src/modules/storage/storage.controller.ts`,
 `storage-policy.controller.ts`, `upload-session.controller.ts`, `storage.service.ts`,
 `storage-access.service.ts`, `image-transform.service.ts`, `upload-session.service.ts`,
-`s3-keys.controller.ts`, `s3-keys.service.ts`, `s3-key-policy.ts`, `minio-admin.client.ts`;
+`s3-keys.controller.ts`, `s3-keys.service.ts`, `s3-key-policy.ts`, `minio-admin.client.ts`,
+`bucket-names.ts` (ownership rules), `bucket-owner-backfill.ts`;
 SDK: `packages/sdk/src/modules/storage.ts`.
