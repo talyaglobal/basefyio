@@ -4,6 +4,7 @@ import fs from 'fs';
 import { basename } from 'path';
 import type { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
+import type { BucketSummary, S3ConnectionInfo, S3KeyCreated, S3KeyView } from './storage.js';
 import { getApiUrl, getAccessToken, setAccessToken, getRefreshToken, setRefreshToken, clearAuthTokens } from './config.js';
 import {
   buildImportForm,
@@ -403,6 +404,43 @@ export class ApiClient {
       throw err;
     }
     return { bytes: received, contentLength: total };
+  }
+
+  // ── Storage and S3 access keys ──────────────────────────
+
+  async listBuckets(projectId: string) {
+    const { data } = await this.client.get(`/api/projects/${projectId}/storage/buckets`);
+    return data as BucketSummary[];
+  }
+
+  async createBucket(projectId: string, name: string, isPublic = false) {
+    const { data } = await this.client.post(`/api/projects/${projectId}/storage/buckets`, { name, public: isPublic });
+    return data as BucketSummary;
+  }
+
+  async deleteBucket(projectId: string, name: string) {
+    const { data } = await this.client.delete(`/api/projects/${projectId}/storage/buckets/${encodeURIComponent(name)}`);
+    return data as { message: string };
+  }
+
+  async getS3Info(projectId: string) {
+    const { data } = await this.client.get(`/api/projects/${projectId}/storage/s3-keys/info`);
+    return data as S3ConnectionInfo;
+  }
+
+  async listS3Keys(projectId: string) {
+    const { data } = await this.client.get(`/api/projects/${projectId}/storage/s3-keys`);
+    return data as S3KeyView[];
+  }
+
+  async createS3Key(projectId: string, name: string) {
+    const { data } = await this.client.post(`/api/projects/${projectId}/storage/s3-keys`, { name });
+    return data as S3KeyCreated;
+  }
+
+  async revokeS3Key(projectId: string, keyId: string) {
+    const { data } = await this.client.delete(`/api/projects/${projectId}/storage/s3-keys/${encodeURIComponent(keyId)}`);
+    return data as { revoked: true };
   }
 
   /** Manual exports (kept 24 h) and daily automatic backups (kept 7 days), newest first. */
