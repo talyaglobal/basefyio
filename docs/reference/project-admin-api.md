@@ -28,7 +28,8 @@ not apply to them. That is why the anon key can never reach them.
 
 | Method | Path | Tier | Purpose |
 |---|---|---|---|
-| POST | `/api/projects` | session · token `projects:write` | create a project — `{ name, teamId, description?, databaseType? }` |
+| POST | `/api/projects` | session · token `projects:write` | create a project — `{ name, teamId, description?, databaseType?, dbPassword?, computeTier?, region?, dataAccess? }` |
+| GET | `/api/projects/compute-options` | session · token `projects:read` | `?teamId=` — the compute sizes the team may choose, each with `available` and the `reason` it is not |
 | GET | `/api/projects` | session · token `projects:read` | `?teamId=` — the team's active projects |
 | GET | `/api/projects/deleted` | session · token `projects:read` | `?teamId=` — projects in the trash |
 | GET | `/api/projects/deactivated` | session · token `projects:read` | `?teamId=` — deactivated projects |
@@ -48,7 +49,16 @@ not apply to them. That is why the anon key can never reach them.
 
 ```
 POST /api/projects
-{ "name": "orders", "teamId": "<team id>", "description": "…", "databaseType": "RELATIONAL" }
+{
+  "name": "orders",
+  "teamId": "<team id>",
+  "description": "…",
+  "databaseType": "RELATIONAL",
+  "dbPassword": "…",
+  "computeTier": "shared",
+  "region": "eu-central",
+  "dataAccess": { "dataApi": true, "autoGrantNewTables": false, "rlsOnNewTables": true }
+}
 ```
 
 `name` must not be blank and must be unique within the team (400 `A project with this name
@@ -60,6 +70,30 @@ row-level-security roles, the default extensions and the read-only companion rol
 with `PROVISION_DEFAULT_EXTENSIONS` and `PROVISION_READONLY_ROLE`). A `NOSQL` project also gets its
 document-store tenant. The plan's project quota is enforced. The response is the new project
 record, including its `anonKey` and `serviceKey`.
+
+Every field after `databaseType` is optional; leaving them out creates the project exactly as
+before.
+
+| Field | Values | Default | Meaning |
+|---|---|---|---|
+| `dbPassword` | 12–128 characters, no spaces, with upper and lower case, a number and a special character | generated | the database password; empty or omitted means the server generates one |
+| `computeTier` | `shared`, `micro`, `small`, `medium`, `large`, `xl` | `shared` | `shared` runs on the shared PostgreSQL server. A dedicated size reserves CPU and memory (Micro 0.25 vCPU / 0.5 GB … XL 4 vCPU / 8 GB) and is accepted only when the team's plan includes a dedicated database and the region has room; otherwise 400 `Dedicated compute is not available on the <plan> plan` or `… in this region yet` |
+| `region` | `eu-central` | `eu-central` | where the data lives (Germany) |
+| `dataAccess.dataApi` | boolean | `true` | `false`: the REST data API (`/api/rest/v1/…`) answers 403 `The Data API is disabled for this project` for every key; the dashboard, the SQL editor, auth and storage keep working |
+| `dataAccess.autoGrantNewTables` | boolean | `true` | `false`: new `public` tables and sequences are not granted to `anon` and `authenticated`; grant access table by table. `service_role` is always granted |
+| `dataAccess.rlsOnNewTables` | boolean | `false` | `true`: an event trigger enables row-level security on every new `public` table |
+
+`dataAccess`, when sent, carries all three fields. `GET /api/projects/compute-options?teamId=`
+answers `{ region, planAllowsDedicated, dedicatedAvailable, tiers: [{ id, label, vcpu, memoryGb,
+available, reason }] }`, the same rule the create call enforces.
+
+### Data access
+
+`PATCH /api/projects/:id/data-access` (session · token `settings:write`, team owners and admins)
+takes any of `{ dataApi, autoGrantNewTables, rlsOnNewTables }` and answers the three settings.
+Changing the last two applies the default privileges or the event trigger to the project database
+first; tables that already exist keep the grants and the RLS state they have. Projects created
+before these settings existed have `dataApi` and `autoGrantNewTables` on and `rlsOnNewTables` off.
 
 ### Trash, deactivation and permanent deletion
 

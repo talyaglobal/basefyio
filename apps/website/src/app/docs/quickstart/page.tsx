@@ -30,8 +30,26 @@ export default function QuickstartDocs() {
       <h2>1. Create a project</h2>
       <p>
         <a href={getAppSignupUrl()}>Sign up</a>, then choose <strong>New project</strong> in the
-        dashboard. Every project gets its own dedicated database, auth realm, storage and API keys.
+        dashboard. Every project gets its own database, auth realm, storage and API keys.
       </p>
+      <p>The form asks for:</p>
+      <ul>
+        <li><strong>Organization</strong> — where the project lives; its plan is shown next to the name.</li>
+        <li><strong>GitHub</strong> (optional) — connect the organization&apos;s GitHub account to link a repository later.</li>
+        <li><strong>Project name</strong> — 2–64 characters.</li>
+        <li>
+          <strong>Compute size</strong> — <em>Shared</em> runs your database on a shared PostgreSQL server; dedicated sizes
+          reserve CPU and memory for the project where your plan and the region allow it.
+        </li>
+        <li><strong>Database password</strong> — type one or press <em>Generate</em>; left empty, one is generated for you.</li>
+        <li><strong>Region</strong> — EU (Germany); your data stays in the EU.</li>
+        <li>
+          <strong>Data access</strong> — whether the Data API is on, whether new tables are granted to the API keys
+          automatically, and whether new tables start with row-level security on. You can change these later under
+          Settings.
+        </li>
+        <li><strong>Advanced configuration</strong> — an optional description and the database type you picked.</li>
+      </ul>
 
       <h2>2. Add a table</h2>
       <p>
