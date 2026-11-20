@@ -487,6 +487,12 @@ services:
       REST_SUPABASE_COMPAT: ${REST_SUPABASE_COMPAT:-auto}
       STORAGE_URL_SIGNING_SECRET: ${STORAGE_URL_SIGNING_SECRET:-}
       STORAGE_SIGNED_URL_MAX_SECONDS: ${STORAGE_SIGNED_URL_MAX_SECONDS:-}
+      # Project-scoped S3 access keys (feedback #225); off unless set to true.
+      S3_KEYS_ENABLED: ${S3_KEYS_ENABLED:-false}
+      S3_KEYS_PROJECTS: ${S3_KEYS_PROJECTS:-}
+      S3_KEYS_PUBLIC_ENDPOINT: ${S3_KEYS_PUBLIC_ENDPOINT:-}
+      S3_KEYS_REGION: ${S3_KEYS_REGION:-us-east-1}
+      S3_KEYS_MAX_PER_PROJECT: ${S3_KEYS_MAX_PER_PROJECT:-5}
       # Realtime row-level security: jwt filters subscribers that sent a user token,
       # all filters anon subscribers too, off disables it. Without this line the
       # setting could not be reached from .env.production.

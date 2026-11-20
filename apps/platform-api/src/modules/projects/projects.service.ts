@@ -46,6 +46,7 @@ import { AdminTarget, ProjectProvisioningService } from './project-provisioning.
 import { ProjectReadonlyRoleService, readonlyRoleNameFor } from './project-readonly-role.service';
 import { ProjectExtraRoleService, type ExtraRoleMemberOf } from './project-extra-role.service';
 import { previewBranchOf } from './branches/preview-branch';
+import { prefixIsAmbiguous } from '../storage/bucket-names';
 import { BootTaskService } from '../cluster/boot-task.service';
 import {
   grantedByRole,
@@ -256,6 +257,7 @@ export class ProjectsService implements OnApplicationBootstrap {
 
     const projectId = randomUUID();
     const slug = await this.uniqueSlug(this.toSlug(normalizedName));
+    const storagePrefix = await this.newProjectStoragePrefix(slug);
     const { dbName, dbUser } = await this.uniqueDatabaseNameAndUser();
     const dbPassword = chosenPassword || randomBytes(24).toString('base64url');
     const realmName = `bf-${slug}`;
@@ -383,6 +385,7 @@ export class ProjectsService implements OnApplicationBootstrap {
         id: projectId,
         name: normalizedName,
         slug,
+        ...(storagePrefix ? { storagePrefix } : {}),
         description: dto.description,
         dbName,
         dbHost: actualDbHost,
@@ -2995,7 +2998,29 @@ export class ProjectsService implements OnApplicationBootstrap {
       select: { id: true },
     });
     if (!clash) return candidate;
-    return `${candidate}-${randomBytes(3).toString('hex')}`;
+    // No hyphen before the suffix: `<candidate>-<hex>` would sit inside the namespace of the
+    // project that holds `<candidate>` (bf-x- is a prefix of bf-x-ab12cd-), see bucket-names.ts.
+    return `${candidate}${randomBytes(3).toString('hex')}`;
+  }
+
+  /**
+   * Storage prefix for a new project, or null to use the slug. Physical bucket names are
+   * `bf-<prefix>-<bucket>` and the hyphen is ambiguous: when `bf-<slug>-` starts with another
+   * project's namespace (any status) or another one starts with it, or it falls in the platform
+   * namespace, the project gets a hyphen-free prefix instead (`acmek3j2h1q9w8e7`), so no bucket
+   * it ever creates can be read as another project's. Existing projects are never changed.
+   */
+  private async newProjectStoragePrefix(slug: string): Promise<string | null> {
+    const existing = (
+      await this.prisma.project.findMany({ select: { slug: true, storagePrefix: true } })
+    ).map((p) => p.storagePrefix ?? p.slug);
+    if (!prefixIsAmbiguous(slug, existing)) return null;
+    const base = slug.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 40) || 'p';
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const candidate = `${base}${randomBytes(6).toString('hex').slice(0, 8)}`;
+      if (!prefixIsAmbiguous(candidate, existing)) return candidate;
+    }
+    throw new InternalServerErrorException('Could not pick a storage namespace for the project; try again');
   }
 
   private async uniqueDeletedName(baseName: string): Promise<string> {

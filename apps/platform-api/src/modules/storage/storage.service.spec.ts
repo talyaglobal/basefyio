@@ -86,6 +86,13 @@ function build(cfg: Record<string, unknown> = DEFAULT_CFG) {
     teamUsage: { upsert: jest.fn().mockResolvedValue(undefined) },
     projectUsage: { upsert: jest.fn().mockResolvedValue(undefined) },
     systemSetting: { upsert: jest.fn().mockResolvedValue(undefined), findUnique: jest.fn().mockResolvedValue(null) },
+    storageBucketOwner: {
+      findUnique: jest.fn().mockResolvedValue(null),
+      findMany: jest.fn().mockResolvedValue([]),
+      create: jest.fn().mockResolvedValue({}),
+      createMany: jest.fn().mockResolvedValue({ count: 1 }),
+      deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
   };
   const quota = { assertCanUploadStorage: jest.fn().mockResolvedValue(undefined) };
   const config = { get: (k: string) => cfg[k] };
@@ -160,8 +167,8 @@ describe('bucket naming', () => {
     const projects = [{ id: 'a', slug: 'acme', storagePrefix: 'legacy' }];
     expect(priv.resolveMinioBucketOwner('bf-legacy-docs', projects)).toEqual({ id: 'a', slug: 'acme' });
     expect(priv.resolveMinioBucketOwner('bf-acme-docs', projects)).toBeNull();
-    expect(svc.physicalBucketName({ slug: 'acme', storagePrefix: 'legacy' }, 'docs')).toBe('bf-legacy-docs');
-    expect(svc.physicalBucketName({ slug: 'acme' }, 'docs')).toBe('bf-acme-docs');
+    expect(svc.projectBucketPrefix({ slug: 'acme', storagePrefix: 'legacy' })).toBe('bf-legacy-');
+    expect(svc.projectBucketPrefix({ slug: 'acme' })).toBe('bf-acme-');
   });
 });
 
@@ -307,6 +314,57 @@ describe('createBucket', () => {
     const { svc } = build();
     const url = (svc as any).buildPublicUrl(BUCKET, 'reports/q4 #1.pdf');
     expect(url.endsWith(`/${BUCKET}/reports/q4%20%231.pdf`)).toBe(true);
+  });
+});
+
+describe('bucket namespaces and S3 key hooks (feedback #225)', () => {
+  it("refuses a name whose physical bucket would fall in another project's namespace", async () => {
+    // acme + "2-docs" = bf-acme-2-docs, which the listing gives to project acme-2.
+    const { svc, client, prisma } = build();
+    client.bucketExists.mockResolvedValue(false);
+    prisma.project.findMany.mockResolvedValue([PROJECT, { id: 'p2', slug: 'acme-2', storagePrefix: null }]);
+    await expect(svc.createBucket('p1', undefined, '2-docs')).rejects.toThrow(/overlaps another project/);
+    expect(client.makeBucket).not.toHaveBeenCalled();
+  });
+
+  it('records the owner of a new bucket and tells listeners after it exists', async () => {
+    const { svc, client, prisma } = build();
+    client.bucketExists.mockResolvedValue(false);
+    const order: string[] = [];
+    client.makeBucket.mockImplementation(async () => void order.push('make'));
+    svc.addBucketListener({
+      beforeDelete: jest.fn(),
+      afterCreate: jest.fn(async (pid: string, phys: string) => void order.push(`after:${pid}:${phys}`)),
+    });
+    await svc.createBucket('p1', undefined, 'docs');
+    // The owner row is claimed before the bucket is made: it is the lock against a concurrent create.
+    expect(prisma.storageBucketOwner.create).toHaveBeenCalledWith({ data: { physicalName: BUCKET, projectId: 'p1' } });
+    expect(prisma.storageBucketOwner.create.mock.invocationCallOrder[0]).toBeLessThan(
+      client.makeBucket.mock.invocationCallOrder[0],
+    );
+    expect(order).toEqual(['make', `after:p1:${BUCKET}`]);
+  });
+
+  it('a failing afterCreate listener does not fail the create', async () => {
+    const { svc, client } = build();
+    client.bucketExists.mockResolvedValue(false);
+    svc.addBucketListener({ beforeDelete: jest.fn(), afterCreate: jest.fn().mockRejectedValue(new Error('minio admin down')) });
+    await expect(svc.createBucket('p1', undefined, 'docs')).resolves.toMatchObject({ id: BUCKET });
+  });
+
+  it('asks listeners before emptying a bucket and keeps it when one refuses', async () => {
+    const { svc, client, prisma } = build();
+    svc.addBucketListener({ beforeDelete: jest.fn().mockRejectedValue(new Error('policy not updated')), afterCreate: jest.fn() });
+    await expect(svc.deleteBucket('p1', undefined, 'docs')).rejects.toThrow('policy not updated');
+    expect(client.removeObjects).not.toHaveBeenCalled();
+    expect(client.removeBucket).not.toHaveBeenCalled();
+    expect(prisma.storageBucketOwner.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('removes the owner record with the bucket', async () => {
+    const { svc, prisma } = build();
+    await svc.deleteBucket('p1', undefined, 'docs');
+    expect(prisma.storageBucketOwner.deleteMany).toHaveBeenCalledWith({ where: { physicalName: BUCKET, projectId: 'p1' } });
   });
 });
 

@@ -71,7 +71,7 @@ function build(config: Record<string, unknown> = {}) {
   const storage = {
     resolveBucket: jest.fn().mockResolvedValue({ project, minioBucket: 'bf-proj-docs' }),
     resolveProject: jest.fn().mockResolvedValue(project),
-    physicalBucketName: jest.fn().mockReturnValue('bf-proj-docs'),
+    resolveProjectBucket: jest.fn().mockResolvedValue('bf-proj-docs'),
     statObjectIn: jest.fn().mockResolvedValue(null),
     beginMultipart: jest.fn().mockResolvedValue('mp-1'),
     putPart: jest.fn().mockImplementation(async (_b, _k, _u, part) => `etag-${part}`),
@@ -319,6 +319,32 @@ describe('complete / abort', () => {
     prisma.storageUploadSession.findUnique.mockResolvedValue(row({ status: 'completed' }));
     await sessions.abort('p1', alice, undefined, 'docs', 's1');
     expect(storage.abortMultipart).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('bucket ownership (cross-project)', () => {
+  it('a chunk, a complete and an abort stop when the bucket is not this project\'s (no store call)', async () => {
+    const { prisma, storage, sessions } = build();
+    prisma.storageUploadSession.findUnique.mockResolvedValue(row({ uploadedSize: BigInt(20 * MiB) }));
+    storage.resolveProjectBucket.mockRejectedValue(new NotFoundException('Bucket "docs" not found'));
+
+    await expect(sessions.appendChunk('p1', alice, undefined, 'docs', 's1', 20 * MiB - 8 * MiB, Buffer.alloc(8 * MiB))).rejects.toBeDefined();
+    await expect(sessions.complete('p1', alice, undefined, 'docs', 's1')).rejects.toBeInstanceOf(NotFoundException);
+    prisma.storageUploadSession.findUnique.mockResolvedValue(row());
+    await expect(sessions.abort('p1', alice, undefined, 'docs', 's1')).rejects.toBeInstanceOf(NotFoundException);
+    expect(storage.putPart).not.toHaveBeenCalled();
+    expect(storage.finishMultipart).not.toHaveBeenCalled();
+    expect(storage.abortMultipart).not.toHaveBeenCalled();
+    expect(storage.resolveProjectBucket).toHaveBeenCalledWith(project, 'docs');
+  });
+
+  it('creating a session goes through the checked resolveBucket', async () => {
+    const { storage, sessions } = build();
+    storage.resolveBucket.mockRejectedValue(new NotFoundException('Bucket "b-x" not found'));
+    await expect(
+      sessions.createUploadSession('p1', alice, undefined, 'b-x', { path: 'a.bin', size: 10, contentType: 'application/octet-stream' }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(storage.beginMultipart).not.toHaveBeenCalled();
   });
 });
 

@@ -6,6 +6,7 @@ import type { ProjectsService } from '../projects/projects.service';
 import type { ProjectDataService } from '../projects/project-data.service';
 import type { SqlService } from '../sql/sql.service';
 import type { StorageService } from '../storage/storage.service';
+import type { S3KeysService } from '../storage/s3-keys.service';
 import type { KeycloakAdminService } from '../auth/keycloak-admin.service';
 import {
   ProjectActivityKind,
@@ -23,8 +24,10 @@ import {
  * a project by any other argument name — `assertToolCatalogue` refuses one.
  *
  * Each tool calls an existing service with the token owner's user id, so the
- * service's own membership check runs as well. No tool returns a secret: no
- * database password, no project key, no connection string.
+ * service's own membership check runs as well. No tool returns a secret (no
+ * database password, project key or connection string) with one exception:
+ * create_s3_key returns the new key's secret once, under `secrets:write`, as the
+ * dashboard does. The audit row never stores arguments or results.
  */
 
 export interface McpDeps {
@@ -35,6 +38,7 @@ export interface McpDeps {
   storage: StorageService;
   keycloak: KeycloakAdminService;
   activity: ProjectActivityService;
+  s3Keys: S3KeysService;
 }
 
 export interface McpCaller {
@@ -372,6 +376,79 @@ export const MCP_TOOLS: McpToolDefinition[] = [
       const all = await c.deps.storage.listObjects(args.projectId, c.userId, args.bucket, args.prefix ?? '');
       return { objects: all.slice(0, MAX_OBJECTS), truncated: all.length > MAX_OBJECTS };
     },
+  },
+  {
+    name: 'create_bucket',
+    title: 'Create a storage bucket',
+    scope: 'storage:write',
+    description:
+      'Create a bucket in a project. Name: 3-63 letters, digits and hyphens, not starting or ending with a hyphen. Private unless `public` is true (public = every file readable at its URL, without listing).',
+    input: {
+      projectId,
+      name: z.string().min(3).max(63).describe('Bucket name, e.g. "invoices".'),
+      public: z.boolean().optional().describe('Make the files readable by anyone with the URL. Default false.'),
+    },
+    annotations: { ...WRITE, destructiveHint: false },
+    run: async (args, c) => {
+      const out = await c.deps.storage.createBucket(args.projectId, c.userId, args.name, args.public === true);
+      await c.deps.activity.append(args.projectId, {
+        userId: c.userId,
+        kind: ProjectActivityKind.STORAGE_BUCKET_CREATED,
+        title: `Storage bucket created: ${args.name}`,
+        detail: `${args.public ? 'Public' : 'Private'} bucket · via MCP`,
+      });
+      return out;
+    },
+  },
+  {
+    name: 'delete_bucket',
+    title: 'Delete a storage bucket',
+    scope: 'storage:write',
+    description: 'Permanently delete a bucket and every file in it. There is no undo.',
+    input: { projectId, bucket: z.string().min(1).max(63).describe('Bucket name from list_buckets.') },
+    annotations: WRITE,
+    run: async (args, c) => {
+      const out = await c.deps.storage.deleteBucket(args.projectId, c.userId, args.bucket);
+      await c.deps.activity.append(args.projectId, {
+        userId: c.userId,
+        kind: ProjectActivityKind.STORAGE_BUCKET_DELETED,
+        title: `Storage bucket deleted: ${args.bucket}`,
+        detail: 'via MCP',
+      });
+      return out;
+    },
+  },
+  {
+    name: 'list_s3_keys',
+    title: 'List S3 access keys',
+    scope: 'secrets:read',
+    description:
+      "List a project's S3 access keys (id, name, access key id, last four of the secret, created) and the connection details: endpoint, region, path-style addressing and the bucket names an S3 client uses. Never returns a secret.",
+    input: { projectId },
+    annotations: READ,
+    run: async (args, c) => ({
+      connection: await c.deps.s3Keys.info(args.projectId, c.userId),
+      keys: await c.deps.s3Keys.list(args.projectId, c.userId),
+    }),
+  },
+  {
+    name: 'create_s3_key',
+    title: 'Create an S3 access key',
+    scope: 'secrets:write',
+    description:
+      "Create an S3 access key for a project: full read/write on the project's own buckets for any standard S3 client (AWS SigV4, path-style). It bypasses storage access rules. The secret is in this answer only and cannot be shown again; store it now.",
+    input: { projectId, name: z.string().min(1).max(60).describe('A label, e.g. "backup server".') },
+    annotations: { ...WRITE, destructiveHint: false },
+    run: (args, c) => c.deps.s3Keys.create(args.projectId, c.userId, args.name, 'mcp'),
+  },
+  {
+    name: 'revoke_s3_key',
+    title: 'Revoke an S3 access key',
+    scope: 'secrets:write',
+    description: 'Revoke an S3 access key. Clients using it are refused from their next request. There is no undo.',
+    input: { projectId, keyId: z.string().uuid().describe('Key id from list_s3_keys.') },
+    annotations: WRITE,
+    run: (args, c) => c.deps.s3Keys.revoke(args.projectId, c.userId, args.keyId, 'mcp'),
   },
   {
     name: 'list_auth_users',

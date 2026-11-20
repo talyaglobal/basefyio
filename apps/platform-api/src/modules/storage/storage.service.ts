@@ -21,6 +21,16 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { QuotaService } from '../billing/quota.service';
 import { StorageCatalogService } from './storage-catalog.service';
 import { downloadOnlyHeaders, withoutAnonymousListing } from './storage-public-safety';
+import {
+  PLATFORM_BUCKETS as PLATFORM_BUCKET_NAMES,
+  classifyBucket,
+  effectivePrefix,
+  inOtherNamespace,
+  isPlatformBucket,
+  physicalBucketName as buildPhysicalName,
+  physicalPrefix,
+  platformPrefix,
+} from './bucket-names';
 
 export interface StorageObject {
   name: string;
@@ -63,8 +73,20 @@ const FEEDBACK_ATTACHMENTS_BUCKET = 'bf-platform-feedback';
 /** Platform-wide bucket for marketing agency renders (voiceovers, cached art). */
 const MARKETING_ASSETS_BUCKET = 'bf-platform-marketing';
 
-/** Buckets the platform itself owns, as opposed to customer projects. */
-export const PLATFORM_BUCKETS: readonly string[] = [FEEDBACK_ATTACHMENTS_BUCKET, MARKETING_ASSETS_BUCKET];
+/** Buckets the platform itself owns, as opposed to customer projects (see bucket-names.ts). */
+export const PLATFORM_BUCKETS: readonly string[] = PLATFORM_BUCKET_NAMES;
+
+/**
+ * Told about bucket changes, so S3 key policies follow the project's buckets (feedback #225).
+ * `beforeDelete` runs before the bucket is emptied and may refuse the delete by throwing: a key
+ * policy that still named a deleted bucket could later reach a re-created bucket of the same
+ * physical name. `afterCreate` failures are logged; the new bucket is then simply not reachable
+ * by keys until the next policy write.
+ */
+export interface BucketChangeListener {
+  beforeDelete(projectId: string, physical: string): Promise<void>;
+  afterCreate(projectId: string, physical: string): Promise<void>;
+}
 
 const UNSUPPORTED_BUCKET_POLICIES =
   'This object store does not support anonymous bucket policies. Keep the bucket private and serve files through signed URLs or the download route.';
@@ -79,6 +101,7 @@ export class StorageService {
   private publicSsl: boolean;
   /** Driver, addressing style and capabilities of the configured store. */
   private readonly caps: StorageClientSet;
+  private readonly bucketListeners: BucketChangeListener[] = [];
 
   constructor(
     private readonly prisma: PrismaService,
@@ -99,8 +122,33 @@ export class StorageService {
     this.publicSsl = set.publicSsl;
   }
 
+  /** Register for bucket create/delete events (S3 key policies). */
+  addBucketListener(listener: BucketChangeListener): void {
+    this.bucketListeners.push(listener);
+  }
+
+  /** `minio` or `s3`. */
+  get driver(): StorageClientSet['driver'] {
+    return this.caps.driver;
+  }
+
+  /** Physical names of platform-owned buckets start with this; no project may ever be granted one. */
+  get platformBucketPrefix(): string {
+    return platformPrefix(this.caps.bucketPrefix);
+  }
+
+  /** The physical prefix of a project's buckets, trailing hyphen included. */
+  projectBucketPrefix(project: { slug: string; storagePrefix?: string | null }): string {
+    return this.minioProjectPrefix(project.storagePrefix ?? project.slug);
+  }
+
+  /** Every physical bucket in the store. */
+  async listPhysicalBucketNames(): Promise<string[]> {
+    return (await this.client.listBuckets()).map((b) => b.name);
+  }
+
   private minioBucketName(projectSlug: string, bucketName: string): string {
-    return `${this.caps.bucketPrefix}${projectSlug}-${bucketName}`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+    return buildPhysicalName(this.caps.bucketPrefix, projectSlug, bucketName);
   }
 
   /**
@@ -143,13 +191,16 @@ export class StorageService {
    * of {@link minioBucketName} for that slug (any logical bucket name).
    */
   private minioProjectPrefix(projectSlug: string): string {
-    return `${this.caps.bucketPrefix}${projectSlug}-`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+    return physicalPrefix(this.caps.bucketPrefix, projectSlug);
   }
 
   /**
    * Shared MinIO: bucket `bf-warebnb-2-docs` starts with `bf-warebnb-` so it was
    * wrongly listed under slug `warebnb` as "2-docs" unless a sibling `warebnb-2`
    * row existed. Resolve owner by longest matching project prefix among all active projects.
+   *
+   * Usage accounting only (who is billed for unrecorded bytes). Never an access decision:
+   * tenant routes use {@link ownedBucket}.
    */
   private resolveMinioBucketOwner(
     minioBucketName: string,
@@ -187,29 +238,15 @@ export class StorageService {
 
   async listBuckets(projectId: string, userId?: string): Promise<BucketSummary[]> {
     const project = await this.assertProjectAccess(projectId, userId);
-    const prefix = this.minioProjectPrefix(project.storagePrefix ?? project.slug);
-
-    const allProjects = await this.prisma.project.findMany({
-      where: { status: 'ACTIVE' },
-      select: { id: true, slug: true, storagePrefix: true },
-    });
-
-    const allBuckets = await this.client.listBuckets();
-    const projectBuckets = allBuckets.filter((b) => {
-      const owner = this.resolveMinioBucketOwner(b.name, allProjects);
-      return owner?.id === project.id;
-    });
-
     const results: BucketSummary[] = [];
 
-    for (const b of projectBuckets) {
-      const displayName = b.name.substring(prefix.length);
-      const stats = await this.bucketStats(b.name);
-      const isPublic = await this.isBucketPublic(b.name);
+    for (const b of await this.ownedPhysicalBuckets(project)) {
+      const stats = await this.bucketStats(b.physical);
+      const isPublic = await this.isBucketPublic(b.physical);
 
       results.push({
-        id: b.name,
-        name: displayName,
+        id: b.physical,
+        name: b.name,
         public: isPublic,
         createdAt: b.creationDate.toISOString(),
         objectCount: stats.objectCount,
@@ -229,16 +266,42 @@ export class StorageService {
       );
     }
 
-    const minioBucket = this.minioBucketName(project.storagePrefix ?? project.slug, name);
+    const myPrefix = this.minioProjectPrefix(effectivePrefix(project));
+    const minioBucket = this.minioBucketName(effectivePrefix(project), name);
+    if (isPlatformBucket(minioBucket, myPrefix, this.caps.bucketPrefix)) {
+      throw new ConflictException(`Bucket name "${name}" is reserved. Choose a different name.`);
+    }
 
     const exists = await this.client.bucketExists(minioBucket);
     if (exists) throw new ConflictException(`Bucket "${name}" already exists`);
+
+    // `bf-a-` + `b-x` is the same physical name as `bf-a-b-` + `x`: a name that lies in another
+    // project's namespace (an equal or longer matching prefix, any status) is refused, so a new
+    // bucket never lands where that project's names live.
+    const everyProject = await this.allProjectPrefixes();
+    if (inOtherNamespace(minioBucket, { id: project.id, physicalPrefix: myPrefix }, everyProject)) {
+      throw new ConflictException(
+        `Bucket name "${name}" overlaps another project's storage namespace. Choose a different name.`,
+      );
+    }
 
     // Checked before the bucket exists, so a store without bucket policies
     // does not end up with a private bucket the caller believes is public.
     if (isPublic) this.assertBucketPoliciesSupported();
 
-    await this.client.makeBucket(minioBucket);
+    // The owner row is claimed before the bucket exists: it is the lock against a concurrent
+    // create of the same physical name, and every later access is checked against it.
+    const claimed = await this.claimBucketOwner(minioBucket, project.id, name);
+    try {
+      await this.client.makeBucket(minioBucket);
+    } catch (err) {
+      if (claimed) {
+        await this.prisma.storageBucketOwner
+          .deleteMany({ where: { physicalName: minioBucket, projectId: project.id } })
+          .catch(() => undefined);
+      }
+      throw err;
+    }
 
     if (isPublic) {
       await this.applyBucketPolicy(minioBucket, this.publicBucketPolicy(minioBucket));
@@ -246,6 +309,11 @@ export class StorageService {
 
     this.logger.log(`Bucket "${minioBucket}" created (public=${isPublic})`);
     await this.catalog?.upsertBucket(projectId, { name, public: isPublic, owner: userId });
+    for (const l of this.bucketListeners) {
+      await l.afterCreate(projectId, minioBucket).catch((err: any) =>
+        this.logger.warn(`Bucket listener after create of ${minioBucket} failed: ${err?.message ?? err}`),
+      );
+    }
 
     return {
       id: minioBucket,
@@ -259,10 +327,10 @@ export class StorageService {
 
   async deleteBucket(projectId: string, userId: string | undefined, bucketName: string) {
     const project = await this.assertProjectAccess(projectId, userId);
-    const minioBucket = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
+    const minioBucket = await this.ownedBucket(project, bucketName);
 
-    const exists = await this.client.bucketExists(minioBucket);
-    if (!exists) throw new NotFoundException(`Bucket "${bucketName}" not found`);
+    // S3 key policies drop the bucket first; a failure refuses the delete (see BucketChangeListener).
+    for (const l of this.bucketListeners) await l.beforeDelete(projectId, minioBucket);
 
     // Remove all objects first
     const objects = await this.listAllObjects(minioBucket);
@@ -272,8 +340,128 @@ export class StorageService {
 
     await this.client.removeBucket(minioBucket);
     this.logger.log(`Bucket "${minioBucket}" deleted`);
+    await this.prisma.storageBucketOwner
+      ?.deleteMany({ where: { physicalName: minioBucket, projectId } })
+      .catch((err: any) => this.logger.warn(`Bucket owner record of ${minioBucket} not removed: ${err?.message ?? err}`));
     await this.catalog?.deleteBucket(projectId, bucketName);
     return { message: `Bucket "${bucketName}" deleted` };
+  }
+
+  /**
+   * Record `projectId` as the creator of `physicalName`. True when this call wrote the row, false
+   * when the row already named this project (a leftover of a bucket that is gone). A row naming
+   * another project refuses the create.
+   */
+  private async claimBucketOwner(physicalName: string, projectId: string, name: string): Promise<boolean> {
+    const taken = () =>
+      new ConflictException(`Bucket name "${name}" overlaps another project's storage namespace. Choose a different name.`);
+    const existing = await this.prisma.storageBucketOwner.findUnique({ where: { physicalName } });
+    if (existing) {
+      if (existing.projectId !== projectId) throw taken();
+      return false;
+    }
+    try {
+      await this.prisma.storageBucketOwner.create({ data: { physicalName, projectId } });
+      return true;
+    } catch (err: any) {
+      if (err?.code === 'P2002') throw taken();
+      throw err;
+    }
+  }
+
+  // ── Bucket ownership (the single choke point) ──────────
+
+  /** Every project of any status with its physical prefix: the legacy ambiguity check. */
+  private async allProjectPrefixes(): Promise<Array<{ id: string; physicalPrefix: string }>> {
+    const rows = await this.prisma.project.findMany({ select: { id: true, slug: true, storagePrefix: true } });
+    return rows.map((p) => ({ id: p.id, physicalPrefix: this.minioProjectPrefix(effectivePrefix(p)) }));
+  }
+
+  /**
+   * The physical bucket behind `bucketName` for this project, only when this project owns it
+   * (see bucket-names.ts): recorded in storage_bucket_owners for this project, or unrecorded and
+   * this project's prefix is the only project prefix the name starts with (recorded on the spot).
+   * Another project's bucket, an ambiguous legacy bucket, a platform bucket and a missing bucket
+   * all answer the same 404, so the answer says nothing about other tenants.
+   *
+   * Every tenant path that touches a bucket goes through here; never build the name yourself.
+   */
+  private async ownedBucket(
+    project: { id: string; slug: string; storagePrefix?: string | null },
+    bucketName: string,
+  ): Promise<string> {
+    const myPrefix = this.minioProjectPrefix(effectivePrefix(project));
+    const physical = this.minioBucketName(effectivePrefix(project), bucketName);
+    const me = { id: project.id, physicalPrefix: myPrefix };
+    const notFound = () => new NotFoundException(`Bucket "${bucketName}" not found`);
+    const refuse = (why: string) => {
+      this.logger.warn(`Refused bucket "${physical}" to project ${project.id}: ${why}`);
+      return notFound();
+    };
+
+    const row = await this.prisma.storageBucketOwner.findUnique({ where: { physicalName: physical } });
+    const recorded = classifyBucket({ physical, project: me, bucketPrefix: this.caps.bucketPrefix, recordedOwner: row?.projectId });
+    if (recorded.kind === 'platform') throw refuse('platform bucket');
+    if (recorded.kind === 'foreign') throw refuse(`recorded for project ${recorded.ownerId}`);
+
+    if (!(await this.client.bucketExists(physical))) throw notFound();
+    if (recorded.kind === 'owned' && !recorded.record) return physical;
+
+    const verdict = classifyBucket({
+      physical,
+      project: me,
+      bucketPrefix: this.caps.bucketPrefix,
+      allProjects: await this.allProjectPrefixes(),
+    });
+    if (verdict.kind !== 'owned') {
+      throw refuse(verdict.kind === 'ambiguous' ? `ambiguous legacy bucket (${verdict.candidates.join(', ')})` : verdict.kind);
+    }
+    await this.backfillOwners([physical], project.id);
+    return physical;
+  }
+
+  /** Lazy backfill of unambiguous legacy buckets; a failed write only costs a later re-check. */
+  private async backfillOwners(physicalNames: string[], projectId: string): Promise<void> {
+    if (!physicalNames.length) return;
+    await this.prisma.storageBucketOwner
+      .createMany({ data: physicalNames.map((physicalName) => ({ physicalName, projectId })), skipDuplicates: true })
+      .catch((err: any) => this.logger.warn(`Bucket owner backfill for ${projectId} not written: ${err?.message ?? err}`));
+  }
+
+  /**
+   * The physical buckets this project owns (same rule as {@link ownedBucket}), with their
+   * logical names. Unrecorded unambiguous ones are recorded on the way.
+   */
+  private async ownedPhysicalBuckets(project: {
+    id: string;
+    slug: string;
+    storagePrefix?: string | null;
+  }): Promise<Array<{ physical: string; name: string; creationDate: Date }>> {
+    const prefix = this.minioProjectPrefix(effectivePrefix(project));
+    const mine = (await this.client.listBuckets()).filter((b) => b.name.startsWith(prefix));
+    if (!mine.length) return [];
+    const rows = await this.prisma.storageBucketOwner.findMany({
+      where: { physicalName: { in: mine.map((b) => b.name) } },
+      select: { physicalName: true, projectId: true },
+    });
+    const recorded = new Map(rows.map((r) => [r.physicalName, r.projectId]));
+    const everyProject = mine.some((b) => !recorded.has(b.name)) ? await this.allProjectPrefixes() : [];
+    const out: Array<{ physical: string; name: string; creationDate: Date }> = [];
+    const backfill: string[] = [];
+    for (const b of mine) {
+      const v = classifyBucket({
+        physical: b.name,
+        project: { id: project.id, physicalPrefix: prefix },
+        bucketPrefix: this.caps.bucketPrefix,
+        recordedOwner: recorded.get(b.name),
+        allProjects: everyProject,
+      });
+      if (v.kind !== 'owned') continue;
+      if (v.record) backfill.push(b.name);
+      out.push({ physical: b.name, name: b.name.substring(prefix.length), creationDate: b.creationDate });
+    }
+    await this.backfillOwners(backfill, project.id);
+    return out;
   }
 
   /**
@@ -293,19 +481,8 @@ export class StorageService {
     const keep = new Set([...keepLogicalNames].map((s) => s.trim().toLowerCase()).filter(Boolean));
     if (keep.size === 0) return;
 
-    const allProjects = await this.prisma.project.findMany({
-      where: { status: 'ACTIVE' },
-      select: { id: true, slug: true, storagePrefix: true },
-    });
-
-    const prefix = this.minioProjectPrefix(project.storagePrefix ?? project.slug);
-    const allBuckets = await this.client.listBuckets();
-
-    for (const b of allBuckets) {
-      const owner = this.resolveMinioBucketOwner(b.name, allProjects);
-      if (owner?.id !== project.id) continue;
-
-      const logical = b.name.substring(prefix.length).trim().toLowerCase();
+    for (const b of await this.ownedPhysicalBuckets(project)) {
+      const logical = b.name.trim().toLowerCase();
       if (!logical || keep.has(logical)) continue;
 
       try {
@@ -323,10 +500,7 @@ export class StorageService {
 
   async toggleBucketPublic(projectId: string, userId: string | undefined, bucketName: string, isPublic: boolean) {
     const project = await this.assertProjectAccess(projectId, userId);
-    const minioBucket = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
-
-    const exists = await this.client.bucketExists(minioBucket);
-    if (!exists) throw new NotFoundException(`Bucket "${bucketName}" not found`);
+    const minioBucket = await this.ownedBucket(project, bucketName);
 
     if (isPublic) {
       this.assertBucketPoliciesSupported();
@@ -350,19 +524,11 @@ export class StorageService {
     userId?: string,
   ): Promise<Array<{ name: string; physical: string; createdAt: string }>> {
     const project = await this.assertProjectAccess(projectId, userId);
-    const prefix = this.minioProjectPrefix(project.storagePrefix ?? project.slug);
-    const allProjects = await this.prisma.project.findMany({
-      where: { status: 'ACTIVE' },
-      select: { id: true, slug: true, storagePrefix: true },
-    });
-    const allBuckets = await this.client.listBuckets();
-    return allBuckets
-      .filter((b) => this.resolveMinioBucketOwner(b.name, allProjects)?.id === project.id)
-      .map((b) => ({
-        name: b.name.substring(prefix.length),
-        physical: b.name,
-        createdAt: b.creationDate.toISOString(),
-      }));
+    return (await this.ownedPhysicalBuckets(project)).map((b) => ({
+      name: b.name,
+      physical: b.physical,
+      createdAt: b.creationDate.toISOString(),
+    }));
   }
 
   /**
@@ -429,10 +595,7 @@ export class StorageService {
     recursive = false,
   ): Promise<StorageObject[]> {
     const project = await this.assertProjectAccess(projectId, userId);
-    const minioBucket = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
-
-    const exists = await this.client.bucketExists(minioBucket);
-    if (!exists) throw new NotFoundException(`Bucket "${bucketName}" not found`);
+    const minioBucket = await this.ownedBucket(project, bucketName);
 
     return new Promise((resolve, reject) => {
       const objects: StorageObject[] = [];
@@ -462,9 +625,7 @@ export class StorageService {
     folderPath: string,
   ) {
     const project = await this.assertProjectAccess(projectId, userId);
-    const minioBucket = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
-    const exists = await this.client.bucketExists(minioBucket);
-    if (!exists) throw new NotFoundException(`Bucket "${bucketName}" not found`);
+    const minioBucket = await this.ownedBucket(project, bucketName);
 
     const clean = (folderPath || '').replace(/^\/+|\/+$/g, '').trim();
     if (!clean) throw new BadRequestException('Folder name is required');
@@ -537,9 +698,7 @@ export class StorageService {
     path = '',
   ): Promise<{ public: boolean; url: string | null }> {
     const project = await this.assertProjectAccess(projectId, userId);
-    const minioBucket = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
-    const exists = await this.client.bucketExists(minioBucket);
-    if (!exists) throw new NotFoundException(`Bucket "${bucketName}" not found`);
+    const minioBucket = await this.ownedBucket(project, bucketName);
     const isPublic = await this.isBucketPublic(minioBucket);
     if (!isPublic) return { public: false, url: null };
     return { public: true, url: this.buildPublicUrl(minioBucket, path) };
@@ -553,9 +712,7 @@ export class StorageService {
     paths: string[],
   ): Promise<string[]> {
     const project = await this.assertProjectAccess(projectId, userId);
-    const minioBucket = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
-    const exists = await this.client.bucketExists(minioBucket);
-    if (!exists) throw new NotFoundException(`Bucket "${bucketName}" not found`);
+    const minioBucket = await this.ownedBucket(project, bucketName);
     const found: string[] = [];
     await Promise.all(
       (paths || []).slice(0, 1000).map(async (p) => {
@@ -598,9 +755,7 @@ export class StorageService {
     destFolder: string,
   ): Promise<{ moved: number }> {
     const project = await this.assertProjectAccess(projectId, userId);
-    const minioBucket = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
-    const exists = await this.client.bucketExists(minioBucket);
-    if (!exists) throw new NotFoundException(`Bucket "${bucketName}" not found`);
+    const minioBucket = await this.ownedBucket(project, bucketName);
 
     const destRaw = (destFolder || '').replace(/^\/+/, '');
     if (destRaw.includes('..')) throw new BadRequestException('Invalid destination');
@@ -659,12 +814,9 @@ export class StorageService {
     const project = await this.assertProjectAccess(projectId, userId);
     const src = this.cleanKey(sourceKey, 'source');
     const dest = this.cleanKey(destinationKey, 'destination');
-    const srcPhysical = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
-    const destPhysical = this.minioBucketName(project.storagePrefix ?? project.slug, destinationBucket);
-    if (!(await this.client.bucketExists(srcPhysical))) throw new NotFoundException(`Bucket "${bucketName}" not found`);
-    if (destPhysical !== srcPhysical && !(await this.client.bucketExists(destPhysical))) {
-      throw new NotFoundException(`Bucket "${destinationBucket}" not found`);
-    }
+    const srcPhysical = await this.ownedBucket(project, bucketName);
+    const destPhysical =
+      destinationBucket === bucketName ? srcPhysical : await this.ownedBucket(project, destinationBucket);
     if (srcPhysical === destPhysical && src === dest) return { name: dest };
     await this.copyObjectIn(srcPhysical, src, destPhysical, dest);
     await this.client.removeObject(srcPhysical, src);
@@ -685,12 +837,9 @@ export class StorageService {
     const project = await this.assertProjectAccess(projectId, userId);
     const src = this.cleanKey(sourceKey, 'source');
     const dest = this.cleanKey(destinationKey, 'destination');
-    const srcPhysical = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
-    const destPhysical = this.minioBucketName(project.storagePrefix ?? project.slug, destinationBucket);
-    if (!(await this.client.bucketExists(srcPhysical))) throw new NotFoundException(`Bucket "${bucketName}" not found`);
-    if (destPhysical !== srcPhysical && !(await this.client.bucketExists(destPhysical))) {
-      throw new NotFoundException(`Bucket "${destinationBucket}" not found`);
-    }
+    const srcPhysical = await this.ownedBucket(project, bucketName);
+    const destPhysical =
+      destinationBucket === bucketName ? srcPhysical : await this.ownedBucket(project, destinationBucket);
     const source = await this.statObjectIn(srcPhysical, src);
     if (!source) throw new NotFoundException(`Object "${src}" not found`);
     await this.quota.assertCanUploadStorage(project.teamId, source.size);
@@ -733,10 +882,7 @@ export class StorageService {
     const project = await this.assertProjectAccess(projectId, userId);
     await this.quota.assertCanUploadStorage(project.teamId, buffer.length);
 
-    const minioBucket = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
-
-    const exists = await this.client.bucketExists(minioBucket);
-    if (!exists) throw new NotFoundException(`Bucket "${bucketName}" not found`);
+    const minioBucket = await this.ownedBucket(project, bucketName);
 
     const objectName = path.replace(/^\/+/, '');
 
@@ -786,10 +932,7 @@ export class StorageService {
     const project = await this.assertProjectAccess(projectId, userId);
     await this.quota.assertCanUploadStorage(project.teamId, size);
 
-    const minioBucket = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
-
-    const exists = await this.client.bucketExists(minioBucket);
-    if (!exists) throw new NotFoundException(`Bucket "${bucketName}" not found`);
+    const minioBucket = await this.ownedBucket(project, bucketName);
 
     const objectName = path.replace(/^\/+/, '');
 
@@ -831,7 +974,7 @@ export class StorageService {
     objectName: string,
   ): Promise<{ stream: Readable; stat: Minio.BucketItemStat }> {
     const project = await this.assertProjectAccess(projectId, userId);
-    const minioBucket = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
+    const minioBucket = await this.ownedBucket(project, bucketName);
 
     try {
       const stat = await this.client.statObject(minioBucket, objectName);
@@ -859,7 +1002,7 @@ export class StorageService {
     length?: number,
   ): Promise<{ stream: Readable; stat: Minio.BucketItemStat }> {
     const project = await this.assertProjectAccess(projectId, userId);
-    const minioBucket = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
+    const minioBucket = await this.ownedBucket(project, bucketName);
     return this.getObjectIn(minioBucket, objectName, { offset, length });
   }
 
@@ -920,7 +1063,7 @@ export class StorageService {
     options: { expandFolders?: boolean; onlyExisting?: boolean } = {},
   ) {
     const project = await this.assertProjectAccess(projectId, userId);
-    const minioBucket = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
+    const minioBucket = await this.ownedBucket(project, bucketName);
     const expandFolders = options.expandFolders ?? true;
     // The count in the answer is of objects that were there; a caller that already
     // checked passes onlyExisting: false to skip the second look.
@@ -954,7 +1097,7 @@ export class StorageService {
     expiry = 3600,
   ) {
     const project = await this.assertProjectAccess(projectId, userId);
-    const minioBucket = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
+    const minioBucket = await this.ownedBucket(project, bucketName);
 
     // Important: generate the signed URL using the public endpoint client directly.
     // Rewriting host/port after signing can invalidate the signature in production.
@@ -970,18 +1113,25 @@ export class StorageService {
     return this.assertProjectAccess(projectId, userId);
   }
 
-  /** Project access check plus bucket existence; returns the physical bucket name too. */
+  /**
+   * Project access check plus bucket ownership and existence; returns the physical bucket name
+   * too. A bucket this project does not own answers 404 (see {@link ownedBucket}).
+   */
   async resolveBucket(projectId: string, userId: string | undefined, bucketName: string) {
     const project = await this.assertProjectAccess(projectId, userId);
-    const minioBucket = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
-    const exists = await this.client.bucketExists(minioBucket);
-    if (!exists) throw new NotFoundException(`Bucket "${bucketName}" not found`);
+    const minioBucket = await this.ownedBucket(project, bucketName);
     return { project, minioBucket };
   }
 
-  /** Physical bucket name for a project row already at hand (no access check). */
-  physicalBucketName(project: { slug: string; storagePrefix?: string | null }, bucketName: string): string {
-    return this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
+  /**
+   * Physical bucket for a project row already at hand (no membership check), with the same
+   * ownership check as {@link resolveBucket}. For upload sessions resumed by id.
+   */
+  resolveProjectBucket(
+    project: { id: string; slug: string; storagePrefix?: string | null },
+    bucketName: string,
+  ): Promise<string> {
+    return this.ownedBucket(project, bucketName);
   }
 
   bucketIsPublic(minioBucket: string): Promise<boolean> {
@@ -1078,9 +1228,19 @@ export class StorageService {
         : [];
       const inventory: BucketInventoryEntry[] = [];
 
+      // A recorded owner wins over the name: `bf-a-b-x` may be project a's even when a-b exists.
+      const recorded = new Map(
+        (await this.prisma.storageBucketOwner.findMany({ select: { physicalName: true, projectId: true } })).map(
+          (r) => [r.physicalName, r.projectId] as const,
+        ),
+      );
+      const projectById = new Map(projects.map((p) => [p.id, p]));
+
       const buckets = await this.client.listBuckets();
       for (const bucket of buckets) {
-        const owner = this.resolveMinioBucketOwner(bucket.name, projects);
+        const rec = recorded.get(bucket.name);
+        const owner =
+          rec !== undefined ? (projectById.get(rec) ?? null) : this.resolveMinioBucketOwner(bucket.name, projects);
         const team = owner ? teamByProject.get(owner.id) : undefined;
         if (!team && !fullPass) continue;
         const { totalSize, objectCount } = await this.bucketStats(bucket.name);
@@ -1089,7 +1249,7 @@ export class StorageService {
           bytesByProject.set(owner.id, (bytesByProject.get(owner.id) ?? BigInt(0)) + BigInt(totalSize));
         }
         if (fullPass) {
-          const anyOwner = owner ?? this.resolveMinioBucketOwner(bucket.name, everyProject);
+          const anyOwner = owner ?? (rec !== undefined ? { id: rec } : this.resolveMinioBucketOwner(bucket.name, everyProject));
           inventory.push({
             bucket: bucket.name,
             projectId: anyOwner?.id ?? null,

@@ -254,6 +254,83 @@ migration
     await migrationStatus();
   });
 
+// ── Storage ─────────────────────────────────────────────────
+
+const storage = program
+  .command('storage')
+  .description('Manage storage buckets and S3 access keys');
+
+storage
+  .command('buckets')
+  .description("List the project's buckets")
+  .option('-p, --project <id>', 'Project ID (default: the linked project)')
+  .option('--json', 'Machine-readable output')
+  .action(async (options) => {
+    const { storageBuckets } = await import('./commands/storage.js');
+    await storageBuckets(options);
+  });
+
+storage
+  .command('create-bucket <name>')
+  .description('Create a bucket (private unless --public)')
+  .option('--public', 'Make every file readable at its URL')
+  .option('-p, --project <id>', 'Project ID (default: the linked project)')
+  .option('--json', 'Machine-readable output')
+  .action(async (name, options) => {
+    const { storageCreateBucket } = await import('./commands/storage.js');
+    await storageCreateBucket(name, options);
+  });
+
+storage
+  .command('delete-bucket <name>')
+  .description('Delete a bucket and every file in it')
+  .option('-f, --force', 'Skip the confirmation prompt')
+  .option('-p, --project <id>', 'Project ID (default: the linked project)')
+  .action(async (name, options) => {
+    const { storageDeleteBucket } = await import('./commands/storage.js');
+    await storageDeleteBucket(name, options);
+  });
+
+storage
+  .command('keys')
+  .description("List the project's S3 access keys (secrets are never shown)")
+  .option('-p, --project <id>', 'Project ID (default: the linked project)')
+  .option('--json', 'Machine-readable output')
+  .action(async (options) => {
+    const { storageKeys } = await import('./commands/storage.js');
+    await storageKeys(options);
+  });
+
+storage
+  .command('create-key <name>')
+  .description('Create an S3 access key for standard S3 clients; the secret is shown once')
+  .option('-p, --project <id>', 'Project ID (default: the linked project)')
+  .option('--json', 'Machine-readable output (includes the secret)')
+  .action(async (name, options) => {
+    const { storageCreateKey } = await import('./commands/storage.js');
+    await storageCreateKey(name, options);
+  });
+
+storage
+  .command('revoke-key <keyId>')
+  .description('Revoke an S3 access key')
+  .option('-f, --force', 'Skip the confirmation prompt')
+  .option('-p, --project <id>', 'Project ID (default: the linked project)')
+  .action(async (keyId, options) => {
+    const { storageRevokeKey } = await import('./commands/storage.js');
+    await storageRevokeKey(keyId, options);
+  });
+
+storage
+  .command('status')
+  .description('Show the S3 endpoint, region, addressing style and bucket names (no secrets)')
+  .option('-p, --project <id>', 'Project ID (default: the linked project)')
+  .option('--json', 'Machine-readable output')
+  .action(async (options) => {
+    const { storageStatus } = await import('./commands/storage.js');
+    await storageStatus(options);
+  });
+
 // ── Backups ─────────────────────────────────────────────────
 
 const backup = program

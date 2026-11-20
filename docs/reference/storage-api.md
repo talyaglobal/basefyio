@@ -27,6 +27,26 @@ characters, letters, digits and hyphens, not starting or ending with a hyphen (4
 are created from the dashboard (Storage) or from your server — never from a browser, since
 creation needs the service key.
 
+### Bucket ownership
+
+Inside the object store a bucket is named `bf-<project prefix>-<bucket name>`. Because both
+parts may contain hyphens, two projects can spell the same stored name (project `a`'s bucket
+`b-x` and project `a-b`'s bucket `x`). Every route therefore checks that the stored bucket
+belongs to the calling project before it touches anything:
+
+- a bucket created through the API, the dashboard, the MCP tools or the CLI records its project
+  when it is created, and only that project reaches it;
+- an older bucket without a record is reached by the one project whose prefix it starts with,
+  and is recorded on first use;
+- an older bucket whose name starts with the prefixes of more than one project is reached by
+  none of them until the operator assigns it (`scripts/backfill-bucket-owners.ts --assign`);
+- the platform's own buckets are never reachable from a project.
+
+A bucket the project does not own answers exactly like a missing one: `404 Bucket "<name>" not
+found`. Creating a bucket whose stored name lies in another project's namespace answers 409.
+New projects get a storage prefix that overlaps no other project's, so their buckets are never
+ambiguous.
+
 A **public** bucket grants anonymous `GetObject` only: each file is readable at its URL, the bucket is never listed anonymously (listing goes through the API with a key). Files uploaded through the API as `text/html`, `application/xhtml+xml`, `image/svg+xml`, XML or JavaScript are stored with `Content-Disposition: attachment`, so the public storage host serves them as downloads rather than running them. Public URLs encode each path segment (`#`, `?` and spaces stay part of the key).
 
 ## Objects
@@ -121,6 +141,66 @@ await bf.storage.from('videos').uploadResumable('talks/keynote.mp4', file, {
 });
 ```
 
+## S3 access keys
+
+Off unless the server sets `S3_KEYS_ENABLED=true` (and, optionally, lists the project in
+`S3_KEYS_PROJECTS`); see [configuration.md](configuration.md). Only with the bundled MinIO
+(`STORAGE_DRIVER=minio`).
+
+An S3 access key lets a standard S3 client (AWS SigV4, path-style) read and write the project's
+buckets directly on the storage host, without the platform API in the path.
+
+| Setting | Value |
+|---|---|
+| Endpoint | `GET …/s3-keys/info` → `endpoint` (hosted: `https://storage.basefyio.com`) |
+| Region | `us-east-1` (`S3_KEYS_REGION`) |
+| Addressing | path-style (`forcePathStyle: true`) |
+| Bucket | the **physical** name, `bf-<storage prefix or slug>-<bucket>` (`info.buckets[].physical`) |
+
+Routes, under `/api/projects/:projectId/storage/s3-keys`. A dashboard session or a platform token;
+tokens need `secrets:read` (GET) or `secrets:write`, never `storage:*`. Creating and revoking also
+need the team's credentials permission (the one that rotates project keys).
+
+| Method | Path | Answer |
+|---|---|---|
+| GET | `/info` | `{ enabled, unavailableReason, endpoint, region, pathStyle, buckets: [{ name, physical }], unreachable: [{ physical, reason }], maxKeys }` |
+| GET | `/` | `[{ id, name, accessKeyId, secretLast4, createdAt, createdBy }]` |
+| POST | `/` body `{ name }` (1–60 chars) | the key plus `secretAccessKey`, `endpoint`, `region`, `pathStyle`, `buckets`; **the only time the secret is returned** |
+| DELETE | `/:keyId` | `{ revoked: true }` |
+
+What a key can do, and what it cannot:
+
+- Each key is a MinIO user whose policy names the project's buckets by exact ARN
+  (`arn:aws:s3:::<bucket>` and `/*`): `GetBucketLocation`, `ListBucket`,
+  `ListBucketMultipartUploads`, `GetObject`, `PutObject`, `DeleteObject`,
+  `AbortMultipartUpload`, `ListMultipartUploadParts`. No bucket creation or deletion, no bucket
+  policy (a key cannot make a bucket public), no listing of all buckets, no admin API.
+- Creating or deleting a bucket through the API updates the policy of every key of the project.
+  A bucket is removed from the policy **before** it is deleted; if that update fails the delete
+  answers 502 and nothing is removed.
+- A bucket whose physical name could belong to two projects (`bf-a-` + `b-x` and `bf-a-b-` + `x`
+  are the same string) is granted only to the project recorded as its creator; an older bucket
+  without a record is left out and listed under `unreachable`. Creating a bucket whose name would
+  fall into another project's namespace answers 409.
+- The secret is not stored by the platform (MinIO keeps it, as SigV4 requires); the list shows the
+  last four characters. Revoking deletes the MinIO user first, so the key fails on its next request.
+- At most `S3_KEYS_MAX_PER_PROJECT` (5) active keys per project (409 beyond). Keys of a deleted
+  project are removed by a sweep every 10 minutes; a deactivated project's keys reach nothing until
+  it is active again.
+- Refused (403) for projects with `storageAuthz = 'rls'`.
+- Every create and revoke writes an audit-log row and a project activity entry, without the secret.
+
+**A key bypasses the API's storage rules**: access rules (`StoragePolicy`), per-bucket size and
+MIME limits, the per-upload quota check, the storage catalog and upload events. Stored bytes are
+still measured by the six-hourly usage pass. Treat a key as a service-level credential.
+
+| Status | When |
+|---|---|
+| 403 | keys not enabled (server, project list, driver, `rls` project); not a team member; role without the credentials permission; token without `secrets:*` |
+| 404 | unknown project or key (also another project's key) |
+| 409 | key limit reached |
+| 502 | MinIO refused the change; nothing was issued or revoked |
+
 ## Examples
 
 ```bash
@@ -139,13 +219,16 @@ curl -s "$API/buckets" -H "apikey: $SERVICE_KEY" -H "Content-Type: application/j
 |---|---|
 | 400 | `Bucket name must be 3-63 chars…`; `File path is required`; `Folder name is required`; `Invalid folder path`; `Invalid destination`; `Cannot move a folder into itself`; `Expiry must be between 60 and 604800 seconds`; a chunk at the wrong offset |
 | 403 | anon key on a service route; bare anon key on a user route; an access rule refused the read |
-| 404 | `Bucket "<name>" not found`; `Object "<key>" not found`; unknown upload session |
-| 409 | `Bucket "<name>" already exists` |
+| 404 | `Bucket "<name>" not found` (also a bucket another project owns, an ambiguous legacy bucket or a platform bucket: the answer is the same as for a missing one); `Object "<key>" not found`; unknown upload session |
+| 409 | `Bucket "<name>" already exists`; `Bucket name "<name>" overlaps another project's storage namespace`; `Bucket name "<name>" is reserved` |
+| 502 | deleting a bucket whose S3 key policy could not be updated |
 | 413 | upload above `STORAGE_MAX_UPLOAD_MB`; render source above the transform limit |
 | 415 | render of a non-image |
 | 501 / 503 | transforms unavailable on this build / too many concurrent renders |
 
 Source: `apps/platform-api/src/modules/storage/storage.controller.ts`,
 `storage-policy.controller.ts`, `upload-session.controller.ts`, `storage.service.ts`,
-`storage-access.service.ts`, `image-transform.service.ts`, `upload-session.service.ts`;
+`storage-access.service.ts`, `image-transform.service.ts`, `upload-session.service.ts`,
+`s3-keys.controller.ts`, `s3-keys.service.ts`, `s3-key-policy.ts`, `minio-admin.client.ts`,
+`bucket-names.ts` (ownership rules), `bucket-owner-backfill.ts`;
 SDK: `packages/sdk/src/modules/storage.ts`.

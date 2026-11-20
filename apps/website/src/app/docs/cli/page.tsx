@@ -205,6 +205,22 @@ basefyio secrets set DATABASE_URL "database://..."
 # Remove
 basefyio secrets unset DATABASE_URL`}</code></pre>
 
+      <h3>basefyio storage</h3>
+      <p>
+        Buckets and S3 access keys. A key works with any standard S3 client (AWS SigV4, path-style) and
+        reaches only this project&apos;s buckets; its secret is printed once, at creation.
+      </p>
+      <pre><code>{`basefyio storage buckets
+basefyio storage create-bucket invoices [--public]
+basefyio storage delete-bucket invoices [--force]
+
+# Endpoint, region, path-style and the bucket names an S3 client uses (no secrets)
+basefyio storage status
+
+basefyio storage keys
+basefyio storage create-key "backup server"
+basefyio storage revoke-key <keyId> [--force]`}</code></pre>
+
       <h2>Configuration</h2>
       <p>
         The CLI stores configuration in <code>.basefyio</code> in your project

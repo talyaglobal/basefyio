@@ -26,6 +26,7 @@ export const CONTROLLER_POLICY: Record<string, [Policy, string]> = {
   'modules/projects/project-database.controller.ts': ['token', 'indexes, triggers, functions, extensions (schema:*)'],
   'modules/projects/project-policies.controller.ts': ['token', 'RLS policies (schema:*)'],
   'modules/projects/project-api-keys.controller.ts': ['token', 'project keys (secrets:*)'],
+  'modules/storage/s3-keys.controller.ts': ['token', 'project S3 access keys are credentials (secrets:*), never storage:*'],
   'modules/projects/folders-tags.controller.ts': ['token', 'project folders and tags (settings:*)'],
   'modules/projects/backups/project-backups.controller.ts': ['token', 'backup health; operator reconcile is @JwtOnly'],
   'modules/projects/branches/project-branches.controller.ts': ['token', 'preview branches (projects:*)'],

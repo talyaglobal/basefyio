@@ -150,6 +150,11 @@ Behaviour is described in [storage-api.md](./storage-api.md).
 | `S3_PATH_STYLE` | on | no / no | `false` = virtual-host addressing (recommended for AWS). |
 | `S3_PUBLIC_ENDPOINT` | empty | no / no | Host for public and presigned URLs when it differs from the endpoint (CDN, custom domain). |
 | `S3_BUCKET_POLICIES` | on | no / no | `false` on stores without `PutBucketPolicy` (R2): making a bucket public is then refused with a clear message. |
+| `S3_KEYS_ENABLED` | off | yes / yes | `true` lets team members with the credentials permission create project-scoped S3 access keys (MinIO IAM users limited to the project's buckets). Only with `STORAGE_DRIVER=minio`; uses the `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` the API already has, against `MINIO_ENDPOINT` (never the public host). Turning it off stops new keys; existing keys keep working until revoked. See [storage-api.md](./storage-api.md#s3-access-keys). |
+| `S3_KEYS_PROJECTS` | empty | yes / yes | Comma-separated project ids or slugs; when set, only those projects may create keys. |
+| `S3_KEYS_PUBLIC_ENDPOINT` | derived from `MINIO_PUBLIC_*` | yes / yes | Endpoint URL customers configure, e.g. `https://storage.example.com`. |
+| `S3_KEYS_REGION` | `us-east-1` | yes / yes | Region S3 clients sign with; MinIO's own default while `MINIO_REGION` is unset. |
+| `S3_KEYS_MAX_PER_PROJECT` | `5` | yes / yes | Active S3 keys per project. |
 | `STORAGE_MAX_UPLOAD_MB` | `500` | no / no | Ceiling of a single-request upload; the body is spooled to disk and streamed to the store. |
 | `STORAGE_PUBLIC_CACHE_SECONDS` | `300` | no / no | `max-age` of a download from a public bucket with no access rule on the key (shared caches such as a CDN may keep it). `0` makes it revalidate on every read. |
 | `STORAGE_UPLOAD_TMP_DIR` | `<os tmp>/basefyio-uploads` | no / no | Disk spool for uploads in flight. |

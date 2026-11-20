@@ -4,6 +4,7 @@ jest.mock('../projects/projects.service', () => ({ ProjectsService: class {} }))
 jest.mock('../projects/project-data.service', () => ({ ProjectDataService: class {} }));
 jest.mock('../teams/teams.service', () => ({ TeamsService: class {} }));
 jest.mock('../storage/storage.service', () => ({ StorageService: class {} }));
+jest.mock('../storage/s3-keys.service', () => ({ S3KeysService: class {} }));
 jest.mock('../auth/keycloak-admin.service', () => ({ KeycloakAdminService: class {} }));
 
 import { UnauthorizedException } from '@nestjs/common';
@@ -57,6 +58,16 @@ function harness(members: [string, string][] = [['team-a', 'u1']], tokenRow: any
     ]),
   };
   const projects = { findAll: jest.fn().mockResolvedValue([{ id: PROJECT, name: 'p' }]) };
+  const storage = {
+    createBucket: jest.fn().mockResolvedValue({ id: 'bf-p-docs', name: 'docs', public: false }),
+    deleteBucket: jest.fn().mockResolvedValue({ message: 'Bucket "docs" deleted' }),
+  };
+  const s3Keys = {
+    info: jest.fn().mockResolvedValue({ enabled: true, endpoint: 'https://storage.example.com', buckets: [] }),
+    list: jest.fn().mockResolvedValue([{ id: 'k1', accessKeyId: 'BFS3AAAAAAAAAAAAAAAA', secretLast4: 'wxyz' }]),
+    create: jest.fn().mockResolvedValue({ id: 'k1', accessKeyId: 'BFS3AAAAAAAAAAAAAAAA', secretAccessKey: 'S3CRET-only-once' }),
+    revoke: jest.fn().mockResolvedValue({ revoked: true }),
+  };
   const svc = new McpService(
     prisma,
     new ApiTokensService(prisma),
@@ -65,11 +76,12 @@ function harness(members: [string, string][] = [['team-a', 'u1']], tokenRow: any
     projects as any,
     data as any,
     sql,
-    {} as any,
+    storage as any,
     {} as any,
     activity as any,
+    s3Keys as any,
   );
-  return { svc, prisma, pg, data, projects };
+  return { svc, prisma, pg, data, projects, storage, s3Keys, activity };
 }
 
 async function connect(svc: McpService, t: VerifiedToken) {
@@ -293,6 +305,58 @@ describe('MCP: POST /mcp over HTTP', () => {
     const res = await request(nest.getHttpServer()).get('/mcp').set('Authorization', 'Bearer bf_pat_live');
     expect(res.status).toBe(405);
     await nest.close();
+  });
+});
+
+describe('MCP: buckets and S3 access keys (feedback #225)', () => {
+  it('a storage token manages buckets but never sees the S3 key tools', async () => {
+    const { svc } = harness();
+    const names = (await (await connect(svc, token({ scopes: ['storage:read', 'storage:write'] }))).listTools()).tools.map((t) => t.name).sort();
+    expect(names).toEqual(['create_bucket', 'delete_bucket', 'list_buckets', 'list_objects']);
+  });
+
+  it('create_bucket and delete_bucket go through StorageService as the token owner', async () => {
+    const { svc, storage, activity } = harness();
+    const t = token({ scopes: ['storage:write'] });
+    expect((await svc.invoke(tool('create_bucket'), { projectId: PROJECT, name: 'docs' }, t)).isError).toBeFalsy();
+    expect(storage.createBucket).toHaveBeenCalledWith(PROJECT, 'u1', 'docs', false);
+    expect((await svc.invoke(tool('delete_bucket'), { projectId: PROJECT, bucket: 'docs' }, t)).isError).toBeFalsy();
+    expect(storage.deleteBucket).toHaveBeenCalledWith(PROJECT, 'u1', 'docs');
+    expect(activity.append).toHaveBeenCalledTimes(2);
+  });
+
+  it('marks the write tools as writes', () => {
+    for (const n of ['create_bucket', 'delete_bucket', 'create_s3_key', 'revoke_s3_key']) {
+      expect(tool(n).annotations.readOnlyHint).toBe(false);
+    }
+    expect(tool('delete_bucket').annotations.destructiveHint).toBe(true);
+    expect(tool('revoke_s3_key').annotations.destructiveHint).toBe(true);
+    expect(tool('list_s3_keys').annotations.readOnlyHint).toBe(true);
+  });
+
+  it('creating and revoking keys needs secrets:write; listing needs secrets:read', () => {
+    expect(tool('create_s3_key').scope).toBe('secrets:write');
+    expect(tool('revoke_s3_key').scope).toBe('secrets:write');
+    expect(tool('list_s3_keys').scope).toBe('secrets:read');
+  });
+
+  it("returns the secret in create_s3_key's answer only, and keeps it out of the audit row", async () => {
+    const { svc, s3Keys, prisma } = harness();
+    const r = await svc.invoke(tool('create_s3_key'), { projectId: PROJECT, name: 'writer' }, token({ scopes: ['secrets:write'] }));
+    expect((r.content[0] as any).text).toContain('S3CRET-only-once');
+    expect(s3Keys.create).toHaveBeenCalledWith(PROJECT, 'u1', 'writer', 'mcp');
+    await new Promise((res) => setImmediate(res));
+    expect(JSON.stringify(prisma.auditLog.create.mock.calls)).not.toContain('S3CRET-only-once');
+
+    const listed = await svc.invoke(tool('list_s3_keys'), { projectId: PROJECT }, token({ scopes: ['secrets:read'] }));
+    expect((listed.content[0] as any).text).not.toContain('S3CRET');
+  });
+
+  it("does not reach another team's project", async () => {
+    const { svc, s3Keys } = harness([['team-a', 'someone-else']]);
+    const r = await svc.invoke(tool('create_s3_key'), { projectId: PROJECT, name: 'x' }, token({ scopes: ['secrets:write'] }));
+    expect(r.isError).toBe(true);
+    expect(s3Keys.create).not.toHaveBeenCalled();
   });
 });
 

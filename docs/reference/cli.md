@@ -267,6 +267,25 @@ basefyio secrets unset <key>
 These edit the linked project's local `.env` file only — nothing is sent to the platform. `list`
 masks the values of keys containing `PASSWORD`, `SECRET`, `KEY` or `TOKEN`.
 
+### Storage
+
+```
+basefyio storage buckets          [--project <id>] [--json]
+basefyio storage create-bucket <name> [--public] [--project <id>] [--json]
+basefyio storage delete-bucket <name> [--force] [--project <id>]
+basefyio storage status           [--project <id>] [--json]
+basefyio storage keys             [--project <id>] [--json]
+basefyio storage create-key <name> [--project <id>] [--json]
+basefyio storage revoke-key <keyId> [--force] [--project <id>]
+```
+
+`status` prints the S3 endpoint, region, path-style addressing and, per bucket, the physical name
+an S3 client uses (`docs  →  bf-<prefix>-docs`); it never prints a secret. `create-key` prints the
+new key as `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_REGION` / `AWS_ENDPOINT_URL_S3`
+lines, once: the platform does not keep the secret. `keys` shows the access key id and the last
+four characters of the secret. Keys need `S3_KEYS_ENABLED=true` on the server and the team's
+credentials permission; see [storage-api.md](storage-api.md#s3-access-keys).
+
 ### Backups
 
 ```

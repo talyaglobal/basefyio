@@ -56,6 +56,8 @@ export const ProjectActivityKind = {
   STORAGE_BUCKET_DELETED: 'storage.bucket_deleted',
   STORAGE_OBJECT_UPLOADED: 'storage.object_uploaded',
   STORAGE_OBJECT_DELETED: 'storage.object_deleted',
+  STORAGE_S3_KEY_CREATED: 'storage.s3_key_created',
+  STORAGE_S3_KEY_REVOKED: 'storage.s3_key_revoked',
   AUTH_USER_CREATED: 'auth.user_created',
   AUTH_USER_UPDATED: 'auth.user_updated',
   AUTH_USER_PASSWORD_RESET: 'auth.user_password_reset',

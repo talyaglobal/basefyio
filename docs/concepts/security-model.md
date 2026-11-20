@@ -127,7 +127,7 @@ gets 403 there, while the dashboard, the SQL editor, auth and storage keep worki
 | `/api/rest/v1/collections` | same mechanism on the collection tables |
 | `/api/sql/execute` with a key | role + claims; owner-only DDL verbs refused for anon/authenticated by the SQL guard |
 | realtime stream | on a table with RLS, each subscriber receives only the rows its role may select; without RLS every subscriber receives every change ([../REALTIME_API.md](../REALTIME_API.md)) |
-| storage | per bucket (public/private) plus access rules `public-read`, `authenticated-read`, `owner-only` per bucket or prefix ([../reference/storage-api.md](../reference/storage-api.md)) |
+| storage | every route first checks that the stored bucket belongs to the calling project (recorded owner, or the only matching project prefix; otherwise 404), then per bucket (public/private) plus access rules `public-read`, `authenticated-read`, `owner-only` per bucket or prefix ([../reference/storage-api.md](../reference/storage-api.md#bucket-ownership)) |
 | embeddings / RAG | no row-level policy: writes need the service key, search needs a signed-in user, RAG search is service-only |
 
 ## The SQL guard
@@ -147,6 +147,9 @@ misapplied. Details in [../reference/sql-api.md](../reference/sql-api.md).
 - A read-only companion login (`<dbUser>_readonly`, `SELECT` on everything) can be created per
   project for BI tools; it is a database role, not an API key, and bypasses nothing RLS does
   not already allow the owner.
+- Storage tenants are separated by recorded bucket ownership, not by bucket name: a stored name
+  two projects could spell (`bf-a-` + `b-x` = `bf-a-b-` + `x`) reaches only the project that
+  created it, an unrecorded ambiguous one reaches no project, and platform buckets reach none.
 - Every key-authenticated request and every SQL statement reaches the audit log with the key's
   tier; the log can be forwarded to a SIEM (webhook or syslog) by the operator.
 - Repairs: `POST /api/projects/:id/ensure-rls-bootstrap` re-applies the roles and helpers to an
