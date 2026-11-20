@@ -22,6 +22,7 @@ function build(opts: { plan?: { dedicatedDb: boolean; displayName: string } | nu
   svc.prisma = {
     project: {
       findFirst: jest.fn(async () => null),
+      findMany: jest.fn(async () => []),
       create: jest.fn(async ({ data }: any) => {
         created.push(data);
         return { ...data };
