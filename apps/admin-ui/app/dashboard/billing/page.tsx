@@ -2,13 +2,12 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { CreditCard, Check, AlertTriangle } from 'lucide-react';
+import { CreditCard, Check, AlertTriangle, Circle, XCircle } from 'lucide-react';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { toast } from 'sonner';
-import { api } from '@/lib/api';
+import { api, type DowngradePreview, type SavedCards } from '@/lib/api';
 import { useDashboard, orgPath } from '../layout';
-import { ActiveTeamNote } from '@/components/active-team-note';
 import {
   Dialog,
   DialogContent,
@@ -189,12 +188,16 @@ function CardForm({
   onSuccess,
   onCancel,
   autoRetryOnSuccess,
+  offerMakeDefault,
 }: {
   teamId: string;
   onSuccess: () => void;
   onCancel: () => void;
   autoRetryOnSuccess?: boolean;
+  /** The team already has a card: let the customer choose whether this one becomes the default. */
+  offerMakeDefault?: boolean;
 }) {
+  const [makeDefault, setMakeDefault] = useState(true);
   const stripe = useStripe();
   const elements = useElements();
   const [saving, setSaving] = useState(false);
@@ -287,7 +290,11 @@ function CardForm({
       }
 
       if (setupIntent?.payment_method) {
-        await api.billing.attachPaymentMethod(teamId, setupIntent.payment_method as string);
+        await api.billing.attachPaymentMethod(
+          teamId,
+          setupIntent.payment_method as string,
+          !offerMakeDefault || makeDefault || !!autoRetryOnSuccess,
+        );
         
         // If account is frozen, automatically retry payment with new card
         if (autoRetryOnSuccess) {
@@ -320,6 +327,12 @@ function CardForm({
       <div className="rounded-lg border bg-background p-4">
         <CardElement options={{ style: cardStyle, hidePostalCode: true }} />
       </div>
+      {offerMakeDefault && !autoRetryOnSuccess && (
+        <label className="flex items-center gap-2 text-sm text-muted-foreground">
+          <input type="checkbox" checked={makeDefault} onChange={(e) => setMakeDefault(e.target.checked)} />
+          Make this my default card
+        </label>
+      )}
       {error && (
         <div className="flex items-center gap-2 text-sm text-destructive">
           <AlertTriangle className="h-4 w-4" />
@@ -397,6 +410,12 @@ export default function BillingPage() {
     expMonth: number | null;
     expYear: number | null;
   } | null>(null);
+  const [cards, setCards] = useState<SavedCards | null>(null);
+  const [cardBusy, setCardBusy] = useState<string | null>(null);
+  const [showDowngradeDialog, setShowDowngradeDialog] = useState(false);
+  const [downgradePreview, setDowngradePreview] = useState<DowngradePreview | null>(null);
+  const [loadingDowngrade, setLoadingDowngrade] = useState(false);
+  const [downgrading, setDowngrading] = useState(false);
   const [billingAccount, setBillingAccount] = useState<any>(null);
   const [editingAccount, setEditingAccount] = useState(false);
   const [savingAccount, setSavingAccount] = useState(false);
@@ -441,6 +460,7 @@ export default function BillingPage() {
         api.billing.account(activeTeamId),
         api.billing.paymentMethod(activeTeamId),
         api.billing.projectCosts(activeTeamId),
+        api.billing.paymentMethods(activeTeamId),
       ]);
 
       const val = <T,>(r: PromiseSettledResult<T>, fallback: T): T =>
@@ -453,6 +473,7 @@ export default function BillingPage() {
       setBillingAccount(val(results[4], null));
       setPaymentMethod(val(results[5], null));
       setProjectCosts(val(results[6], null));
+      setCards(val(results[7], null));
     } catch (err) {
       console.error('Failed to load billing data:', err);
     } finally {
@@ -650,25 +671,82 @@ export default function BillingPage() {
       const preview = await api.billing.previewPlanChange(activeTeamId, plan.name);
       setUpgradePreview(preview);
     } catch (err: any) {
-      toast.error(err.message || 'Failed to load upgrade preview');
       setShowUpgradeDialog(false);
       setUpgradeTargetPlan(null);
+      if (err.code === 'card_required') {
+        setPendingUpgradePlan(plan);
+        setShowCardDialog(true);
+        toast.info(err.message);
+        return;
+      }
+      toast.error(err.message || 'Failed to load upgrade preview');
     } finally {
       setLoadingUpgradePreview(false);
     }
   };
 
-  const handleCancel = async () => {
+  // Moving to Free (also "Cancel Subscription"): show the three steps and their blockers first.
+  const handleOpenDowngrade = async () => {
     if (!activeTeamId) return;
+    setShowDowngradeDialog(true);
+    setDowngradePreview(null);
+    setLoadingDowngrade(true);
+    try {
+      setDowngradePreview(await api.billing.previewDowngrade(activeTeamId));
+    } catch (err: any) {
+      toast.error(err.message || 'Could not check the move to Free');
+      setShowDowngradeDialog(false);
+    } finally {
+      setLoadingDowngrade(false);
+    }
+  };
+
+  const handleConfirmDowngrade = async () => {
+    if (!activeTeamId) return;
+    setDowngrading(true);
     setCanceling(true);
     try {
-      await api.billing.cancelSubscription(activeTeamId);
-      toast.success('Subscription will cancel at end of billing period');
+      const res = await api.billing.downgrade(activeTeamId);
+      toast.success(res.message);
+      setShowDowngradeDialog(false);
+      setDowngradePreview(null);
       loadData();
     } catch (err: any) {
-      toast.error(err.message || 'Failed to cancel subscription');
+      toast.error(err.message || 'Could not move to Free');
+      // Show what changed (an invoice paid, a limit reached) before the next try.
+      api.billing.previewDowngrade(activeTeamId).then(setDowngradePreview).catch(() => {});
     } finally {
+      setDowngrading(false);
       setCanceling(false);
+    }
+  };
+
+  const handleSetDefaultCard = async (id: string) => {
+    if (!activeTeamId) return;
+    setCardBusy(id);
+    try {
+      await api.billing.setDefaultPaymentMethod(activeTeamId, id);
+      toast.success('Default card updated');
+      loadData();
+    } catch (err: any) {
+      toast.error(err.message || 'Could not change the default card');
+    } finally {
+      setCardBusy(null);
+    }
+  };
+
+  const handleRemoveCard = async (id: string) => {
+    if (!activeTeamId) return;
+    if (!window.confirm('Remove this card?')) return;
+    setCardBusy(id);
+    try {
+      await api.billing.removePaymentMethod(activeTeamId, id);
+      toast.success('Card removed');
+      loadData();
+    } catch (err: any) {
+      toast.error(err.message || 'Could not remove the card');
+    } finally {
+      setCardBusy(null);
     }
   };
 
@@ -724,7 +802,6 @@ export default function BillingPage() {
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-foreground">Billing</h1>
-        <ActiveTeamNote noun={features.organizations_ui ? 'Organization' : 'Team'} />
         <p className="text-muted-foreground mt-1">Manage your subscription, usage, and invoices</p>
         {!canManage && (
           <p className="mt-2 text-sm text-amber-600 dark:text-amber-400">
@@ -827,20 +904,20 @@ export default function BillingPage() {
                 </span>
               )}
             </div>
-            {subscription?.cancelAtPeriodEnd && subscription.currentPeriodEnd && (
+            {subscription?.cancelAtPeriodEnd && (subscription.nextBillingDate || subscription.currentPeriodEnd) && (
               <p className="text-sm text-amber-600 dark:text-amber-400 mt-2">
-                Cancels at end of period: {formatDate(subscription.currentPeriodEnd)}
+                Moves to Free on {formatDate((subscription.nextBillingDate || subscription.currentPeriodEnd) as string)}
               </p>
             )}
           </div>
           <div className="flex gap-2">
-            {isPaid && subscription?.stripeSubscriptionId && !subscription.cancelAtPeriodEnd && (
-              <Button variant="outline" size="sm" onClick={handleCancel} disabled={canceling}>
+            {isPaid && !subscription?.cancelAtPeriodEnd && (
+              <Button variant="outline" size="sm" onClick={handleOpenDowngrade} disabled={canceling || !canManage}>
                 {canceling ? 'Canceling...' : 'Cancel Subscription'}
               </Button>
             )}
             {subscription?.cancelAtPeriodEnd && (
-              <Button size="sm" onClick={handleResume} disabled={resuming}>
+              <Button size="sm" onClick={handleResume} disabled={resuming || !canManage}>
                 {resuming ? 'Resuming...' : 'Resume Subscription'}
               </Button>
             )}
@@ -879,32 +956,62 @@ export default function BillingPage() {
 
       {/* Payment Method */}
       <div className="rounded-xl border bg-card p-6">
-        <h2 className="text-lg font-semibold text-foreground mb-4">Payment Method</h2>
-        {paymentMethod ? (
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-muted rounded-lg">
-              <CreditCard className="w-6 h-6 text-muted-foreground" />
-            </div>
-            <div>
-              <p className="text-foreground font-medium">
-                {paymentMethod.brand?.toUpperCase()} •••• {paymentMethod.last4}
-              </p>
-              <p className="text-sm text-muted-foreground">
-                Expires {paymentMethod.expMonth}/{paymentMethod.expYear}
-              </p>
-            </div>
-            <Button variant="outline" size="sm" className="ml-auto" disabled={!canManage} onClick={() => setShowCardDialog(true)}>
-              Update Card
-            </Button>
-          </div>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-foreground">Payment Methods</h2>
+          <Button size="sm" disabled={!canManage} onClick={() => setShowCardDialog(true)}>
+            <CreditCard className="w-4 h-4 mr-2" />
+            Add card
+          </Button>
+        </div>
+        {cards?.unavailable ? (
+          <p className="text-sm text-muted-foreground">Your saved cards could not be loaded right now. Refresh the page to try again.</p>
+        ) : !cards || cards.methods.length === 0 ? (
+          <p className="text-muted-foreground">
+            No card on file.
+            {isPaid ? ' Your plan needs a card; add one to keep it active.' : ' Add a card before choosing a paid plan.'}
+          </p>
         ) : (
-          <div className="flex items-center justify-between">
-            <p className="text-muted-foreground">No payment method on file</p>
-            <Button disabled={!canManage} onClick={() => setShowCardDialog(true)}>
-              <CreditCard className="w-4 h-4 mr-2" />
-              Add Payment Method
-            </Button>
-          </div>
+          <ul className="divide-y">
+            {cards.methods.map((m) => {
+              const isLast = cards.methods.length === 1;
+              const removeBlocked = isLast && !cards.lastCardRemovable;
+              return (
+                <li key={m.id} className="flex flex-wrap items-center gap-4 py-3 first:pt-0 last:pb-0">
+                  <div className="p-3 bg-muted rounded-lg">
+                    <CreditCard className="w-6 h-6 text-muted-foreground" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-foreground font-medium">
+                      {m.brand?.toUpperCase()} •••• {m.last4}
+                      {m.isDefault && (
+                        <span className="ml-2 px-2 py-0.5 text-xs bg-primary/10 text-primary rounded-full border border-primary/20">Default</span>
+                      )}
+                    </p>
+                    <p className="text-sm text-muted-foreground">Expires {m.expMonth}/{m.expYear}</p>
+                  </div>
+                  <div className="ml-auto flex gap-2">
+                    {!m.isDefault && (
+                      <Button variant="outline" size="sm" disabled={!canManage || cardBusy !== null} onClick={() => handleSetDefaultCard(m.id)}>
+                        Make default
+                      </Button>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={!canManage || cardBusy !== null || removeBlocked}
+                      title={removeBlocked ? cards.lastCardReason ?? undefined : undefined}
+                      onClick={() => handleRemoveCard(m.id)}
+                    >
+                      {cardBusy === m.id ? 'Working…' : 'Remove'}
+                    </Button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {cards && cards.methods.length === 1 && !cards.lastCardRemovable && cards.lastCardReason && (
+          <p className="mt-3 text-xs text-muted-foreground">{cards.lastCardReason}</p>
         )}
       </div>
 
@@ -918,7 +1025,7 @@ export default function BillingPage() {
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>{paymentMethod ? 'Update Payment Method' : 'Add Payment Method'}</DialogTitle>
+            <DialogTitle>{paymentMethod ? 'Add a card' : 'Add Payment Method'}</DialogTitle>
             <DialogDescription>
               Enter your card details. Your card will be securely saved for future billing.
             </DialogDescription>
@@ -939,6 +1046,7 @@ export default function BillingPage() {
                   setPendingUpgradePlan(null);
                 }}
                 autoRetryOnSuccess={subscription?.accountStatus === 'FROZEN'}
+                offerMakeDefault={!!cards && cards.methods.length > 0}
               />
             </Elements>
           ) : (
@@ -1143,6 +1251,11 @@ export default function BillingPage() {
                   )}
                   {isCurrent && (
                     <div className="mt-6 w-full py-2 text-center text-sm text-muted-foreground">Your current plan</div>
+                  )}
+                  {!isCurrent && plan.name === 'free' && isPaid && !subscription?.cancelAtPeriodEnd && (
+                    <Button className="mt-6 w-full" variant="outline" onClick={handleOpenDowngrade} disabled={!canManage}>
+                      Downgrade to Free
+                    </Button>
                   )}
                 </div>
               );
@@ -1510,6 +1623,90 @@ export default function BillingPage() {
                   disabled={!upgradeTargetPlan || changingPlan === upgradeTargetPlan.name}
                 >
                   {changingPlan === upgradeTargetPlan?.name ? 'Upgrading...' : 'Confirm Upgrade'}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Move to Free: three steps, each with what blocks it */}
+      <Dialog
+        open={showDowngradeDialog}
+        onOpenChange={(open) => {
+          setShowDowngradeDialog(open);
+          if (!open) setDowngradePreview(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Move to the Free plan</DialogTitle>
+            <DialogDescription>Three steps, in this order. Nothing is deleted for you.</DialogDescription>
+          </DialogHeader>
+          {loadingDowngrade && <div className="h-32 w-full animate-pulse rounded bg-muted" />}
+          {!loadingDowngrade && downgradePreview && (
+            <div className="space-y-4 text-sm">
+              <ol className="space-y-3">
+                {downgradePreview.steps.map((step, i) => (
+                  <li key={step.key} className="flex gap-3">
+                    {step.status === 'done' ? (
+                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                    ) : step.status === 'blocked' ? (
+                      <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+                    ) : (
+                      <Circle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                    )}
+                    <div>
+                      <p className="font-medium text-foreground">{i + 1}. {step.title}</p>
+                      <p className="text-muted-foreground">{step.detail}</p>
+                      {step.key === 'limits' && downgradePreview.limits.blockers.length > 0 && (
+                        <ul className="mt-1 list-disc pl-5 text-destructive">
+                          {downgradePreview.limits.blockers.map((b) => (
+                            <li key={b.resource}>
+                              {b.label}: {b.unit === 'bytes' ? formatBytes(b.current) : Number(b.current).toLocaleString('en-US')} of{' '}
+                              {b.unit === 'bytes' ? formatBytes(b.limit) : Number(b.limit).toLocaleString('en-US')}. {b.hint}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ol>
+              {downgradePreview.limits.warnings.length > 0 && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300">
+                  <p className="font-medium">This month is already above the Free limits (this does not block the move):</p>
+                  <ul className="mt-1 list-disc pl-5">
+                    {downgradePreview.limits.warnings.map((w) => (
+                      <li key={w.resource}>
+                        {w.label}: {w.unit === 'bytes' ? formatBytes(w.current) : Number(w.current).toLocaleString('en-US')} of{' '}
+                        {w.unit === 'bytes' ? formatBytes(w.limit) : Number(w.limit).toLocaleString('en-US')}. {w.hint}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {downgradePreview.outstanding.droppedUpgrade > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  The upgrade whose payment failed is cancelled and not charged.
+                </p>
+              )}
+              {downgradePreview.alreadyScheduled && (
+                <p className="text-xs text-muted-foreground">Your move to Free is already scheduled.</p>
+              )}
+              <div className="flex justify-end gap-2">
+                {downgradePreview.steps[0]?.status === 'blocked' && (
+                  <Button variant="outline" onClick={() => { setShowDowngradeDialog(false); setShowCardDialog(true); }}>
+                    Add a card
+                  </Button>
+                )}
+                <Button variant="outline" onClick={() => setShowDowngradeDialog(false)}>Keep my plan</Button>
+                <Button onClick={handleConfirmDowngrade} disabled={!downgradePreview.canProceed || downgrading || !canManage}>
+                  {downgrading
+                    ? 'Working…'
+                    : downgradePreview.outstanding.total > 0
+                      ? `Pay ${formatMoney(downgradePreview.outstanding.total, downgradePreview.currency)} and move to Free`
+                      : 'Move to Free'}
                 </Button>
               </div>
             </div>
