@@ -1,0 +1,70 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Image pin updates for feedback #202. Inert until the Renovate app is installed on the repository. Never auto-merges; see docs/ops/image-pinning.md.",
+  "extends": [
+    "config:recommended"
+  ],
+  "baseBranches": [
+    "development"
+  ],
+  "enabledManagers": [
+    "custom.regex"
+  ],
+  "automerge": false,
+  "platformAutomerge": false,
+  "prConcurrentLimit": 2,
+  "labels": [
+    "dependencies"
+  ],
+  "commitMessagePrefix": "chore(deps):",
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Pinned compose defaults: ${X_IMAGE:-repo:tag@sha256:digest}",
+      "managerFilePatterns": [
+        "/^docker-compose\\.prod\\.yml$/"
+      ],
+      "matchStrings": [
+        "\\$\\{[A-Z_]+_IMAGE:-(?<depName>[a-z0-9./_-]+):(?<currentValue>[A-Za-z0-9._-]+)@(?<currentDigest>sha256:[a-f0-9]{64})\\}"
+      ],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Release-tested component pins: NAME_IMAGE=repo:tag[@sha256:digest]",
+      "managerFilePatterns": [
+        "/^deploy/components\\.env$/"
+      ],
+      "matchStrings": [
+        "^[A-Z0-9_]+_IMAGE(?:_[0-9]+)?=(?<depName>[a-z0-9./_-]+):(?<currentValue>[A-Za-z0-9._-]+)(?:@(?<currentDigest>sha256:[a-f0-9]{64}))?$"
+      ],
+      "datasourceTemplate": "docker"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "The mirrored MinIO build is upgraded by hand (mirror a new release, then change the pin).",
+      "matchPackageNames": [
+        "ghcr.io/fsipka/basefyio-minio",
+        "chainguard/minio"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "Major versions of stateful components are planned migrations, not bumps.",
+      "matchPackageNames": [
+        "pgvector/pgvector",
+        "mongo",
+        "rabbitmq",
+        "redis",
+        "quay.io/keycloak/keycloak",
+        "couchbase/server",
+        "apache/couchdb"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "enabled": false
+    }
+  ]
+}

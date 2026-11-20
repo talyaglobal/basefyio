@@ -1,0 +1,24 @@
+# Image update pull requests (feedback #202). Nothing here merges by itself:
+# there is no auto-merge workflow, and every bump is reviewed and shipped
+# through the normal development -> main -> production flow.
+version: 2
+updates:
+  # The cluster image base (pgvector on Debian bookworm). A merged bump
+  # rebuilds the cluster image and recreates postgres on the next deploy,
+  # so such a PR waits for a planned maintenance window; never merge it into
+  # an ordinary release. See docs/ops/image-pinning.md.
+  - package-ecosystem: docker
+    directory: /docker/postgres
+    target-branch: development
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 1
+    labels:
+      - dependencies
+      - maintenance-window
+    commit-message:
+      prefix: chore(deps)
+    ignore:
+      # A new Postgres major is a migration, not a bump.
+      - dependency-name: pgvector/pgvector
+        update-types: ["version-update:semver-major"]
