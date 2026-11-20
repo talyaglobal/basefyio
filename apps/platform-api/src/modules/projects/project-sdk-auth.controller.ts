@@ -10,6 +10,7 @@ import {
   Headers,
   UseGuards,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { ProjectSdkAuthService } from './project-sdk-auth.service';
@@ -57,6 +58,14 @@ export class ProjectSdkAuthController {
     @Body() body: { email: string; password: string; totp?: string },
   ) {
     const { projectId } = this.getPayload(req);
+    if (
+      !body ||
+      typeof body.email !== 'string' || !body.email.trim() ||
+      typeof body.password !== 'string' || !body.password ||
+      (body.totp !== undefined && typeof body.totp !== 'string')
+    ) {
+      throw new BadRequestException('email and password are required');
+    }
     return this.sdkAuth.signin(projectId, body.email, body.password, this.clientIp(req), body.totp);
   }
 

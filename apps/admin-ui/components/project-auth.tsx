@@ -304,6 +304,7 @@ function UsersTab({
   const [more, setMore] = useState<RealmUser[]>([]);
   const [searching, setSearching] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [anonOnly, setAnonOnly] = useState(false);
   const term = query.trim();
 
   useEffect(() => {
@@ -328,16 +329,17 @@ function UsersTab({
   }, [term, projectId]);
 
   const base = term ? results ?? [] : firstPage;
-  const users = [...base, ...more];
+  const all = [...base, ...more];
+  const users = anonOnly ? all.filter((u) => u.isAnonymous) : all;
   const fullPage = base.length > 0 && (base.length + more.length) % USERS_PAGE === 0;
-  const hasMore = term ? fullPage : fullPage && (total == null || users.length < total);
+  const hasMore = term ? fullPage : fullPage && (total == null || all.length < total);
 
   async function loadMore() {
     setLoadingMore(true);
     try {
       const next = await api.projects.realmUsers(projectId, {
         search: term || undefined,
-        first: users.length,
+        first: all.length,
         max: USERS_PAGE,
       });
       setMore((m) => [...m, ...next]);
@@ -395,6 +397,10 @@ function UsersTab({
             className="pl-8"
           />
         </div>
+        <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <input type="checkbox" checked={anonOnly} onChange={(e) => setAnonOnly(e.target.checked)} />
+          Anonymous only
+        </label>
         <span className="text-xs text-muted-foreground" aria-live="polite">
           {searching
             ? 'Searching…'
@@ -623,16 +629,24 @@ function UserDetailDrawer({
             <section>
               <h3 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Sign-in providers</h3>
               <div className="flex flex-wrap gap-2">
-                {detail.providers.map((p) => (
-                  <Badge key={p} variant="secondary" className="capitalize">{p}</Badge>
-                ))}
+                {user.isAnonymous ? (
+                  <Badge variant="secondary">Anonymous</Badge>
+                ) : (
+                  detail.providers.map((p) => (
+                    <Badge key={p} variant="secondary" className="capitalize">{p}</Badge>
+                  ))
+                )}
               </div>
             </section>
 
             {/* Actions */}
             <section className="grid grid-cols-2 gap-2">
               <Button variant="outline" size="sm" onClick={onEdit}><Pencil className="mr-2 h-3.5 w-3.5" />Edit</Button>
-              <Button variant="outline" size="sm" onClick={onReset}><KeyRound className="mr-2 h-3.5 w-3.5" />Set password</Button>
+              {user.isAnonymous ? (
+                <p className="col-span-2 text-xs text-muted-foreground">Anonymous user: no real e-mail or password. Recovery and verification mails are unavailable until it is upgraded to a real account.</p>
+              ) : (
+                <>
+                  <Button variant="outline" size="sm" onClick={onReset}><KeyRound className="mr-2 h-3.5 w-3.5" />Set password</Button>
               <Button variant="outline" size="sm" disabled={busy}
                 onClick={() => act(() => api.projects.sendRealmUserRecovery(projectId, user.id), 'Recovery email sent')}>
                 <Mail className="mr-2 h-3.5 w-3.5" />Send recovery
@@ -641,10 +655,14 @@ function UserDetailDrawer({
                 onClick={() => act(() => api.projects.sendRealmUserVerification(projectId, user.id), 'Verification email sent')}>
                 <Mail className="mr-2 h-3.5 w-3.5" />Send verify
               </Button>
-              <Button variant="outline" size="sm" className="col-span-2" disabled={busy}
-                onClick={() => act(() => api.projects.requireRealmUserMfa(projectId, user.id, true), 'User must set up MFA at next login')}>
-                <ShieldCheck className="mr-2 h-3.5 w-3.5" />Require MFA enrollment
-              </Button>
+                </>
+              )}
+              {!user.isAnonymous && (
+                <Button variant="outline" size="sm" className="col-span-2" disabled={busy}
+                  onClick={() => act(() => api.projects.requireRealmUserMfa(projectId, user.id, true), 'User must set up MFA at next login')}>
+                  <ShieldCheck className="mr-2 h-3.5 w-3.5" />Require MFA enrollment
+                </Button>
+              )}
             </section>
 
             {/* Sessions */}
