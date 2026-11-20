@@ -1717,7 +1717,12 @@ export class KeycloakAdminService implements OnModuleInit {
     if (data.lastName !== undefined) update.lastName = data.lastName;
     // Sync username to the new email so SDK signin (which authenticates by email)
     // keeps working — see updateRealmUserEmail.
-    if (data.email !== undefined) {
+    // The dashboard sends the unchanged address along with every edit: that is not a change,
+    // and must not mark the user confirmed.
+    const emailChanged =
+      data.email !== undefined &&
+      String(data.email).trim().toLowerCase() !== String(existing?.email ?? '').trim().toLowerCase();
+    if (emailChanged) {
       update.email = data.email;
       update.emailVerified = data.emailVerified ?? true;
       update.username = data.email;

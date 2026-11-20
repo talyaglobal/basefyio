@@ -15,6 +15,10 @@ const TEMPLATE_FIELDS = [
   'reauthSubject', 'reauthBody',
 ] as const;
 
+/** Access token lifetime bounds in seconds (5 minutes to 30 days). */
+const TOKEN_EXPIRY_MIN = 300;
+const TOKEN_EXPIRY_MAX = 30 * 24 * 60 * 60;
+
 const DEFAULT_CONFIG = {
   allowSignup: true,
   requireEmailVerify: true,
@@ -53,6 +57,16 @@ export class ProjectAuthConfigService {
     userId?: string,
   ) {
     await this.getOrCreate(projectId);
+
+    if (data.tokenExpirySeconds !== undefined) {
+      const n = Number(data.tokenExpirySeconds);
+      if (!Number.isInteger(n) || n < TOKEN_EXPIRY_MIN || n > TOKEN_EXPIRY_MAX) {
+        throw new BadRequestException(
+          `tokenExpirySeconds must be a whole number between ${TOKEN_EXPIRY_MIN} and ${TOKEN_EXPIRY_MAX}`,
+        );
+      }
+      data = { ...data, tokenExpirySeconds: n };
+    }
 
     if (data.emailProvider === 'smtp') {
       const cur: Record<string, any> = await this.getRaw(projectId);
