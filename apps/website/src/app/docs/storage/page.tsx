@@ -175,7 +175,7 @@ const { data } = await bf.storage.from('reports').createSignedUrl(
           <tr><td>POST</td><td><code>/buckets/:bucket/objects/exists</code></td><td>Which of <code>{`{ paths }`}</code> exist</td></tr>
           <tr><td>GET</td><td><code>/buckets/:bucket/objects/download?path=</code></td><td>Download a file</td></tr>
           <tr><td>GET</td><td><code>/buckets/:bucket/objects/url?path=&amp;expiry=</code></td><td>Signed URL: <code>expiry</code> 60 to 604800 seconds (default 3600); 404 for a missing object</td></tr>
-          <tr><td>POST</td><td><code>/buckets/:bucket/objects/move</code></td><td>Move into a folder <code>{`{ sources, destFolder }`}</code></td></tr>
+          <tr><td>POST</td><td><code>/buckets/:bucket/objects/move</code></td><td>Move into a folder <code>{`{ sources, destFolder }`}</code>; 409 if a destination exists, 404 if a source is missing</td></tr>
           <tr><td>POST</td><td><code>/buckets/:bucket/objects/copy</code></td><td>Copy one object <code>{`{ source, destination }`}</code> (404 missing source, 409 existing destination)</td></tr>
           <tr><td>POST</td><td><code>/buckets/:bucket/objects/rename</code></td><td>Rename one object <code>{`{ source, destination }`}</code></td></tr>
           <tr><td>DELETE</td><td><code>/buckets/:bucket/objects</code></td><td>Delete <code>{`{ paths }`}</code>; the count is of objects that existed</td></tr>

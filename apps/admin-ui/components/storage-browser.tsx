@@ -766,10 +766,20 @@ function ObjectBrowser({
 
     setUploading(true);
     try {
+      // Each file is independent: one failure never cancels the rest.
+      const failed: string[] = [];
+      let firstError = '';
       for (const { file, name } of plan) {
-        await uploadOne(prefix + name, file);
+        try {
+          await uploadOne(prefix + name, file);
+        } catch (err: any) {
+          failed.push(name);
+          if (!firstError) firstError = err?.message ?? 'upload failed';
+        }
       }
-      toast.success(`Uploaded ${plan.length} file(s)`);
+      const ok = plan.length - failed.length;
+      if (failed.length === 0) toast.success(`Uploaded ${plan.length} file(s)`);
+      else toast.error(`Uploaded ${ok} of ${plan.length} file(s). Failed: ${failed.join(', ')} (${firstError})`);
       await load();
     } catch (err: any) {
       toast.error(err.message);
@@ -822,11 +832,19 @@ function ObjectBrowser({
       }
 
       let done = 0;
+      const failed: string[] = [];
+      let firstError = '';
       for (const { file, path } of toUpload) {
-        await uploadOne(path, file);
-        done++;
+        try {
+          await uploadOne(path, file);
+          done++;
+        } catch (err: any) {
+          failed.push(path);
+          if (!firstError) firstError = err?.message ?? 'upload failed';
+        }
       }
-      toast.success(`Uploaded ${done} file(s) from the folder`);
+      if (failed.length === 0) toast.success(`Uploaded ${done} file(s) from the folder`);
+      else toast.error(`Uploaded ${done} of ${toUpload.length} file(s). Failed: ${failed.join(', ')} (${firstError})`);
       await load();
     } catch (err: any) {
       toast.error(err.message);

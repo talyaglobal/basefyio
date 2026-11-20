@@ -148,6 +148,7 @@ describe('uploadObject (disk spool → stream)', () => {
       1234,
       'text/plain',
       { 'x-amz-meta-owner': 'u1' },
+      false,
     );
     expect(activity.append).toHaveBeenCalledWith(
       'p1',

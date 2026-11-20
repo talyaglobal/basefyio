@@ -253,6 +253,7 @@ export class StorageFacadeService {
       size,
       input.contentType || 'application/octet-stream',
       meta,
+      size === 0 && Buffer.isBuffer(input.body),
     );
     return { Id: uploaded.id ?? syntheticObjectId(bucket, key), Key: `${bucket}/${key}` };
   }

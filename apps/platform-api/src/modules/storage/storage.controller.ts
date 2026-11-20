@@ -465,6 +465,7 @@ export class StorageController {
         file.size,
         file.mimetype,
         ownerMeta(caller),
+        file.size === 0,
       );
       await this.activity.append(projectId, {
         userId: user?.sub,

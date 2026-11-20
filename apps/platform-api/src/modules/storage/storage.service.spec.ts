@@ -601,6 +601,17 @@ describe('findExistingObjects', () => {
 });
 
 describe('moveObjects', () => {
+  const notFound = () => Object.assign(new Error('nf'), { code: 'NotFound' });
+  // Source exists, destination is free unless a test says otherwise.
+  const destFree = (client: any, taken: string[] = []) =>
+    client.statObject.mockImplementation(async (_b: string, k: string) => {
+      if (k.startsWith('dest/') || k.startsWith('archive/') || taken.includes(k)) {
+        if (taken.includes(k)) return { size: 3, metaData: {} };
+        throw notFound();
+      }
+      return { size: 3, metaData: {} };
+    });
+
   it('refuses a destination that traverses upwards', async () => {
     const { svc, client } = build();
     await expect(svc.moveObjects('p1', undefined, 'docs', ['a.txt'], '../x')).rejects.toBeInstanceOf(
@@ -616,8 +627,28 @@ describe('moveObjects', () => {
     );
   });
 
+  it('refuses to overwrite an existing destination, touching nothing (409)', async () => {
+    const { svc, client } = build();
+    destFree(client, ['dest/file.txt']);
+    await expect(svc.moveObjects('p1', undefined, 'docs', ['inbox/file.txt'], 'dest')).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    expect(client.copyObject).not.toHaveBeenCalled();
+    expect(client.removeObject).not.toHaveBeenCalled();
+  });
+
+  it('answers 404 for a source that does not exist', async () => {
+    const { svc, client } = build();
+    client.statObject.mockRejectedValue(notFound());
+    await expect(svc.moveObjects('p1', undefined, 'docs', ['inbox/nope.txt'], 'dest')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(client.copyObject).not.toHaveBeenCalled();
+  });
+
   it('moves a file as copy then delete into the destination folder', async () => {
     const { svc, client } = build();
+    destFree(client);
     const order: string[] = [];
     client.copyObject.mockImplementation(async () => void order.push('copy'));
     client.removeObject.mockImplementation(async () => void order.push('remove'));
@@ -635,6 +666,7 @@ describe('moveObjects', () => {
 
   it('moves a folder with every key beneath it, keeping the folder name', async () => {
     const { svc, client } = build();
+    destFree(client);
     client.listObjectsV2.mockImplementation(() =>
       listing([{ name: 'img/' }, { name: 'img/a.png' }, { name: 'img/sub/b.png' }]),
     );
@@ -710,6 +742,15 @@ describe('uploadObject', () => {
 });
 
 describe('uploadObjectStream', () => {
+  it('stores a known-empty source as a real zero-byte object', async () => {
+    const { svc, client } = build();
+    client.statObject.mockResolvedValue({ size: 0, etag: 'e', lastModified: new Date(0), metaData: {} });
+    const out = await svc.uploadObjectStream('p1', undefined, 'docs', 'e.txt', Readable.from([]), 0, 'text/plain', {}, true);
+    expect(client.putObject.mock.calls[0][2]).toEqual(Buffer.alloc(0));
+    expect(client.putObject.mock.calls[0][3]).toBe(0);
+    expect(out.size).toBe(0);
+  });
+
   it('hands the client no length at all when the source declared none, instead of an empty object', async () => {
     const { svc, client } = build();
     const body = Readable.from(['abc']);

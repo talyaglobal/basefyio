@@ -761,7 +761,9 @@ export class StorageService {
     if (destRaw.includes('..')) throw new BadRequestException('Invalid destination');
     const dest = destRaw && !destRaw.endsWith('/') ? `${destRaw}/` : destRaw;
 
-    let moved = 0;
+    // Plan every move first, so a missing source or a name clash is refused
+    // before a single object has been touched (no half-done batch).
+    const plan: Array<{ from: string; to: string }> = [];
     for (const raw of sources || []) {
       const src = (raw || '').replace(/^\/+/, '');
       if (!src) continue;
@@ -774,24 +776,33 @@ export class StorageService {
           throw new BadRequestException('Cannot move a folder into itself');
         }
         const keys = await this.listKeysUnder(minioBucket, src);
-        for (const key of keys) {
-          const newKey = `${newBase}${key.slice(src.length)}`;
-          // minio 8 keeps the (target, object, source) string overload at runtime;
-          // cast past the ambiguous overload typing.
-          await (this.client.copyObject as any)(minioBucket, newKey, `/${minioBucket}/${key}`);
-          await this.client.removeObject(minioBucket, key);
-          await this.catalog?.moveObject(projectId, bucketName, key, newKey);
-          moved++;
-        }
+        if (keys.length === 0) throw new NotFoundException(`Folder "${src}" not found`);
+        for (const key of keys) plan.push({ from: key, to: `${newBase}${key.slice(src.length)}` });
       } else {
         const filename = src.split('/').pop() || src;
         const newKey = `${dest}${filename}`;
         if (newKey === src) continue;
-        await (this.client.copyObject as any)(minioBucket, newKey, `/${minioBucket}/${src}`);
-        await this.client.removeObject(minioBucket, src);
-        await this.catalog?.moveObject(projectId, bucketName, src, newKey);
-        moved++;
+        if (!(await this.statObjectIn(minioBucket, src))) {
+          throw new NotFoundException(`Object "${src}" not found`);
+        }
+        plan.push({ from: src, to: newKey });
       }
+    }
+    const movingFrom = new Set(plan.map((m) => m.from));
+    for (const m of plan) {
+      if (!movingFrom.has(m.to) && (await this.statObjectIn(minioBucket, m.to))) {
+        throw new ConflictException(`An object already exists at "${m.to}"`);
+      }
+    }
+
+    let moved = 0;
+    for (const { from, to } of plan) {
+      // minio 8 keeps the (target, object, source) string overload at runtime;
+      // cast past the ambiguous overload typing.
+      await (this.client.copyObject as any)(minioBucket, to, `/${minioBucket}/${from}`);
+      await this.client.removeObject(minioBucket, from);
+      await this.catalog?.moveObject(projectId, bucketName, from, to);
+      moved++;
     }
 
     this.logger.log(`Moved ${moved} object(s) to "${dest || '/'}" in "${minioBucket}"`);
@@ -924,6 +935,7 @@ export class StorageService {
     size: number,
     contentType: string,
     meta: Record<string, string> = {},
+    knownEmpty = false,
   ) {
     if (!path || path === '/') {
       throw new BadRequestException('File path is required');
@@ -942,7 +954,11 @@ export class StorageService {
     // let it read the stream to the end.
     const declared = Number.isFinite(size) && size > 0 ? size : undefined;
 
-    await this.client.putObject(minioBucket, objectName, body, declared as number, {
+    // A source that is known to be empty is stored as a real zero-byte object;
+    // the streaming path cannot upload an empty stream.
+    const empty = knownEmpty && size === 0;
+    if (empty) body.destroy();
+    await this.client.putObject(minioBucket, objectName, empty ? Buffer.alloc(0) : body, empty ? 0 : (declared as number), {
       'Content-Type': contentType,
       ...meta,
       ...downloadOnlyHeaders(contentType),
@@ -951,9 +967,9 @@ export class StorageService {
     const stat = await this.client.statObject(minioBucket, objectName);
 
     // Read back what landed. A truncated upload otherwise counts as a success.
-    if (declared !== undefined && stat.size !== declared) {
+    if (empty ? stat.size !== 0 : declared !== undefined && stat.size !== declared) {
       throw new InternalServerErrorException(
-        `Upload of "${objectName}" stored ${stat.size} bytes, expected ${declared}`,
+        `Upload of "${objectName}" stored ${stat.size} bytes, expected ${empty ? 0 : declared}`,
       );
     }
     const id = await this.catalog?.recordUpload(projectId, bucketName, objectName, stat, contentType, meta);
