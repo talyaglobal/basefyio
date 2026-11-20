@@ -146,7 +146,11 @@ export class ApiKeyGuard implements CanActivate {
         }
         const claims = await this.verifyProjectJwt(token, project.keycloakRealm);
         if (claims) {
-          jwtClaims = claims;
+          // Keycloak tokens carry no `role` claim (an anonymous session's
+          // neither), so auth.jwt() ->> 'role' read NULL where policies
+          // written for GoTrue tokens expect 'authenticated'. A verified user
+          // token is exactly that role; a claim the realm did set is kept.
+          jwtClaims = claims.role === undefined ? { ...claims, role: 'authenticated' } : claims;
           dbRole = 'authenticated';
         } else {
           // Unknown or unsigned JWT → caller is trying to assume an identity

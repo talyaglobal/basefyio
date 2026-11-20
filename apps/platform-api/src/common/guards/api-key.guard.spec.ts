@@ -77,7 +77,7 @@ describe('ApiKeyGuard', () => {
     const { context, req } = makeCtx({ apikey: 'anon-key', authorization: 'Bearer good.jwt.token' });
     await expect(g.canActivate(context)).resolves.toBe(true);
     expect(req.apiKeyPayload.dbRole).toBe('authenticated');
-    expect(req.apiKeyPayload.jwtClaims).toEqual({ sub: 'user-1' });
+    expect(req.apiKeyPayload.jwtClaims).toEqual({ sub: 'user-1', role: 'authenticated' });
   });
 });
 
