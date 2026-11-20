@@ -29,6 +29,7 @@ import {
   isPlatformBucket,
   physicalBucketName as buildPhysicalName,
   physicalPrefix,
+  platformPrefix,
 } from './bucket-names';
 
 export interface StorageObject {
@@ -133,7 +134,7 @@ export class StorageService {
 
   /** Physical names of platform-owned buckets start with this; no project may ever be granted one. */
   get platformBucketPrefix(): string {
-    return `${this.caps.bucketPrefix}platform-`;
+    return platformPrefix(this.caps.bucketPrefix);
   }
 
   /** The physical prefix of a project's buckets, trailing hyphen included. */

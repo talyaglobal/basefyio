@@ -322,6 +322,32 @@ describe('complete / abort', () => {
   });
 });
 
+describe('bucket ownership (cross-project)', () => {
+  it('a chunk, a complete and an abort stop when the bucket is not this project\'s (no store call)', async () => {
+    const { prisma, storage, sessions } = build();
+    prisma.storageUploadSession.findUnique.mockResolvedValue(row({ uploadedSize: BigInt(20 * MiB) }));
+    storage.resolveProjectBucket.mockRejectedValue(new NotFoundException('Bucket "docs" not found'));
+
+    await expect(sessions.appendChunk('p1', alice, undefined, 'docs', 's1', 20 * MiB - 8 * MiB, Buffer.alloc(8 * MiB))).rejects.toBeDefined();
+    await expect(sessions.complete('p1', alice, undefined, 'docs', 's1')).rejects.toBeInstanceOf(NotFoundException);
+    prisma.storageUploadSession.findUnique.mockResolvedValue(row());
+    await expect(sessions.abort('p1', alice, undefined, 'docs', 's1')).rejects.toBeInstanceOf(NotFoundException);
+    expect(storage.putPart).not.toHaveBeenCalled();
+    expect(storage.finishMultipart).not.toHaveBeenCalled();
+    expect(storage.abortMultipart).not.toHaveBeenCalled();
+    expect(storage.resolveProjectBucket).toHaveBeenCalledWith(project, 'docs');
+  });
+
+  it('creating a session goes through the checked resolveBucket', async () => {
+    const { storage, sessions } = build();
+    storage.resolveBucket.mockRejectedValue(new NotFoundException('Bucket "b-x" not found'));
+    await expect(
+      sessions.createUploadSession('p1', alice, undefined, 'b-x', { path: 'a.bin', size: 10, contentType: 'application/octet-stream' }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(storage.beginMultipart).not.toHaveBeenCalled();
+  });
+});
+
 describe('expireStaleSessions', () => {
   it('aborts and marks stale active sessions, purges old finished rows, and survives store errors', async () => {
     const { prisma, storage, sessions } = build();

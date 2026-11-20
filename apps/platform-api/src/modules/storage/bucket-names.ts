@@ -61,10 +61,15 @@ export function prefixesOverlap(a: string, b: string): boolean {
   return a.startsWith(b) || b.startsWith(a);
 }
 
+/** Physical prefix of the platform namespace: `bf-platform-`. */
+export function platformPrefix(bucketPrefix: string): string {
+  return sanitise(`${bucketPrefix}${PLATFORM_NAMESPACE}`);
+}
+
 /** A platform bucket, or a name built by a project whose prefix is the bare platform namespace. */
 export function isPlatformBucket(physical: string, projectPhysicalPrefix: string, bucketPrefix: string): boolean {
   if (PLATFORM_BUCKETS.includes(physical)) return true;
-  const platform = sanitise(`${bucketPrefix}${PLATFORM_NAMESPACE}`);
+  const platform = platformPrefix(bucketPrefix);
   // A legacy project whose slug is exactly `platform` builds names in the platform namespace only.
   return projectPhysicalPrefix.length <= platform.length && physical.startsWith(platform);
 }
