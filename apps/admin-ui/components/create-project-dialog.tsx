@@ -1114,6 +1114,24 @@ export function CreateProjectDialog({
                 />
               </div>
 
+              <div
+                className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground"
+                data-testid="project-resource-summary"
+              >
+                <p className="mb-1 font-medium text-foreground">What you get</p>
+                <ul className="list-disc space-y-0.5 pl-4">
+                  <li>Region: Nuremberg, Germany (EU). The server address is not shown.</li>
+                  <li>
+                    Compute: your database runs on shared infrastructure (a shared PostgreSQL server with a
+                    4 vCPU / 8 GB host), with no CPU or RAM reserved for this project alone.
+                  </li>
+                  <li>
+                    Disk is not unlimited: database and file storage are billed per GB-month for what you use,
+                    and traffic and API requests are metered. You pay for what you use.
+                  </li>
+                </ul>
+              </div>
+
               <DialogFooter>
                 <Button
                   type="button"
