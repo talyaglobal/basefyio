@@ -15,6 +15,8 @@ function harness() {
   const client = {
     query: jest.fn().mockResolvedValue({ rows: [], fields: [], rowCount: 0 }),
     release: jest.fn(),
+    on: jest.fn(),
+    removeListener: jest.fn(),
   };
   const prisma = {
     project: {

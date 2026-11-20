@@ -43,6 +43,45 @@ const SQL_QUERY_EMBEDDING = aiEnabled() && (process.env.SQL_QUERY_EMBEDDING ?? '
 
 /** Rows returned per result set when a statement cannot be paged. */
 const MAX_UNPAGED_ROWS = 1000;
+const MAX_NOTICES = 200;
+/** What a paged SELECT is wrapped in; an error position counts from the start of it. */
+const PAGED_PREFIX = 'SELECT * FROM (';
+
+export interface SqlNotice {
+  severity: string;
+  message: string;
+  detail?: string;
+  hint?: string;
+}
+
+/**
+ * Where in the caller's SQL Postgres found the problem. `position` is a
+ * 1-based character offset into the text it was sent; `shift` removes any
+ * wrapper this service added in front of the caller's statement. Returns only
+ * what the driver gave, so a failure with no position (a constraint, say) has
+ * no line either.
+ */
+export function sqlErrorDetails(
+  err: { code?: string; position?: string | number; detail?: string; hint?: string; where?: string; routine?: string },
+  query: string,
+  shift = 0,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (err.code) out.code = err.code;
+  if (err.detail) out.detail = err.detail;
+  if (err.hint) out.hint = err.hint;
+  if (err.where) out.where = err.where;
+  const raw = err.position !== undefined ? Number(err.position) : NaN;
+  const pos = raw - shift;
+  if (Number.isFinite(pos) && pos >= 1 && pos <= query.length + 1) {
+    const before = query.slice(0, pos - 1);
+    const lines = before.split('\n');
+    out.position = pos;
+    out.line = lines.length;
+    out.column = lines[lines.length - 1].length + 1;
+  }
+  return out;
+}
 
 @Injectable()
 export class SqlService implements OnModuleDestroy {
@@ -254,6 +293,7 @@ export class SqlService implements OnModuleDestroy {
     }
 
     const startTime = Date.now();
+    const notices: SqlNotice[] = [];
     const countSql =
       canPaginate && opts?.countTotal
         ? `SELECT COUNT(*)::int AS total FROM (SELECT 1 FROM (${stripped}) AS _bf_paged_count LIMIT 10001) sub`
@@ -277,7 +317,26 @@ export class SqlService implements OnModuleDestroy {
         opts?.rls,
         async (client) => {
           const t0 = Date.now();
-          const main = await send(client, runQuery, true);
+          // RAISE NOTICE / WARNING arrive as asynchronous messages on the
+          // connection; collect them for this statement so PL/pgSQL can be
+          // debugged from the editor.
+          const onNotice = (n: { severity?: string; message?: string; detail?: string; hint?: string }) => {
+            if (notices.length < MAX_NOTICES) {
+              notices.push({
+                severity: n.severity ?? 'NOTICE',
+                message: n.message ?? '',
+                ...(n.detail ? { detail: n.detail } : {}),
+                ...(n.hint ? { hint: n.hint } : {}),
+              });
+            }
+          };
+          client.on('notice', onNotice);
+          let main: QueryResult | QueryResult[];
+          try {
+            main = await send(client, runQuery, true);
+          } finally {
+            client.removeListener('notice', onNotice);
+          }
           const dur = Date.now() - t0;
           let count: QueryResult | null = null;
           if (countSql) {
@@ -398,6 +457,7 @@ export class SqlService implements OnModuleDestroy {
         total,
         totalIsApprox,
         resultSets,
+        notices,
       };
     } catch (err: any) {
       const duration = Date.now() - startTime;
@@ -420,7 +480,10 @@ export class SqlService implements OnModuleDestroy {
         detail: `${qPreview}${query.length > 240 ? '…' : ''} — ${err.message}`,
       });
 
-      throw new BadRequestException(`SQL error: ${err.message}`);
+      throw new BadRequestException({
+        message: `SQL error: ${err.message}`,
+        details: sqlErrorDetails(err, query, canPaginate ? PAGED_PREFIX.length : 0),
+      });
     }
   }
 

@@ -351,3 +351,12 @@ describe('PostgREST builder — compat additions', () => {
     expect(params).toEqual(['1', 1000]);
   });
 });
+
+describe('paging look-alike parameters', () => {
+  it('answers ?page=2 with advice to use limit and offset, not a filter error', () => {
+    expect(() => parseQuery({ page: '2' })).toThrow(/limit and offset/);
+  });
+  it('still asks for an operator on an ordinary column', () => {
+    expect(() => parseQuery({ title: 'x' })).toThrow(/needs an operator/);
+  });
+});

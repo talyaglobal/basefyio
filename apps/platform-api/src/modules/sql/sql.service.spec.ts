@@ -23,6 +23,8 @@ import { SqlService } from './sql.service';
 
 interface FakeClient {
   query: jest.Mock;
+  on: jest.Mock;
+  removeListener: jest.Mock;
   release: jest.Mock;
 }
 
@@ -36,6 +38,8 @@ function harness(queryResult: unknown = { rows: [], fields: [], rowCount: 0 }) {
   const client: FakeClient = {
     query: jest.fn().mockResolvedValue(queryResult),
     release: jest.fn(),
+    on: jest.fn(),
+    removeListener: jest.fn(),
   };
   const prisma = {
     project: {
@@ -223,6 +227,8 @@ describe('SqlService.execute — runs under the caller role', () => {
         return { rows: [], fields: [], rowCount: 0 };
       }),
       release: jest.fn(),
+      on: jest.fn(),
+      removeListener: jest.fn(),
     };
     const prisma = {
       project: {
@@ -322,5 +328,49 @@ describe('SqlService.execute — a script that cannot be paged is still bounded'
     const { svc } = harness([big(2), big(3)]);
     const r: any = await svc.execute('p1', 'select 1; select 2', 'u1');
     expect(r.capped).toBe(false);
+  });
+});
+
+describe('sqlErrorDetails', () => {
+  const { sqlErrorDetails } = jest.requireActual('./sql.service') as typeof import('./sql.service');
+
+  it('turns a 1-based position into a line and column of the caller\'s SQL', () => {
+    const q = 'select 1;\nselect * from no_such_table_xyz';
+    const d = sqlErrorDetails({ code: '42P01', position: '25' }, q);
+    expect(d).toMatchObject({ code: '42P01', position: 25, line: 2, column: 15 });
+  });
+
+  it('removes the wrapper this service put in front of a paged SELECT', () => {
+    const d = sqlErrorDetails({ position: '30' }, 'select * from no_such_table_xyz', 15);
+    expect(d).toMatchObject({ position: 15, line: 1, column: 15 });
+  });
+
+  it('leaves out the location when Postgres gave none', () => {
+    const d = sqlErrorDetails({ code: '23505', detail: 'Key (id)=(1) already exists.' }, 'insert into t values (1)');
+    expect(d).toEqual({ code: '23505', detail: 'Key (id)=(1) already exists.' });
+  });
+});
+
+describe('SqlService.execute — notices and error position', () => {
+  it('returns RAISE NOTICE messages raised while the statement ran', async () => {
+    const { svc, client } = harness();
+    client.on.mockImplementation((_ev: string, fn: (n: unknown) => void) => {
+      client.query.mockImplementationOnce(async () => {
+        fn({ severity: 'NOTICE', message: 'hello-42' });
+        return { rows: [], fields: [], rowCount: 0 };
+      });
+    });
+    const r: any = await svc.execute('p1', "do $$ begin raise notice 'hello-%', 42; end $$;", 'u1');
+    expect(r.notices).toEqual([{ severity: 'NOTICE', message: 'hello-42' }]);
+    expect(client.removeListener).toHaveBeenCalled();
+  });
+
+  it('carries line and column in the error body', async () => {
+    const { svc, client } = harness();
+    client.query.mockRejectedValue(Object.assign(new Error('relation "x" does not exist'), { code: '42P01', position: '29' }));
+    // paged SELECT: wrapper is 15 characters, so the caller's position is 14 -> column 14
+    await expect(svc.execute('p1', 'select * from x', 'u1')).rejects.toMatchObject({
+      response: { details: { code: '42P01', line: 1, column: 14 } },
+    });
   });
 });

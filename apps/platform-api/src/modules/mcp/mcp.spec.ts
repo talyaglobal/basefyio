@@ -29,6 +29,8 @@ function harness(members: [string, string][] = [['team-a', 'u1']], tokenRow: any
   const pg = {
     query: jest.fn().mockResolvedValue({ rows: [{ n: 1 }], fields: [{ name: 'n', dataTypeID: 23 }], rowCount: 1 }),
     release: jest.fn(),
+    on: jest.fn(),
+    removeListener: jest.fn(),
   };
   const prisma: any = {
     project: {

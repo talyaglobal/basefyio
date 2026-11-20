@@ -20,6 +20,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
     let message = 'Internal server error';
     // A stable machine-readable code a handler chose to attach (`new ConflictException({ code, message })`).
     let code: string | undefined;
+    // Structured detail a handler chose to attach (`{ message, details }`), e.g. an SQL error position.
+    let details: unknown;
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
@@ -27,6 +29,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
       message = typeof res === 'string' ? res : (res as any).message || message;
       if (typeof res === 'object' && res && typeof (res as any).code === 'string') {
         code = (res as any).code;
+      }
+      if (typeof res === 'object' && res && (res as any).details && typeof (res as any).details === 'object') {
+        details = (res as any).details;
       }
     } else if (exception instanceof Error) {
       this.logger.error(exception.message, exception.stack);
@@ -38,6 +43,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       statusCode: status,
       message,
       ...(code ? { code } : {}),
+      ...(details ? { details } : {}),
       timestamp: new Date().toISOString(),
     });
   }

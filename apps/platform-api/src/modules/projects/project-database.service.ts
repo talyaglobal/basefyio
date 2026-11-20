@@ -192,6 +192,7 @@ export class ProjectDatabaseService {
                pg_get_function_identity_arguments(p.oid) AS args,
                pg_get_function_result(p.oid) AS returns,
                l.lanname AS language,
+               CASE WHEN p.prosecdef THEN 'DEFINER' ELSE 'INVOKER' END AS security,
                pg_get_functiondef(p.oid) AS definition
         FROM pg_proc p
         JOIN pg_namespace n ON n.oid = p.pronamespace

@@ -275,10 +275,10 @@ async function requestOnce<T>(
 
   if (!res.ok) {
     const errText = await res.text();
-    let body: { message?: string; code?: string } = {};
+    let body: { message?: string; code?: string; details?: unknown } = {};
     if (errText.trim()) {
       try {
-        body = JSON.parse(errText) as { message?: string; code?: string };
+        body = JSON.parse(errText) as { message?: string; code?: string; details?: unknown };
       } catch {
         body = { message: errText.slice(0, 200) };
       }
@@ -286,7 +286,9 @@ async function requestOnce<T>(
     const err = new Error(body.message || `Request failed: ${res.status}`) as Error & {
       code?: string;
       status?: number;
+      details?: unknown;
     };
+    err.details = body.details;
     err.code = body.code || body.message;
     err.status = res.status;
     throw err;

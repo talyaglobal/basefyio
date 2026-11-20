@@ -32,6 +32,7 @@ import {
 } from './postgrest/compat';
 import { PostgrestCompatFilter } from './postgrest/compat.filter';
 import { PostgrestHttpError, notAcceptableObject, postgrestBody } from './postgrest/errors';
+import { MAX_REST_ROWS } from './postgrest/parser';
 
 /** Query keys of a GET rpc that are never function arguments. */
 const RPC_QUERY_RESERVED = new Set(['select', 'order', 'limit', 'offset', 'apikey', 'columns', 'on_conflict']);
@@ -61,6 +62,8 @@ export class PublicApiController {
     @Headers('accept') accept?: string,
   ) {
     const payload = this.getPayload(req);
+    // Said on every read so a client that asked for more learns the ceiling.
+    res.setHeader('X-Max-Rows', String(MAX_REST_ROWS));
     if (!this.compat(req)) {
       // Only JSON is served; CSV and the rest are refused, not answered in JSON.
       if (!acceptSupported(accept)) {
@@ -353,7 +356,7 @@ export class PublicApiController {
     if (total === null) return 0;
     const q = req.query as Record<string, string>;
     const limit = q.limit !== undefined ? parseInt(q.limit, 10) : NaN;
-    const page = Number.isNaN(limit) ? 1000 : Math.min(limit, 1000);
+    const page = Number.isNaN(limit) ? MAX_REST_ROWS : Math.min(limit, MAX_REST_ROWS);
     return Math.max(0, Math.min(page, total - offset));
   }
 }

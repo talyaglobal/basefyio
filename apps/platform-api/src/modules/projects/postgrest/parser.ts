@@ -123,6 +123,11 @@ function parseSelectItem(token: string): SelectItem {
  * Parse one filter value, e.g. `eq.active`, `in.(1,2,3)`, `not.ilike.*foo*`,
  * `fts(english).cat`. `not.` negates whatever follows.
  */
+/** Most rows one REST read returns; a larger limit is lowered to this. */
+export const MAX_REST_ROWS = 1000;
+/** Names callers try for paging; none exists, so a bare value on one is a paging mistake, not a filter. */
+const PAGING_LOOKALIKES = new Set(['page', 'per_page', 'perpage', 'page_size', 'pagesize', 'p', 'size']);
+
 export function parseConditionValue(column: string, value: string): Condition {
   let negate = false;
   let rest = value;
@@ -133,6 +138,11 @@ export function parseConditionValue(column: string, value: string): Condition {
 
   const dot = rest.indexOf('.');
   if (dot === -1) {
+    if (PAGING_LOOKALIKES.has(column.toLowerCase())) {
+      throw new PostgrestParseError(
+        `"${column}" is not a paging parameter. Page with limit and offset (at most ${MAX_REST_ROWS} rows per request); the total is in count / Content-Range.`,
+      );
+    }
     throw new PostgrestParseError(`Filter on "${column}" needs an operator: "${value}"`);
   }
 
@@ -280,7 +290,7 @@ export function parseQuery(
       continue;
     }
     if (leaf === 'limit') {
-      result.limit.set(path, Math.min(nonNegativeInt(leaf, values[0]), 1000));
+      result.limit.set(path, Math.min(nonNegativeInt(leaf, values[0]), MAX_REST_ROWS));
       continue;
     }
     if (leaf === 'offset') {

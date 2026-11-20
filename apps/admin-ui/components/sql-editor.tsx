@@ -248,7 +248,11 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
       }
       updateActiveTab((t) => ({ ...t, result: data, executedQuery: q }));
     } catch (err: any) {
-      updateActiveTab((t) => ({ ...t, error: err.message }));
+      // Postgres says where it stopped; show the line and column with the message.
+      const d = (err.details ?? {}) as { line?: number; column?: number; hint?: string; detail?: string };
+      const where = d.line ? `Line ${d.line}, column ${d.column ?? 1}: ` : '';
+      const extra = [d.detail, d.hint ? `Hint: ${d.hint}` : ''].filter(Boolean).join('\n');
+      updateActiveTab((t) => ({ ...t, error: `${where}${err.message}${extra ? `\n${extra}` : ''}` }));
       toast.error(err.message);
     } finally {
       setRunningTabId(null);
@@ -417,6 +421,21 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
           >
             {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
           </Button>
+        </div>
+      )}
+
+      {result?.notices && result.notices.length > 0 && (
+        <div className="rounded-md border border-border bg-muted/40 p-3 text-sm" data-testid="sql-notices">
+          <div className="mb-1 text-xs font-medium text-muted-foreground">Messages</div>
+          <ul className="space-y-0.5 font-mono text-xs">
+            {result.notices.map((n, i) => (
+              <li key={i} className="whitespace-pre-wrap">
+                <span className="text-muted-foreground">{n.severity}:</span> {n.message}
+                {n.detail ? ` — ${n.detail}` : ''}
+                {n.hint ? ` (hint: ${n.hint})` : ''}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

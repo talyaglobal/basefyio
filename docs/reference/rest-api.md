@@ -58,6 +58,11 @@ Response:
 `count` is the total number of rows matching the filters, regardless of `limit`/`offset`; the
 platform dialect always computes it.
 
+A read returns at most 1,000 rows: with no `limit` you get 1,000, and a larger `limit` is lowered to
+1,000. Every read carries `X-Max-Rows: 1000`; compare `count` (or `Content-Range`) with the rows you
+received and page with `offset`. There is no `page` parameter: `?page=2` answers `400` naming `limit`
+and `offset`.
+
 **PostgREST dialect**: the body is the bare array. The total is computed only on
 `Prefer: count=exact` (`planned`/`estimated` are treated as exact) and returned in
 `Content-Range: <from>-<to>/<total>` (`*/<total>` for an empty page, `/*` when no count was

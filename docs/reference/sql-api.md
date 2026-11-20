@@ -57,6 +57,11 @@ non-`SELECT` statements and multi-statement scripts are run as written and are n
 they return at most 1,000 rows per result set, and the response carries `capped: true` when
 rows were cut.
 
+`RAISE NOTICE` and `RAISE WARNING` messages raised by the statement come back in `notices`
+(`[{ "severity": "NOTICE", "message": "hello-42" }]`, at most 200). A Postgres error is a `400`
+whose body carries `details` with the SQLSTATE `code`, `detail`/`hint` when Postgres gave them and,
+when it points at a place in your SQL, the 1-based `position`, `line` and `column`.
+
 Each row is an object keyed by column name. When a query returns two columns with the same
 name (`select count(*), count(*) filter (where done) from todos`), the repeats are renamed
 `count`, `count_1`, `count_2`, ... in both `rows` and `fields`, so no value is lost. Alias the

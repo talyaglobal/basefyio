@@ -642,6 +642,8 @@ export interface SqlResult {
   total?: number | null;
   /** True when total was capped at 10k. */
   totalIsApprox?: boolean;
+  /** RAISE NOTICE / WARNING messages the statement produced. */
+  notices?: { severity: string; message: string; detail?: string; hint?: string }[];
   /** One entry per statement in a multi-statement script (in execution order). */
   resultSets?: {
     fields?: { name: string; dataTypeId: number }[];
@@ -665,6 +667,10 @@ export interface TableInfo {
 export interface ColumnInfo {
   name: string;
   type: string;
+  /** The type's own name; `type` reads USER-DEFINED for an enum or domain. */
+  udtName?: string;
+  /** Generated-always or identity-always: the database computes it and refuses a written value. */
+  isGenerated?: boolean;
   nullable: boolean;
   defaultValue: string | null;
   isPrimary: boolean;

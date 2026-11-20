@@ -279,6 +279,8 @@ export class ProjectDataService {
         SELECT
           c.column_name AS name,
           c.data_type AS type,
+          c.udt_name AS "udtName",
+          (c.is_generated = 'ALWAYS' OR (c.is_identity = 'YES' AND c.identity_generation = 'ALWAYS')) AS "isGenerated",
           (c.is_nullable = 'YES') AS nullable,
           c.column_default AS "defaultValue",
           COALESCE(tc.constraint_type = 'PRIMARY KEY', false) AS "isPrimary",

@@ -207,7 +207,7 @@ export default function DatabasePage() {
               <tr className="border-b bg-muted/50 text-left">
                 {tab === 'indexes' && <><th className="px-3 py-2">Name</th><th className="px-3 py-2">Table</th><th className="px-3 py-2">Size</th><th className="px-3 py-2">Definition</th><th className="sticky right-0 w-12 bg-muted" /></>}
                 {tab === 'triggers' && <><th className="px-3 py-2">Name</th><th className="px-3 py-2">Table</th><th className="px-3 py-2">Enabled</th><th className="px-3 py-2">Definition</th><th className="w-12" /></>}
-                {tab === 'functions' && <><th className="px-3 py-2">Name</th><th className="px-3 py-2">Args</th><th className="px-3 py-2">Returns</th><th className="px-3 py-2">Lang</th><th className="w-12" /></>}
+                {tab === 'functions' && <><th className="px-3 py-2">Name</th><th className="px-3 py-2">Args</th><th className="px-3 py-2">Returns</th><th className="px-3 py-2">Lang</th><th className="px-3 py-2">Security</th><th className="w-12" /></>}
                 {tab === 'extensions' && <><th className="px-3 py-2">Name</th><th className="px-3 py-2">Version</th><th className="px-3 py-2">Description</th><th className="px-3 py-2">Enabled</th></>}
               </tr>
             </thead>
@@ -262,6 +262,18 @@ export default function DatabasePage() {
                       <td className="px-3 py-2 font-mono text-[11px]">{r.args || '—'}</td>
                       <td className="px-3 py-2 font-mono text-[11px]">{r.returns}</td>
                       <td className="px-3 py-2 text-xs">{r.language}</td>
+                      <td className="px-3 py-2 text-xs">
+                        {r.security === 'DEFINER' ? (
+                          <span
+                            className="rounded bg-amber-500/15 px-1.5 py-0.5 font-medium text-amber-600 dark:text-amber-400"
+                            title="Runs with its owner's rights and bypasses row-level security. Callable with the anon key only by signed-in users."
+                          >
+                            SECURITY DEFINER
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">Invoker</span>
+                        )}
+                      </td>
                       <td className="px-2 py-2">
                         <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive"
                           onClick={async () => {
