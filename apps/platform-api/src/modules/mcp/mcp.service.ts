@@ -20,6 +20,7 @@ import { ProjectDataService } from '../projects/project-data.service';
 import { ProjectActivityService } from '../projects/project-activity.service';
 import { SqlService } from '../sql/sql.service';
 import { StorageService } from '../storage/storage.service';
+import { S3KeysService } from '../storage/s3-keys.service';
 import { KeycloakAdminService } from '../auth/keycloak-admin.service';
 import { McpDeps, McpToolDefinition, MCP_TOOL_SCOPES, toolsForScopes } from './mcp-tools';
 
@@ -46,8 +47,9 @@ export class McpService {
     storage: StorageService,
     keycloak: KeycloakAdminService,
     activity: ProjectActivityService,
+    s3Keys: S3KeysService,
   ) {
-    this.deps = { teams, projects, data, sql, storage, keycloak, activity };
+    this.deps = { teams, projects, data, sql, storage, keycloak, activity, s3Keys };
   }
 
   /**

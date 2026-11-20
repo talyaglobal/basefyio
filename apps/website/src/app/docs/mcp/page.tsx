@@ -30,6 +30,11 @@ const TOOLS: [string, string, string][] = [
   ["run_sql", "sql:run", "Any SQL as the database owner, including writes, DDL and DROP"],
   ["list_buckets", "storage:read", "Storage buckets of a project"],
   ["list_objects", "storage:read", "One folder level of a bucket (up to 1,000 entries)"],
+  ["create_bucket", "storage:write", "Create a bucket, private unless public is true"],
+  ["delete_bucket", "storage:write", "Delete a bucket and every file in it"],
+  ["list_s3_keys", "secrets:read", "S3 endpoint, region, bucket names and keys, never a secret"],
+  ["create_s3_key", "secrets:write", "Create an S3 access key; the secret is in this answer only"],
+  ["revoke_s3_key", "secrets:write", "Revoke an S3 access key from its next request"],
   ["list_auth_users", "auth:read", "End users of the project's authentication, 100 per page"],
 ];
 
@@ -121,7 +126,9 @@ BASEFYIO_MCP_TOKEN=bf_pat_...`}</code></pre>
         </li>
         <li>
           <strong>No secrets.</strong> No tool returns a database password, a project key or a connection
-          string, and no tool rotates or reveals keys or deletes a project.
+          string, and no tool rotates or reveals keys or deletes a project. The one exception is{" "}
+          <code>create_s3_key</code> (<code>secrets:write</code>): it returns the new key&apos;s secret once, as
+          the dashboard does, and the audit log does not keep it.
         </li>
         <li>
           <strong>Owner rights.</strong> Data and SQL tools act with the project owner&apos;s rights, as the

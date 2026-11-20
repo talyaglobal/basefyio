@@ -44,10 +44,19 @@ session id is issued; every request stands alone. `GET /api/mcp` answers 405.
 | `run_sql` | `sql:run` | `SqlService.execute` as the database owner (the SQL editor path) |
 | `list_buckets` | `storage:read` | `StorageService.listBuckets` |
 | `list_objects` | `storage:read` | `StorageService.listObjects`, at most 1,000 entries |
+| `create_bucket` | `storage:write` | `StorageService.createBucket` + an activity entry |
+| `delete_bucket` | `storage:write` | `StorageService.deleteBucket` (bucket and every file in it) + an activity entry |
+| `list_s3_keys` | `secrets:read` | `S3KeysService.info` + `list`: endpoint, region, bucket names, keys without secrets |
+| `create_s3_key` | `secrets:write` | `S3KeysService.create`; the answer holds the secret, once |
+| `revoke_s3_key` | `secrets:write` | `S3KeysService.revoke`; the MinIO user is deleted first |
 | `list_auth_users` | `auth:read` | `KeycloakAdminService.listUsers`, at most 100 a page |
 
 Nothing that returns a secret (database password, project keys, connection
-strings) and nothing that deletes a project or rotates a key is exposed.
+strings) and nothing that deletes a project or rotates a key is exposed, with one
+exception: `create_s3_key` returns the new S3 key's secret once, under
+`secrets:write`, exactly as the dashboard does. The audit row stores neither the
+arguments nor the answer, so the secret is not logged. S3 keys only work when the
+server sets `S3_KEYS_ENABLED=true` (see [storage-api.md](storage-api.md#s3-access-keys)).
 
 ## How each call is checked
 
