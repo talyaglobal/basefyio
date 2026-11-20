@@ -1,0 +1,16 @@
+# Opt-out of the Docker API proxy: platform-api mounts the Docker socket
+# itself, as every release before the proxy did. Works with either base file:
+#
+#   docker compose -f docker-compose.prod.yml -f deploy/compose/docker-socket-direct.yml \
+#     --env-file .env.production up -d
+#
+# Use it only where the docker-proxy sidecar cannot run. Whoever controls
+# platform-api then controls the whole Docker host, with no allow-list in
+# between; see docs/ops/internal-network-hardening.md. The proxy service keeps
+# running but is no longer used.
+services:
+  platform-api:
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock

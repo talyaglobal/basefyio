@@ -101,6 +101,24 @@ page, which uses `GET/POST/PUT/DELETE /api/projects/:projectId/database/policies
 `POST /api/projects/:projectId/database/policies/rls` with a SQL preview and a dry run — see
 [../reference/project-admin-api.md](../reference/project-admin-api.md).
 
+### Changing the defaults per project
+
+Two per-project data access settings change these defaults (New project form, or Settings →
+Data access, `PATCH /api/projects/:id/data-access`):
+
+- **Grant API access to new tables automatically** (on by default). Off: the `anon` and
+  `authenticated` default privileges on `public` tables and sequences are revoked, so a new table
+  is reachable only through `service_role` until you `GRANT` it. Tables that already exist keep
+  their grants, and re-running the bootstrap does not grant them back.
+- **Enable row-level security on new tables** (off by default). On: a `ddl_command_end` event
+  trigger (`bf_rls_on_new_tables`, its `SECURITY DEFINER` function in the `basefyio_internal`
+  schema, not executable by the API roles) runs `ALTER TABLE … ENABLE ROW LEVEL SECURITY` on every
+  table created in `public`, so a new table returns no rows to `anon` and `authenticated` until a
+  policy allows them.
+
+A third setting, **Enable the Data API**, turns the REST data plane off for the project: every key
+gets 403 there, while the dashboard, the SQL editor, auth and storage keep working.
+
 ## Where RLS applies
 
 | Surface | Behaviour |

@@ -269,6 +269,13 @@ console.log(data?.url)`}</code></pre>
         database size, team members, API requests, bandwidth, and monthly active users. Usage is
         tracked in real-time and visible from the dashboard.
       </p>
+      <p>
+        An organization can save several cards and pick the default one. Paid plans always keep at
+        least one card, and choosing a paid plan needs a default card. Moving to Free runs three
+        steps: outstanding invoices are paid with the default card, usage is brought within the
+        Free limits (projects, members, storage and database size; nothing is deleted for you),
+        then the plan switches at the end of the paid period.
+      </p>
 
       {/* ── Architecture ─────────────────────────────────── */}
 

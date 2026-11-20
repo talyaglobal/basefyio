@@ -163,7 +163,13 @@ services:
     image: ${REDIS_IMAGE:-redis:7-alpine}
     restart: always
     oom_score_adj: -900
-    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --save 60 1000 --save 300 100
+    # AUTH is required: nothing on the internal network reads or writes the
+    # cache, rate-limit counters or realtime fan-out without the password.
+    # REDISCLI_AUTH lets the healthcheck's redis-cli authenticate without the
+    # password on its command line.
+    command: redis-server --requirepass "${REDIS_PASSWORD:?REDIS_PASSWORD must be set in the env file (openssl rand -hex 32); see docs/ops/internal-network-hardening.md}" --maxmemory 256mb --maxmemory-policy allkeys-lru --save 60 1000 --save 300 100
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set in the env file (openssl rand -hex 32); see docs/ops/internal-network-hardening.md}
     volumes:
       - redis_data:/data
     networks:
@@ -190,7 +196,9 @@ services:
     image: ${REDIS_IMAGE:-redis:7-alpine}
     restart: always
     oom_score_adj: -900
-    command: redis-server --maxmemory 192mb --maxmemory-policy noeviction --appendonly yes --appendfsync everysec
+    command: redis-server --requirepass "${REDIS_QUEUE_PASSWORD:?REDIS_QUEUE_PASSWORD must be set in the env file (openssl rand -hex 32); see docs/ops/internal-network-hardening.md}" --maxmemory 192mb --maxmemory-policy noeviction --appendonly yes --appendfsync everysec
+    environment:
+      REDISCLI_AUTH: ${REDIS_QUEUE_PASSWORD:?REDIS_QUEUE_PASSWORD must be set in the env file (openssl rand -hex 32); see docs/ops/internal-network-hardening.md}
     volumes:
       - redis_queue_data:/data
     networks:
@@ -210,14 +218,18 @@ services:
 
 
   # ── Message bus (WP-5): RabbitMQ 4 — quorum work queues, retry queues, DLQs; WP-6 streams ──
-  # Inert for the API until MESSAGE_BUS_URL is set. Management UI only on the internal network.
+  # Inert for the API until MESSAGE_BUS_URL is set. Management UI (15672) only on
+  # the internal network: no Traefik labels, no published port.
+  # The DEFAULT_* pair is applied only when the data volume is empty; on an
+  # existing broker the password is changed with rabbitmqctl (see
+  # docs/ops/internal-network-hardening.md), then written here.
   rabbitmq:
     image: ${RABBITMQ_IMAGE:-rabbitmq:4.4-management-alpine}
     restart: always
     hostname: rabbitmq
     environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-basefyio}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-basefyio_bus}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?RABBITMQ_USER must be set in the env file; see docs/ops/internal-network-hardening.md}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD must be set in the env file (openssl rand -hex 32); see docs/ops/internal-network-hardening.md}
       RABBITMQ_DEFAULT_VHOST: /
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
@@ -328,6 +340,55 @@ services:
         limits:
           memory: 768M
 
+  # ── Docker Engine API, least privilege ──────────────────
+  # The only holder of the Docker socket besides Traefik. platform-api reaches
+  # it at tcp://docker-proxy:2375 on `docker-api`, an internal-only network
+  # with no other member, so no other container can talk to Docker at all.
+  # Allow-list (see docs/ops/internal-network-hardening.md for each endpoint):
+  # every section not listed is refused with 403.
+  docker-proxy:
+    image: ${DOCKER_PROXY_IMAGE:-tecnativa/docker-socket-proxy:v0.5.0@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459}
+    restart: always
+    environment:
+      # Non-GET verbs: dedicated databases, PITR restores and the Supabase
+      # import create, start, stop and remove containers and volumes.
+      POST: 1
+      CONTAINERS: 1     # list, inspect, stats, logs, wait, create, start, stop, delete
+      VOLUMES: 1        # create/remove dedicated-database volumes; list for the disk console
+      EXEC: 1           # PITR: psql / pg_dump inside the throwaway recovery postgres
+      IMAGES: 1         # Supabase import pulls postgres:<major>-alpine for pg_dump
+      INFO: 1           # disk console: DockerRootDir
+      SYSTEM: 1         # disk console: /system/df
+      PING: 1
+      VERSION: 1
+      EVENTS: 0
+      NETWORKS: 0
+      ALLOW_START: 0
+      ALLOW_STOP: 0
+      ALLOW_RESTARTS: 0
+      AUTH: 0
+      BUILD: 0
+      COMMIT: 0
+      CONFIGS: 0
+      DISTRIBUTION: 0
+      GRPC: 0
+      NODES: 0
+      PLUGINS: 0
+      SECRETS: 0
+      SERVICES: 0
+      SESSION: 0
+      SWARM: 0
+      TASKS: 0
+      LOG_LEVEL: warning
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - docker-api
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
   # ── Applications (pulled from GHCR) ────────────────────
 
   platform-api:
@@ -434,6 +495,10 @@ services:
       # Durable state (job queues, the scheduled-job lease, usage counters)
       # goes to the noeviction instance; unset it to keep everything on one.
       REDIS_QUEUE_URL: ${REDIS_QUEUE_URL:-redis://redis-queue:6379}
+      # The API fills these into the two URLs above (a URL that already holds
+      # a password is used as written).
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set in the env file (openssl rand -hex 32); see docs/ops/internal-network-hardening.md}
+      REDIS_QUEUE_PASSWORD: ${REDIS_QUEUE_PASSWORD:?REDIS_QUEUE_PASSWORD must be set in the env file (openssl rand -hex 32); see docs/ops/internal-network-hardening.md}
       # Proxies between the client and the API: Traefik alone is 1; a load
       # balancer in front of it makes 2. Drives Express's `trust proxy`.
       TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-1}
@@ -457,8 +522,12 @@ services:
       ADMISSION_MAX_WAITING: ${ADMISSION_MAX_WAITING:-400}
       ADMISSION_MAX_WAIT_MS: ${ADMISSION_MAX_WAIT_MS:-1500}
       ADMISSION_DASHBOARD_SHARE: ${ADMISSION_DASHBOARD_SHARE:-30}
-      # Message bus: unset keeps the bus inert; amqp://<user>:<password>@rabbitmq:5672 to use it.
+      # Message bus: unset keeps the bus inert; amqp://rabbitmq:5672 to use it —
+      # RABBITMQ_USER / RABBITMQ_PASSWORD are filled in when the URL names no
+      # credentials, so the secret lives in one variable.
       MESSAGE_BUS_URL: ${MESSAGE_BUS_URL:-}
+      RABBITMQ_USER: ${RABBITMQ_USER:?RABBITMQ_USER must be set in the env file}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD must be set in the env file}
       BUS_CONSUMERS: ${BUS_CONSUMERS:-all}
       # Operator token that unlocks GET /api/metrics; unset = the scrape answers 401.
       METRICS_TOKEN: ${METRICS_TOKEN:-}
@@ -534,6 +603,11 @@ services:
       GOOGLE_SEARCH_CONSOLE_INSPECT_URL: ${GOOGLE_SEARCH_CONSOLE_INSPECT_URL:-}
       GOOGLE_ANALYTICS_PROPERTY_ID: ${GOOGLE_ANALYTICS_PROPERTY_ID:-}
       GOOGLE_MARKETING_IMPERSONATE_EMAIL: ${GOOGLE_MARKETING_IMPERSONATE_EMAIL:-}
+      # The Docker Engine API is reached through the docker-proxy sidecar,
+      # which forwards only the sections the platform uses; the API no longer
+      # mounts the socket. Hosts that must mount it instead use the overlay
+      # deploy/compose/docker-socket-direct.yml.
+      DOCKER_HOST: ${DOCKER_HOST:-tcp://docker-proxy:2375}
       DOCKER_SOCKET_PATH: /var/run/docker.sock
       # Root console alerts: when true, a missing or silent host storage
       # autopilot is itself an alert. Installs without the autopilot leave it off.
@@ -566,7 +640,6 @@ services:
       DATA_ENGINE_MAX_ARRAY_ITEMS: ${DATA_ENGINE_MAX_ARRAY_ITEMS:-1000}
     volumes:
       - pgbouncer_config:/etc/pgbouncer
-      - /var/run/docker.sock:/var/run/docker.sock
       # Root console → Server disk: an empty host directory bind-mounted so the
       # API can statfs() the system disk without seeing anything else on it. The
       # container's own root already sits on the Docker data volume.
@@ -586,6 +659,7 @@ services:
     networks:
       - internal
       - web
+      - docker-api
     deploy:
       # Horizontal scale. 1 = today's single container. Compose leaves this
       # field out of the service hash, so changing it never recreates the
@@ -614,12 +688,19 @@ services:
         condition: service_healthy
       mongodb:
         condition: service_healthy
+      # Started, not healthy: the image has no healthcheck, and the API retries
+      # the Engine API in the background if the proxy answers a moment late.
+      docker-proxy:
+        condition: service_started
     labels:
       - traefik.enable=true
       - traefik.http.routers.api.rule=Host(`api.${DOMAIN}`)
       - traefik.http.routers.api.entrypoints=websecure
       - traefik.http.routers.api.tls.certresolver=le
       - traefik.http.services.api.loadbalancer.server.port=4000
+      # platform-api sits on several networks (web, internal, docker-api); without this Traefik may pick the
+      # docker-api address, which it cannot reach, and answer 503 for the whole API.
+      - traefik.docker.network=${COMPOSE_PROJECT_NAME:-kolaybase}_web
       # Flush SSE frames immediately instead of buffering
       - traefik.http.services.api.loadbalancer.responseforwarding.flushinterval=100ms
       # Only route once the app answers — avoids deploy-time 502/503s
@@ -732,3 +813,7 @@ networks:
     driver: bridge
   internal:
     driver: bridge
+  # platform-api <-> docker-proxy only; `internal` = no route out of the host.
+  docker-api:
+    driver: bridge
+    internal: true

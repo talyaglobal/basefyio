@@ -31,7 +31,8 @@ export default function SelfHostingDocs() {
         <tbody>
           <tr><td><strong>postgres</strong></td><td><code>pgvector/pgvector:pg16</code> (dev) · <code>ghcr.io/&lt;owner&gt;/basefyio-postgres</code> (prod, adds PostGIS)</td><td>The platform database and every project database</td><td>5433</td></tr>
           <tr><td><strong>keycloak</strong></td><td><code>quay.io/keycloak/keycloak:24.0</code></td><td>Identity: the dashboard realm and one realm per project</td><td>8080</td></tr>
-          <tr><td><strong>redis</strong></td><td><code>redis:7-alpine</code></td><td>Cache, one-time codes, background job queue</td><td>6379</td></tr>
+          <tr><td><strong>redis</strong></td><td><code>redis:7-alpine</code></td><td>Cache, one-time codes, rate limits, realtime fan-out (<strong>redis-queue</strong>: job queues and usage counters); both require a password</td><td>6379</td></tr>
+          <tr><td><strong>docker-proxy</strong></td><td><code>tecnativa/docker-socket-proxy</code> (pinned by digest)</td><td>The only way the API reaches Docker: a filtered Engine API on an internal-only network</td><td>none</td></tr>
           <tr><td><strong>minio</strong></td><td><code>minio/minio</code></td><td>S3-compatible object storage</td><td>9000 / 9001 (console)</td></tr>
           <tr><td><strong>pgbouncer</strong></td><td><code>edoburu/pgbouncer</code></td><td>Connection pooling; the host customers connect their SQL tools to</td><td>6432</td></tr>
           <tr><td><strong>mongodb</strong> (prod) · <strong>nosql</strong>/<strong>couchdb</strong> (dev)</td><td><code>mongo:7</code> · <code>couchbase/server:community-7.6.2</code> · <code>apache/couchdb:3</code></td><td>Document store behind the Data Engine; optional (<code>DATA_ENGINE_PROVIDER</code>)</td><td>8091 / 5984</td></tr>
@@ -125,6 +126,10 @@ NOSQL_PASSWORD=<strong random>
 NOSQL_CONNSTR=mongodb://basefyio:<password>@mongodb:27017/?replicaSet=rs0&authSource=admin
 PGBOUNCER_ADMIN_PASSWORD=<strong random>
 METRICS_TOKEN=<strong random>                  # optional: publishes /api/metrics
+REDIS_PASSWORD=<openssl rand -hex 32>          # required: redis starts with AUTH
+REDIS_QUEUE_PASSWORD=<openssl rand -hex 32>    # required: redis-queue, a different value
+RABBITMQ_USER=basefyio                         # required
+RABBITMQ_PASSWORD=<openssl rand -hex 32>       # required; see "Internal services" below
 
 # From the template, now with real values: POSTGRES_PASSWORD, KEYCLOAK_ADMIN_PASSWORD,
 # MINIO_ROOT_PASSWORD, DB_CRED_ENC_KEY, RESEND_* (mail), STRIPE_* (optional), OAuth client ids (optional)`}</code></pre>
@@ -161,6 +166,26 @@ open https://app.example.com/login`}</code></pre>
       <p>
         Always pass <code>-f docker-compose.prod.yml --env-file .env.production</code>. A bare{" "}
         <code>docker compose</code> picks the development file, with different networks and default passwords.
+      </p>
+
+      <h3>5. Internal services</h3>
+      <p>
+        Nothing on the internal network is reachable without a credential. Both Compose files start{" "}
+        <code>redis</code> and <code>redis-queue</code> with <code>--requirepass</code> and RabbitMQ with{" "}
+        <code>RABBITMQ_USER</code> / <code>RABBITMQ_PASSWORD</code>, and refuse to start when one of them is
+        missing (<code>required variable REDIS_PASSWORD is missing a value</code>) rather than run without it. The
+        API fills the passwords into <code>REDIS_URL</code>, <code>REDIS_QUEUE_URL</code> and{" "}
+        <code>MESSAGE_BUS_URL</code> itself. The installer generates them for a new installation and adds the Redis
+        pair to an existing one. RabbitMQ applies its credentials only to an empty data volume: on a broker that
+        already exists, change the password with <code>rabbitmqctl change_password</code> before writing the new
+        value (<a href={`${REPO_DOCS}/ops/internal-network-hardening.md`}>docs/ops/internal-network-hardening.md</a>).
+      </p>
+      <p>
+        The API no longer mounts the Docker socket. It talks to <code>docker-proxy</code> at{" "}
+        <code>tcp://docker-proxy:2375</code> on a network only the two of them join, and the proxy forwards only
+        the API sections the platform uses (containers, volumes, exec, image pulls, info and disk usage); everything
+        else answers 403. A host that cannot run the proxy can mount the socket as before by adding{" "}
+        <code>-f deploy/compose/docker-socket-direct.yml</code> to every compose command.
       </p>
 
       <h2>Updating</h2>

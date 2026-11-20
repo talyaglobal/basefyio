@@ -21,7 +21,22 @@ import { QuotaService, QuotaExceededException } from '../billing/quota.service';
 import { UsageService } from '../billing/usage.service';
 import { InfrastructureService } from '../infrastructure/infrastructure.service';
 import { DataEngineService } from '../data-engine/data-engine.service';
-import { CreateProjectDto } from './dto/create-project.dto';
+import { CreateProjectDto, UpdateDataAccessDto } from './dto/create-project.dto';
+import {
+  computeOptionsFor,
+  computeTierRefusal,
+  dedicatedSizeFor,
+  DEFAULT_REGION,
+  type ComputeOptions,
+  type ComputeTierId,
+} from './project-compute';
+import {
+  dataAccessOf,
+  renderDataAccessSql,
+  renderRlsBootstrap,
+  withDataAccessDefaults,
+  type DataAccessFlags,
+} from './project-data-access';
 import {
   ProjectActivityKind,
   ProjectActivityService,
@@ -201,6 +216,27 @@ export class ProjectsService implements OnApplicationBootstrap {
     if (!branch) await this.quota.assertCanCreateProject(dto.teamId);
 
     const databaseType: 'RELATIONAL' | 'NOSQL' = dto.databaseType ?? 'RELATIONAL';
+    const region = dto.region ?? DEFAULT_REGION;
+    const dataAccess = withDataAccessDefaults(dto.dataAccess);
+
+    // A password the customer chose meets the same rules as a rotated one;
+    // none chosen means one is generated, as before.
+    const chosenPassword = dto.dbPassword?.trim();
+    if (chosenPassword) this.assertStrongDbPassword(chosenPassword);
+
+    // The compute size is the server's decision, whatever the dialog showed: a
+    // dedicated size needs a plan that includes one and a region with room.
+    const computeTier: ComputeTierId = branch ? 'shared' : (dto.computeTier ?? 'shared');
+    let dedicatedPlan: Awaited<ReturnType<QuotaService['getTeamPlan']>> = null;
+    if (computeTier !== 'shared') {
+      dedicatedPlan = await this.quota.getTeamPlan(dto.teamId);
+      const refusal = computeTierRefusal(computeTier, {
+        planDedicated: dedicatedPlan?.dedicatedDb === true,
+        planDisplayName: dedicatedPlan?.displayName ?? 'Free',
+        regionHasCapacity: this.infra.isDedicatedDbEnabled(),
+      });
+      if (refusal) throw new BadRequestException(refusal);
+    }
 
     // Dedicated placement is a deliberate, capacity-bound decision, so it takes
     // two things: a host declared to have room (DEDICATED_DB_ENABLED) and a plan
@@ -210,15 +246,18 @@ export class ProjectsService implements OnApplicationBootstrap {
     //
     // Projects keep whatever placement they were created with; a plan change
     // does not move data between the shared cluster and a dedicated container.
+    //
+    // A dedicated size chosen in the dialog was checked above; without one, a
+    // plan with a dedicated database keeps getting one, sized by the plan.
     const needsDedicatedDb =
       !branch &&
-      this.infra.isDedicatedDbEnabled() &&
-      (await this.quota.shouldUseDedicatedDb(dto.teamId));
+      (computeTier !== 'shared' ||
+        (this.infra.isDedicatedDbEnabled() && (await this.quota.shouldUseDedicatedDb(dto.teamId))));
 
     const projectId = randomUUID();
     const slug = await this.uniqueSlug(this.toSlug(normalizedName));
     const { dbName, dbUser } = await this.uniqueDatabaseNameAndUser();
-    const dbPassword = randomBytes(24).toString('base64url');
+    const dbPassword = chosenPassword || randomBytes(24).toString('base64url');
     const realmName = `bf-${slug}`;
     const dbHost = this.config.get<string>('database.host')!;
     const dbPort = this.config.get<number>('database.port')!;
@@ -245,9 +284,10 @@ export class ProjectsService implements OnApplicationBootstrap {
 
     if (needsDedicatedDb) {
       try {
-        const plan = await this.quota.getTeamPlan(dto.teamId);
-        const memoryMb = plan?.dbMemoryMb || 1024;
-        const cpuMillis = plan?.dbCpuMillis || 1000;
+        const size = dedicatedSizeFor(computeTier);
+        const plan = size ? null : await this.quota.getTeamPlan(dto.teamId);
+        const memoryMb = size?.memoryMb ?? (plan?.dbMemoryMb || 1024);
+        const cpuMillis = size?.cpuMillis ?? (plan?.dbCpuMillis || 1000);
         const pgResult = await this.infra.provisionPostgres({
           projectId,
           projectSlug: slug,
@@ -280,11 +320,11 @@ export class ProjectsService implements OnApplicationBootstrap {
     if (actualAdminUser && actualAdminPassword) {
       await this.createDatabaseOnHost(dbName, actualDbHost, actualDbPort, actualAdminUser, actualAdminPassword);
       await this.createDatabaseUserOnHost(dbUser, dbPassword, dbName, actualDbHost, actualDbPort, actualAdminUser, actualAdminPassword);
-      await this.applyRlsBootstrapOnHost(dbName, dbUser, actualDbHost, actualDbPort, actualAdminUser, actualAdminPassword);
+      await this.applyRlsBootstrapOnHost(dbName, dbUser, actualDbHost, actualDbPort, actualAdminUser, actualAdminPassword, dataAccess);
     } else {
       await this.createDatabase(dbName);
       await this.createDatabaseUser(dbUser, dbPassword, dbName);
-      await this.applyRlsBootstrap(dbName, dbUser);
+      await this.applyRlsBootstrap(dbName, dbUser, dataAccess);
     }
 
     const adminTarget: AdminTarget =
@@ -358,6 +398,13 @@ export class ProjectsService implements OnApplicationBootstrap {
         createdBy: userId,
         importSource,
         databaseType,
+        region,
+        // What the project actually runs on: a dedicated size that fell back to
+        // the shared cluster is recorded as shared.
+        computeTier: dedicatedPg ? computeTier : 'shared',
+        dataApiEnabled: dataAccess.dataApi,
+        autoGrantNewTables: dataAccess.autoGrantNewTables,
+        rlsOnNewTables: dataAccess.rlsOnNewTables,
         // Requires `prisma generate` after pulling this change.
         ...({ rlsBootstrappedAt: new Date() } as any),
         ...(branch
@@ -1194,6 +1241,94 @@ export class ProjectsService implements OnApplicationBootstrap {
       data: { maxRowsPerTable: value },
     });
     return { maxRowsPerTable: value, planCeiling: ceiling };
+  }
+
+  /**
+   * The compute sizes the New project dialog may offer a team. Mirrors the rule
+   * `create()` enforces: a dedicated size needs a plan that includes a dedicated
+   * database and a region with room (today: the host's DEDICATED_DB_ENABLED).
+   */
+  async computeOptions(teamId: string, userId: string): Promise<ComputeOptions> {
+    await this.assertTeamMember(teamId, userId);
+    const plan = await this.quota.getTeamPlan(teamId);
+    return computeOptionsFor({
+      planDedicated: plan?.dedicatedDb === true,
+      planDisplayName: plan?.displayName ?? 'Free',
+      regionHasCapacity: this.infra.isDedicatedDbEnabled(),
+    });
+  }
+
+  /**
+   * Settings → Data access. Owners and admins only: turning automatic grants on
+   * widens what the anon key can read. The database statements run first, so a
+   * failure leaves the stored settings as they were.
+   */
+  async updateDataAccess(projectId: string, userId: string, body: UpdateDataAccessDto) {
+    const project = await this.prisma.project.findFirst({
+      where: { id: projectId, status: { not: 'DELETED' } },
+      include: { infrastructure: { select: { pgAdminUser: true, pgAdminPassword: true } } },
+    });
+    if (!project) throw new NotFoundException('Project not found');
+    const role = await this.assertTeamMember(project.teamId, userId);
+    if (role !== 'OWNER' && role !== 'ADMIN') {
+      throw new ForbiddenException('Only team owners and admins can change data access settings');
+    }
+
+    const before = dataAccessOf(project);
+    const next: DataAccessFlags = {
+      dataApi: body.dataApi ?? before.dataApi,
+      autoGrantNewTables: body.autoGrantNewTables ?? before.autoGrantNewTables,
+      rlsOnNewTables: body.rlsOnNewTables ?? before.rlsOnNewTables,
+    };
+
+    const sqlChanged =
+      next.autoGrantNewTables !== before.autoGrantNewTables || next.rlsOnNewTables !== before.rlsOnNewTables;
+    if (sqlChanged && project.databaseType === 'RELATIONAL') {
+      const target = this.provisioning.resolveAdminTarget(project);
+      const owner = project.dbUser.replace(/[^a-z0-9_]/g, '');
+      const pool = new Pool({
+        host: target.host,
+        port: target.port,
+        user: target.user,
+        password: target.password,
+        database: project.dbName.replace(/[^a-z0-9_]/g, ''),
+      });
+      try {
+        await pool.query(renderDataAccessSql(owner, next));
+      } catch (err: any) {
+        this.logger.error(`Data access update failed for ${project.slug}: ${err?.message ?? err}`);
+        throw new InternalServerErrorException(`Failed to apply data access settings: ${err?.message ?? err}`);
+      } finally {
+        await pool.end();
+      }
+    }
+
+    await this.prisma.project.update({
+      where: { id: project.id },
+      data: {
+        dataApiEnabled: next.dataApi,
+        autoGrantNewTables: next.autoGrantNewTables,
+        rlsOnNewTables: next.rlsOnNewTables,
+      },
+    });
+
+    const changes: string[] = [];
+    if (next.dataApi !== before.dataApi) changes.push(`Data API ${next.dataApi ? 'enabled' : 'disabled'}`);
+    if (next.autoGrantNewTables !== before.autoGrantNewTables) {
+      changes.push(`automatic grants on new tables ${next.autoGrantNewTables ? 'on' : 'off'}`);
+    }
+    if (next.rlsOnNewTables !== before.rlsOnNewTables) {
+      changes.push(`RLS on new tables ${next.rlsOnNewTables ? 'on' : 'off'}`);
+    }
+    if (changes.length > 0) {
+      await this.activity.append(project.id, {
+        userId,
+        kind: ProjectActivityKind.PROJECT_UPDATED,
+        title: 'Data access settings changed',
+        detail: changes.join(', '),
+      });
+    }
+    return next;
   }
 
   async remove(
@@ -2394,7 +2529,11 @@ export class ProjectsService implements OnApplicationBootstrap {
    * helper functions into a project DB on the shared/control-plane Postgres.
    * Idempotent — safe to call on existing databases.
    */
-  async applyRlsBootstrap(dbName: string, dbUser: string): Promise<void> {
+  async applyRlsBootstrap(
+    dbName: string,
+    dbUser: string,
+    flags: DataAccessFlags = withDataAccessDefaults(),
+  ): Promise<void> {
     const sanitizedDb = dbName.replace(/[^a-z0-9_]/g, '');
     const sanitizedUser = dbUser.replace(/[^a-z0-9_]/g, '');
 
@@ -2406,7 +2545,7 @@ export class ProjectsService implements OnApplicationBootstrap {
       database: sanitizedDb,
     });
     try {
-      await this.runRlsBootstrap(pool, sanitizedUser);
+      await this.runRlsBootstrap(pool, sanitizedUser, flags);
       this.logger.log(`RLS bootstrap applied to "${sanitizedDb}"`);
     } catch (err: any) {
       this.logger.error(
@@ -2429,6 +2568,7 @@ export class ProjectsService implements OnApplicationBootstrap {
     port: number,
     adminUser: string,
     adminPassword: string,
+    flags: DataAccessFlags = withDataAccessDefaults(),
   ): Promise<void> {
     const sanitizedDb = dbName.replace(/[^a-z0-9_]/g, '');
     const sanitizedUser = dbUser.replace(/[^a-z0-9_]/g, '');
@@ -2441,7 +2581,7 @@ export class ProjectsService implements OnApplicationBootstrap {
       database: sanitizedDb,
     });
     try {
-      await this.runRlsBootstrap(pool, sanitizedUser);
+      await this.runRlsBootstrap(pool, sanitizedUser, flags);
       this.logger.log(`RLS bootstrap applied to "${sanitizedDb}" on ${host}`);
     } catch (err: any) {
       this.logger.error(
@@ -2491,6 +2631,8 @@ export class ProjectsService implements OnApplicationBootstrap {
         dbUser: true,
         dbPassword: true,
         keycloakRealm: true,
+        autoGrantNewTables: true,
+        rlsOnNewTables: true,
       },
     });
     if (!project) throw new NotFoundException('Project not found');
@@ -2516,7 +2658,7 @@ export class ProjectsService implements OnApplicationBootstrap {
     if (existing.rowCount === 0) {
       await this.createDatabase(project.dbName);
       await this.createDatabaseUser(project.dbUser, project.dbPassword, project.dbName);
-      await this.applyRlsBootstrap(project.dbName, project.dbUser);
+      await this.applyRlsBootstrap(project.dbName, project.dbUser, dataAccessOf(project));
       created.push('database', 'database user', 'row-level security bootstrap');
       this.logger.warn(`Repaired missing database "${project.dbName}" for project ${project.slug}`);
     } else {
@@ -2567,7 +2709,16 @@ export class ProjectsService implements OnApplicationBootstrap {
   ): Promise<RlsBootstrapResult> {
     const project = await this.prisma.project.findFirst({
       where: { id: projectId, status: { not: 'DELETED' } },
-      select: { id: true, dbName: true, dbHost: true, dbPort: true, dbUser: true, dbPassword: true },
+      select: {
+        id: true,
+        dbName: true,
+        dbHost: true,
+        dbPort: true,
+        dbUser: true,
+        dbPassword: true,
+        autoGrantNewTables: true,
+        rlsOnNewTables: true,
+      },
     });
     if (!project) throw new NotFoundException('Project not found');
 
@@ -2585,7 +2736,7 @@ export class ProjectsService implements OnApplicationBootstrap {
     // The SQL itself contains the sentinel; if grants are missing it raises
     // SQLSTATE 42501 with a detailed message. We let that bubble up so callers
     // see the real reason instead of a generic "bootstrap failed".
-    await this.applyRlsBootstrap(project.dbName, project.dbUser);
+    await this.applyRlsBootstrap(project.dbName, project.dbUser, dataAccessOf(project));
 
     // Independent post-flight: connect AS the project owner and try SET ROLE
     // for each of anon/authenticated/service_role. Mirrors what the data API
@@ -2749,12 +2900,12 @@ export class ProjectsService implements OnApplicationBootstrap {
     };
   }
 
-  private async runRlsBootstrap(pool: Pool, sanitizedUser: string): Promise<void> {
+  private async runRlsBootstrap(pool: Pool, sanitizedUser: string, flags: DataAccessFlags): Promise<void> {
     const template = this.loadRlsBootstrapSql();
     if (!/^[a-z0-9_]+$/.test(sanitizedUser)) {
       throw new BadRequestException('Invalid project owner identifier');
     }
-    const sql = template.replace(/%BF_PROJECT_OWNER%/g, sanitizedUser);
+    const sql = renderRlsBootstrap(template, sanitizedUser, flags);
 
     const client = await pool.connect();
     try {

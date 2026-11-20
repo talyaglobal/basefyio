@@ -19,6 +19,7 @@ import { PrismaClient } from '@prisma/client';
 import { Pool } from 'pg';
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import { dataAccessOf, renderRlsBootstrap } from '../src/modules/projects/project-data-access';
 
 const BOOTSTRAP_SQL_PATH = join(
   __dirname,
@@ -53,9 +54,12 @@ async function main() {
       db_port: number;
       db_user: string;
       rls_bootstrapped_at: Date | null;
+      auto_grant_new_tables: boolean | null;
+      rls_on_new_tables: boolean | null;
     }>
   >(
-    `SELECT id, slug, db_name, db_host, db_port, db_user, rls_bootstrapped_at
+    `SELECT id, slug, db_name, db_host, db_port, db_user, rls_bootstrapped_at,
+            auto_grant_new_tables, rls_on_new_tables
      FROM "projects"
      WHERE status = 'ACTIVE'
      ORDER BY created_at ASC`,
@@ -80,7 +84,13 @@ async function main() {
       failed++;
       continue;
     }
-    const sql = template.replace(/%BF_PROJECT_OWNER%/g, sanitizedUser);
+    // The template is rendered with the project's data access settings, the
+    // same way projects.service.ts does it; it is never run as is.
+    const sql = renderRlsBootstrap(
+      template,
+      sanitizedUser,
+      dataAccessOf({ autoGrantNewTables: p.auto_grant_new_tables, rlsOnNewTables: p.rls_on_new_tables }),
+    );
 
     const onSharedHost = p.db_host === cfgHost && Number(p.db_port) === cfgPort;
     if (!onSharedHost) {

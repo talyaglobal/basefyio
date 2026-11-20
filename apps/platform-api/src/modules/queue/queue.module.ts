@@ -1,6 +1,7 @@
 import { Module, Global } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { ConfigService } from '@nestjs/config';
+import { redisConnectionOptions } from '../../config/connection-urls';
 
 export const IMPORT_QUEUE = 'import';
 export const EMAIL_QUEUE = 'email';
@@ -29,23 +30,9 @@ export const FLOW_QUEUE = 'flow';
           config.get<string>('redis.queueUrl') ||
           config.get<string>('redis.url') ||
           'redis://localhost:6379';
-        const url = new URL(redisUrl);
-        const isTls = url.protocol === 'rediss:';
-        const db = (() => {
-          const raw = url.pathname?.replace('/', '').trim();
-          if (!raw) return undefined;
-          const parsed = Number.parseInt(raw, 10);
-          return Number.isNaN(parsed) ? undefined : parsed;
-        })();
-
         return {
           connection: {
-            host: url.hostname,
-            port: parseInt(url.port || '6379', 10),
-            username: url.username || undefined,
-            password: url.password || undefined,
-            db,
-            ...(isTls ? { tls: {} } : {}),
+            ...redisConnectionOptions(redisUrl),
             maxRetriesPerRequest: null,
             enableReadyCheck: false,
             enableOfflineQueue: true,

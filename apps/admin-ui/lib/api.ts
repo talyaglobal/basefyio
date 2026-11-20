@@ -77,6 +77,9 @@ import type {
   SavedDataQueryItem,
   Team,
   TeamGitHubStatus,
+  ComputeOptions,
+  ComputeTierId,
+  ProjectDataAccess,
   TeamInvite,
   TeamMember,
   TeamVercelStatus,
@@ -290,6 +293,53 @@ async function requestOnce<T>(
   }
 
   return parseOkJsonBody<T>(res);
+}
+
+export interface SavedCard {
+  id: string;
+  brand: string | null;
+  last4: string | null;
+  expMonth: number | null;
+  expYear: number | null;
+  isDefault: boolean;
+}
+
+export interface SavedCards {
+  methods: SavedCard[];
+  /** The plan needs a card on file. */
+  cardRequired: boolean;
+  /** Whether the last card may be removed; the reason when not. */
+  lastCardRemovable: boolean;
+  lastCardReason: string | null;
+  /** The card list could not be read right now. */
+  unavailable?: boolean;
+}
+
+export interface PlanLimitFinding {
+  resource: string;
+  label: string;
+  unit: 'count' | 'bytes';
+  current: string;
+  limit: string;
+  hint: string;
+}
+
+export interface DowngradePreview {
+  currentPlan: { name: string; displayName: string };
+  targetPlan: { name: string; displayName: string };
+  currency: string;
+  alreadyScheduled: boolean;
+  outstanding: {
+    invoices: Array<{ id: string; amount: number; currency: string }>;
+    renewal: number;
+    total: number;
+    droppedUpgrade: number;
+    card: { brand: string | null; last4: string | null } | null;
+  };
+  limits: { blockers: PlanLimitFinding[]; warnings: PlanLimitFinding[] };
+  effectiveAt: string | null;
+  canProceed: boolean;
+  steps: Array<{ key: 'pay' | 'limits' | 'switch'; title: string; status: 'done' | 'pending' | 'blocked'; detail: string }>;
 }
 
 /**
@@ -914,6 +964,11 @@ export const api = {
       description?: string;
       teamId: string;
       databaseType?: 'RELATIONAL' | 'NOSQL';
+      /** Omitted: the server generates one. */
+      dbPassword?: string;
+      computeTier?: ComputeTierId;
+      region?: 'eu-central';
+      dataAccess?: ProjectDataAccess;
     }) {
       return request<Project>('/projects', {
         method: 'POST',
@@ -988,6 +1043,15 @@ export const api = {
       return request<{ message: string }>(`/projects/${projectId}/move-to-team`, {
         method: 'POST',
         body: JSON.stringify({ teamId: targetTeamId }),
+      });
+    },
+    computeOptions(teamId: string) {
+      return request<ComputeOptions>(`/projects/compute-options?teamId=${encodeURIComponent(teamId)}`);
+    },
+    updateDataAccess(projectId: string, data: Partial<ProjectDataAccess>) {
+      return request<ProjectDataAccess>(`/projects/${projectId}/data-access`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
       });
     },
     setMaxRowsPerTable(projectId: string, maxRowsPerTable: number) {
@@ -2800,10 +2864,38 @@ export const api = {
         body: JSON.stringify({ teamId }),
       });
     },
-    attachPaymentMethod(teamId: string, paymentMethodId: string) {
+    attachPaymentMethod(teamId: string, paymentMethodId: string, makeDefault = true) {
       return request<{ success: boolean }>('/billing/attach-payment-method', {
         method: 'POST',
-        body: JSON.stringify({ teamId, paymentMethodId }),
+        body: JSON.stringify({ teamId, paymentMethodId, makeDefault }),
+      });
+    },
+    /** Every saved card, the default marked, and whether the last one may be removed. */
+    paymentMethods(teamId: string) {
+      return request<SavedCards>(`/billing/payment-methods?teamId=${encodeURIComponent(teamId)}`);
+    },
+    setDefaultPaymentMethod(teamId: string, paymentMethodId: string) {
+      return request<{ success: boolean }>(`/billing/payment-methods/${encodeURIComponent(paymentMethodId)}/default`, {
+        method: 'POST',
+        body: JSON.stringify({ teamId }),
+      });
+    },
+    removePaymentMethod(teamId: string, paymentMethodId: string) {
+      return request<{ success: boolean }>(
+        `/billing/payment-methods/${encodeURIComponent(paymentMethodId)}?teamId=${encodeURIComponent(teamId)}`,
+        { method: 'DELETE' },
+      );
+    },
+    previewDowngrade(teamId: string) {
+      return request<DowngradePreview>('/billing/downgrade-preview', {
+        method: 'POST',
+        body: JSON.stringify({ teamId }),
+      });
+    },
+    downgrade(teamId: string) {
+      return request<{ message: string; scheduled: boolean; effectiveAt: string | null }>('/billing/downgrade', {
+        method: 'POST',
+        body: JSON.stringify({ teamId }),
       });
     },
     cancelSubscription(teamId: string) {

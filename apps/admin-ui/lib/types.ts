@@ -25,6 +25,30 @@ export interface TeamGitHubStatus {
   oauthConfigured: boolean;
 }
 
+/** Data access settings of a project (create dialog, Settings → Data access). */
+export interface ProjectDataAccess {
+  dataApi: boolean;
+  autoGrantNewTables: boolean;
+  rlsOnNewTables: boolean;
+}
+
+export type ComputeTierId = 'shared' | 'micro' | 'small' | 'medium' | 'large' | 'xl';
+
+/** `GET /projects/compute-options?teamId=` */
+export interface ComputeOptions {
+  region: string;
+  planAllowsDedicated: boolean;
+  dedicatedAvailable: boolean;
+  tiers: Array<{
+    id: ComputeTierId;
+    label: string;
+    vcpu: number | null;
+    memoryGb: number | null;
+    available: boolean;
+    reason: string | null;
+  }>;
+}
+
 export interface TeamVercelStatus {
   connected: boolean;
   user?: string;
@@ -97,6 +121,14 @@ export interface Project {
   maxRowsPerTable?: number;
   /** Pooler connection cap override; null = plan / platform default. */
   maxDbConnections?: number | null;
+  /** Where the data lives; `eu-central` (Germany) is the only region today. */
+  region?: string;
+  /** `shared` or a dedicated size (`micro` … `xl`). */
+  computeTier?: string;
+  /** Data access (Settings → Data access). Missing on older API builds = the defaults. */
+  dataApiEnabled?: boolean;
+  autoGrantNewTables?: boolean;
+  rlsOnNewTables?: boolean;
   createdAt: string;
   updatedAt: string;
   importSource?: 'MANUAL' | 'SUPABASE' | 'ZIP' | 'BRANCH';

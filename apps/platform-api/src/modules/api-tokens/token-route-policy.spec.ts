@@ -22,7 +22,7 @@ type Policy = 'token' | 'mixed' | 'jwt-only' | 'project-key' | 'no-session';
 /** Path under src/ → policy and the reason for it. */
 export const CONTROLLER_POLICY: Record<string, [Policy, string]> = {
   // ── Token-enabled management API ──────────────────────────────────────────
-  'modules/projects/projects.controller.ts': ['token', 'project lifecycle; move-to-team and the cluster base backup are @JwtOnly'],
+  'modules/projects/projects.controller.ts': ['token', 'project lifecycle, compute options and data access settings; move-to-team and the cluster base backup are @JwtOnly'],
   'modules/projects/project-database.controller.ts': ['token', 'indexes, triggers, functions, extensions (schema:*)'],
   'modules/projects/project-policies.controller.ts': ['token', 'RLS policies (schema:*)'],
   'modules/projects/project-api-keys.controller.ts': ['token', 'project keys (secrets:*)'],

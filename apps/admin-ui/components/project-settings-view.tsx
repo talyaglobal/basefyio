@@ -6,7 +6,8 @@ import { useRouter } from 'next/navigation';
 import { z } from 'zod';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
-import type { Project, ProjectFolder, ProjectTag, Team } from '@/lib/types';
+import type { Project, ProjectDataAccess, ProjectFolder, ProjectTag, Team } from '@/lib/types';
+import { DataAccessCheckboxes, DEFAULT_DATA_ACCESS } from '@/components/data-access-options';
 import { useProject } from '@/contexts/project-context';
 import { confirmDialog } from '@/components/ui/confirm-dialog';
 import { Button } from '@/components/ui/button';
@@ -278,6 +279,16 @@ export function ProjectSettingsView() {
         </div>
       </form>
 
+      <DataAccessCard
+        projectId={project.id}
+        current={{
+          dataApi: project.dataApiEnabled ?? DEFAULT_DATA_ACCESS.dataApi,
+          autoGrantNewTables: project.autoGrantNewTables ?? DEFAULT_DATA_ACCESS.autoGrantNewTables,
+          rlsOnNewTables: project.rlsOnNewTables ?? DEFAULT_DATA_ACCESS.rlsOnNewTables,
+        }}
+        onSaved={() => { void refreshProject?.(); }}
+      />
+
       <MaxRowsCard
         projectId={project.id}
         current={project.maxRowsPerTable ?? 1000}
@@ -468,6 +479,77 @@ function DangerZone({
 }
 
 const ROW_LIMIT_OPTIONS = [1000, 10000, 100000];
+
+/**
+ * Settings → Data access: the same three switches as the New project dialog. Each change is
+ * saved on its own; the API applies the matching default privileges or event trigger to
+ * the project database before it stores the setting.
+ */
+function DataAccessCard({
+  projectId,
+  current,
+  onSaved,
+}: {
+  projectId: string;
+  current: ProjectDataAccess;
+  onSaved: () => void;
+}) {
+  const [value, setValue] = useState<ProjectDataAccess>(current);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setValue(current);
+    // The object is rebuilt on every render; compare its fields.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [current.dataApi, current.autoGrantNewTables, current.rlsOnNewTables]);
+
+  async function change(key: keyof ProjectDataAccess, checked: boolean) {
+    if (key === 'dataApi' && !checked) {
+      const ok = await confirmDialog({
+        title: 'Turn off the Data API?',
+        description:
+          'Apps that read or write this project over REST with its API keys will get 403 until you turn it back on.',
+        confirmText: 'Turn off',
+        destructive: true,
+      });
+      if (!ok) return;
+    }
+    const previous = value;
+    setValue({ ...value, [key]: checked });
+    setSaving(true);
+    try {
+      const saved = await api.projects.updateDataAccess(projectId, { [key]: checked });
+      setValue(saved);
+      toast.success('Data access settings saved');
+      onSaved();
+    } catch (err: any) {
+      setValue(previous);
+      toast.error(err.message || 'Failed to update data access settings');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="space-y-4 rounded-xl border bg-card p-6">
+      <div>
+        <h2 className="flex items-center gap-2 text-lg font-semibold">
+          Data access
+          {saving && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          How the project API keys reach your tables. Changes apply to tables created from now on.
+        </p>
+      </div>
+      <DataAccessCheckboxes
+        idPrefix="settings-data-access"
+        value={value}
+        disabled={saving}
+        onChange={(key, checked) => void change(key, checked)}
+      />
+    </section>
+  );
+}
 
 function MaxRowsCard({
   projectId,

@@ -14,6 +14,7 @@ import { PostgrestClient } from '@supabase/postgrest-js';
 import { createClient } from '@supabase/supabase-js';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ApiKeyGuard } from '../../common/guards/api-key.guard';
+import { DATA_API_DISABLED, DataApiGuard } from '../../common/guards/data-api.guard';
 import { RealtimeDataService } from '../realtime-data/realtime-data.service';
 import { ProjectsService } from './projects.service';
 import { PublicApiController } from './public-api.controller';
@@ -89,6 +90,8 @@ const KEY = 'anon-key';
 let app: INestApplication;
 let base: string;
 let realtime: { publishChange: jest.Mock };
+/** The project's Data API setting, as DataApiGuard would read it. */
+let dataApiOn = true;
 
 beforeAll(async () => {
   const moduleRef = await Test.createTestingModule({
@@ -112,6 +115,16 @@ beforeAll(async () => {
         }
         req.apiKeyPayload = { projectId: PROJECT, role: 'anon', dbRole: 'anon', jwtClaims: undefined };
         req.supabaseCompat = isSupabaseCompat(req.headers);
+        return true;
+      },
+    })
+    .overrideGuard(DataApiGuard)
+    .useValue({
+      canActivate: () => {
+        if (!dataApiOn) {
+          const { ForbiddenException } = require('@nestjs/common');
+          throw new ForbiddenException(DATA_API_DISABLED);
+        }
         return true;
       },
     })
@@ -143,6 +156,19 @@ beforeEach(() => {
 
 const postgrest = (opts: { schema?: string } = {}) =>
   new PostgrestClient(`${base}/rest/v1`, { headers: { apikey: KEY }, schema: opts.schema ?? 'public' });
+
+describe('a project with the Data API turned off', () => {
+  afterEach(() => {
+    dataApiOn = true;
+  });
+
+  it('answers 403 with the reason, in the dialect the client speaks', async () => {
+    dataApiOn = false;
+    const res = await postgrest().from('posts').select('id');
+    expect(res.status).toBe(403);
+    expect(res.error?.message).toBe(DATA_API_DISABLED);
+  });
+});
 
 describe('postgrest-js — reads', () => {
   it('gets a bare array and a count from Content-Range', async () => {

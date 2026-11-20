@@ -6,7 +6,9 @@
 --   * Schema: auth
 --   * Funcs:  auth.jwt(), auth.uid(), auth.role(), auth.email()
 --   * Default privileges so future tables owned by the project owner
---     are visible to authenticated/service_role (RLS still applies).
+--     are visible to service_role, and to anon/authenticated unless the
+--     project turned "Grant API access to new tables" off (RLS still applies).
+--   * Optionally an event trigger that enables RLS on every new public table.
 --
 -- The project owner (kb_user_<random>) remains the table owner, but
 -- PublicApiService sets LOCAL ROLE to anon / authenticated / service_role
@@ -41,26 +43,37 @@ CREATE SCHEMA IF NOT EXISTS auth AUTHORIZATION "%BF_PROJECT_OWNER%";
 GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
 GRANT USAGE ON SCHEMA auth   TO anon, authenticated, service_role;
 
+-- This file is a template: projects.service.ts renders it with
+-- project-data-access.ts `renderRlsBootstrap()` (never run it as is).
+--
 -- Default privileges for objects created by the project owner going forward.
--- (Existing tables will also be backfilled below.)
+-- service_role always gets them; anon / authenticated get them when the
+-- project's "Grant API access to new tables automatically" setting is on
+-- (rendered into the data access placeholder below, with the optional
+-- RLS-on-new-tables event trigger).
 ALTER DEFAULT PRIVILEGES FOR ROLE "%BF_PROJECT_OWNER%" IN SCHEMA public
   GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
-  ON TABLES TO authenticated, service_role;
+  ON TABLES TO service_role;
 
 ALTER DEFAULT PRIVILEGES FOR ROLE "%BF_PROJECT_OWNER%" IN SCHEMA public
-  GRANT SELECT ON TABLES TO anon;
-
-ALTER DEFAULT PRIVILEGES FOR ROLE "%BF_PROJECT_OWNER%" IN SCHEMA public
-  GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO authenticated, service_role;
+  GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO service_role;
 
 ALTER DEFAULT PRIVILEGES FOR ROLE "%BF_PROJECT_OWNER%" IN SCHEMA public
   GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role;
 
+-- %BF_DATA_ACCESS% (default privileges for anon / authenticated, RLS on new tables)
+
 -- Apply to tables that already exist in this project.
 GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
-  ON ALL TABLES IN SCHEMA public TO authenticated, service_role;
+  ON ALL TABLES IN SCHEMA public TO service_role;
+GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO service_role;
+-- {{#autoGrant}} kept only while new tables are granted automatically, so a re-run
+-- never hands back access the owner took away.
+GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
+  ON ALL TABLES IN SCHEMA public TO authenticated;
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO anon;
-GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO authenticated, service_role;
+GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO authenticated;
+-- {{/autoGrant}}
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO anon, authenticated, service_role;
 
 -- ─────────────────────────────────────────────────────────────
