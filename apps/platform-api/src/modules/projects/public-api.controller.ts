@@ -33,6 +33,7 @@ import {
 import { PostgrestCompatFilter } from './postgrest/compat.filter';
 import { PostgrestHttpError, notAcceptableObject, postgrestBody } from './postgrest/errors';
 import { MAX_REST_ROWS } from './postgrest/parser';
+import { chooseProfile, exposedProfiles } from './postgrest/exposed-schemas';
 
 /** Query keys of a GET rpc that are never function arguments. */
 const RPC_QUERY_RESERVED = new Set(['select', 'order', 'limit', 'offset', 'apikey', 'columns', 'on_conflict']);
@@ -82,7 +83,7 @@ export class PublicApiController {
       payload.projectId,
       table,
       this.queryWithRange(req),
-      this.buildCtx(payload, true),
+      this.buildCtx(payload, true, req),
       { count: p.count ?? null, head, wantsObject: single },
     );
     // HEAD carries no rows, so the page is the window the paging would have
@@ -148,7 +149,7 @@ export class PublicApiController {
   ) {
     this.assertCompatHeaders(req, accept);
     const p = parsePrefer(prefer);
-    const r = await this.publicApi.rpc(payload.projectId, fn, args, { ...this.buildCtx(payload, true), readOnly }, {
+    const r = await this.publicApi.rpc(payload.projectId, fn, args, { ...this.buildCtx(payload, true, req), readOnly }, {
       compat: true,
       prefer: p,
     });
@@ -199,7 +200,7 @@ export class PublicApiController {
       table,
       body,
       req.query as Record<string, string>,
-      this.buildCtx(payload, true),
+      this.buildCtx(payload, true, req),
       { prefer: parsePrefer(prefer), wantsObject: wantsObject(accept) },
     );
     return this.replyWrite(res, r, 201, accept);
@@ -234,7 +235,7 @@ export class PublicApiController {
       table,
       req.query as Record<string, string>,
       body,
-      this.buildCtx(payload, true),
+      this.buildCtx(payload, true, req),
       { prefer: parsePrefer(prefer), wantsObject: wantsObject(accept) },
     );
     return this.replyWrite(res, r, 200, accept);
@@ -266,7 +267,7 @@ export class PublicApiController {
       payload.projectId,
       table,
       req.query as Record<string, string>,
-      this.buildCtx(payload, true),
+      this.buildCtx(payload, true, req),
       { prefer: parsePrefer(prefer), wantsObject: wantsObject(accept) },
     );
     return this.replyWrite(res, r, 200, accept);
@@ -285,8 +286,23 @@ export class PublicApiController {
     return payload;
   }
 
-  private buildCtx(payload: ApiKeyPayload, compat = false): RlsContext {
-    return { role: payload.dbRole, jwtClaims: payload.jwtClaims, ...(compat ? { compat } : {}) };
+  /**
+   * The RLS context of a request. A PostgREST request also carries the schema its
+   * profile header chose (#264); `assertCompatHeaders` has already refused one that
+   * is not exposed. `public` is left implicit, so those requests run exactly as before.
+   */
+  private buildCtx(payload: ApiKeyPayload, compat = false, req?: Request): RlsContext {
+    const ctx: RlsContext = { role: payload.dbRole, jwtClaims: payload.jwtClaims, ...(compat ? { compat } : {}) };
+    if (compat && req) {
+      const choice = this.profile(req);
+      if (choice.ok && choice.schema !== 'public') ctx.schema = choice.schema;
+    }
+    return ctx;
+  }
+
+  /** The schema a PostgREST request asked for, checked against the project's exposed schemas. */
+  private profile(req: Request) {
+    return chooseProfile(requestedProfile(req.headers, req.method), exposedProfiles((req as any).restExposedSchemas));
   }
 
   /**
@@ -313,16 +329,21 @@ export class PublicApiController {
   }
 
   /**
-   * Only the `public` schema exists here, and only JSON comes out. A client
-   * asking for another profile or for CSV / GeoJSON / a plan is told so with
-   * PostgREST's codes instead of getting JSON it will not parse.
+   * `public` and the project's exposed schemas are served (#264), and only JSON
+   * comes out. A client asking for another profile or for CSV / GeoJSON / a plan
+   * is told so with PostgREST's codes instead of getting JSON it will not parse.
    */
   private assertCompatHeaders(req: Request, accept?: string): void {
-    const profile = requestedProfile(req.headers, req.method);
-    if (profile !== undefined && profile !== 'public') {
+    const choice = this.profile(req);
+    if (!choice.ok) {
       throw new PostgrestHttpError(
         406,
-        postgrestBody('PGRST106', 'The schema must be one of the following: public'),
+        postgrestBody(
+          'PGRST106',
+          choice.message,
+          null,
+          'Add the schema to the project\'s exposed REST schemas, or send one of the listed schemas in Accept-Profile / Content-Profile.',
+        ),
       );
     }
     if (!acceptSupported(accept)) {

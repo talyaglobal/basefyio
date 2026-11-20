@@ -71,3 +71,26 @@ describe('PublicApiService.runRlsTransaction — claims published to policies', 
     expect(sqls[sqls.length - 1]).toBe('COMMIT');
   });
 });
+
+describe('PublicApiService.runRlsTransaction — the schema a profile chose (#264)', () => {
+  it('leaves search_path alone for public (every request before the setting existed)', async () => {
+    for (const ctx of [{ role: 'anon' }, { role: 'anon', schema: 'public' }]) {
+      const { svc, client } = serviceWithClient();
+      await (svc as any).runRlsTransaction('p1', ctx, async () => 'ok');
+      const sqls = client.query.mock.calls.map(([sql]: [string]) => sql);
+      expect(sqls.some((s: string) => /search_path/.test(s))).toBe(false);
+    }
+  });
+
+  it('puts an exposed schema first on the transaction-local search_path, then public', async () => {
+    const { svc, client } = serviceWithClient();
+    const seen: string[] = [];
+    await (svc as any).runRlsTransaction('p1', { role: 'anon', schema: 'r6s' }, async () => {
+      seen.push(...client.query.mock.calls.map(([sql]: [string]) => sql));
+      return 'ok';
+    });
+    expect(seen).toContain('SET LOCAL search_path TO "r6s", public');
+    // After the role, before the request's own statements.
+    expect(seen.indexOf('SET LOCAL ROLE "anon"')).toBeLessThan(seen.indexOf('SET LOCAL search_path TO "r6s", public'));
+  });
+});

@@ -10,6 +10,7 @@ import {
   SelectItem,
 } from './types';
 import { ProjectSchema, Relationship, SchemaCache, TableInfo } from './schema-cache';
+import { qualifiedRelation } from './exposed-schemas';
 
 /**
  * Turn a {@link ParsedQuery} into one parameterized SELECT.
@@ -63,7 +64,7 @@ export class SelectBuilder {
     const inner = this.innerPredicates(table, alias, query.select, query, '');
     const where = [rootWhere, ...inner].filter(Boolean).join(' AND ');
     const sql = [
-      `SELECT COUNT(*)::int AS total FROM "${table}" ${alias}`,
+      `SELECT COUNT(*)::int AS total FROM ${this.rel(table)} ${alias}`,
       where ? `WHERE ${where}` : '',
     ]
       .filter(Boolean)
@@ -134,6 +135,11 @@ export class SelectBuilder {
 
   private nextAlias(): string {
     return `_bf${this.aliasSeq++}`;
+  }
+
+  /** A relation of the served schema as SQL: bare in `public`, schema-qualified elsewhere (#264). */
+  private rel(name: string): string {
+    return qualifiedRelation(this.schema.schema, name);
   }
 
   private table(name: string): TableInfo {
@@ -210,7 +216,7 @@ export class SelectBuilder {
     const innerPredicates: string[] = [];
     const cols = this.buildSelectList(table, alias, info, query.select, query, pathPrefix, innerPredicates);
     if (source.projectionOnly) {
-      return `SELECT ${cols.join(', ')} FROM ${source.from ?? `"${table}"`} ${alias}`;
+      return `SELECT ${cols.join(', ')} FROM ${source.from ?? this.rel(table)} ${alias}`;
     }
     const rootWhere = this.buildWhere(alias, info, query, pathPrefix);
     const where = [rootWhere, ...innerPredicates].filter(Boolean).join(' AND ');
@@ -219,7 +225,7 @@ export class SelectBuilder {
 
     return [
       `SELECT ${cols.join(', ')}`,
-      `FROM ${source.from ?? `"${table}"`} ${alias}`,
+      `FROM ${source.from ?? this.rel(table)} ${alias}`,
       where ? `WHERE ${where}` : '',
       order ? `ORDER BY ${order}` : '',
       paging,
@@ -282,7 +288,7 @@ export class SelectBuilder {
 
     const inner = [
       `SELECT ${cols.join(', ')}`,
-      `FROM "${embed.relation}" ${childAlias}`,
+      `FROM ${this.rel(embed.relation)} ${childAlias}`,
       fromJunction,
       conditions ? `WHERE ${conditions}` : '',
       order ? `ORDER BY ${order}` : '',
@@ -296,7 +302,7 @@ export class SelectBuilder {
     if (embed.inner) {
       const existsWhere = [join, embedWhere, ...nestedInner].filter(Boolean).join(' AND ');
       innerPredicates.push(
-        `EXISTS (SELECT 1 FROM "${embed.relation}" ${childAlias}` +
+        `EXISTS (SELECT 1 FROM ${this.rel(embed.relation)} ${childAlias}` +
           (fromJunction ? ` ${fromJunction}` : '') +
           (existsWhere ? ` WHERE ${existsWhere}` : '') +
           `)`,
@@ -346,7 +352,7 @@ export class SelectBuilder {
       const fromJunction = rel.junction ? this.junctionFrom(rel, parentAlias, childAlias) : '';
       const existsWhere = [join, embedWhere, ...nested].filter(Boolean).join(' AND ');
       out.push(
-        `EXISTS (SELECT 1 FROM "${item.relation}" ${childAlias}` +
+        `EXISTS (SELECT 1 FROM ${this.rel(item.relation)} ${childAlias}` +
           (fromJunction ? ` ${fromJunction}` : '') +
           (existsWhere ? ` WHERE ${existsWhere}` : '') +
           `)`,
@@ -388,7 +394,7 @@ export class SelectBuilder {
     const link = j.parentColumns
       .map((pc, i) => `_j."${pc}" = ${parentAlias}."${rel.local[i] ?? rel.local[0]}"`)
       .join(' AND ');
-    return `JOIN "${j.table}" _j ON ${link}`;
+    return `JOIN ${this.rel(j.table)} _j ON ${link}`;
   }
 
   /* ─────────────────────────────── filters ─────────────────────────────────── */

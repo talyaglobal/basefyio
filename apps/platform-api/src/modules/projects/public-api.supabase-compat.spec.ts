@@ -90,8 +90,13 @@ const KEY = 'anon-key';
 let app: INestApplication;
 let base: string;
 let realtime: { publishChange: jest.Mock };
+/** The schema each transaction ran against (RlsContext.schema), and each catalogue read. */
+const txSchemas: (string | undefined)[] = [];
+const cacheSchemas: (string | undefined)[] = [];
 /** The project's Data API setting, as DataApiGuard would read it. */
 let dataApiOn = true;
+/** The project's extra exposed REST schemas, as DataApiGuard leaves them on the request (#264). */
+let exposedSchemas: string[] = [];
 
 beforeAll(async () => {
   const moduleRef = await Test.createTestingModule({
@@ -120,11 +125,12 @@ beforeAll(async () => {
     })
     .overrideGuard(DataApiGuard)
     .useValue({
-      canActivate: () => {
+      canActivate: (ctx: any) => {
         if (!dataApiOn) {
           const { ForbiddenException } = require('@nestjs/common');
           throw new ForbiddenException(DATA_API_DISABLED);
         }
+        ctx.switchToHttp().getRequest().restExposedSchemas = exposedSchemas;
         return true;
       },
     })
@@ -140,8 +146,16 @@ beforeAll(async () => {
   clearInterval((service as any).poolCleanupTimer);
   // The transaction wrapper is replaced, not withRls itself, so error
   // classification still runs on what the scripted connection throws.
-  jest.spyOn(service as any, 'runRlsTransaction').mockImplementation((_p: any, _ctx: any, fn: any) => fn(client));
-  jest.spyOn((service as any).schemaCache, 'get').mockImplementation(async () => fixtureSchema().schema);
+  jest.spyOn(service as any, 'runRlsTransaction').mockImplementation((_p: any, ctx: any, fn: any) => {
+    txSchemas.push(ctx.schema);
+    return fn(client);
+  });
+  jest.spyOn((service as any).schemaCache, 'get').mockImplementation(async (...args: unknown[]) => {
+    cacheSchemas.push(args[3] as string | undefined);
+    const schema = fixtureSchema().schema;
+    const name = args[3] as string | undefined;
+    return name && name !== 'public' ? { ...schema, schema: name } : schema;
+  });
   realtime = moduleRef.get(RealtimeDataService) as any;
 });
 
@@ -152,6 +166,8 @@ afterAll(async () => {
 beforeEach(() => {
   db.reset();
   realtime.publishChange.mockClear();
+  txSchemas.length = 0;
+  cacheSchemas.length = 0;
 });
 
 const postgrest = (opts: { schema?: string } = {}) =>
@@ -652,5 +668,133 @@ describe('a caller without the client’s headers keeps the platform contract', 
     expect(db.statements()[0].params).toEqual([5, 5]);
     const csv = await raw('/posts', { headers: { accept: 'text/csv' } });
     expect(csv.status).toBe(406);
+  });
+});
+
+describe('exposed schemas and profile headers (#264)', () => {
+  afterEach(() => {
+    exposedSchemas = [];
+  });
+
+  it('keeps today\'s behaviour by default: public only, bare table names, no schema in the context', async () => {
+    db.rows = [{ id: 1 }];
+    const res = await postgrest().from('posts').select('id');
+    expect(res.error).toBeNull();
+    expect(txSchemas).toEqual([undefined]);
+    expect(cacheSchemas).toEqual([undefined]);
+    expect(db.statements()[0].sql).toMatch(/FROM "posts" /);
+    expect(db.statements()[0].sql).not.toMatch(/"public"\./);
+
+    const other = await postgrest({ schema: 'r6s' }).from('posts').select('id');
+    expect(other.status).toBe(406);
+    expect(other.error?.code).toBe('PGRST106');
+    expect(other.error?.message).toBe('The schema must be one of the following: public');
+  });
+
+  it('reads an exposed schema chosen with Accept-Profile, schema-qualified', async () => {
+    exposedSchemas = ['r6s'];
+    db.rows = [{ id: 1 }];
+    const res = await postgrest({ schema: 'r6s' }).from('posts').select('id');
+    expect(res.error).toBeNull();
+    expect(res.data).toEqual([{ id: 1 }]);
+    expect(txSchemas).toEqual(['r6s']);
+    expect(cacheSchemas).toEqual(['r6s']);
+    expect(db.statements()[0].sql).toMatch(/FROM "r6s"\."posts" /);
+  });
+
+  it('embeds within the chosen schema', async () => {
+    exposedSchemas = ['r6s'];
+    db.rows = [];
+    const res = await postgrest({ schema: 'r6s' }).from('posts').select('id,author:users(name)');
+    expect(res.error).toBeNull();
+    expect(db.statements()[0].sql).toMatch(/FROM "r6s"\."users" /);
+    expect(db.statements()[0].sql).not.toMatch(/FROM "users" /);
+  });
+
+  it('writes with Content-Profile, and does not broadcast rows of another schema on realtime', async () => {
+    exposedSchemas = ['r6s'];
+    db.rows = [{ id: 1, title: 'a' }];
+    const ins = await postgrest({ schema: 'r6s' }).from('posts').insert({ title: 'a' });
+    expect(ins.error).toBeNull();
+    const upd = await postgrest({ schema: 'r6s' }).from('posts').update({ title: 'b' }).eq('id', 1);
+    expect(upd.error).toBeNull();
+    const del = await postgrest({ schema: 'r6s' }).from('posts').delete().eq('id', 1);
+    expect(del.error).toBeNull();
+    const sql = db.statements().map((st) => st.sql);
+    expect(sql[0]).toMatch(/^INSERT INTO "r6s"\."posts" /);
+    expect(sql[1]).toMatch(/^UPDATE "r6s"\."posts" AS /);
+    expect(sql[2]).toMatch(new RegExp('^DELETE FROM "r6s"\\."posts" AS '));
+    expect(txSchemas).toEqual(['r6s', 'r6s', 'r6s']);
+    expect(realtime.publishChange).not.toHaveBeenCalled();
+  });
+
+  it('still broadcasts public writes', async () => {
+    exposedSchemas = ['r6s'];
+    db.rows = [{ id: 1, title: 'a' }];
+    const res = await postgrest().from('posts').insert({ title: 'a' });
+    expect(res.error).toBeNull();
+    expect(db.statements()[0].sql).toMatch(/^INSERT INTO "posts" /);
+    expect(realtime.publishChange).toHaveBeenCalled();
+  });
+
+  it('calls a function of the chosen schema, looked up there', async () => {
+    exposedSchemas = ['r6s'];
+    db.fns = [{ signature: 'r6s.add(a integer, b integer)', definer: false, argnames: ['a', 'b'], argmodes: [], argtypes: ['integer', 'integer'], typtype: 'b', typname: 'int4', typrelid: 0 }];
+    db.rows = [{ v: 3 }];
+    const res = await postgrest({ schema: 'r6s' }).rpc('add', { a: 1, b: 2 });
+    expect(res.error).toBeNull();
+    expect(res.data).toBe(3);
+    const lookup = db.calls.find((c) => /FROM pg_proc/.test(c.sql))!;
+    expect(lookup.sql).toMatch(/n\.nspname = \$2/);
+    expect(lookup.params).toEqual(['add', 'r6s']);
+    expect(db.statements()[0].sql).toMatch(/"r6s"\."add"\(/);
+  });
+
+  it('looks functions up in public by default', async () => {
+    db.fns = [{ signature: 'add(a integer, b integer)', definer: false, argnames: ['a', 'b'], argmodes: [], argtypes: ['integer', 'integer'], typtype: 'b', typname: 'int4', typrelid: 0 }];
+    db.rows = [{ v: 3 }];
+    await postgrest().rpc('add', { a: 1, b: 2 });
+    const lookup = db.calls.find((c) => /FROM pg_proc/.test(c.sql))!;
+    expect(lookup.params).toEqual(['add', 'public']);
+    expect(db.statements()[0].sql).toMatch(/^SELECT "add"\(/);
+  });
+
+  it('refuses a schema that is not listed with 406 PGRST106 naming the listed ones', async () => {
+    exposedSchemas = ['r6s'];
+    const res = await postgrest({ schema: 'billing' }).from('posts').select('id');
+    expect(res.status).toBe(406);
+    expect(res.error?.code).toBe('PGRST106');
+    expect(res.error?.message).toBe('The schema must be one of the following: public, r6s');
+    expect(db.calls).toHaveLength(0);
+  });
+
+  it('never serves a system schema, even if one reached the stored setting', async () => {
+    exposedSchemas = ['auth', 'pg_catalog', 'information_schema', 'r6s'];
+    for (const schema of ['auth', 'pg_catalog', 'information_schema']) {
+      const res = await postgrest({ schema }).from('users').select('id');
+      expect(res.status).toBe(406);
+      expect(res.error?.message).toBe('The schema must be one of the following: public, r6s');
+    }
+    expect(db.calls).toHaveLength(0);
+  });
+
+  it('matches the header exactly: case and quoting tricks are refused', async () => {
+    exposedSchemas = ['r6s'];
+    for (const schema of ['R6S', ' r6s"', 'r6s;select 1', '"r6s"']) {
+      const res = await fetch(`${base}/rest/v1/posts?select=id`, { headers: { apikey: KEY, 'Accept-Profile': schema } });
+      expect(res.status).toBe(406);
+    }
+    expect(db.calls).toHaveLength(0);
+  });
+
+  it('checks Content-Profile, not Accept-Profile, on a write', async () => {
+    exposedSchemas = ['r6s'];
+    const res = await fetch(`${base}/rest/v1/posts`, {
+      method: 'POST',
+      headers: { apikey: KEY, 'Accept-Profile': 'r6s', 'Content-Profile': 'auth', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'a' }),
+    });
+    expect(res.status).toBe(406);
+    expect(db.calls).toHaveLength(0);
   });
 });

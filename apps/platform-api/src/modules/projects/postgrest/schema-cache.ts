@@ -27,6 +27,8 @@ export interface TableInfo {
 }
 
 export interface ProjectSchema {
+  /** The schema this catalogue describes; absent (or `public`) for `public`. */
+  schema?: string;
   tables: Map<string, TableInfo>;
   /** Every FK, in both directions are discoverable by scanning table/foreignTable. */
   foreignKeys: ForeignKey[];
@@ -58,22 +60,29 @@ const TTL_MS = 60_000;
 export class SchemaCache {
   private readonly byProject = new Map<string, ProjectSchema>();
 
-  /** Drop a project's cached schema, forcing a reload on the next request. */
+  /** Drop a project's cached catalogues (every schema), forcing a reload on the next request. */
   invalidate(projectId: string): void {
-    this.byProject.delete(projectId);
+    for (const key of [...this.byProject.keys()]) {
+      if (key === projectId || key.startsWith(`${projectId}\u0000`)) this.byProject.delete(key);
+    }
   }
 
-  async get(projectId: string, client: PoolClient, force = false): Promise<ProjectSchema> {
-    const existing = this.byProject.get(projectId);
+  /**
+   * The catalogue of one schema of a project; `public` unless an exposed schema
+   * was chosen with a profile header (#264). Each schema is cached on its own.
+   */
+  async get(projectId: string, client: PoolClient, force = false, schemaName = 'public'): Promise<ProjectSchema> {
+    const key = schemaName === 'public' ? projectId : `${projectId}\u0000${schemaName}`;
+    const existing = this.byProject.get(key);
     if (!force && existing && Date.now() - existing.loadedAt < TTL_MS) {
       return existing;
     }
-    const schema = await this.load(client);
-    this.byProject.set(projectId, schema);
+    const schema = await this.load(client, schemaName);
+    this.byProject.set(key, schema);
     return schema;
   }
 
-  private async load(client: PoolClient): Promise<ProjectSchema> {
+  private async load(client: PoolClient, schemaName: string): Promise<ProjectSchema> {
     const tables = new Map<string, TableInfo>();
 
     const cols = await client.query<{
@@ -82,7 +91,8 @@ export class SchemaCache {
     }>(
       `select table_name, column_name
          from information_schema.columns
-        where table_schema = 'public'`,
+        where table_schema = $1`,
+      [schemaName],
     );
     for (const row of cols.rows) {
       let t = tables.get(row.table_name);
@@ -99,16 +109,17 @@ export class SchemaCache {
          join information_schema.key_column_usage kcu
            on kcu.constraint_name = tc.constraint_name
           and kcu.table_schema = tc.table_schema
-        where tc.table_schema = 'public'
+        where tc.table_schema = $1
           and tc.constraint_type = 'PRIMARY KEY'
         order by kcu.ordinal_position`,
+      [schemaName],
     );
     for (const row of pks.rows) {
       tables.get(row.table_name)?.primaryKey.push(row.column_name);
     }
 
     // Foreign keys, with their ordered column pairs collapsed per constraint. Only keys
-    // between exposed (public) tables count: foreignTable is a bare name, so a key into
+    // between tables of the served schema count: foreignTable is a bare name, so a key into
     // auth.users would otherwise read as one into public.users and make every embed of
     // public.users ambiguous.
     const fks = await client.query<{
@@ -133,8 +144,9 @@ export class SchemaCache {
                       with ordinality as ord(src, tgt, n) on true
          join pg_attribute att  on att.attrelid  = con.conrelid  and att.attnum  = ord.src
          join pg_attribute fatt on fatt.attrelid = con.confrelid and fatt.attnum = ord.tgt
-        where con.contype = 'f' and ns.nspname = 'public' and fns.nspname = 'public'
+        where con.contype = 'f' and ns.nspname = $1 and fns.nspname = $1
         order by con.conname, ord.n`,
+      [schemaName],
     );
 
     const fkMap = new Map<string, ForeignKey>();
@@ -154,7 +166,12 @@ export class SchemaCache {
       fk.foreignColumns.push(row.foreign_column);
     }
 
-    return { tables, foreignKeys: [...fkMap.values()], loadedAt: Date.now() };
+    return {
+      ...(schemaName === 'public' ? {} : { schema: schemaName }),
+      tables,
+      foreignKeys: [...fkMap.values()],
+      loadedAt: Date.now(),
+    };
   }
 
   /**

@@ -94,7 +94,7 @@ Env kill-switch `REST_SUPABASE_COMPAT=auto|off|always` (default auto).
 - Filter bound with `@UseFilters(PostgrestCompatFilter)` on `PublicApiController` (22-25); controller filters beat the global one and catch guard throws. When `!isSupabaseCompat(req.headers)` delegate to `new AllExceptionsFilter().catch(ex, host)`; else write exactly `{code, message, details, hint}`.
 
 ## 8. Profiles, schema cache, select edge cases
-- Only `public` (`schema-cache.ts:83-86,102,132`; rpc 224). Compat: `Accept-Profile`/`Content-Profile` present and ≠ public → 406 `PGRST106 "The schema must be one of the following: public"`.
+- `public` plus the project's exposed schemas (`projects.rest_exposed_schemas`, #264; `postgrest/exposed-schemas.ts`). Compat: `Accept-Profile`/`Content-Profile` naming a schema that is not exposed → 406 `PGRST106 "The schema must be one of the following: public[, …]"`.
 - Schema cache loads after `SET LOCAL ROLE` (`public-api.service.ts:127`) from `information_schema.columns` → privilege-filtered; consider `pg_attribute`/`pg_class`.
 - `...rel(*)` spread and aggregates (`count()`, `col.sum()`) unsupported → clear PGRST100 in compat. `like(all)`/`ilike(any)` not in FILTER_OPS.
 

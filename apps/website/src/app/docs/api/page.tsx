@@ -133,6 +133,28 @@ Body: { "product_id": 42, "qty": 2 }   # the function's argument names
         missing required argument answers 400; a <code>SECURITY DEFINER</code> function called with only the anon key answers 403.
       </p>
 
+      <h3>Schemas other than public</h3>
+      <p>
+        The REST API serves the <code>public</code> schema by default. A project owner or admin can expose more schemas with{' '}
+        <code>PATCH /api/projects/:id/rest-schemas</code> and <code>{`{ "exposedSchemas": ["r6s"] }`}</code> (dashboard session only).
+        A PostgREST or supabase-js client then picks one per request: <code>Accept-Profile</code> for reads,{' '}
+        <code>Content-Profile</code> for writes and rpc.
+      </p>
+      <pre><code>{`GET /api/rest/v1/items?select=*
+Headers:
+  apikey: <anon-key>
+  Accept-Profile: r6s
+
+// supabase-js
+const { data } = await supabase.schema('r6s').from('items').select('*')`}</code></pre>
+      <p>
+        No header means <code>public</code>. A schema that is not exposed answers 406 <code>PGRST106</code> listing the ones
+        that are. Exposing a schema grants nothing: give the API roles <code>USAGE</code> on it and privileges on its tables
+        yourself, and row-level security applies as in <code>public</code>. System schemas (<code>pg_*</code>,{' '}
+        <code>information_schema</code>, <code>auth</code>, <code>storage</code>, <code>extensions</code>, …) cannot be exposed.
+        Realtime events are sent for <code>public</code> tables only.
+      </p>
+
       {/* ── SDK Auth ────────────────────────────────── */}
       <h2>SDK Auth Endpoints</h2>
       <p>

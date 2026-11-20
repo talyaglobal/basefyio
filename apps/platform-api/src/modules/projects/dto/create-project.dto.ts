@@ -1,5 +1,7 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  IsArray,
   IsBoolean,
   IsIn,
   IsNotEmpty,
@@ -41,6 +43,15 @@ export class UpdateDataAccessDto {
   @IsOptional()
   @IsBoolean()
   rlsOnNewTables?: boolean;
+}
+
+/** Settings → API: the extra schemas the REST data API serves (#264). */
+export class UpdateRestSchemasDto {
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsString({ each: true })
+  @MaxLength(128, { each: true })
+  exposedSchemas!: string[];
 }
 
 /**

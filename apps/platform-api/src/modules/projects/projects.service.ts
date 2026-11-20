@@ -30,6 +30,7 @@ import {
   type ComputeOptions,
   type ComputeTierId,
 } from './project-compute';
+import { ExposedSchemasError, restSchemasView, validateExposedSchemas } from './postgrest/exposed-schemas';
 import {
   dataAccessOf,
   renderDataAccessSql,
@@ -1332,6 +1333,59 @@ export class ProjectsService implements OnApplicationBootstrap {
       });
     }
     return next;
+  }
+
+  /**
+   * Settings → API: the schemas the REST data API serves (#264). `public` is always
+   * served and listed first; `exposedSchemas` are the extras. Any team member may read it.
+   */
+  async getRestSchemas(projectId: string, userId: string) {
+    const project = await this.prisma.project.findFirst({
+      where: { id: projectId, status: { not: 'DELETED' } },
+      select: { id: true, teamId: true, restExposedSchemas: true },
+    });
+    if (!project) throw new NotFoundException('Project not found');
+    await this.assertTeamMember(project.teamId, userId);
+    return restSchemasView(project.restExposedSchemas);
+  }
+
+  /**
+   * Replace the extra exposed schemas. Owners and admins only: exposing a schema widens
+   * what the API keys can address. It grants nothing in the database; the API roles still
+   * need USAGE on the schema and privileges on its tables, and RLS applies.
+   * System and platform schemas are refused.
+   */
+  async updateRestSchemas(projectId: string, userId: string, input: unknown) {
+    const project = await this.prisma.project.findFirst({
+      where: { id: projectId, status: { not: 'DELETED' } },
+      select: { id: true, teamId: true, restExposedSchemas: true },
+    });
+    if (!project) throw new NotFoundException('Project not found');
+    const role = await this.assertTeamMember(project.teamId, userId);
+    if (role !== 'OWNER' && role !== 'ADMIN') {
+      throw new ForbiddenException('Only team owners and admins can change the exposed REST schemas');
+    }
+    let next: string[];
+    try {
+      next = validateExposedSchemas(input);
+    } catch (err) {
+      if (err instanceof ExposedSchemasError) throw new BadRequestException(err.message);
+      throw err;
+    }
+    const before = project.restExposedSchemas ?? [];
+    await this.prisma.project.update({
+      where: { id: project.id },
+      data: { restExposedSchemas: next },
+    });
+    if (before.join(',') !== next.join(',')) {
+      await this.activity.append(project.id, {
+        userId,
+        kind: ProjectActivityKind.PROJECT_UPDATED,
+        title: 'Exposed REST schemas changed',
+        detail: next.length ? `public, ${next.join(', ')}` : 'public only',
+      });
+    }
+    return restSchemasView(next);
   }
 
   async remove(
