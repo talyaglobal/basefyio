@@ -293,11 +293,40 @@ new_env_file() {
   chmod 600 "$ENV_FILE" || true
   local k
   for k in POSTGRES_PASSWORD KEYCLOAK_ADMIN_PASSWORD MINIO_ROOT_PASSWORD PGBOUNCER_ADMIN_PASSWORD \
-           RABBITMQ_PASSWORD NOSQL_PASSWORD METRICS_TOKEN PLATFORM_STATUS_PROBE_TOKEN; do
+           RABBITMQ_PASSWORD NOSQL_PASSWORD METRICS_TOKEN PLATFORM_STATUS_PROBE_TOKEN \
+           REDIS_PASSWORD REDIS_QUEUE_PASSWORD; do
     env_set "$k" "$(gen_secret)"
   done
   env_set DB_CRED_ENC_KEY "$(gen_key_b64)"
   env_set BACKUP_ENC_KEY "$(gen_key_b64)"
+}
+
+# Credentials the compose files require since Redis AUTH and the RabbitMQ
+# credentials became mandatory. Only for an existing env file that predates
+# them, and only where filling one in cannot break anything:
+#  - Redis keeps no credential on disk, so a fresh password is safe; it reaches
+#    the server and the API through the same variable.
+#  - A RabbitMQ broker stores its user in its data volume and ignores
+#    RABBITMQ_DEFAULT_* afterwards. A missing pair is written as the values the
+#    broker was created with (the old compose defaults), so nothing stops
+#    working; rotating it is a separate step (docs/ops/internal-network-hardening.md).
+ensure_internal_credentials() {
+  [ "$EXISTING" = 1 ] || return 0
+  local k
+  for k in REDIS_PASSWORD REDIS_QUEUE_PASSWORD; do
+    if [ -z "$(env_get "$k")" ]; then
+      log "adding $k to $ENV_FILE: Redis now requires a password"
+      env_set "$k" "$(gen_secret)"
+    fi
+  done
+  if [ -z "$(env_get RABBITMQ_USER)" ]; then
+    warn "RABBITMQ_USER was not set; writing the user the broker was created with (basefyio)"
+    env_set RABBITMQ_USER basefyio
+  fi
+  if [ -z "$(env_get RABBITMQ_PASSWORD)" ]; then
+    warn "RABBITMQ_PASSWORD was not set; writing the old default the broker was created with. Rotate it: docs/ops/internal-network-hardening.md"
+    env_set RABBITMQ_PASSWORD basefyio_bus
+  fi
 }
 
 ask_everything() {
@@ -663,6 +692,7 @@ cmd_install() {
   fi
 
   new_env_file
+  ensure_internal_credentials
   write_settings
   write_wrapper
   if [ "${BASEFYIO_SKIP_START:-0}" = 1 ]; then

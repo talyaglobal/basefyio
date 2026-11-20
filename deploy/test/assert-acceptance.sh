@@ -32,10 +32,14 @@ for _ in $(seq 1 36); do
   sleep 5
 done
 echo "running: $running"
-for s in postgres keycloak minio redis redis-queue rabbitmq pgbouncer platform-api admin-ui website; do
+for s in postgres keycloak minio redis redis-queue rabbitmq pgbouncer platform-api admin-ui website docker-proxy; do
   [[ " $running " == *" $s "* ]] || fail "$s is not running"
 done
 pass "core services run"
+
+[ -z "$(docker inspect --format '{{range .Mounts}}{{.Source}} {{end}}' "$(./basefyio ps -q platform-api | head -n1)" | grep docker.sock || true)" ] \
+  || fail "platform-api mounts the Docker socket"
+pass "platform-api reaches Docker only through docker-proxy"
 for s in nosql nosql-init mongodb couchdb; do
   [[ " $running " != *" $s "* ]] || fail "$s runs although the document store is off"
 done

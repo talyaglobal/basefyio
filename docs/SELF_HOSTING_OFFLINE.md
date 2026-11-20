@@ -186,6 +186,30 @@ copy of the files too.
 `scripts/install.sh status` shows the release, the previous one, the last backup
 and what is running.
 
+### Upgrading to the release with mandatory internal credentials
+
+From this release both compose files require `REDIS_PASSWORD`,
+`REDIS_QUEUE_PASSWORD`, `RABBITMQ_USER` and `RABBITMQ_PASSWORD`, and the API
+reaches Docker through the `docker-proxy` service instead of a mounted socket.
+
+- **With the installer** nothing is asked: `upgrade` adds a generated Redis
+  password pair to the env file (Redis keeps no credential on disk, so this is
+  safe), and writes the RabbitMQ pair the broker was created with if the env
+  file had none (`basefyio` / `basefyio_bus`). Rotate that one afterwards.
+- **Without the installer** `docker compose up` stops with
+  `required variable REDIS_PASSWORD is missing a value` until the variables are
+  in the env file — it never starts the services without a password. Follow
+  [docs/ops/internal-network-hardening.md](ops/internal-network-hardening.md).
+- RabbitMQ applies `RABBITMQ_PASSWORD` only to an empty data volume. On an
+  existing broker run `rabbitmqctl change_password <user> <new>` first, then
+  write the new value.
+- Queued jobs, the scheduled-job lease and usage counters live in the
+  `redis_queue_data` volume (append-only file) and survive the restart.
+- If the proxy cannot run on your host, add
+  `-f deploy/compose/docker-socket-direct.yml` to every compose command to mount
+  the socket as before. The installer does not offer this choice yet, so use
+  plain `docker compose` commands with the extra file in that case.
+
 ---
 
 ## 3. Hosts without internet access
