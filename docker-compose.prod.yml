@@ -159,7 +159,13 @@ services:
     image: ${REDIS_IMAGE:-redis:7-alpine}
     restart: always
     oom_score_adj: -900
-    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --save 60 1000 --save 300 100
+    # AUTH is required: nothing on the internal network reads or writes the
+    # cache, rate-limit counters or realtime fan-out without the password.
+    # REDISCLI_AUTH lets the healthcheck's redis-cli authenticate without the
+    # password on its command line.
+    command: redis-server --requirepass "${REDIS_PASSWORD:?REDIS_PASSWORD must be set in the env file (openssl rand -hex 32); see docs/ops/internal-network-hardening.md}" --maxmemory 256mb --maxmemory-policy allkeys-lru --save 60 1000 --save 300 100
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set in the env file (openssl rand -hex 32); see docs/ops/internal-network-hardening.md}
     volumes:
       - redis_data:/data
     networks:
@@ -186,7 +192,9 @@ services:
     image: ${REDIS_IMAGE:-redis:7-alpine}
     restart: always
     oom_score_adj: -900
-    command: redis-server --maxmemory 192mb --maxmemory-policy noeviction --appendonly yes --appendfsync everysec
+    command: redis-server --requirepass "${REDIS_QUEUE_PASSWORD:?REDIS_QUEUE_PASSWORD must be set in the env file (openssl rand -hex 32); see docs/ops/internal-network-hardening.md}" --maxmemory 192mb --maxmemory-policy noeviction --appendonly yes --appendfsync everysec
+    environment:
+      REDISCLI_AUTH: ${REDIS_QUEUE_PASSWORD:?REDIS_QUEUE_PASSWORD must be set in the env file (openssl rand -hex 32); see docs/ops/internal-network-hardening.md}
     volumes:
       - redis_queue_data:/data
     networks:

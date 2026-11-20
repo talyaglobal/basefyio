@@ -51,6 +51,11 @@ services:
   redis:
     image: ${REDIS_IMAGE:-redis:7-alpine}
     restart: unless-stopped
+    # AUTH required, also on the loopback port; a host-run API reads
+    # REDIS_PASSWORD from .env. REDISCLI_AUTH serves the healthcheck.
+    command: redis-server --requirepass "${REDIS_PASSWORD:?REDIS_PASSWORD must be set in the env file (.env.example has a development value; the installer generates one); see docs/ops/internal-network-hardening.md}"
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set in the env file (.env.example has a development value; the installer generates one); see docs/ops/internal-network-hardening.md}
     ports:
       - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     volumes:
@@ -66,7 +71,9 @@ services:
   redis-queue:
     image: ${REDIS_IMAGE:-redis:7-alpine}
     restart: unless-stopped
-    command: redis-server --maxmemory 192mb --maxmemory-policy noeviction --appendonly yes --appendfsync everysec
+    command: redis-server --requirepass "${REDIS_QUEUE_PASSWORD:?REDIS_QUEUE_PASSWORD must be set in the env file (.env.example has a development value; the installer generates one); see docs/ops/internal-network-hardening.md}" --maxmemory 192mb --maxmemory-policy noeviction --appendonly yes --appendfsync everysec
+    environment:
+      REDISCLI_AUTH: ${REDIS_QUEUE_PASSWORD:?REDIS_QUEUE_PASSWORD must be set in the env file (.env.example has a development value; the installer generates one); see docs/ops/internal-network-hardening.md}
     volumes:
       - redis_queue_data:/data
     healthcheck:
