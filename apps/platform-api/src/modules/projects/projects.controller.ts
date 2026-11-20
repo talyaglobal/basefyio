@@ -18,7 +18,7 @@ import { ProjectsService } from './projects.service';
 import { SupabaseImportService } from './supabase-import.service';
 import { ProjectExportService } from './project-export.service';
 import { ProjectPitrService } from './project-pitr.service';
-import { CreateProjectDto, UpdateDataAccessDto } from './dto/create-project.dto';
+import { CreateProjectDto, UpdateDataAccessDto, UpdateRestSchemasDto } from './dto/create-project.dto';
 import { ImportSupabaseDto } from './dto/import-supabase.dto';
 import { RepairImportKeysDto } from './dto/repair-import-keys.dto';
 import { JwtOrPlatformTokenGuard } from '../api-tokens/jwt-or-platform-token.guard';
@@ -289,6 +289,26 @@ export class ProjectsController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.projectsService.updateDataAccess(id, user.sub, body);
+  }
+
+  /**
+   * Settings → API: the schemas the REST data API serves besides `public` (#264).
+   * Dashboard session only: widening what the API keys can reach is never a token's call.
+   */
+  @JwtOnly()
+  @Get(':id/rest-schemas')
+  async getRestSchemas(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    return this.projectsService.getRestSchemas(id, user.sub);
+  }
+
+  @JwtOnly()
+  @Patch(':id/rest-schemas')
+  async updateRestSchemas(
+    @Param('id') id: string,
+    @Body() body: UpdateRestSchemasDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.projectsService.updateRestSchemas(id, user.sub, body.exposedSchemas);
   }
 
   @Scopes('settings:write')

@@ -69,11 +69,42 @@ and `offset`.
 asked for); the status is 206 when the page is a strict subset of the total, 200 otherwise.
 `HEAD` runs the count only. `Accept: application/vnd.pgrst.object+json` (`.single()`) returns
 one object, or 406 `PGRST116` when the query matched zero or several rows. A `Range: 0-9`
-header pages like `offset`/`limit`. `Accept-Profile` must be `public` (406 `PGRST106`
-otherwise); `text/csv`, GeoJSON and `vnd.pgrst.plan` are not served (406 `PGRST107`). In this
+header pages like `offset`/`limit`. `Accept-Profile` / `Content-Profile` choose the schema (see
+[Exposed schemas](#exposed-schemas)); `text/csv`, GeoJSON and `vnd.pgrst.plan` are not served (406 `PGRST107`). In this
 dialect `order=col` without `nullsfirst`/`nullslast` follows Postgres (ASC NULLS LAST / DESC
 NULLS FIRST), which is what `.order()` expects; the platform dialect keeps its original
 default (ASC NULLS FIRST / DESC NULLS LAST).
+
+### Exposed schemas
+
+By default the API serves the `public` schema only, and every project keeps that until its owner
+changes it. A project can expose extra schemas with `PATCH /api/projects/:id/rest-schemas`
+(dashboard session, team owners and admins; see the project admin reference). `public` is always
+served and always first.
+
+A PostgREST client chooses the schema per request: `Accept-Profile: <schema>` on `GET` and `HEAD`,
+`Content-Profile: <schema>` on `POST`, `PATCH`, `DELETE` and `POST /rpc/:fn`. supabase-js sends
+them from `createClient(url, key, { db: { schema: 'r6s' } })` or `supabase.schema('r6s')`. No header
+means `public`. The name must match an exposed schema exactly; anything else answers 406:
+
+```json
+{ "code": "PGRST106", "message": "The schema must be one of the following: public, r6s",
+  "details": null, "hint": "Add the schema to the project's exposed REST schemas, or send one of the listed schemas in Accept-Profile / Content-Profile." }
+```
+
+- Tables, embeds and functions are looked up in the chosen schema only; a dotted name such as
+  `/rest/v1/r6s.items` is not a schema selector (400).
+- Exposing a schema grants nothing. The API roles still need `USAGE` on the schema and privileges
+  on its tables (`GRANT USAGE ON SCHEMA r6s TO anon, authenticated; GRANT SELECT ON r6s.items TO anon;`),
+  and row-level security applies as in `public`. Without them the request answers 401/403
+  (`42501`) or 404 `PGRST205`.
+- Inside the request the search path is the chosen schema, then `public`, so unqualified names in
+  your functions and triggers resolve as they do under PostgREST.
+- Realtime events are sent for `public` tables only; writes to other schemas are not broadcast.
+- System and platform schemas cannot be exposed: `pg_*`, `information_schema`, `auth`, `storage`,
+  `realtime`, `extensions`, `graphql`, `graphql_public`, `vault`, `pgsodium`, `cron`, `net`,
+  `nosql`, names starting with `_`, `supabase_` or `basefyio`, and the other extension schemas.
+- The basefyio SDK dialect (requests without PostgREST headers) always uses `public`.
 
 ### Query parameters
 
@@ -219,7 +250,7 @@ postgrest-js returns verbatim as `error`. A Postgres error carries its SQLSTATE 
 with PostgREST's status for it (`23505`/`23503` → 409, `42501` → 403, or 401 for the
 anonymous role, `42P01`/`42883` → 404, `P0001` → 400, connection and resource classes → 503,
 …). The API's own codes: `PGRST100` malformed request, `PGRST116` `.single()` mismatch (406),
-`PGRST106` schema other than `public` (406), `PGRST107` unsupported media type (406),
+`PGRST106` schema that is not exposed (406), `PGRST107` unsupported media type (406),
 `PGRST200` no relationship for an embed, `PGRST204` unknown column, `PGRST205` unknown table
 (404), `PGRST202` unknown function (404), `PGRST301` missing or invalid key (401), `21000`
 unfiltered write.

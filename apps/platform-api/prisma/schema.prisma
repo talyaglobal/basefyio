@@ -311,6 +311,10 @@ model Project {
   autoGrantNewTables Boolean            @default(true) @map("auto_grant_new_tables")
   /// Whether an event trigger enables row-level security on every new `public` table.
   rlsOnNewTables     Boolean            @default(false) @map("rls_on_new_tables")
+  /// Extra schemas the REST data API serves besides `public` (#264), chosen per request
+  /// with `Accept-Profile` / `Content-Profile`. Empty = `public` only, as before the setting
+  /// existed. Grants nothing: the API roles still need USAGE and table privileges.
+  restExposedSchemas String[]           @default([]) @map("rest_exposed_schemas")
   secretKeys        ProjectSecretKey[]
 
   // Folder

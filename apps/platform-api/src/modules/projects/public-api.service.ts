@@ -24,6 +24,7 @@ import { assertIdent } from './postgrest/parser';
 import { FunctionMeta, RpcCall, chooseOverload, callShape } from './postgrest/rpc';
 import { ProjectSchema, TableInfo } from './postgrest/schema-cache';
 import { CountMode, Prefer, parseColumnsParam } from './postgrest/compat';
+import { DEFAULT_PROFILE, qualifiedRelation } from './postgrest/exposed-schemas';
 import {
   PostgrestHttpError,
   notAcceptableObject,
@@ -64,6 +65,12 @@ export interface RlsContext {
    * not be able to write.
    */
   readOnly?: boolean;
+  /**
+   * The schema the request runs against: `public` when absent. Set only from
+   * the project's exposed-schemas allow-list (`Accept-Profile` /
+   * `Content-Profile`, #264), never straight from a header.
+   */
+  schema?: string;
 }
 
 /** How a PostgREST client wants a read answered. */
@@ -207,7 +214,7 @@ export class PublicApiService {
       // reloaded once — a newly created table surfaces exactly this way — before
       // the request is called wrong.
       const run = async (force: boolean) => {
-        const schema = await this.schemaCache.get(projectId, client, force);
+        const schema = await this.schemaCache.get(projectId, client, force, ctx.schema);
         const dataBuilder = new SelectBuilder(schema, this.schemaCache);
         const { sql, params } = dataBuilder.build(table, parsed);
 
@@ -244,7 +251,7 @@ export class PublicApiService {
     const rlsCtx: RlsContext = { ...ctx, compat: true };
     return this.withRls(projectId, rlsCtx, async (client) => {
       const run = async (force: boolean): Promise<CompatRows> => {
-        const schema = await this.schemaCache.get(projectId, client, force);
+        const schema = await this.schemaCache.get(projectId, client, force, ctx.schema);
         const wantCount = !!opts.count || !!opts.head;
         const data = opts.head
           ? null
@@ -372,6 +379,7 @@ export class PublicApiService {
     }
     const compat = !!opts?.compat;
     const rlsCtx: RlsContext = compat ? { ...ctx, compat: true } : ctx;
+    const fnSchema = ctx.schema ?? DEFAULT_PROFILE;
     return this.withRls(projectId, rlsCtx, async (client) => {
       // Every overload: the one called is the one whose input names cover
       // the keys sent. LIMIT 1 used to pick whichever came first.
@@ -387,9 +395,9 @@ export class PublicApiService {
            FROM pg_proc p
            JOIN pg_namespace n ON n.oid = p.pronamespace
            JOIN pg_type t ON t.oid = p.prorettype
-          WHERE n.nspname = 'public' AND p.proname = $1 AND p.prokind = 'f'
+          WHERE n.nspname = $2 AND p.proname = $1 AND p.prokind = 'f'
           ORDER BY p.pronargs`,
-        [fnName],
+        [fnName, fnSchema],
       );
       const keys = Object.keys(args ?? {});
       const singleObject = compat && opts!.prefer.params === 'single-object';
@@ -401,8 +409,8 @@ export class PublicApiService {
             404,
             postgrestBody(
               'PGRST202',
-              `Could not find the function public.${fnName}(${list}) in the schema cache`,
-              `Searched for the function public.${fnName}${keys.length ? ` with parameters ${list}` : ' without parameters'}, but no matches were found in the schema cache.`,
+              `Could not find the function ${fnSchema}.${fnName}(${list}) in the schema cache`,
+              `Searched for the function ${fnSchema}.${fnName}${keys.length ? ` with parameters ${list}` : ' without parameters'}, but no matches were found in the schema cache.`,
               meta.rowCount
                 ? `Perhaps you meant to call one of: ${meta.rows.map((m) => m.signature).join(', ')}`
                 : null,
@@ -422,7 +430,7 @@ export class PublicApiService {
         throw new ForbiddenException(message);
       }
 
-      const { call, params } = this.renderRpcCall(fnName, chosen, args ?? {});
+      const { call, params } = this.renderRpcCall(fnName, chosen, args ?? {}, ctx.schema);
       if (ctx.readOnly) await client.query('SET TRANSACTION READ ONLY');
       if (!compat) {
         const result = await client.query(`SELECT * FROM ${call}`, params);
@@ -437,11 +445,13 @@ export class PublicApiService {
     fnName: string,
     chosen: RpcCall,
     args: Record<string, unknown>,
+    schema?: string,
   ): { call: string; params: unknown[] } {
     const params: unknown[] = [];
+    const fn = qualifiedRelation(schema, fnName);
     if (chosen.singleJson) {
       params.push(JSON.stringify(args));
-      return { call: `"${fnName}"($1::${chosen.jsonType})`, params };
+      return { call: `${fn}($1::${chosen.jsonType})`, params };
     }
     // Each value is cast to the chosen overload's own input type (from the catalog, never
     // from the request). An untyped parameter lets Postgres pick the overload itself, which
@@ -455,7 +465,7 @@ export class PublicApiService {
         return `"${k}" := $${params.length}${type ? `::${type}` : ''}`;
       })
       .join(', ');
-    return { call: `"${fnName}"(${named})`, params };
+    return { call: `${fn}(${named})`, params };
   }
 
   /**
@@ -528,8 +538,8 @@ export class PublicApiService {
       const run = async (force: boolean) => {
         // The schema is read only when the answer needs it: an upsert's default
         // conflict target, or a shaped representation.
-        const schema = resolution || parsed ? await this.schemaCache.get(projectId, client, force) : null;
-        let sql = `INSERT INTO "${table}" (${cols}) VALUES ${valueGroups.join(', ')}`;
+        const schema = resolution || parsed ? await this.schemaCache.get(projectId, client, force, ctx.schema) : null;
+        let sql = `INSERT INTO ${qualifiedRelation(ctx.schema, table)} (${cols}) VALUES ${valueGroups.join(', ')}`;
         if (resolution && schema) {
           sql += this.conflictClause(this.tableInfo(schema, table), table, keys, resolution, query.on_conflict);
         }
@@ -548,7 +558,7 @@ export class PublicApiService {
       return this.withSchemaRetry(projectId, run);
     }).then((r: any) => {
       for (const row of r.__raw ?? []) {
-        this.realtimeData.publishChange(projectId, {
+        this.publishChange(ctx, projectId, {
           type: 'INSERT', kind: 'table', entity: table, new: row,
         });
       }
@@ -610,7 +620,7 @@ export class PublicApiService {
     return this.withRls(projectId, rlsCtx, async (client) => {
       if (!rows.length) return { raw: [], out: [], count: 0 };
       const run = async (force: boolean) => {
-        const schema = await this.schemaCache.get(projectId, client, force);
+        const schema = await this.schemaCache.get(projectId, client, force, ctx.schema);
         const info = this.tableInfo(schema, table);
         const cols = parseColumnsParam(query.columns) ?? [...new Set(rows.flatMap((r) => Object.keys(r ?? {})))];
         for (const c of cols) this.assertColumn(info, c);
@@ -633,7 +643,7 @@ export class PublicApiService {
           return `(${cells.join(', ')})`;
         });
 
-        let sql = `INSERT INTO "${table}" (${cols.map((c) => `"${c}"`).join(', ')}) VALUES ${groups.join(', ')}`;
+        let sql = `INSERT INTO ${qualifiedRelation(ctx.schema, table)} (${cols.map((c) => `"${c}"`).join(', ')}) VALUES ${groups.join(', ')}`;
         if (opts.prefer.resolution) {
           sql += this.conflictClause(info, table, cols, opts.prefer.resolution, query.on_conflict);
         }
@@ -643,7 +653,7 @@ export class PublicApiService {
       return this.withSchemaRetry(projectId, run, true);
     }).then((r) => {
       for (const row of r.raw) {
-        this.realtimeData.publishChange(projectId, { type: 'INSERT', kind: 'table', entity: table, new: row });
+        this.publishChange(ctx, projectId, { type: 'INSERT', kind: 'table', entity: table, new: row });
       }
       return this.compatWriteResult(r, opts);
     });
@@ -668,7 +678,7 @@ export class PublicApiService {
         throw new PostgrestHttpError(400, postgrestBody('PGRST100', 'No data to update'));
       }
       const run = async (force: boolean) => {
-        const schema = await this.schemaCache.get(projectId, client, force);
+        const schema = await this.schemaCache.get(projectId, client, force, ctx.schema);
         const info = this.tableInfo(schema, table);
         for (const c of setCols) this.assertColumn(info, c);
         const builder = new SelectBuilder(schema, this.schemaCache, COMPAT_BUILDER);
@@ -678,13 +688,13 @@ export class PublicApiService {
         let idx = params.length;
         const setClause = setCols.map((k) => `"${k}" = $${++idx}`).join(', ');
         const values = [...params, ...setCols.map((k) => body[k] ?? null)];
-        const sql = `UPDATE "${table}" AS ${alias} SET ${setClause} WHERE ${where} RETURNING *`;
+        const sql = `UPDATE ${qualifiedRelation(ctx.schema, table)} AS ${alias} SET ${setClause} WHERE ${where} RETURNING *`;
         return this.runCompatWrite(client, schema, table, parsed, sql, values, opts);
       };
       return this.withSchemaRetry(projectId, run, true);
     }).then((r) => {
       for (const row of r.raw) {
-        this.realtimeData.publishChange(projectId, { type: 'UPDATE', kind: 'table', entity: table, new: row });
+        this.publishChange(ctx, projectId, { type: 'UPDATE', kind: 'table', entity: table, new: row });
       }
       return this.compatWriteResult(r, opts);
     });
@@ -704,17 +714,17 @@ export class PublicApiService {
 
     return this.withRls(projectId, rlsCtx, async (client) => {
       const run = async (force: boolean) => {
-        const schema = await this.schemaCache.get(projectId, client, force);
+        const schema = await this.schemaCache.get(projectId, client, force, ctx.schema);
         const builder = new SelectBuilder(schema, this.schemaCache, COMPAT_BUILDER);
         const { alias, where, params } = builder.buildWriteWhere(table, parsed);
         this.assertWriteFilter(where, 'DELETE', 'deletes');
-        const sql = `DELETE FROM "${table}" AS ${alias} WHERE ${where} RETURNING *`;
+        const sql = `DELETE FROM ${qualifiedRelation(ctx.schema, table)} AS ${alias} WHERE ${where} RETURNING *`;
         return this.runCompatWrite(client, schema, table, parsed, sql, params, opts);
       };
       return this.withSchemaRetry(projectId, run, true);
     }).then((r) => {
       for (const row of r.raw) {
-        this.realtimeData.publishChange(projectId, { type: 'DELETE', kind: 'table', entity: table, old: row });
+        this.publishChange(ctx, projectId, { type: 'DELETE', kind: 'table', entity: table, old: row });
       }
       return this.compatWriteResult(r, opts);
     });
@@ -824,7 +834,7 @@ export class PublicApiService {
       if (!setCols.length) throw new BadRequestException('No data to update');
 
       const run = async (force: boolean) => {
-        const schema = await this.schemaCache.get(projectId, client, force);
+        const schema = await this.schemaCache.get(projectId, client, force, ctx.schema);
         const builder = new SelectBuilder(schema, this.schemaCache);
         const { alias, where, params } = builder.buildWriteWhere(table, parsed);
         if (!where) {
@@ -844,7 +854,7 @@ export class PublicApiService {
           .join(', ');
         const setValues = setCols.map((k) => body[k] ?? null);
 
-        const sql = `UPDATE "${table}" AS ${alias} SET ${setClause} WHERE ${where} RETURNING *`;
+        const sql = `UPDATE ${qualifiedRelation(ctx.schema, table)} AS ${alias} SET ${setClause} WHERE ${where} RETURNING *`;
         const result = await client.query(sql, [...params, ...setValues]);
         return { __rows: result.rows, __count: result.rowCount };
       };
@@ -852,7 +862,7 @@ export class PublicApiService {
       return this.withSchemaRetry(projectId, run);
     }).then((r: any) => {
       for (const row of r.__rows ?? []) {
-        this.realtimeData.publishChange(projectId, {
+        this.publishChange(ctx, projectId, {
           type: 'UPDATE', kind: 'table', entity: table, new: row,
         });
       }
@@ -872,7 +882,7 @@ export class PublicApiService {
 
     return this.withRls(projectId, ctx, async (client) => {
       const run = async (force: boolean) => {
-        const schema = await this.schemaCache.get(projectId, client, force);
+        const schema = await this.schemaCache.get(projectId, client, force, ctx.schema);
         const builder = new SelectBuilder(schema, this.schemaCache);
         const { alias, where, params } = builder.buildWriteWhere(table, parsed);
         if (!where) {
@@ -881,7 +891,7 @@ export class PublicApiService {
           );
         }
 
-        const sql = `DELETE FROM "${table}" AS ${alias} WHERE ${where} RETURNING *`;
+        const sql = `DELETE FROM ${qualifiedRelation(ctx.schema, table)} AS ${alias} WHERE ${where} RETURNING *`;
         const result = await client.query(sql, params);
         return { __rows: result.rows, __count: result.rowCount };
       };
@@ -889,7 +899,7 @@ export class PublicApiService {
       return this.withSchemaRetry(projectId, run);
     }).then((r: any) => {
       for (const row of r.__rows ?? []) {
-        this.realtimeData.publishChange(projectId, {
+        this.publishChange(ctx, projectId, {
           type: 'DELETE', kind: 'table', entity: table, old: row,
         });
       }
@@ -1034,6 +1044,15 @@ export class PublicApiService {
       for (const [key, value] of jwtClaimSettings(ctx.role, ctx.jwtClaims)) {
         await client.query(`SELECT set_config($1, $2, true)`, [key, value]);
       }
+      // An exposed schema chosen by profile (#264): its tables are named
+      // schema-qualified in the generated SQL, and unqualified names inside the
+      // project's own functions, triggers and defaults resolve as PostgREST
+      // resolves them, the chosen schema first, then `public`. `public` requests
+      // keep the connection's search_path untouched. The name comes from the
+      // validated allow-list only.
+      if (ctx.schema && ctx.schema !== DEFAULT_PROFILE) {
+        await client.query(`SET LOCAL search_path TO "${ctx.schema}", public`);
+      }
 
       const result = await fn(client);
       await client.query('COMMIT');
@@ -1048,6 +1067,20 @@ export class PublicApiService {
     } finally {
       client.release();
     }
+  }
+
+  /**
+   * Realtime channels name `public` tables only (`table:<name>`), and their
+   * policy checks read `public`. A write in another exposed schema is not
+   * broadcast: a subscriber to `items` must never receive rows of `r6s.items`.
+   */
+  private publishChange(
+    ctx: RlsContext,
+    projectId: string,
+    input: Parameters<RealtimeDataService['publishChange']>[1],
+  ): void {
+    if (ctx.schema && ctx.schema !== DEFAULT_PROFILE) return;
+    this.realtimeData.publishChange(projectId, input);
   }
 
   private validateTableName(name: string) {

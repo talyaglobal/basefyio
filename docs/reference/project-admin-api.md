@@ -95,6 +95,22 @@ Changing the last two applies the default privileges or the event trigger to the
 first; tables that already exist keep the grants and the RLS state they have. Projects created
 before these settings existed have `dataApi` and `autoGrantNewTables` on and `rlsOnNewTables` off.
 
+### Exposed REST schemas
+
+`GET /api/projects/:id/rest-schemas` (session only, any team member) answers
+`{ schemas: ["public", ...], exposedSchemas: [...] }`. `PATCH /api/projects/:id/rest-schemas`
+(session only, team owners and admins) takes `{ exposedSchemas: ["r6s"] }`, replaces the list and
+answers the same shape. Platform API tokens get 403 on both: widening what the project keys can
+reach needs a dashboard session.
+
+- `public` is always served and is not stored; an empty list means `public` only, which is what
+  every project has until this is set.
+- At most 10 schemas. Names are plain identifiers (letters, digits, `_`, at most 63 characters);
+  duplicates are dropped. System and platform schemas (`pg_*`, `information_schema`, `auth`,
+  `storage`, `realtime`, `extensions`, `nosql`, `_*`, `supabase_*`, `basefyio*`, …) answer 400.
+- Nothing is granted in the database. Grant `USAGE` on the schema and the table privileges the
+  API roles need yourself; RLS applies. See the REST reference, *Exposed schemas*.
+
 ### Trash, deactivation and permanent deletion
 
 - `DELETE /api/projects/:id` renames the database and its user and disables the realm; nothing is
