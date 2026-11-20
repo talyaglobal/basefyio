@@ -63,6 +63,8 @@ them, an `auth` schema, and these helper functions
 | `auth.role()` | `text` | `request.jwt.role`, else the `role` claim, else `'anon'` |
 | `auth.email()` | `text` | `auth.jwt() ->> 'email'` |
 
+A verified end-user token that has no `role` claim is published with `role: 'authenticated'`, so `auth.jwt() ->> 'role'` and `auth.role()` agree. A role set by the identity realm is kept.
+
 Anonymous sessions (`POST /api/rest/v1/auth/signin/anonymous`) carry `is_anonymous: true` in
 the token: `coalesce((auth.jwt() ->> 'is_anonymous')::boolean, false)` tells them apart.
 
