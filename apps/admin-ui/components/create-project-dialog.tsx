@@ -13,6 +13,14 @@ import { PasswordInput } from '@/components/ui/password-input';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { DataAccessCheckboxes, DEFAULT_DATA_ACCESS } from '@/components/data-access-options';
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -38,8 +46,12 @@ import {
   type ImportProgressData,
   type ImportJobProgressEvent,
   type ProjectListItem,
+  type ComputeOptions,
+  type ComputeTierId,
+  type ProjectDataAccess,
+  type TeamGitHubStatus,
 } from '@/lib/types';
-import { useDashboard } from '@/app/dashboard/layout';
+import { useDashboard, useOrgNoun } from '@/app/dashboard/layout';
 import { saveProjectSupabaseImportLog } from '@/lib/import-log-storage';
 import { DatabaseAdvisor } from '@/components/database-advisor';
 import { ImportReconciliationTable } from '@/components/import-reconciliation-table';
@@ -153,6 +165,67 @@ function SupabaseLogo({ className }: { className?: string }) {
   );
 }
 
+/** The rules the API applies to a chosen database password (same as a rotated one). */
+function passwordProblems(pw: string): string[] {
+  const out: string[] = [];
+  if (pw.length < 12) out.push('at least 12 characters');
+  if (!/[a-z]/.test(pw)) out.push('a lowercase letter');
+  if (!/[A-Z]/.test(pw)) out.push('an uppercase letter');
+  if (!/[0-9]/.test(pw)) out.push('a number');
+  if (!/[^A-Za-z0-9]/.test(pw)) out.push('a special character');
+  if (/\s/.test(pw)) out.push('no spaces');
+  return out;
+}
+
+/** 32 characters from the browser's CSPRNG, with every character class the rules ask for. */
+function generateDbPassword(): string {
+  const lower = 'abcdefghijkmnopqrstuvwxyz';
+  const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const digits = '23456789';
+  const special = '-_.~';
+  const all = lower + upper + digits + special;
+  const words = new Uint32Array(64);
+  crypto.getRandomValues(words);
+  const pick = (set: string, n: number) => set[n % set.length];
+  const chars = [pick(lower, words[0]), pick(upper, words[1]), pick(digits, words[2]), pick(special, words[3])];
+  for (let i = 4; i < 32; i++) chars.push(pick(all, words[i]));
+  // Fisher-Yates with fresh random words, so the four fixed classes are not always first.
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = words[32 + i] % (i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join('');
+}
+
+/** One row of the New project form: label (and hint) on the left from md up, the control on the right. */
+function FormRow({
+  label,
+  htmlFor,
+  hint,
+  children,
+}: {
+  label: React.ReactNode;
+  htmlFor?: string;
+  hint?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="grid gap-2 md:grid-cols-[160px_minmax(0,1fr)] md:gap-6">
+      <div className="space-y-0.5 md:pt-2">
+        {htmlFor ? (
+          <Label htmlFor={htmlFor} className="text-sm font-medium">{label}</Label>
+        ) : (
+          <p className="text-sm font-medium leading-none">{label}</p>
+        )}
+        {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+      </div>
+      <div className="min-w-0 space-y-1.5">{children}</div>
+    </div>
+  );
+}
+
+const REGION_OPTIONS = [{ id: 'eu-central', label: 'EU (Germany)' }] as const;
+
 export function CreateProjectDialog({
   open,
   onOpenChange,
@@ -189,6 +262,60 @@ export function CreateProjectDialog({
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [loading, setLoading] = useState(false);
+  const orgNoun = useOrgNoun();
+  // The `create` view's options. An empty password means the server generates one.
+  const [dbPassword, setDbPassword] = useState('');
+  const [computeTier, setComputeTier] = useState<ComputeTierId>('shared');
+  const [dataAccess, setDataAccess] = useState<ProjectDataAccess>(DEFAULT_DATA_ACCESS);
+  const [computeOptions, setComputeOptions] = useState<ComputeOptions | null>(null);
+  const [githubStatus, setGithubStatus] = useState<TeamGitHubStatus | null>(null);
+  const [githubConnecting, setGithubConnecting] = useState(false);
+  const [freePlanMaxProjects, setFreePlanMaxProjects] = useState<number | null>(null);
+  const targetTeam = teams.find((t) => t.id === targetTeamId) ?? null;
+  const computeTierOptions: ComputeOptions['tiers'] = computeOptions?.tiers ?? [
+    { id: 'shared', label: 'Shared', vcpu: null, memoryGb: null, available: true, reason: null },
+  ];
+
+  useEffect(() => {
+    if (!open || view !== 'create' || !targetTeamId) return;
+    let cancelled = false;
+    setComputeOptions(null);
+    setGithubStatus(null);
+    // A dedicated size the newly chosen team cannot place falls back to shared.
+    setComputeTier('shared');
+    api.projects
+      .computeOptions(targetTeamId)
+      .then((o) => { if (!cancelled) setComputeOptions(o); })
+      .catch(() => { /* older API: shared only */ });
+    api.teamIntegrations
+      .getGitHubStatus(targetTeamId)
+      .then((g) => { if (!cancelled) setGithubStatus(g); })
+      .catch(() => { /* no GitHub row then */ });
+    return () => { cancelled = true; };
+  }, [open, view, targetTeamId]);
+
+  useEffect(() => {
+    if (!open || view !== 'create' || freePlanMaxProjects !== null) return;
+    api.billing
+      .plans()
+      .then((plans) => {
+        const free = plans.find((p: any) => p?.name === 'free');
+        if (typeof free?.maxProjects === 'number') setFreePlanMaxProjects(free.maxProjects);
+      })
+      .catch(() => {});
+  }, [open, view, freePlanMaxProjects]);
+
+  async function connectGitHub() {
+    setGithubConnecting(true);
+    try {
+      const { url } = await api.teamIntegrations.getGitHubConnectUrl(targetTeamId);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (err: any) {
+      toast.error(err.message || 'Could not start the GitHub connection');
+    } finally {
+      setGithubConnecting(false);
+    }
+  }
 
   const [supabaseUrl, setSupabaseUrl] = useState('');
   const [serviceRoleKey, setServiceRoleKey] = useState('');
@@ -459,6 +586,9 @@ export function CreateProjectDialog({
     setDatabaseType(null);
     setName('');
     setDescription('');
+    setDbPassword('');
+    setComputeTier('shared');
+    setDataAccess(DEFAULT_DATA_ACCESS);
     setSupabaseUrl('');
     setServiceRoleKey('');
     setDatabasePassword('');
@@ -525,6 +655,7 @@ export function CreateProjectDialog({
     return (
       name.trim() !== '' ||
       description.trim() !== '' ||
+      dbPassword.trim() !== '' ||
       supabaseUrl.trim() !== '' ||
       serviceRoleKey.trim() !== '' ||
       databasePassword.trim() !== '' ||
@@ -564,11 +695,16 @@ export function CreateProjectDialog({
     e.preventDefault();
     setLoading(true);
     try {
+      const relational = (databaseType ?? 'RELATIONAL') === 'RELATIONAL';
       const project = await api.projects.create({
         name,
         description: description || undefined,
         teamId: targetTeamId,
         databaseType: databaseType ?? 'RELATIONAL',
+        dbPassword: dbPassword.trim() || undefined,
+        computeTier,
+        region: 'eu-central',
+        ...(relational ? { dataAccess } : {}),
       });
       toast.success(`Project "${project.name}" created`);
       resetState();
@@ -880,7 +1016,13 @@ export function CreateProjectDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
         // The import result carries a six-column reconciliation table; the other steps are forms.
-        className={view === 'result' ? 'sm:max-w-2xl' : 'sm:max-w-md'}
+        className={
+          view === 'result'
+            ? 'sm:max-w-2xl'
+            : view === 'create'
+              ? 'max-h-[90dvh] overflow-y-auto sm:max-w-2xl'
+              : 'sm:max-w-md'
+        }
         hideClose={view === 'importing'}
         onInteractOutside={(e) => {
           if (view === 'importing') e.preventDefault();
@@ -1070,23 +1212,58 @@ export function CreateProjectDialog({
                 >
                   <ArrowLeft className="h-4 w-4" />
                 </button>
-                <DialogTitle>Project Details</DialogTitle>
-                <Badge variant="secondary" className="text-[10px]">
-                  {databaseType === 'NOSQL'
-                    ? 'NoSQL · Document store'
-                    : 'Relational · PostgreSQL'}
-                </Badge>
+                <DialogTitle>Create a new project</DialogTitle>
               </div>
               <DialogDescription>
-                {databaseType === 'NOSQL'
-                  ? 'Step 2 of 2 — A document store namespace and an authentication realm will be provisioned automatically.'
-                  : 'Step 2 of 2 — A dedicated PostgreSQL database and an authentication realm will be provisioned automatically.'}
+                Step 2 of 2 — Your project gets its own database and an authentication realm.
               </DialogDescription>
             </DialogHeader>
 
-            <form onSubmit={handleCreate} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="project-name">Project Name</Label>
+            <form onSubmit={handleCreate} className="space-y-5" data-testid="create-project-form">
+              {!reimportTarget && (
+                <FormRow label={orgNoun.noun} htmlFor="project-org">
+                  <Select value={targetTeamId} onValueChange={(v) => setTargetTeamId(v)}>
+                    <SelectTrigger id="project-org" aria-label={orgNoun.noun}>
+                      <SelectValue placeholder={`Choose ${orgNoun.on ? 'an organization' : 'a team'}`} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {teams.map((t) => (
+                        <SelectItem key={t.id} value={t.id}>
+                          <span className="flex items-center gap-2">
+                            <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">{t.name}</span>
+                            {t.plan?.displayName && (
+                              <Badge variant="secondary" className="text-[10px]">{t.plan.displayName}</Badge>
+                            )}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    The project is created in this {orgNoun.lower} and its members get access.
+                  </p>
+                </FormRow>
+              )}
+
+              {githubStatus?.oauthConfigured && (
+                <FormRow label="GitHub" hint="Optional">
+                  {githubStatus.connected && !githubStatus.expired ? (
+                    <p className="flex h-10 items-center text-sm">
+                      Connected as <span className="ml-1 font-medium">@{githubStatus.login}</span>
+                    </p>
+                  ) : (
+                    <Button type="button" variant="outline" onClick={() => void connectGitHub()} disabled={githubConnecting}>
+                      {githubConnecting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      Connect GitHub
+                    </Button>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    Connect the {orgNoun.lower}&apos;s GitHub account to link a repository and preview branches to this project.
+                  </p>
+                </FormRow>
+              )}
+
+              <FormRow label="Project name" htmlFor="project-name">
                 <Input
                   id="project-name"
                   value={name}
@@ -1099,49 +1276,149 @@ export function CreateProjectDialog({
                 <p className="text-xs text-muted-foreground">
                   2–64 characters. The project URL identifier is generated from the name (lowercase letters, numbers and hyphens).
                 </p>
-              </div>
+              </FormRow>
 
-              {teamPicker}
+              <FormRow label="Compute size" htmlFor="project-compute">
+                <Select value={computeTier} onValueChange={(v) => setComputeTier(v as ComputeTierId)}>
+                  <SelectTrigger id="project-compute" aria-label="Compute size">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {computeTierOptions.map((t) => (
+                      <SelectItem key={t.id} value={t.id} disabled={!t.available}>
+                        <span className="flex flex-wrap items-center gap-x-2">
+                          <span>
+                            {t.vcpu === null ? 'Shared compute' : `${t.label} · ${t.vcpu} vCPU · ${t.memoryGb} GB`}
+                          </span>
+                          {t.reason && <span className="text-xs text-muted-foreground">{t.reason}</span>}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Shared compute: your database runs on a shared PostgreSQL server. Dedicated sizes reserve CPU and
+                  memory for this project alone and can be changed later.
+                </p>
+              </FormRow>
 
-              <div className="space-y-2">
-                <Label htmlFor="project-desc">Description (optional)</Label>
-                <Input
-                  id="project-desc"
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="A short description"
-                  maxLength={256}
-                />
-              </div>
+              <FormRow label="Database password" htmlFor="project-db-password">
+                <div className="flex gap-2">
+                  <div className="min-w-0 flex-1">
+                    <PasswordInput
+                      id="project-db-password"
+                      value={dbPassword}
+                      onChange={(e) => setDbPassword(e.target.value)}
+                      placeholder="Leave empty to generate one"
+                      autoComplete="new-password"
+                      maxLength={128}
+                    />
+                  </div>
+                  <Button type="button" variant="outline" onClick={() => setDbPassword(generateDbPassword())}>
+                    Generate
+                  </Button>
+                </div>
+                {dbPassword.trim() === '' ? (
+                  <p className="text-xs text-muted-foreground">
+                    A strong password is generated if you leave this empty. You can reset it later in the
+                    project&apos;s database settings.
+                  </p>
+                ) : passwordProblems(dbPassword.trim()).length === 0 ? (
+                  <p className="text-xs text-emerald-600 dark:text-emerald-400">Strong password. Store it somewhere safe.</p>
+                ) : (
+                  <p className="text-xs text-destructive">Needs {passwordProblems(dbPassword.trim()).join(', ')}.</p>
+                )}
+              </FormRow>
 
-              <div
-                className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground"
-                data-testid="project-resource-summary"
-              >
-                <p className="mb-1 font-medium text-foreground">What you get</p>
-                <ul className="list-disc space-y-0.5 pl-4">
-                  <li>Region: Nuremberg, Germany (EU). The server address is not shown.</li>
-                  <li>
-                    Compute: your database runs on shared infrastructure (a shared PostgreSQL server with a
-                    4 vCPU / 8 GB host), with no CPU or RAM reserved for this project alone.
-                  </li>
-                  <li>
-                    Disk is not unlimited: database and file storage are billed per GB-month for what you use,
-                    and traffic and API requests are metered. You pay for what you use.
-                  </li>
-                </ul>
-              </div>
+              <FormRow label="Region" htmlFor="project-region">
+                <Select value="eu-central" onValueChange={() => {}}>
+                  <SelectTrigger id="project-region" aria-label="Region">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {REGION_OPTIONS.map((r) => (
+                      <SelectItem key={r.id} value={r.id}>{r.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">Data stays in the EU.</p>
+              </FormRow>
 
-              <DialogFooter>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setView('db-type')}
-                >
+              {(databaseType ?? 'RELATIONAL') === 'RELATIONAL' && (
+                <FormRow label="Data access" hint="You can change these later in the project settings.">
+                  <DataAccessCheckboxes
+                    idPrefix="create-data-access"
+                    value={dataAccess}
+                    onChange={(key, checked) => setDataAccess((d) => ({ ...d, [key]: checked }))}
+                  />
+                </FormRow>
+              )}
+
+              <details className="group rounded-md border">
+                <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
+                  Advanced configuration
+                  <span className="text-xs text-muted-foreground group-open:hidden">Show</span>
+                  <span className="hidden text-xs text-muted-foreground group-open:inline">Hide</span>
+                </summary>
+                <div className="space-y-4 border-t px-3 py-3">
+                  <FormRow label="Description" htmlFor="project-desc" hint="Optional">
+                    <Input
+                      id="project-desc"
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                      placeholder="A short description"
+                      maxLength={256}
+                    />
+                  </FormRow>
+                  <FormRow label="Database type">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant="secondary" className="text-[11px]">
+                        {databaseType === 'NOSQL' ? 'NoSQL · Document store' : 'Relational · PostgreSQL'}
+                      </Badge>
+                      <Button type="button" variant="link" className="h-auto p-0 text-xs" onClick={() => setView('db-type')}>
+                        Change
+                      </Button>
+                    </div>
+                  </FormRow>
+                </div>
+              </details>
+
+              {freePlanMaxProjects !== null && (
+                <div className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground" data-testid="free-plan-note">
+                  <p className="mb-0.5 font-medium text-foreground">Need a free project?</p>
+                  <p>
+                    {orgNoun.on ? 'An organization' : 'A team'} on the Free plan can have up to {freePlanMaxProjects}{' '}
+                    projects.{' '}
+                    {orgNoun.on ? (
+                      <a href="/dashboard/org/new" className="font-medium text-primary underline-offset-2 hover:underline">
+                        Create a free organization
+                      </a>
+                    ) : (
+                      'Create a free team from the team menu at the top of the page'
+                    )}{' '}
+                    to use them.
+                  </p>
+                  {targetTeam?.plan?.name === 'free' && (
+                    <p className="mt-1">
+                      {targetTeam.name} has {targetTeam.projectCount} of {freePlanMaxProjects}.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              <DialogFooter className="gap-2">
+                <Button type="button" variant="outline" onClick={() => setView('db-type')}>
                   Back
                 </Button>
-                <Button type="submit" disabled={loading || !name.trim()}>
-                  {loading ? 'Creating...' : 'Create Project'}
+                <Button
+                  type="submit"
+                  disabled={
+                    loading ||
+                    !name.trim() ||
+                    (dbPassword.trim() !== '' && passwordProblems(dbPassword.trim()).length > 0)
+                  }
+                >
+                  {loading ? 'Creating...' : 'Create project'}
                 </Button>
               </DialogFooter>
             </form>
