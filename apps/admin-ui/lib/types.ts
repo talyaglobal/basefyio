@@ -1238,6 +1238,27 @@ export interface PitrRecoveryWindow {
   retentionDays: number;
 }
 
+/** A point-in-time restore running in the background. */
+export interface PitrRestoreJob {
+  jobId: string;
+  projectId: string;
+  status: 'queued' | 'running' | 'succeeded' | 'failed';
+  /** waiting | preparing | downloading | replaying | extracting | restoring | done */
+  phase: string;
+  /** Progress while running; the outcome (or the reason it failed) afterwards. */
+  message: string | null;
+  targetTime: string;
+  /** 'wal-replay' (exact) or 'snapshot' (nearest nightly dump), once known. */
+  method: string | null;
+  exact: boolean | null;
+  restoredTo: string | null;
+  /** 1 = next to start; null unless queued. */
+  queuePosition: number | null;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+
 /** How the source's row count was obtained during an import. */
 export type SourceCountMethod = 'direct' | 'rest' | 'rest-planned' | 'unavailable';
 

@@ -399,6 +399,15 @@ Point-in-time recovery uses volumes only the production file defines; see
 |---|---|---|---|
 | `PITR_POSTGRES_IMAGE` | `pgvector/pgvector:pg16` | no / derived `ghcr.io/${GHCR_OWNER}/basefyio-postgres:latest` | Image of the throwaway Postgres that replays WAL. It must match the running cluster, extensions included. |
 | `PITR_SCRATCH_VOLUME` | `kolaybase_pitr_scratch` | no / no | Docker volume handed to that container (and to the schema-dump step of Supabase imports). Compose names the volume `<project>_pitr_scratch`; the default matches a checkout in a directory named `kolaybase`, so set it (through an override) when your compose project has another name. |
+| `PITR_RESTORE_ENABLED` | `true` | no / yes | `false` refuses new point-in-time restores with a 503 (running ones finish). |
+| `PITR_RESTORE_MAX_CONCURRENT` | `1` | no / yes | Restores running at once, cluster-wide. Each one unpacks a full copy of the cluster. |
+| `PITR_RESTORE_MAX_QUEUED` | `5` | no / no | Restores waiting for a slot, cluster-wide; more answer 503. |
+| `PITR_RESTORE_MAX_PER_HOUR` | `3` | no / no | Restores one project may request per hour; more answer 429. |
+| `PITR_RESTORE_QUEUE_MAX_MINUTES` | `120` | no / no | A restore still waiting after this is cancelled. |
+| `PITR_RESTORE_TIMEOUT_MINUTES` | `60` | no / yes | Hard deadline for one restore job. |
+| `PITR_RECOVERY_WAIT_MINUTES` | `15` | no / no | How long WAL replay in the throwaway may take. |
+| `PITR_RECOVERY_MEMORY_MB` / `PITR_RECOVERY_CPU_MILLIS` | `1024` / `1000` | no / no | Memory cap and CPU share (1000 = one core) of the throwaway recovery container. |
+| `PITR_ATOMIC_MAX_OBJECTS` | `4000` | no / no | Dumps up to this many objects are loaded in one transaction (all or nothing); larger ones object by object. |
 | `POSTGRES_WAL_ARCHIVE_DIR` | `/var/lib/postgresql/wal_archive` | no / no | Where Postgres archives finished WAL segments (the prod file mounts a volume there). |
 | `DISK_PROBE_DATA_PATH` | `/` | no / no | Path whose filesystem carries Docker's data (root console → server disk). |
 | `DISK_PROBE_SYSTEM_PATH` | `/host/system` | no / no | Bind-mounted empty host directory used to measure the system disk. |

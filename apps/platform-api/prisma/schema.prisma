@@ -400,6 +400,7 @@ model Project {
   branches Project[] @relation("ProjectBranches")
 
   backupVerifications BackupVerification[]
+  pitrRestoreJobs     PitrRestoreJob[]
 
   @@unique([parentProjectId, branchName])
   @@index([parentProjectId])
@@ -2138,6 +2139,44 @@ model BackupVerification {
 
   @@index([projectId, startedAt(sort: Desc)])
   @@map("backup_verifications")
+}
+
+/// One point-in-time restore, run as a background job (#257). The request
+/// answers 202 with the row's id; the dashboard polls it. Exactly one active
+/// (queued or running) job per project, and a cluster-wide cap on running ones,
+/// both enforced under an advisory lock. A running job refreshes heartbeatAt;
+/// one whose heartbeat goes quiet (its process died) is failed by the pump.
+model PitrRestoreJob {
+  id          String    @id @default(uuid())
+  projectId   String    @map("project_id")
+  requestedBy String?   @map("requested_by")
+  targetTime  DateTime  @map("target_time")
+  /// 'queued' | 'running' | 'succeeded' | 'failed'
+  status      String    @default("queued") @db.VarChar(16)
+  /// 'waiting' | 'preparing' | 'downloading' | 'replaying' | 'extracting' | 'restoring' | 'done'
+  phase       String    @default("waiting") @db.VarChar(32)
+  /// What the dashboard shows: progress while running, the outcome after.
+  message     String?   @db.Text
+  /// Operator detail for a failure (never returned by the API).
+  error       String?   @db.Text
+  /// 'wal-replay' (exact) or 'snapshot' (nearest nightly dump), once known.
+  method      String?   @db.VarChar(16)
+  exact       Boolean?
+  restoredTo  DateTime? @map("restored_to")
+  /// Scratch directory / throwaway container suffix (bf-pitr-<runId>).
+  runId       String?   @map("run_id") @db.VarChar(32)
+  workerId    String?   @map("worker_id") @db.VarChar(128)
+  heartbeatAt DateTime? @map("heartbeat_at")
+  startedAt   DateTime? @map("started_at")
+  finishedAt  DateTime? @map("finished_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt(sort: Desc)])
+  @@index([status, createdAt])
+  @@map("pitr_restore_jobs")
 }
 
 enum BackupArtifactKind {

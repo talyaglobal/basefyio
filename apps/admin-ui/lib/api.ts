@@ -44,6 +44,7 @@ import type {
   PreviewBranchCreateResponse,
   PreviewBranchListItem,
   PitrRecoveryWindow,
+  PitrRestoreJob,
   ProjectAuthConfig,
   ProjectExportJobResponse,
   ProjectExportRequest,
@@ -1323,18 +1324,23 @@ export const api = {
     getRecoveryWindow(projectId: string) {
       return request<PitrRecoveryWindow>(`/projects/${projectId}/pitr/window`);
     },
-    /** Recover the project database to an exact instant inside the window. */
+    /**
+     * Start recovering the project database to an instant inside the window.
+     * Answers at once (202) with a job; poll {@link getPitrRestoreJob} for progress.
+     */
     restoreToTimestamp(projectId: string, targetTime: string) {
-      return request<{
-        restoredTo: string;
-        /** False when only a snapshot was available, so restoredTo is not the time you asked for. */
-        exact?: boolean;
-        baseBackupTaken?: string;
-        message: string;
-      }>(
-        `/projects/${projectId}/pitr/restore`,
-        { method: 'POST', body: JSON.stringify({ targetTime }) },
-      );
+      return request<PitrRestoreJob>(`/projects/${projectId}/pitr/restore`, {
+        method: 'POST',
+        body: JSON.stringify({ targetTime }),
+      });
+    },
+    /** One point-in-time restore job. */
+    getPitrRestoreJob(projectId: string, jobId: string) {
+      return request<PitrRestoreJob>(`/projects/${projectId}/pitr/restore/${jobId}`);
+    },
+    /** The project's newest point-in-time restore job, so an active one survives a reload. */
+    getPitrStatus(projectId: string) {
+      return request<{ job: PitrRestoreJob | null }>(`/projects/${projectId}/pitr/status`);
     },
     restoreCloudBackup(
       projectId: string,

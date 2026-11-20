@@ -141,7 +141,7 @@ export class ProjectPitrService {
 
   // ── Access control ─────────────────────────────────────────────────────────
 
-  private async assertMember(projectId: string, userId: string) {
+  private async assertMember(projectId: string, userId: string): Promise<PitrProject> {
     const project = await this.prisma.project.findFirst({
       where: { id: projectId, status: { not: 'DELETED' } },
       select: {
@@ -664,7 +664,9 @@ export class ProjectPitrService {
     await new Promise<void>((resolve, reject) => {
       stream.on('data', (chunk: Buffer) => {
         // Docker multiplexes stdout/stderr with an 8-byte header per frame.
-        output += chunk.length > 8 ? chunk.subarray(8).toString() : chunk.toString();
+        if (output.length < 64 * 1024) {
+          output += chunk.length > 8 ? chunk.subarray(8).toString() : chunk.toString();
+        }
       });
       stream.on('end', () => resolve());
       stream.on('error', reject);
@@ -674,16 +676,27 @@ export class ProjectPitrService {
   }
 
   /**
+  /**
    * Rebuild the cluster as it was at `target` in a throwaway postgres, then dump
    * just this project's database out of it.
+   *
+   * The throwaway is a separate container with no network, its own data
+   * directory on the scratch volume and hard memory/CPU limits; the live
+   * cluster is only read (settings, sizes). Nothing here stops, restarts or
+   * reconfigures the shared Postgres server.
    *
    * Returns the path to that dump, or null when no physical base predates the
    * target — in which case there is nothing WAL could be replayed onto.
    */
-  private async replayIntoDump(dbName: string, target: Date): Promise<string | null> {
+  private async replayIntoDump(
+    dbName: string,
+    target: Date,
+    ctx: PitrRestoreContext,
+  ): Promise<string | null> {
     const base = await this.findClusterBaseBefore(target);
     if (!base) return null;
     await this.assertScratchSpace(base, target);
+    throwIfAborted(ctx.signal);
 
     const runId = randomUUID().slice(0, 8);
     const runDir = join(SCRATCH_ROOT, `restore-${runId}`);
@@ -694,6 +707,14 @@ export class ProjectPitrService {
     const containerName = `bf-pitr-${runId}`;
     const docker = new Docker(dockerodeOptions(dockerConnectionFromEnv()));
     let container: Docker.Container | null = null;
+    await ctx.onRun?.(runId);
+
+    // Aborting (timeout, shutdown) must stop the throwaway at once rather than
+    // wait for the next probe; removing it also ends any exec still attached.
+    const killContainer = () => {
+      if (container) void container.remove({ force: true }).catch(() => undefined);
+    };
+    ctx.signal.addEventListener('abort', killContainer, { once: true });
 
     try {
       await mkdir(dataDir, { recursive: true });
@@ -702,23 +723,26 @@ export class ProjectPitrService {
 
       // 1. Unpack the base. pg_basebackup -Ft writes one tar per tablespace,
       //    plus pg_wal.tar.gz for the segments the base itself needs.
+      await ctx.phase('downloading', 'Downloading the base backup');
       for (const file of base.files) {
+        throwIfAborted(ctx.signal);
         const leaf = file.name.split('/').pop() as string;
         // Only the tar members are archives — backup_manifest is JSON metadata
         // that pg_basebackup writes alongside them, and feeding it to tar fails.
         if (!leaf.endsWith('.tar.gz')) continue;
         const localTar = join(runDir, leaf);
         const { stream } = await this.storage.getPlatformObject(PITR_BUCKET, file.name);
-        await pipeline(stream, createWriteStream(localTar));
+        await pipeline(stream, createWriteStream(localTar), { signal: ctx.signal });
 
         const target_ = leaf.startsWith('pg_wal') ? join(dataDir, 'pg_wal') : dataDir;
         await mkdir(target_, { recursive: true });
-        await execFileAsync('tar', ['-xzf', localTar, '-C', target_]);
+        await execFileAsync('tar', ['-xzf', localTar, '-C', target_], { signal: ctx.signal });
         await unlink(localTar).catch(() => undefined);
       }
 
       // 2. Stage the WAL the replay may need: everything from shortly before the
       //    base through the target.
+      await ctx.phase('downloading', 'Downloading the change log (WAL)');
       const walObjects: { name: string; lastModified: Date }[] = await this.storage
         .listPlatformObjects(PITR_BUCKET, CLUSTER_WAL_PREFIX)
         .catch(() => []);
@@ -727,9 +751,10 @@ export class ProjectPitrService {
       for (const obj of walObjects) {
         const at = obj.lastModified.getTime();
         if (at < from || at > to) continue;
+        throwIfAborted(ctx.signal);
         const leaf = obj.name.split('/').pop() as string;
         const { stream } = await this.storage.getPlatformObject(PITR_BUCKET, obj.name);
-        await pipeline(stream, createWriteStream(join(walDir, leaf)));
+        await pipeline(stream, createWriteStream(join(walDir, leaf)), { signal: ctx.signal });
       }
 
       // 3. Recovery configuration. archive_mode is forced off so the throwaway
@@ -746,9 +771,7 @@ export class ProjectPitrService {
         ].join('\n'),
         { mode: 0o755 },
       );
-      // Postgres rejects the ISO 8601 "T"/"Z" form here — it wants a timestamp
-      // it can parse, e.g. 2026-08-10 03:37:37.687+00.
-      const recoveryTarget = target.toISOString().replace('T', ' ').replace('Z', '+00');
+      const recoveryTarget = recoveryTargetLiteral(target);
 
       // Recovery refuses to start when these are lower than they were on the
       // primary, so mirror the live cluster's values onto the throwaway.
@@ -771,6 +794,8 @@ export class ProjectPitrService {
           "recovery_target_action = 'promote'",
           'archive_mode = off',
           "archive_command = ''",
+          // Keep the throwaway small: it shares the host with the live cluster.
+          'shared_buffers = 128MB',
           ...primarySettings.map((s) => `${s.name} = ${s.setting}`),
           '',
         ].join('\n'),
@@ -780,55 +805,68 @@ export class ProjectPitrService {
       // The throwaway has no network, so trusting local connections is contained
       // and avoids depending on whatever pg_hba the base happened to carry.
       await writeFile(join(dataDir, 'pg_hba.conf'), 'local all all trust\n');
-      await execFileAsync('chown', ['-R', `${POSTGRES_UID}:${POSTGRES_UID}`, runDir]);
-      await execFileAsync('chmod', ['700', dataDir]);
+      await execFileAsync('chown', ['-R', `${POSTGRES_UID}:${POSTGRES_UID}`, runDir], {
+        signal: ctx.signal,
+      });
+      await execFileAsync('chmod', ['700', dataDir], { signal: ctx.signal });
+      throwIfAborted(ctx.signal);
 
       // 4. Start it and let recovery replay up to the target.
-      container = await docker.createContainer({
-        Image: PITR_POSTGRES_IMAGE,
-        name: containerName,
-        Env: [`PGDATA=${dataDir}`, 'POSTGRES_PASSWORD=unused'],
-        User: `${POSTGRES_UID}:${POSTGRES_UID}`,
-        HostConfig: {
-          Binds: [`${SCRATCH_VOLUME}:${SCRATCH_ROOT}`],
-          NetworkMode: 'none',
-        },
-      } as Docker.ContainerCreateOptions);
-      await container.start();
+      await ctx.phase('replaying', 'Replaying the change log up to the requested time');
+      const recovery = await docker.createContainer(
+        recoveryContainerOptions(containerName, dataDir, runId),
+      );
+      container = recovery;
+      await recovery.start();
 
       // Recovery is finished once the server has promoted out of it.
       const owner = process.env.POSTGRES_USER || 'postgres';
+      const deadline = Date.now() + recoveryWaitMs();
       let promoted = false;
-      for (let attempt = 0; attempt < 180 && !promoted; attempt++) {
-        await new Promise((r) => setTimeout(r, 5000));
+      while (!promoted && Date.now() < deadline) {
+        await abortableSleep(5000, ctx.signal);
 
         // A misconfigured recovery makes postgres exit immediately. Waiting out
         // the full timeout would hide the reason, so surface its own words.
-        const state = await container.inspect();
+        const state = await recovery.inspect();
         if (!state.State.Running) {
-          const tail = await container
+          const tail = await recovery
             .logs({ stdout: true, stderr: true, tail: 20 })
-            .then((b) => b.toString().replace(/[^\x20-\x7e\n]/g, '').trim())
+            .then((b: Buffer) => b.toString().replace(/[^\x20-\x7e\n]/g, '').trim())
             .catch(() => '');
-          throw new Error(`the recovery instance stopped before finishing: ${tail.slice(-600)}`);
+          throw new PitrRestoreError(
+            'The recovery instance could not replay the change log to that time. Our team has been notified.',
+            `the recovery instance stopped before finishing: ${tail.slice(-600)}`,
+            true,
+          );
         }
 
-        const probe = await this.runInContainer(container, [
+        const probe = await this.runInContainer(recovery, [
           'psql', '-U', owner, '-d', 'postgres', '-tAc', 'select pg_is_in_recovery()',
         ]).catch(() => ({ exitCode: -1, output: '' }));
         promoted = probe.exitCode === 0 && probe.output.trim() === 'f';
       }
       if (!promoted) {
-        throw new Error('recovery did not reach the requested time within 15 minutes');
+        throw new PitrRestoreError(
+          `Replaying the change log did not reach the requested time within ${Math.round(recoveryWaitMs() / 60_000)} minutes. Your database was not changed.`,
+          'recovery did not promote before the wait ran out',
+          true,
+        );
       }
 
       // 5. Lift this project's database out of the recovered cluster.
-      const dumped = await this.runInContainer(container, [
+      await ctx.phase('extracting', 'Extracting your database from the recovered copy');
+      const dumped = await this.runInContainer(recovery, [
         'pg_dump', '-U', owner, '-d', dbName,
         '--format=custom', '--no-owner', '--no-acl', '-f', dumpPath,
       ]);
+      throwIfAborted(ctx.signal);
       if (dumped.exitCode !== 0) {
-        throw new Error(`could not dump the recovered database: ${dumped.output}`);
+        throw new PitrRestoreError(
+          'Your database could not be read out of the recovered copy. Your database was not changed.',
+          `could not dump the recovered database: ${dumped.output}`,
+          true,
+        );
       }
 
       return dumpPath;
@@ -836,124 +874,41 @@ export class ProjectPitrService {
       await this.releaseScratch(runDir);
       throw err;
     } finally {
+      ctx.signal.removeEventListener('abort', killContainer);
       if (container) {
         await container.remove({ force: true }).catch(() => undefined);
       }
     }
   }
 
-  // ── Restore ────────────────────────────────────────────────────────────────
-
   /**
-   * Restore a project database to the state it had at `targetTime`.
+   * Load `dumpPath` into the project's live database.
    *
-   * The newest base backup taken at or before the target is restored, then
-   * changes are replayed forward to the exact instant requested.
+   * `--clean` drops each object before recreating it, so the result is exactly
+   * the recovered state rather than a merge. Run inside one transaction, a
+   * failure (or a kill on timeout) rolls the whole restore back and leaves the
+   * database as it was. A dump with very many objects would take one lock per
+   * object inside that transaction — and the lock table is shared by every
+   * database on the server — so above `PITR_ATOMIC_MAX_OBJECTS` (4000) the
+   * restore runs object by object instead, exactly as it always did.
+   *
+   * Only this project's database is touched, with the project's own login.
    */
-  async restoreToTimestamp(
-    projectId: string,
-    userId: string,
-    targetTime: string,
-  ) {
-    const project = await this.assertMember(projectId, userId);
-
-    const target = new Date(targetTime);
-    if (isNaN(target.getTime())) {
-      throw new BadRequestException('targetTime must be a valid ISO timestamp');
-    }
-    if (target.getTime() > Date.now()) {
-      throw new BadRequestException('targetTime cannot be in the future');
-    }
-
-    // True point-in-time recovery: replay archived WAL onto a physical base so
-    // the result is the database as of this instant, not as of a nightly dump.
-    const recoveredDump = await this.replayIntoDump(project.dbName, target);
-    if (recoveredDump) {
-      try {
-        await execFileAsync(
-          'pg_restore',
-          [
-            '--host', project.dbHost || 'postgres',
-            '--port', String(project.dbPort || 5432),
-            '--username', project.dbUser,
-            '--dbname', project.dbName,
-            '--clean',
-            '--if-exists',
-            '--no-owner',
-            '--no-acl',
-            recoveredDump,
-          ],
-          {
-            env: {
-              ...process.env,
-              PGPASSWORD: project.dbPassword || '',
-              PGCONNECT_TIMEOUT: '10',
-            },
-            maxBuffer: 1024 * 1024 * 64,
-          },
-        );
-      } finally {
-        await this.releaseScratch(join(recoveredDump, '..'));
-      }
-
-      await this.activity.append(projectId, {
-        userId,
-        kind: ProjectActivityKind.PROJECT_PITR_RESTORED,
-        title: 'Database recovered to a point in time',
-        detail: `Replayed to ${target.toISOString()}`,
-        metadata: { targetTime: target.toISOString(), method: 'wal-replay' },
-      });
-      this.logger.log(`Project ${projectId} replayed to ${target.toISOString()}`);
-
-      return {
-        restoredTo: target.toISOString(),
-        exact: true,
-        message: 'Database recovered to the requested point in time',
-      };
-    }
-
-    // No physical base covers that instant, so WAL has nothing to replay onto.
-    // Fall back to the nearest daily snapshot and say so plainly rather than
-    // implying the exact moment was reached.
-    const window = await this.getRecoveryWindow(projectId, userId);
-    if (!window.earliest) {
-      throw new BadRequestException(
-        'No base backup exists for this project yet, so there is nothing to recover from.',
-      );
-    }
-    if (target.getTime() < new Date(window.earliest).getTime()) {
-      throw new BadRequestException(
-        `targetTime is outside the ${RECOVERY_WINDOW_DAYS}-day recovery window (earliest ${window.earliest}).`,
-      );
-    }
-
-    // Pick the newest base backup at or before the target — recovery only ever
-    // rolls forward, so a later base could not reach an earlier instant.
-    const bases = await this.storage.listPlatformObjects(
-      PITR_BUCKET,
-      `${projectId}/base/`,
+  private async applyDump(
+    project: PitrProject,
+    dumpPath: string,
+    ctx: PitrRestoreContext,
+  ): Promise<{ atomic: boolean }> {
+    const objects = await this.countDumpObjects(dumpPath, ctx.signal);
+    const atomic = objects !== null && objects <= atomicMaxObjects();
+    await ctx.phase(
+      'restoring',
+      atomic
+        ? 'Writing the recovered data into your database (all or nothing)'
+        : 'Writing the recovered data into your database',
     );
-    const candidates = bases
-      .filter((b) => b.lastModified.getTime() <= target.getTime())
-      .sort((a, b) => b.lastModified.getTime() - a.lastModified.getTime());
-
-    if (candidates.length === 0) {
-      throw new BadRequestException(
-        'No base backup precedes that timestamp; choose a later point in time.',
-      );
-    }
-    const base = candidates[0];
-
-    const workDir = await mkdtemp(join(tmpdir(), `pitr-restore-${projectId}-`));
+    throwIfAborted(ctx.signal);
     try {
-      const localBase = join(workDir, 'base.dump');
-      const { stream } = await this.storage.getPlatformObject(PITR_BUCKET, base.name);
-      const { createWriteStream } = await import('fs');
-      const { pipeline } = await import('stream/promises');
-      await pipeline(stream, createWriteStream(localBase));
-
-      // Restore the base into the live database. --clean drops existing objects
-      // first so the result is exactly the backed-up state, not a merge.
       await execFileAsync(
         'pg_restore',
         [
@@ -965,7 +920,8 @@ export class ProjectPitrService {
           '--if-exists',
           '--no-owner',
           '--no-acl',
-          localBase,
+          ...(atomic ? ['--single-transaction', '--exit-on-error'] : []),
+          dumpPath,
         ],
         {
           env: {
@@ -974,25 +930,182 @@ export class ProjectPitrService {
             PGCONNECT_TIMEOUT: '10',
           },
           maxBuffer: 1024 * 1024 * 64,
+          // Killing an all-or-nothing restore rolls it back, so the job deadline
+          // may stop it. Killing an object-by-object one would leave the
+          // database half rewritten, so that one is allowed to finish.
+          ...(atomic ? { signal: ctx.signal } : { timeout: restoreTimeoutMs() }),
         },
       );
+    } catch (err: any) {
+      if (ctx.signal.aborted && atomic) throw err;
+      const stderr = String(err?.stderr || err?.message || '').trim();
+      throw new PitrRestoreError(
+        atomic
+          ? `The recovered data could not be written into your database, so the restore was rolled back and your database was not changed. ${firstLine(stderr)}`.trim()
+          : `Some objects could not be restored and your database may be partially restored. ${firstLine(stderr)}`.trim(),
+        `pg_restore failed: ${stderr.slice(-2000)}`,
+        !atomic,
+      );
+    }
+    return { atomic };
+  }
 
-      await this.activity.append(projectId, {
-        userId,
+  /** TOC entries in a custom-format dump, or null when it cannot be listed. */
+  private async countDumpObjects(dumpPath: string, signal: AbortSignal): Promise<number | null> {
+    try {
+      const { stdout } = await execFileAsync('pg_restore', ['--list', dumpPath], {
+        maxBuffer: 1024 * 1024 * 64,
+        signal,
+      });
+      return String(stdout)
+        .split('\n')
+        .filter((l) => l.trim() && !l.startsWith(';')).length;
+    } catch {
+      throwIfAborted(signal);
+      return null;
+    }
+  }
+
+  // ── Restore ────────────────────────────────────────────────────────────────
+
+  /** A project with what a restore needs, or 404/403 for a caller who may not see it. */
+  async loadProjectForMember(projectId: string, userId: string): Promise<PitrProject> {
+    return this.assertMember(projectId, userId);
+  }
+
+  /** The project a queued job targets, or null once it is gone. */
+  async loadProject(projectId: string): Promise<PitrProject | null> {
+    return this.prisma.project.findFirst({
+      where: { id: projectId, status: { not: 'DELETED' } },
+      select: {
+        id: true,
+        teamId: true,
+        name: true,
+        dbName: true,
+        dbUser: true,
+        dbPassword: true,
+        dbHost: true,
+        dbPort: true,
+        databaseType: true,
+      },
+    });
+  }
+
+  /**
+   * Cheap checks made while the request is still open, so a restore that can
+   * never succeed is refused with a 400 instead of a failed job.
+   */
+  async validateRestoreTarget(project: PitrProject, targetTime: string): Promise<Date> {
+    if (project.databaseType !== 'RELATIONAL') {
+      throw new BadRequestException('Point-in-time recovery is available for PostgreSQL projects only.');
+    }
+    const target = new Date(targetTime);
+    if (!targetTime || isNaN(target.getTime())) {
+      throw new BadRequestException('targetTime must be a valid ISO timestamp');
+    }
+    if (target.getTime() > Date.now()) {
+      throw new BadRequestException('targetTime cannot be in the future');
+    }
+    if (await this.findClusterBaseBefore(target)) return target;
+
+    const bases = await this.storage
+      .listPlatformObjects(PITR_BUCKET, `${project.id}/base/`)
+      .catch(() => []);
+    if (bases.length === 0) {
+      throw new BadRequestException(
+        'No base backup exists for this project yet, so there is nothing to recover from.',
+      );
+    }
+    const earliest = Math.min(...bases.map((b) => b.lastModified.getTime()));
+    if (target.getTime() < earliest) {
+      throw new BadRequestException(
+        `targetTime is outside the ${RECOVERY_WINDOW_DAYS}-day recovery window (earliest ${new Date(earliest).toISOString()}).`,
+      );
+    }
+    return target;
+  }
+
+  /**
+   * Restore a project database to the state it had at `target`. Runs inside a
+   * background job ({@link PitrRestoreJobsService}); never call it from a request.
+   *
+   * The newest physical base taken at or before the target is replayed forward
+   * to the exact instant in a throwaway instance; without one, the nearest
+   * nightly snapshot is restored and the result says so.
+   */
+  async executeRestore(
+    project: PitrProject,
+    target: Date,
+    userId: string | null,
+    ctx: PitrRestoreContext,
+  ): Promise<PitrRestoreResult> {
+    await ctx.phase('preparing', 'Checking backups and free space');
+
+    // True point-in-time recovery: replay archived WAL onto a physical base so
+    // the result is the database as of this instant, not as of a nightly dump.
+    const recoveredDump = await this.replayIntoDump(project.dbName, target, ctx);
+    if (recoveredDump) {
+      let atomic = true;
+      try {
+        ({ atomic } = await this.applyDump(project, recoveredDump, ctx));
+      } finally {
+        await this.releaseScratch(join(recoveredDump, '..'));
+      }
+
+      await this.activity.append(project.id, {
+        userId: userId ?? undefined,
+        kind: ProjectActivityKind.PROJECT_PITR_RESTORED,
+        title: 'Database recovered to a point in time',
+        detail: `Replayed to ${target.toISOString()}`,
+        metadata: { targetTime: target.toISOString(), method: 'wal-replay', atomic },
+      });
+      this.logger.log(`Project ${project.id} replayed to ${target.toISOString()}`);
+
+      return {
+        method: 'wal-replay',
+        restoredTo: target.toISOString(),
+        exact: true,
+        message: 'Database recovered to the requested point in time',
+      };
+    }
+
+    // No physical base covers that instant, so WAL has nothing to replay onto.
+    // Fall back to the nearest daily snapshot and say so plainly rather than
+    // implying the exact moment was reached.
+    const bases = await this.storage.listPlatformObjects(PITR_BUCKET, `${project.id}/base/`);
+    // Recovery only ever rolls forward, so a later base could not reach an earlier instant.
+    const candidates = bases
+      .filter((b) => b.lastModified.getTime() <= target.getTime())
+      .sort((a, b) => b.lastModified.getTime() - a.lastModified.getTime());
+    if (candidates.length === 0) {
+      throw new PitrRestoreError(
+        'No base backup precedes that timestamp; choose a later point in time.',
+        'no project base backup at or before the target',
+        false,
+      );
+    }
+    const base = candidates[0];
+
+    const workDir = await mkdtemp(join(tmpdir(), `pitr-restore-${project.id}-`));
+    try {
+      await ctx.phase('downloading', 'Downloading the nearest snapshot');
+      const localBase = join(workDir, 'base.dump');
+      const { stream } = await this.storage.getPlatformObject(PITR_BUCKET, base.name);
+      await pipeline(stream, createWriteStream(localBase), { signal: ctx.signal });
+
+      const { atomic } = await this.applyDump(project, localBase, ctx);
+
+      await this.activity.append(project.id, {
+        userId: userId ?? undefined,
         kind: ProjectActivityKind.PROJECT_PITR_RESTORED,
         title: 'Database restored to a point in time',
         detail: `Recovered to ${target.toISOString()}`,
-        metadata: {
-          targetTime: target.toISOString(),
-          baseBackup: base.name,
-        },
+        metadata: { targetTime: target.toISOString(), baseBackup: base.name, atomic },
       });
-
-      this.logger.log(
-        `Project ${projectId} restored to ${target.toISOString()} from ${base.name}`,
-      );
+      this.logger.log(`Project ${project.id} restored to ${target.toISOString()} from ${base.name}`);
 
       return {
+        method: 'snapshot',
         restoredTo: base.lastModified.toISOString(),
         exact: false,
         baseBackupTaken: base.lastModified.toISOString(),
@@ -1005,4 +1118,147 @@ export class ProjectPitrService {
       await rm(workDir, { recursive: true, force: true }).catch(() => undefined);
     }
   }
+
+  /** Remove what a dead run left behind: its throwaway container and scratch directory. */
+  async cleanupRun(runId: string): Promise<void> {
+    if (!/^[0-9a-f]{8}$/.test(runId)) return;
+    const runDir = join(SCRATCH_ROOT, `restore-${runId}`);
+    if (this.scratchLeases.has(runDir)) return;
+    const docker = new Docker(dockerodeOptions(dockerConnectionFromEnv()));
+    await docker
+      .getContainer(`bf-pitr-${runId}`)
+      .remove({ force: true })
+      .catch(() => undefined);
+    await rm(runDir, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
+// ── Restore helpers ──────────────────────────────────────────────────────────
+
+export type PitrRestorePhase =
+  | 'waiting'
+  | 'preparing'
+  | 'downloading'
+  | 'replaying'
+  | 'extracting'
+  | 'restoring'
+  | 'done';
+
+/** What a running restore reports back to its job, and how it is stopped. */
+export interface PitrRestoreContext {
+  signal: AbortSignal;
+  phase(phase: PitrRestorePhase, message: string): Promise<void>;
+  /** Called once the scratch run id is known, so a dead run can be cleaned up. */
+  onRun?(runId: string): Promise<void>;
+}
+
+export interface PitrRestoreResult {
+  method: 'wal-replay' | 'snapshot';
+  restoredTo: string;
+  exact: boolean;
+  baseBackupTaken?: string;
+  message: string;
+}
+
+export type PitrProject = {
+  id: string;
+  teamId: string;
+  name: string;
+  dbName: string;
+  dbUser: string;
+  dbPassword: string | null;
+  dbHost: string | null;
+  dbPort: number | null;
+  databaseType: string;
+};
+
+/**
+ * A restore failure with a message fit for the dashboard (`userMessage`) and
+ * one for the operator (`detail`). `alert` marks failures the platform team
+ * should look at rather than ones the customer can fix.
+ */
+export class PitrRestoreError extends Error {
+  constructor(
+    readonly userMessage: string,
+    readonly detail: string,
+    readonly alert: boolean,
+  ) {
+    super(detail);
+    this.name = 'PitrRestoreError';
+  }
+}
+
+const intFromEnv = (name: string, fallback: number) => {
+  const n = Number.parseInt(process.env[name] ?? '', 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+};
+
+/** How long a throwaway may spend replaying WAL before the run gives up. */
+export const recoveryWaitMs = () => intFromEnv('PITR_RECOVERY_WAIT_MINUTES', 15) * 60_000;
+/** Hard deadline for one whole restore job. */
+export const restoreTimeoutMs = () => intFromEnv('PITR_RESTORE_TIMEOUT_MINUTES', 60) * 60_000;
+/** Above this many dump entries the final load is not run as one transaction. */
+export const atomicMaxObjects = () => intFromEnv('PITR_ATOMIC_MAX_OBJECTS', 4000);
+
+/** Postgres rejects the ISO 8601 "T"/"Z" form in recovery_target_time. */
+export function recoveryTargetLiteral(target: Date): string {
+  return target.toISOString().replace('T', ' ').replace('Z', '+00');
+}
+
+/**
+ * The throwaway recovery instance. No network, the scratch volume only, and
+ * hard limits so it can never starve the live cluster on the same host: a
+ * memory cap, a CPU share, and an OOM score that makes it the kernel's first
+ * victim instead of Postgres or Keycloak.
+ */
+export function recoveryContainerOptions(
+  name: string,
+  dataDir: string,
+  runId: string,
+): Docker.ContainerCreateOptions {
+  const memoryBytes = intFromEnv('PITR_RECOVERY_MEMORY_MB', 1024) * 1024 * 1024;
+  const cpus = Math.min(intFromEnv('PITR_RECOVERY_CPU_MILLIS', 1000), 8000);
+  return {
+    Image: PITR_POSTGRES_IMAGE,
+    name,
+    Env: [`PGDATA=${dataDir}`, 'POSTGRES_PASSWORD=unused'],
+    User: `${POSTGRES_UID}:${POSTGRES_UID}`,
+    Labels: { 'basefyio.pitr.run': runId },
+    HostConfig: {
+      Binds: [`${SCRATCH_VOLUME}:${SCRATCH_ROOT}`],
+      NetworkMode: 'none',
+      Memory: memoryBytes,
+      MemorySwap: memoryBytes,
+      NanoCpus: cpus * 1_000_000,
+      OomScoreAdj: 800,
+      PidsLimit: 512,
+      AutoRemove: false,
+    },
+  } as Docker.ContainerCreateOptions;
+}
+
+function throwIfAborted(signal: AbortSignal) {
+  if (signal.aborted) {
+    throw signal.reason instanceof Error ? signal.reason : new Error('restore aborted');
+  }
+}
+
+function abortableSleep(ms: number, signal: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    if (signal.aborted) return reject(signal.reason ?? new Error('restore aborted'));
+    const t = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(t);
+      reject(signal.reason ?? new Error('restore aborted'));
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+function firstLine(text: string) {
+  const line = text.split('\n').find((l) => /error/i.test(l)) ?? text.split('\n')[0] ?? '';
+  return line.slice(0, 300);
 }

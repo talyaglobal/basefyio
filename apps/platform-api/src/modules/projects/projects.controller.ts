@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  HttpCode,
   Patch,
   Delete,
   Param,
@@ -18,6 +19,7 @@ import { ProjectsService } from './projects.service';
 import { SupabaseImportService } from './supabase-import.service';
 import { ProjectExportService } from './project-export.service';
 import { ProjectPitrService } from './project-pitr.service';
+import { PitrRestoreJobsService } from './pitr-restore-jobs.service';
 import { CreateProjectDto, UpdateDataAccessDto, UpdateRestSchemasDto } from './dto/create-project.dto';
 import { ImportSupabaseDto } from './dto/import-supabase.dto';
 import { RepairImportKeysDto } from './dto/repair-import-keys.dto';
@@ -41,6 +43,7 @@ export class ProjectsController {
     private readonly projectArchiveImport: ProjectArchiveImportService,
     private readonly projectActivity: ProjectActivityService,
     private readonly projectPitr: ProjectPitrService,
+    private readonly pitrRestoreJobs: PitrRestoreJobsService,
   ) {}
 
   // Typed as the class itself, not an intersection: an intersection compiles
@@ -725,14 +728,37 @@ export class ProjectsController {
     return this.projectPitr.getRecoveryWindow(id, user.sub);
   }
 
-  /** Recover the project database to an exact instant inside the window. */
+  /**
+   * Recover the project database to an instant inside the window. The restore
+   * runs as a background job: this answers 202 with the job at once, and
+   * `GET :id/pitr/restore/:jobId` reports its progress (#257).
+   */
   @Scopes('backups:write')
   @Post(':id/pitr/restore')
+  @HttpCode(202)
   async restoreToTimestamp(
     @Param('id') id: string,
     @Body('targetTime') targetTime: string,
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.projectPitr.restoreToTimestamp(id, user.sub, targetTime);
+    return this.pitrRestoreJobs.start(id, user.sub, targetTime);
+  }
+
+  /** The project's newest restore job (null when there has never been one). */
+  @Scopes('backups:read')
+  @Get(':id/pitr/status')
+  async getPitrStatus(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    return this.pitrRestoreJobs.latest(id, user.sub);
+  }
+
+  /** One restore job: queued, running (with its phase), succeeded or failed, and why. */
+  @Scopes('backups:read')
+  @Get(':id/pitr/restore/:jobId')
+  async getPitrRestoreJob(
+    @Param('id') id: string,
+    @Param('jobId') jobId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.pitrRestoreJobs.get(id, jobId, user.sub);
   }
 }

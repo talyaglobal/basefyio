@@ -44,7 +44,27 @@ export default function BackupsDocs() {
         <li>Open <strong>Backup</strong> and find the <em>Point-in-time recovery</em> panel.</li>
         <li>Pick the date and time to recover to. The picker includes seconds and the confirmation shows your time zone. A time outside the recovery window is flagged before anything runs.</li>
         <li>Type <code>RESTORE</code> to confirm, then choose <strong>Recover database</strong>.</li>
+        <li>The dialog follows the restore step by step: waiting for a slot, checking backups, downloading, replaying changes, extracting your database, writing it back. It usually takes several minutes. You can close the dialog; the restore keeps running and the panel shows its status, also after a reload.</li>
       </ol>
+      <p>
+        Restores run in the background, one at a time across the platform, so a restore never
+        slows down other databases. One restore per project can be active at once, and a project
+        can start up to three per hour. The final write into your database is all or nothing:
+        if it fails, or the restore runs past its time limit, it is rolled back and your data stays
+        as it was. A failed restore says why in the dialog and in the project activity log.
+      </p>
+      <h3>Over the API</h3>
+      <p>
+        <code>POST /api/projects/&#123;id&#125;/pitr/restore</code> with{" "}
+        <code>&#123; &quot;targetTime&quot;: &quot;2026-11-20T14:31:00Z&quot; &#125;</code> answers{" "}
+        <code>202</code> with a job (<code>jobId</code>, <code>status</code>, <code>phase</code>,{" "}
+        <code>message</code>). Poll <code>GET /api/projects/&#123;id&#125;/pitr/restore/&#123;jobId&#125;</code>{" "}
+        until <code>status</code> is <code>succeeded</code> or <code>failed</code>;{" "}
+        <code>GET /api/projects/&#123;id&#125;/pitr/status</code> returns the newest job. A second
+        restore while one is active answers <code>409</code> with the active job id; more than three
+        per hour answers <code>429</code>. Tokens need <code>backups:write</code> to start a restore and{" "}
+        <code>backups:read</code> to read its status.
+      </p>
       <p>
         Exact recovery reaches back to the start of the continuous archive. For an earlier time the
         database is restored to the nearest snapshot instead, and the panel says so. A new project

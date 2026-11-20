@@ -42,6 +42,7 @@ import { FoldersTagsService } from './folders-tags.service';
 import { ProjectActivityModule } from './project-activity.module';
 import { ProjectExportService } from './project-export.service';
 import { ProjectPitrService } from './project-pitr.service';
+import { PitrRestoreJobsService } from './pitr-restore-jobs.service';
 import { ProjectSleepService } from './project-sleep.service';
 import { PlatformAlertsModule } from '../platform-alerts/platform-alerts.module';
 import { ProjectArchiveImportService } from './project-archive-import.service';
@@ -107,6 +108,7 @@ import { ProjectBranchesController } from './branches/project-branches.controlle
     SupabaseImportKeysService,
     ProjectExportService,
     ProjectPitrService,
+    PitrRestoreJobsService,
     ProjectSleepService,
     ProjectArchiveImportService,
     ImportProcessor,

@@ -17,6 +17,7 @@ export const ProjectActivityKind = {
   PROJECT_DEACTIVATED: 'project.deactivated',
   PROJECT_REACTIVATED: 'project.reactivated',
   PROJECT_PITR_RESTORED: 'project.pitr_restored',
+  PROJECT_PITR_FAILED: 'project.pitr_failed',
   PROJECT_PERMANENT_DELETE: 'project.permanent_delete',
   PROJECT_MOVED_TEAM: 'project.moved_team',
   SQL_EXECUTED: 'sql.executed',

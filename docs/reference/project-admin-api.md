@@ -416,7 +416,9 @@ belongs to the project and that the caller is a member of it.
 | GET | `/api/projects/:id/backups` | session · token `backups:read` | stored archives: manual exports and nightly backups |
 | POST | `/api/projects/:id/backups/restore` | session · token `backups:write` | restore a stored archive into this or a new project (the dashboard defaults to a new project; overwriting asks for the project name) |
 | GET | `/api/projects/:id/pitr/window` | session · token `backups:read` | the range of instants the database can be recovered to |
-| POST | `/api/projects/:id/pitr/restore` | session · token `backups:write` | `{ targetTime }` — recover the database to that instant |
+| POST | `/api/projects/:id/pitr/restore` | session · token `backups:write` | `{ targetTime }` — start recovering the database to that instant → 202 job |
+| GET | `/api/projects/:id/pitr/restore/:jobId` | session · token `backups:read` | one restore job: status, phase, message, outcome |
+| GET | `/api/projects/:id/pitr/status` | session · token `backups:read` | the project's newest restore job, `{ job: … \| null }` |
 | POST | `/api/projects/pitr/run-base-backup` | root | take a physical base backup of the whole cluster now |
 
 **Export.** Each part defaults to included. The archive is kept for 24 hours; download it before
@@ -437,9 +439,12 @@ answer above.
 
 **Point in time.** `GET …/pitr/window` answers `{ earliest, latest, continuousFrom, baseBackupCount,
 walSegmentCount, retentionDays }`. `POST …/pitr/restore` takes an ISO timestamp that is not in the
-future and answers `{ restoredTo, exact: true, message }` when write-ahead log could be replayed to
-that instant, or `{ restoredTo, exact: false, baseBackupTaken, message }` when only the nearest
-snapshot was available. How recovery works and what it covers:
+future and answers **202** with a job `{ jobId, status: "queued", phase, message, targetTime, queuePosition, … }`;
+the restore runs in the background. Poll `GET …/pitr/restore/:jobId` until `status` is `succeeded`
+(`restoredTo`, `exact: true` for a write-ahead-log replay, `exact: false` with an explanatory `message`
+when only the nearest snapshot was available) or `failed` (`message` says why and whether the
+database changed). One restore per project at a time (409, `details.jobId` names the active one), one
+running platform-wide, at most 3 per project per hour (429). How recovery works and what it covers:
 [../POINT_IN_TIME_RECOVERY.md](../POINT_IN_TIME_RECOVERY.md).
 
 ## Backup health, restore verification and off-site copies
