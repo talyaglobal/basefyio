@@ -84,6 +84,20 @@ export default () => {
       /** Set false on stores without PutBucketPolicy (Cloudflare R2). */
       bucketPolicies: process.env.S3_BUCKET_POLICIES !== 'false',
     },
+    /**
+     * Project-scoped S3 access keys (feedback #225): MinIO IAM users limited to a project's
+     * buckets. Off by default; only with STORAGE_DRIVER=minio.
+     */
+    s3Keys: {
+      enabled: process.env.S3_KEYS_ENABLED === 'true',
+      /** Comma-separated project ids or slugs; empty = every project once enabled. */
+      projects: process.env.S3_KEYS_PROJECTS || '',
+      /** Endpoint customers configure; empty = derived from MINIO_PUBLIC_*. */
+      publicEndpoint: process.env.S3_KEYS_PUBLIC_ENDPOINT || '',
+      /** Region the clients sign with; MinIO's default when MINIO_REGION is unset. */
+      region: process.env.S3_KEYS_REGION || 'us-east-1',
+      maxPerProject: parseInt(process.env.S3_KEYS_MAX_PER_PROJECT || '5', 10),
+    },
     /** Single-request upload ceiling in MB; the code default is 500. */
     maxUploadMb: parseInt(process.env.STORAGE_MAX_UPLOAD_MB || '500', 10),
     /** Disk spool for uploads in flight; empty = <os tmp>/basefyio-uploads */

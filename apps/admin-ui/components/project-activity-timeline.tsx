@@ -37,6 +37,8 @@ const KIND_LABELS: Record<string, string> = {
   'storage.bucket_deleted': 'Storage',
   'storage.object_uploaded': 'Storage',
   'storage.object_deleted': 'Storage',
+  'storage.s3_key_created': 'Storage',
+  'storage.s3_key_revoked': 'Storage',
   'auth.user_created': 'Auth',
   'auth.user_updated': 'Auth',
   'auth.user_password_reset': 'Auth',

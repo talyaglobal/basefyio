@@ -66,6 +66,18 @@ const MARKETING_ASSETS_BUCKET = 'bf-platform-marketing';
 /** Buckets the platform itself owns, as opposed to customer projects. */
 export const PLATFORM_BUCKETS: readonly string[] = [FEEDBACK_ATTACHMENTS_BUCKET, MARKETING_ASSETS_BUCKET];
 
+/**
+ * Told about bucket changes, so S3 key policies follow the project's buckets (feedback #225).
+ * `beforeDelete` runs before the bucket is emptied and may refuse the delete by throwing: a key
+ * policy that still named a deleted bucket could later reach a re-created bucket of the same
+ * physical name. `afterCreate` failures are logged; the new bucket is then simply not reachable
+ * by keys until the next policy write.
+ */
+export interface BucketChangeListener {
+  beforeDelete(projectId: string, physical: string): Promise<void>;
+  afterCreate(projectId: string, physical: string): Promise<void>;
+}
+
 const UNSUPPORTED_BUCKET_POLICIES =
   'This object store does not support anonymous bucket policies. Keep the bucket private and serve files through signed URLs or the download route.';
 
@@ -79,6 +91,7 @@ export class StorageService {
   private publicSsl: boolean;
   /** Driver, addressing style and capabilities of the configured store. */
   private readonly caps: StorageClientSet;
+  private readonly bucketListeners: BucketChangeListener[] = [];
 
   constructor(
     private readonly prisma: PrismaService,
@@ -97,6 +110,31 @@ export class StorageService {
     this.publicEndpoint = set.publicEndpoint;
     this.publicPort = set.publicPort;
     this.publicSsl = set.publicSsl;
+  }
+
+  /** Register for bucket create/delete events (S3 key policies). */
+  addBucketListener(listener: BucketChangeListener): void {
+    this.bucketListeners.push(listener);
+  }
+
+  /** `minio` or `s3`. */
+  get driver(): StorageClientSet['driver'] {
+    return this.caps.driver;
+  }
+
+  /** Physical names of platform-owned buckets start with this; no project may ever be granted one. */
+  get platformBucketPrefix(): string {
+    return `${this.caps.bucketPrefix}platform-`;
+  }
+
+  /** The physical prefix of a project's buckets, trailing hyphen included. */
+  projectBucketPrefix(project: { slug: string; storagePrefix?: string | null }): string {
+    return this.minioProjectPrefix(project.storagePrefix ?? project.slug);
+  }
+
+  /** Every physical bucket in the store. */
+  async listPhysicalBucketNames(): Promise<string[]> {
+    return (await this.client.listBuckets()).map((b) => b.name);
   }
 
   private minioBucketName(projectSlug: string, bucketName: string): string {
@@ -234,6 +272,20 @@ export class StorageService {
     const exists = await this.client.bucketExists(minioBucket);
     if (exists) throw new ConflictException(`Bucket "${name}" already exists`);
 
+    // `bf-a-` + `b-x` is the same physical name as `bf-a-b-` + `x`: a name that the listing
+    // would attribute to another project (longer matching prefix) is refused, so a new bucket
+    // never lands in another project's namespace.
+    const activeProjects = await this.prisma.project.findMany({
+      where: { status: 'ACTIVE' },
+      select: { id: true, slug: true, storagePrefix: true },
+    });
+    const owner = this.resolveMinioBucketOwner(minioBucket, activeProjects);
+    if (owner && owner.id !== project.id) {
+      throw new ConflictException(
+        `Bucket name "${name}" overlaps another project's storage namespace. Choose a different name.`,
+      );
+    }
+
     // Checked before the bucket exists, so a store without bucket policies
     // does not end up with a private bucket the caller believes is public.
     if (isPublic) this.assertBucketPoliciesSupported();
@@ -245,7 +297,13 @@ export class StorageService {
     }
 
     this.logger.log(`Bucket "${minioBucket}" created (public=${isPublic})`);
+    await this.recordBucketOwner(minioBucket, projectId);
     await this.catalog?.upsertBucket(projectId, { name, public: isPublic, owner: userId });
+    for (const l of this.bucketListeners) {
+      await l.afterCreate(projectId, minioBucket).catch((err: any) =>
+        this.logger.warn(`Bucket listener after create of ${minioBucket} failed: ${err?.message ?? err}`),
+      );
+    }
 
     return {
       id: minioBucket,
@@ -264,6 +322,9 @@ export class StorageService {
     const exists = await this.client.bucketExists(minioBucket);
     if (!exists) throw new NotFoundException(`Bucket "${bucketName}" not found`);
 
+    // S3 key policies drop the bucket first; a failure refuses the delete (see BucketChangeListener).
+    for (const l of this.bucketListeners) await l.beforeDelete(projectId, minioBucket);
+
     // Remove all objects first
     const objects = await this.listAllObjects(minioBucket);
     if (objects.length > 0) {
@@ -272,8 +333,21 @@ export class StorageService {
 
     await this.client.removeBucket(minioBucket);
     this.logger.log(`Bucket "${minioBucket}" deleted`);
+    await this.prisma.storageBucketOwner
+      ?.deleteMany({ where: { physicalName: minioBucket, projectId } })
+      .catch((err: any) => this.logger.warn(`Bucket owner record of ${minioBucket} not removed: ${err?.message ?? err}`));
     await this.catalog?.deleteBucket(projectId, bucketName);
     return { message: `Bucket "${bucketName}" deleted` };
+  }
+
+  /**
+   * Who created a physical bucket. Bookkeeping for S3 key policies: a missing record only makes
+   * an ambiguous bucket unreachable by keys, so a failed write is logged, not thrown.
+   */
+  private async recordBucketOwner(physicalName: string, projectId: string): Promise<void> {
+    await this.prisma.storageBucketOwner
+      ?.upsert({ where: { physicalName }, create: { physicalName, projectId }, update: { projectId } })
+      .catch((err: any) => this.logger.warn(`Bucket owner record of ${physicalName} not written: ${err?.message ?? err}`));
   }
 
   /**

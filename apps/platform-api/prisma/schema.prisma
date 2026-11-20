@@ -2433,3 +2433,38 @@ model ProjectSecretKey {
   @@index([projectId])
   @@map("project_secret_keys")
 }
+
+/// S3 access keys of a project (feedback #225). Each row is a MinIO IAM user whose canned policy
+/// lists the project's buckets by exact name. The secret is never stored here (not even hashed):
+/// MinIO holds it, the platform returns it once at creation. No foreign key to `projects` on
+/// purpose: when a project row is hard-deleted the row stays, so the sweeper can still find and
+/// remove the MinIO user.
+model ProjectS3Key {
+  id          String    @id @default(uuid())
+  projectId   String    @map("project_id")
+  name        String
+  /// The MinIO access key id (`BFS3…`), safe to show.
+  accessKeyId String    @unique @map("access_key_id")
+  /// Last four characters of the secret, to recognise a key.
+  secretLast4 String    @map("secret_last4")
+  createdBy   String?   @map("created_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  revokedAt   DateTime? @map("revoked_at")
+  revokedBy   String?   @map("revoked_by")
+
+  @@index([projectId])
+  @@map("project_s3_keys")
+}
+
+/// Recorded owner of a physical bucket. Physical names (`bf-<prefix>-<name>`) can collide across
+/// projects whose prefixes overlap (`bf-a-` + `b-x` = `bf-a-b-` + `x`), so S3 key policies grant a
+/// bucket only on a record or when exactly one project prefix matches. No foreign key: a record of
+/// a deleted project keeps its bucket away from every other project.
+model StorageBucketOwner {
+  physicalName String   @id @map("physical_name")
+  projectId    String   @map("project_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([projectId])
+  @@map("storage_bucket_owners")
+}
