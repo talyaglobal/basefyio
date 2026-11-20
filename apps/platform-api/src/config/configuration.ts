@@ -1,5 +1,6 @@
 import { resolveMailBaseUrl } from '../mail-provider-env';
 import { aiEnabled } from '../common/utils/ai-switch';
+import { resolveMessageBusUrl, resolveRedisUrls } from './connection-urls';
 
 /** An optional integer env value: unset or blank means "not configured". */
 const optionalInt = (value: string | undefined): number | undefined => {
@@ -157,18 +158,19 @@ export default () => {
   publicApiUrl: process.env.PUBLIC_API_URL || 'http://localhost:4000',
   websiteUrl: process.env.WEBSITE_URL || 'http://localhost:3002',
 
-  redis: {
-    url: process.env.REDIS_URL || 'redis://localhost:6379',
-    // State that must never be evicted — queue bookkeeping, the cron lease,
-    // usage counters — lives on a `noeviction` instance when one is
-    // configured, and on the cache instance otherwise (one Redis still works).
-    queueUrl: process.env.REDIS_QUEUE_URL || process.env.REDIS_URL || 'redis://localhost:6379',
-  },
+  // State that must never be evicted — queue bookkeeping, the cron lease,
+  // usage counters — lives on a `noeviction` instance when one is configured
+  // (REDIS_QUEUE_URL), and on the cache instance otherwise (one Redis still
+  // works). REDIS_PASSWORD / REDIS_QUEUE_PASSWORD are filled into the URLs
+  // unless a URL already carries a password (see connection-urls.ts).
+  redis: resolveRedisUrls(process.env),
 
   // The message bus (RabbitMQ behind the MessageBus port). Unset = inert: every
   // producer is a no-op that says so, every consumer stays registered but idle.
   messageBus: {
-    url: process.env.MESSAGE_BUS_URL || '',
+    // MESSAGE_BUS_URL is the switch; RABBITMQ_USER / RABBITMQ_PASSWORD are
+    // filled in when the URL names no credentials.
+    url: resolveMessageBusUrl(process.env),
     // all | none | comma-separated queue names this process consumes.
     consumers: process.env.BUS_CONSUMERS || 'all',
   },
@@ -342,6 +344,13 @@ export default () => {
   },
 
   docker: {
+    /**
+     * DOCKER_HOST: where the Engine API is reached. The compose files point it
+     * at the least-privilege proxy (tcp://docker-proxy:2375); empty or
+     * unix:///path means a mounted socket (DOCKER_SOCKET_PATH). Every client is
+     * built through common/docker/docker-connection.ts.
+     */
+    host: process.env.DOCKER_HOST || '',
     socketPath: process.env.DOCKER_SOCKET_PATH || '/var/run/docker.sock',
     network: process.env.DOCKER_NETWORK || 'v0-kolaybase_default',
     pgImage: process.env.DOCKER_PG_IMAGE || 'pgvector/pgvector:pg16',

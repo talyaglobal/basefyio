@@ -17,6 +17,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import * as Docker from 'dockerode';
+import { dockerConnectionFromEnv, dockerodeOptions } from '../../common/docker/docker-connection';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import {
@@ -606,7 +607,7 @@ export class ProjectPitrService {
     } catch {
       return;
     }
-    const docker = new Docker({ socketPath: '/var/run/docker.sock' });
+    const docker = new Docker(dockerodeOptions(dockerConnectionFromEnv()));
     for (const entry of entries) {
       if (!entry.startsWith('restore-')) continue;
       const runDir = join(SCRATCH_ROOT, entry);
@@ -691,7 +692,7 @@ export class ProjectPitrService {
     const dumpPath = join(runDir, 'recovered.dump');
     const fetchScript = join(runDir, 'fetch-wal.sh');
     const containerName = `bf-pitr-${runId}`;
-    const docker = new Docker({ socketPath: '/var/run/docker.sock' });
+    const docker = new Docker(dockerodeOptions(dockerConnectionFromEnv()));
     let container: Docker.Container | null = null;
 
     try {

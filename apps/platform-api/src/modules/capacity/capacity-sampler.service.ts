@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
 import * as Docker from 'dockerode';
+import { dockerConnectionFromConfig, dockerodeOptions } from '../../common/docker/docker-connection';
 import { readFile, statfs } from 'fs/promises';
 import { Pool } from 'pg';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -88,8 +89,7 @@ export class CapacitySamplerService {
 
   private getDocker(): Docker {
     if (!this.docker) {
-      const socketPath = this.config.get<string>('docker.socketPath') || '/var/run/docker.sock';
-      this.docker = new Docker({ socketPath });
+      this.docker = new Docker(dockerodeOptions(dockerConnectionFromConfig(this.config)));
     }
     return this.docker;
   }

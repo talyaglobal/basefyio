@@ -18,6 +18,7 @@ import { Pool } from 'pg';
 import { randomUUID } from 'crypto';
 import { Readable } from 'stream';
 import Docker = require('dockerode');
+import { dockerConnectionFromEnv, dockerodeOptions } from '../../common/docker/docker-connection';
 import { readFile, unlink } from 'fs/promises';
 import { join } from 'path';
 import { ProjectsService } from './projects.service';
@@ -1966,7 +1967,7 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     const fileName = `schema-${runId}.sql`;
     const hostPath = join(SupabaseImportService.SCHEMA_SCRATCH_ROOT, fileName);
     const image = `postgres:${majorVersion}-alpine`;
-    const docker = new Docker({ socketPath: '/var/run/docker.sock' });
+    const docker = new Docker(dockerodeOptions(dockerConnectionFromEnv()));
     let container: Docker.Container | null = null;
     // Which step was underway when something threw, so the reason names it.
     let step = `pulling ${image}`;
