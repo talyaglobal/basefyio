@@ -1,0 +1,173 @@
+# Builds the three basefyio application images (api, ui, website) for
+# ts_cluster, the Hetzner k3s cluster where basefyio also runs. ts_cluster pulls
+# from ghcr.io/talyaglobal; the production compose host keeps building its own
+# images on the server under GHCR_USER (build-and-push.yml). This workflow
+# deploys nothing: adopting a build is an explicit image change in ts_cluster
+# (projects/basefyio), so a push here never restarts a pod by itself.
+#
+# Tags: every build pushes ghcr.io/talyaglobal/basefyio-<name>:<40-char sha of
+# the built commit>. Only a build of production also pushes the moving :latest
+# tag, so unreviewed development code can never become :latest. ts_cluster
+# should pin the sha tag.
+#
+# The ui image inlines the Stripe publishable key at build time. It comes from
+# the repository SECRET NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY, the one copy on
+# GitHub (do not add a variable of the same name next to it). It must belong to
+# the same live Stripe account and mode as the STRIPE_SECRET_KEY the API
+# charges with. The secret predates this workflow, so re-set it from
+# .env.production on the compose host before the first ui build (pipe the
+# value straight into `gh secret set`, never print it). Never move a Stripe key
+# on one side only: when the secret key changes, update this secret in the same
+# change and rebuild the ui image. The ui job refuses to build without a pk_
+# key, because such an image cannot take a card; it prints only the key's mode.
+# The release stage comes from the RELEASE_STAGE variable (default beta).
+#
+# Run it by hand (the workflow file lives on development; ref picks what is
+# built, images an optional subset):
+#   gh workflow run build-app-images.yml --ref development -f ref=production
+#   gh workflow run build-app-images.yml --ref development -f ref=production -f images=api,website
+#
+# Actions are pinned by commit SHA (the job holds packages: write); the release
+# is in the trailing comment. Same pins as build-cnpg-image.yml.
+name: Build app images (ts_cluster)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to build (branch, tag or sha)
+        type: string
+        default: production
+      images:
+        description: Comma-separated subset of api,ui,website to build
+        type: string
+        default: api,ui,website
+  push:
+    branches: [production]
+    paths:
+      - 'apps/**'
+      - 'packages/**'
+      - '.github/workflows/build-app-images.yml'
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  # Every production build (push, or dispatch with ref production or
+  # refs/heads/production) shares one group, so two runs never race on :latest.
+  group: build-app-images-${{ (inputs.ref == 'production' || inputs.ref == 'refs/heads/production' || github.event_name == 'push' && github.ref == 'refs/heads/production') && 'production' || (inputs.ref || github.ref) }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      built_sha: ${{ steps.sha.outputs.built_sha }}
+      is_production: ${{ steps.sha.outputs.is_production }}
+      images: ${{ steps.sha.outputs.images }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # A push builds exactly the pushed commit, not whatever the branch
+          # points to when the job starts.
+          ref: ${{ github.event_name == 'push' && github.sha || inputs.ref }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Resolve the built commit
+        id: sha
+        env:
+          IS_PRODUCTION: ${{ inputs.ref == 'production' || inputs.ref == 'refs/heads/production' || (github.event_name == 'push' && github.ref == 'refs/heads/production') }}
+          # A push builds all three; a dispatch may build a subset.
+          IMAGES: ${{ inputs.images || 'api,ui,website' }}
+        run: |
+          SHA=$(git rev-parse HEAD)
+          if ! printf '%s' "$SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "::error::could not resolve a 40-character commit sha (got '$SHA')"
+            exit 1
+          fi
+          if ! printf '%s' "$IMAGES" | grep -Eq '^(api|ui|website)(,(api|ui|website))*$'; then
+            echo "::error::images must be a comma-separated subset of api,ui,website (got '$IMAGES')"
+            exit 1
+          fi
+          echo "built_sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "is_production=$IS_PRODUCTION" >> "$GITHUB_OUTPUT"
+          echo "images=$IMAGES" >> "$GITHUB_OUTPUT"
+          echo "Building $SHA (production: $IS_PRODUCTION, images: $IMAGES)"
+
+  build:
+    needs: resolve
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: api
+            context: .
+            file: apps/platform-api/Dockerfile
+            build_args: ''
+          - name: ui
+            context: apps/admin-ui
+            file: apps/admin-ui/Dockerfile
+            # The publishable key is added in the build step: the secrets
+            # context is not available inside strategy.matrix.
+            build_args: |
+              NEXT_PUBLIC_RELEASE_STAGE=${{ vars.RELEASE_STAGE || 'beta' }}
+          - name: website
+            context: .
+            file: apps/website/Dockerfile
+            build_args: |
+              NEXT_PUBLIC_SITE_URL=https://basefyio.com
+              NEXT_PUBLIC_RELEASE_STAGE=${{ vars.RELEASE_STAGE || 'beta' }}
+    # Matrix entries outside the requested subset skip every step (a job-level
+    # `if` cannot read the matrix context).
+    steps:
+      - name: Stripe publishable key must be set
+        if: matrix.name == 'ui' && contains(needs.resolve.outputs.images, matrix.name)
+        env:
+          PK: ${{ secrets.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY }}
+        run: |
+          case "$PK" in
+            pk_*) echo "Stripe publishable key mode: $(printf '%s' "$PK" | cut -d_ -f2)" ;;
+            '') echo "::error::repository secret NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY is empty; a ui image without the publishable key cannot take a card"; exit 1 ;;
+            *) echo "::error::repository secret NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY does not start with pk_; a ui image with it cannot take a card"; exit 1 ;;
+          esac
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        if: contains(needs.resolve.outputs.images, matrix.name)
+        with:
+          ref: ${{ needs.resolve.outputs.built_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+        if: contains(needs.resolve.outputs.images, matrix.name)
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        if: contains(needs.resolve.outputs.images, matrix.name)
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        if: contains(needs.resolve.outputs.images, matrix.name)
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            ${{ matrix.build_args }}
+            ${{ matrix.name == 'ui' && format('NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY={0}', secrets.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY) || '' }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+          labels: |
+            org.opencontainers.image.revision=${{ needs.resolve.outputs.built_sha }}
+            org.opencontainers.image.source=https://github.com/talyaglobal/basefyio
+          # GITHUB_TOKEN can push only to this repository's owner (talyaglobal).
+          # ts_cluster pins the sha tag; the moving tag follows production only.
+          tags: |
+            ghcr.io/talyaglobal/basefyio-${{ matrix.name }}:${{ needs.resolve.outputs.built_sha }}
+            ${{ needs.resolve.outputs.is_production == 'true' && format('ghcr.io/talyaglobal/basefyio-{0}:latest', matrix.name) || '' }}
