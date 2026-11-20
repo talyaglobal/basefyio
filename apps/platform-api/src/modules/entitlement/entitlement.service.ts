@@ -8,6 +8,10 @@ import { EntitlementKey } from './entitlement-key';
  * plan explicitly sets it to `false`, so introducing this never breaks an
  * existing project/plan.
  */
+/** Plans that include the AI assistant, lowest first. Anything above Pro belongs here too. */
+export const AI_PLAN_NAMES = ['pro', 'business', 'enterprise'];
+export const AI_PLAN_MESSAGE = 'The basefyio AI assistant is available on the Pro plan and above. Upgrade your team plan under Billing to use it.';
+
 @Injectable()
 export class EntitlementService {
   constructor(private readonly prisma: PrismaService) {}
@@ -39,6 +43,33 @@ export class EntitlementService {
     if (features === null) throw new NotFoundException('Project not found');
     if (features[key] === false) {
       throw new ForbiddenException(`Your plan does not include this feature (${key})`);
+    }
+  }
+
+  /**
+   * The basefyio AI assistant calls a paid model, so it is opt-in by plan
+   * rather than default-allow: Pro and above, or a plan whose `features`
+   * sets `ai: true`. `ai: false` switches it off on any plan. A team
+   * without a subscription row counts as Free.
+   */
+  async teamCanUseAi(teamId: string | null | undefined): Promise<boolean> {
+    if (!teamId) return false;
+    const sub = await this.prisma.subscription.findUnique({
+      where: { teamId },
+      select: { plan: { select: { name: true, features: true } } },
+    });
+    const plan = sub?.plan;
+    if (!plan) return false;
+    const features = plan.features && typeof plan.features === 'object' ? (plan.features as Record<string, unknown>) : {};
+    if (features.ai === false) return false;
+    if (features.ai === true) return true;
+    return AI_PLAN_NAMES.includes(plan.name.toLowerCase());
+  }
+
+  /** Throws 403 with an upgrade message when the team's plan does not include the AI assistant. */
+  async assertTeamCanUseAi(teamId: string | null | undefined): Promise<void> {
+    if (!(await this.teamCanUseAi(teamId))) {
+      throw new ForbiddenException(AI_PLAN_MESSAGE);
     }
   }
 

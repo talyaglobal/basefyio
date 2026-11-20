@@ -41,6 +41,13 @@ export default function AiDocs() {
         <li><strong>API Reference</strong> — endpoints, your keys and a quick start, ready to copy.</li>
       </ul>
 
+      <h3>The basefyio AI assistant</h3>
+      <p>
+        The assistant panel in the dashboard (ask, plan and agent modes) is included in the <strong>Pro plan and above</strong>.
+        On the Free plan, requests answer <code>403</code> with an upgrade message. The plan that counts is the team of the project you
+        have open, otherwise your active team. Embeddings and retrieval over your own documents are not part of this limit.
+      </p>
+
       <h2>Store and search text</h2>
       <p>
         Public routes live under <code>{`${apiUrl}/api/rest/v1/embeddings`}</code> and take your

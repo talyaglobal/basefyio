@@ -54,3 +54,34 @@ describe('EntitlementService', () => {
     expect(Object.keys(map).sort()).toEqual(Object.values(EntitlementKey).sort());
   });
 });
+
+describe('EntitlementService — AI assistant (Pro and above)', () => {
+  const plan = (name: string, features: any = null) => ({ plan: { name, features } });
+  const svc = (sub: any) => new EntitlementService(makePrisma(null, sub));
+
+  it.each([
+    ['free', null, false],
+    ['legacy', { grandfathered: true }, false],
+    ['pro', { dailyBackups: true }, true],
+    ['Business', null, true],
+    ['enterprise', null, true],
+  ])('plan %s → %s', async (name, features, allowed) => {
+    await expect(svc(plan(name as string, features)).teamCanUseAi('t1')).resolves.toBe(allowed);
+  });
+
+  it('lets a plan opt in with ai:true and switch off with ai:false', async () => {
+    await expect(svc(plan('free', { ai: true })).teamCanUseAi('t1')).resolves.toBe(true);
+    await expect(svc(plan('business', { ai: false })).teamCanUseAi('t1')).resolves.toBe(false);
+  });
+
+  it('refuses a team with no subscription or no team', async () => {
+    await expect(svc(null).teamCanUseAi('t1')).resolves.toBe(false);
+    await expect(svc(plan('pro')).teamCanUseAi(null)).resolves.toBe(false);
+  });
+
+  it('assert throws 403 with the upgrade message on Free', async () => {
+    await expect(svc(plan('free')).assertTeamCanUseAi('t1')).rejects.toThrow(ForbiddenException);
+    await expect(svc(plan('free')).assertTeamCanUseAi('t1')).rejects.toThrow(/Pro plan and above/);
+    await expect(svc(plan('pro')).assertTeamCanUseAi('t1')).resolves.toBeUndefined();
+  });
+});

@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RagService } from './rag.service';
+import { EntitlementService } from '../entitlement/entitlement.service';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -29,6 +30,7 @@ export class AiService {
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
     private readonly ragService: RagService,
+    private readonly entitlements: EntitlementService,
   ) {
     const apiKey = config.get<string>('openai.apiKey');
     if (apiKey) {
@@ -56,6 +58,23 @@ export class AiService {
       select: { activeTeamId: true },
     });
     const activeTeamId = user?.activeTeamId || null;
+
+    // Paid-model feature: Pro and above. The plan that counts is the team of
+    // the project the caller has open (when they belong to it), otherwise the
+    // active team.
+    let billingTeamId = activeTeamId;
+    if (context.projectId) {
+      const openProject = await this.prisma.project.findFirst({
+        where: {
+          id: context.projectId,
+          status: { not: 'DELETED' },
+          team: { members: { some: { userId } } },
+        },
+        select: { teamId: true },
+      });
+      if (openProject) billingTeamId = openProject.teamId;
+    }
+    await this.entitlements.assertTeamCanUseAi(billingTeamId);
     const teamProjects = activeTeamId
       ? await this.prisma.project.findMany({
           where: { teamId: activeTeamId, status: { not: 'DELETED' } },

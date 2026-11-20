@@ -577,7 +577,8 @@ export function AiAssistant() {
         }
       }
     } catch (err: any) {
-      toast.error('AI error: ' + err.message);
+      // The plan gate answers with its own upgrade message; show it as is.
+      toast.error(/Pro plan and above/.test(String(err?.message)) ? err.message : 'AI error: ' + err.message);
     } finally { setLoading(false); setAgentStatus(null); }
   }, [loading, loadProjectContext, mode, runAgentLoop, setMessages]);
 
