@@ -102,6 +102,10 @@ are off unless set to exactly `true`.
 | `POSTGRES_PUBLIC_HOST` | unset → the pooler's external host | yes (`localhost`) / no | Host printed in a project's **direct** (non-pooled) connection string. |
 | `POSTGRES_PUBLIC_PORT` | unset → the pooler's external port | yes (`5433`) / no | Port printed in that string. |
 
+The production file runs the cluster image as `ghcr.io/${GHCR_OWNER}/basefyio-postgres:latest`; a digest pin is prepared next
+to that line but stays commented out until a planned maintenance window, because changing the reference recreates
+Postgres. See [image pinning](../ops/image-pinning.md).
+
 ## Keycloak (identity)
 
 | Variable | Default | Compose (dev / prod) | Purpose |
@@ -136,6 +140,7 @@ Behaviour is described in [storage-api.md](./storage-api.md).
 | `MINIO_PUBLIC_ENDPOINT` | `localhost` | yes / derived `storage.${DOMAIN}` | Host used in public object URLs and presigned URLs. |
 | `MINIO_PUBLIC_PORT` | `MINIO_PORT`, else `9000` | yes / fixed `443` | Port in those URLs. |
 | `MINIO_PUBLIC_SSL` | `false` | no / fixed `true` | `https` in those URLs. |
+| `MINIO_IMAGE` | `minio/minio:latest` / `ghcr.io/${GHCR_OWNER}/basefyio-minio:RELEASE.2025-09-07T16-13-09Z` | compose / compose | Image of the bundled MinIO. The production file pins the release basefyio runs, mirrored to its registry (needs the registry login the deploy already performs), because `minio/minio` is no longer served anonymously. Changing it recreates the `minio` container. See [image pinning](../ops/image-pinning.md). |
 | `STORAGE_DRIVER` | `minio` | no / no | `minio` keeps the `MINIO_*` wiring; `s3` uses the `S3_*` settings below. |
 | `STORAGE_BUCKET_PREFIX` | `bf-` | no / no | Prefix of every physical bucket name. Change only on a fresh install. |
 | `S3_ENDPOINT` | empty | no / no | URL or `host[:port]` of the S3-compatible store (`STORAGE_DRIVER=s3`). |
@@ -192,6 +197,7 @@ Customer connections go through PgBouncer; the API writes its `pgbouncer.ini` an
 
 | Variable | Default | Compose (dev / prod) | Purpose |
 |---|---|---|---|
+| `PGBOUNCER_IMAGE` | `edoburu/pgbouncer:latest` / `edoburu/pgbouncer:v1.25.1-p0@sha256:4a8371e7…` | compose / compose | Image of the pooler. The production file pins tag and digest; changing it recreates the `pgbouncer` container, which drops every pooled client connection once. See [image pinning](../ops/image-pinning.md). |
 | `PGBOUNCER_HOST` | `pgbouncer` | fixed / fixed | Pooler host as the API reaches it (admin console, `RELOAD`). |
 | `PGBOUNCER_PORT` | `6432` | fixed `6432` / fixed `6432` | Its port. In both files `PGBOUNCER_PORT` in `.env` is also the host port the pooler is published on. |
 | `PGBOUNCER_EXTERNAL_HOST` | `localhost` | yes / derived `db.${DOMAIN}` | Host printed in a project's pooled connection string. |
@@ -536,4 +542,4 @@ Source: `apps/platform-api/src/config/configuration.ts`, `apps/platform-api/src/
 | `BASEFYIO_DOCSTORE` | `yes` or `no` (then `DATA_ENGINE_PROVIDER=postgres`) |
 | `BASEFYIO_AI`, `BASEFYIO_MAIL`, `BASEFYIO_OFFLINE`, `BASEFYIO_PIN_COMPONENTS` | AI on/off (`AI_ENABLED`), `resend`/`smtp` (`MAIL_TRANSPORT`), offline host, component pins |
 | `BASEFYIO_COMPOSE_FILES`, `BASEFYIO_PROJECT` | the overlays in use and the compose project name |
-| `POSTGRES_IMAGE`, `MINIO_IMAGE`, `PGBOUNCER_IMAGE`, `REDIS_IMAGE`, `RABBITMQ_IMAGE`, `MONGO_IMAGE`, `TRAEFIK_IMAGE`, `CURL_IMAGE`, `COUCHBASE_IMAGE`, `COUCHDB_IMAGE` | component images; each defaults in the compose files to the historical floating tag, and the installer pins them to `deploy/components.env` on a new installation |
+| `POSTGRES_IMAGE`, `MINIO_IMAGE`, `PGBOUNCER_IMAGE`, `REDIS_IMAGE`, `RABBITMQ_IMAGE`, `MONGO_IMAGE`, `TRAEFIK_IMAGE`, `CURL_IMAGE`, `COUCHBASE_IMAGE`, `COUCHDB_IMAGE` | component images; each defaults in the compose files to the historical floating tag (except `MINIO_IMAGE` and `PGBOUNCER_IMAGE` in `docker-compose.prod.yml`, which are pinned), and the installer pins them to `deploy/components.env` on a new installation |
