@@ -77,6 +77,9 @@ import type {
   SavedDataQueryItem,
   Team,
   TeamGitHubStatus,
+  ComputeOptions,
+  ComputeTierId,
+  ProjectDataAccess,
   TeamInvite,
   TeamMember,
   TeamVercelStatus,
@@ -914,6 +917,11 @@ export const api = {
       description?: string;
       teamId: string;
       databaseType?: 'RELATIONAL' | 'NOSQL';
+      /** Omitted: the server generates one. */
+      dbPassword?: string;
+      computeTier?: ComputeTierId;
+      region?: 'eu-central';
+      dataAccess?: ProjectDataAccess;
     }) {
       return request<Project>('/projects', {
         method: 'POST',
@@ -988,6 +996,15 @@ export const api = {
       return request<{ message: string }>(`/projects/${projectId}/move-to-team`, {
         method: 'POST',
         body: JSON.stringify({ teamId: targetTeamId }),
+      });
+    },
+    computeOptions(teamId: string) {
+      return request<ComputeOptions>(`/projects/compute-options?teamId=${encodeURIComponent(teamId)}`);
+    },
+    updateDataAccess(projectId: string, data: Partial<ProjectDataAccess>) {
+      return request<ProjectDataAccess>(`/projects/${projectId}/data-access`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
       });
     },
     setMaxRowsPerTable(projectId: string, maxRowsPerTable: number) {
