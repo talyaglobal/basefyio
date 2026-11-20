@@ -18,7 +18,7 @@ import { ProjectsService } from './projects.service';
 import { SupabaseImportService } from './supabase-import.service';
 import { ProjectExportService } from './project-export.service';
 import { ProjectPitrService } from './project-pitr.service';
-import { CreateProjectDto } from './dto/create-project.dto';
+import { CreateProjectDto, UpdateDataAccessDto } from './dto/create-project.dto';
 import { ImportSupabaseDto } from './dto/import-supabase.dto';
 import { RepairImportKeysDto } from './dto/repair-import-keys.dto';
 import { JwtOrPlatformTokenGuard } from '../api-tokens/jwt-or-platform-token.guard';
@@ -263,11 +263,32 @@ export class ProjectsController {
     return this.projectsService.findDeactivated(teamId, user.sub);
   }
 
+  /**
+   * The compute sizes the New project dialog may offer for a team, with the reason each
+   * unavailable one is disabled. Declared before ':id' so the path is not read as an id.
+   */
+  @Scopes('projects:read')
+  @Get('compute-options')
+  async computeOptions(@Query('teamId') teamId: string, @CurrentUser() user: JwtPayload) {
+    return this.projectsService.computeOptions(teamId, user.sub);
+  }
+
   // Declared before the ':id/...' routes so "pitr" is not read as a project id.
   @JwtOnly()
   @Post('pitr/run-base-backup')
   async runClusterBaseBackup(@CurrentUser() user: JwtPayload) {
     return this.projectPitr.runClusterBaseBackupNow(user.sub);
+  }
+
+  /** Settings → Data access: the Data API, automatic grants on new tables, RLS on new tables. */
+  @Scopes('settings:write')
+  @Patch(':id/data-access')
+  async updateDataAccess(
+    @Param('id') id: string,
+    @Body() body: UpdateDataAccessDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.projectsService.updateDataAccess(id, user.sub, body);
   }
 
   @Scopes('settings:write')

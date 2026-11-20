@@ -18,12 +18,14 @@ import { SkipThrottle } from '@nestjs/throttler';
 import { PublicCollectionApiService } from './public-collection-api.service';
 import { RlsContext } from './public-api.service';
 import { ApiKeyGuard, ApiKeyPayload } from '../../common/guards/api-key.guard';
+import { DataApiGuard } from '../../common/guards/data-api.guard';
 
 // Exempt from the global IP rate limiter (high-volume anonymous data API);
 // still protected by the API-key guard.
 @SkipThrottle()
 @Controller('rest/v1/collections')
-@UseGuards(ApiKeyGuard)
+// DataApiGuard: a project that turned its Data API off answers 403 here.
+@UseGuards(ApiKeyGuard, DataApiGuard)
 export class PublicCollectionApiController {
   constructor(
     private readonly collectionApi: PublicCollectionApiService,

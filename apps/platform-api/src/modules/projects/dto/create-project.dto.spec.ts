@@ -35,7 +35,53 @@ describe('CreateProjectDto', () => {
   });
 
   it('refuses a field it does not know, so nothing reaches the service unchecked', async () => {
-    const errors = await errorsFor({ name: 'commitcamp', teamId: TEAM, region: 'fsn1' });
-    expect(errors.map((e) => e.property)).toContain('region');
+    const errors = await errorsFor({ name: 'commitcamp', teamId: TEAM, plan: 'pro' });
+    expect(errors.map((e) => e.property)).toContain('plan');
+  });
+
+  it('accepts the full New project dialog body', async () => {
+    const errors = await errorsFor({
+      name: 'commitcamp',
+      teamId: TEAM,
+      databaseType: 'RELATIONAL',
+      dbPassword: 'Str0ng-Passw0rd!',
+      computeTier: 'shared',
+      region: 'eu-central',
+      dataAccess: { dataApi: true, autoGrantNewTables: false, rlsOnNewTables: true },
+    });
+    expect(errors).toHaveLength(0);
+  });
+
+  it('treats an empty password as "generate one"', async () => {
+    expect(await errorsFor({ name: 'commitcamp', teamId: TEAM, dbPassword: '' })).toHaveLength(0);
+  });
+
+  it('refuses an unknown compute tier or region', async () => {
+    const tier = await errorsFor({ name: 'commitcamp', teamId: TEAM, computeTier: 'huge' });
+    expect(tier.map((e) => e.property)).toContain('computeTier');
+    const region = await errorsFor({ name: 'commitcamp', teamId: TEAM, region: 'fsn1' });
+    expect(region.map((e) => e.property)).toContain('region');
+  });
+
+  it.each([
+    ['too short', 'Ab1!short'],
+    ['with a space', 'Abcdef 12345!'],
+    ['without digits', 'Abcdefghijkl!'],
+    ['without letters', '1234567890123!'],
+    ['too long', 'A1' + 'x'.repeat(127)],
+  ])('refuses a password %s', async (_label, dbPassword) => {
+    const errors = await errorsFor({ name: 'commitcamp', teamId: TEAM, dbPassword });
+    expect(errors.map((e) => e.property)).toContain('dbPassword');
+  });
+
+  it('refuses data access flags that are not booleans or are missing', async () => {
+    const wrong = await errorsFor({
+      name: 'commitcamp',
+      teamId: TEAM,
+      dataAccess: { dataApi: 'yes', autoGrantNewTables: true, rlsOnNewTables: false },
+    });
+    expect(wrong.map((e) => e.property)).toContain('dataAccess');
+    const missing = await errorsFor({ name: 'commitcamp', teamId: TEAM, dataAccess: { dataApi: true } });
+    expect(missing.map((e) => e.property)).toContain('dataAccess');
   });
 });

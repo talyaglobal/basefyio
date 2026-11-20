@@ -298,6 +298,19 @@ model Project {
   /// mappers. Off by default; a ROOT turns it on per project
   /// (`PATCH /api/admin/console/projects/:id/supabase-compat`).
   supabaseCompat    Boolean             @default(false) @map("supabase_compat")
+  /// Where the project's data lives. `eu-central` (Germany) is the only region today.
+  region             String             @default("eu-central") @map("region")
+  /// Compute size chosen at creation: `shared` (the shared PostgreSQL server) or a
+  /// dedicated tier (`micro` … `xl`, sized from the billing tier table).
+  computeTier        String             @default("shared") @map("compute_tier")
+  /// Data access (create dialog, Settings → Data access). `false` makes the REST
+  /// data API answer 403; the dashboard, the SQL editor, auth and storage keep working.
+  dataApiEnabled     Boolean            @default(true) @map("data_api_enabled")
+  /// Whether default privileges grant new `public` tables to `anon` / `authenticated`.
+  /// `service_role` is always granted.
+  autoGrantNewTables Boolean            @default(true) @map("auto_grant_new_tables")
+  /// Whether an event trigger enables row-level security on every new `public` table.
+  rlsOnNewTables     Boolean            @default(false) @map("rls_on_new_tables")
   secretKeys        ProjectSecretKey[]
 
   // Folder

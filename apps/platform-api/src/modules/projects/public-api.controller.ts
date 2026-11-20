@@ -19,6 +19,7 @@ import { Request, Response } from 'express';
 import { SkipThrottle } from '@nestjs/throttler';
 import { CompatWriteResult, PublicApiService, RlsContext } from './public-api.service';
 import { ApiKeyGuard, ApiKeyPayload } from '../../common/guards/api-key.guard';
+import { DataApiGuard } from '../../common/guards/data-api.guard';
 import {
   acceptSupported,
   contentRange,
@@ -45,7 +46,8 @@ const RPC_QUERY_RESERVED = new Set(['select', 'order', 'limit', 'offset', 'apike
 // The filter renders errors in whichever dialect the caller speaks.
 @SkipThrottle()
 @Controller('rest/v1')
-@UseGuards(ApiKeyGuard)
+// DataApiGuard: a project that turned its Data API off answers 403 here.
+@UseGuards(ApiKeyGuard, DataApiGuard)
 @UseFilters(PostgrestCompatFilter)
 export class PublicApiController {
   constructor(private readonly publicApi: PublicApiService) {}
