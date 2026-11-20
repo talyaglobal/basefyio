@@ -581,7 +581,7 @@ export class RootConsoleService {
     status: string,
     storagePrefix: string,
   ): Promise<{ live: boolean; measuredAt: string | null; items: ConsoleBucket[] }> {
-    const prefix = `bf-${storagePrefix}-`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+    const prefix = this.storage.projectBucketPrefix({ slug: storagePrefix });
     // An active project's buckets are listed live; otherwise use the last full pass.
     if (status === 'ACTIVE') {
       try {

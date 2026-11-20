@@ -259,7 +259,7 @@ export class UploadSessionService {
       }
 
       const partNumber = Math.floor(offset / row.chunkSize) + 1;
-      const minioBucket = this.storage.physicalBucketName(project, bucket);
+      const minioBucket = await this.storage.resolveProjectBucket(project, bucket);
       const etag = await this.storage.putPart(minioBucket, row.objectKey, row.uploadId, partNumber, body);
 
       const parts = [...this.parts(row), { part: partNumber, etag, size: len }];
@@ -296,7 +296,7 @@ export class UploadSessionService {
       throw new BadRequestException(`Upload incomplete: ${uploaded} of ${total} bytes received`);
     }
 
-    const minioBucket = this.storage.physicalBucketName(project, bucket);
+    const minioBucket = await this.storage.resolveProjectBucket(project, bucket);
     const parts = this.parts(row)
       .slice()
       .sort((a, b) => a.part - b.part)
@@ -340,7 +340,7 @@ export class UploadSessionService {
     const project = await this.storage.resolveProject(projectId, dashboardUserId);
     const row = await this.loadOwned(projectId, bucket, sessionId, caller);
     if (row.status !== 'active') return;
-    const minioBucket = this.storage.physicalBucketName(project, bucket);
+    const minioBucket = await this.storage.resolveProjectBucket(project, bucket);
     await this.storage.abortMultipart(minioBucket, row.objectKey, row.uploadId);
     await this.prisma.storageUploadSession.update({ where: { id: row.id }, data: { status: 'aborted' } });
   }
@@ -365,10 +365,11 @@ export class UploadSessionService {
         try {
           const project = await this.prisma.project.findUnique({
             where: { id: row.projectId },
-            select: { slug: true, storagePrefix: true },
+            select: { id: true, slug: true, storagePrefix: true },
           });
           if (project) {
-            const minioBucket = this.storage.physicalBucketName(project, row.bucket);
+            // Same ownership check as every route: a session never aborts in another project's bucket.
+            const minioBucket = await this.storage.resolveProjectBucket(project, row.bucket);
             await this.storage.abortMultipart(minioBucket, row.objectKey, row.uploadId);
           }
         } catch (err: any) {

@@ -71,7 +71,7 @@ function build(config: Record<string, unknown> = {}) {
   const storage = {
     resolveBucket: jest.fn().mockResolvedValue({ project, minioBucket: 'bf-proj-docs' }),
     resolveProject: jest.fn().mockResolvedValue(project),
-    physicalBucketName: jest.fn().mockReturnValue('bf-proj-docs'),
+    resolveProjectBucket: jest.fn().mockResolvedValue('bf-proj-docs'),
     statObjectIn: jest.fn().mockResolvedValue(null),
     beginMultipart: jest.fn().mockResolvedValue('mp-1'),
     putPart: jest.fn().mockImplementation(async (_b, _k, _u, part) => `etag-${part}`),

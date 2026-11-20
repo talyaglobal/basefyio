@@ -86,7 +86,13 @@ function build(cfg: Record<string, unknown> = DEFAULT_CFG) {
     teamUsage: { upsert: jest.fn().mockResolvedValue(undefined) },
     projectUsage: { upsert: jest.fn().mockResolvedValue(undefined) },
     systemSetting: { upsert: jest.fn().mockResolvedValue(undefined), findUnique: jest.fn().mockResolvedValue(null) },
-    storageBucketOwner: { upsert: jest.fn().mockResolvedValue({}), deleteMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    storageBucketOwner: {
+      findUnique: jest.fn().mockResolvedValue(null),
+      findMany: jest.fn().mockResolvedValue([]),
+      create: jest.fn().mockResolvedValue({}),
+      createMany: jest.fn().mockResolvedValue({ count: 1 }),
+      deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
   };
   const quota = { assertCanUploadStorage: jest.fn().mockResolvedValue(undefined) };
   const config = { get: (k: string) => cfg[k] };
@@ -161,8 +167,8 @@ describe('bucket naming', () => {
     const projects = [{ id: 'a', slug: 'acme', storagePrefix: 'legacy' }];
     expect(priv.resolveMinioBucketOwner('bf-legacy-docs', projects)).toEqual({ id: 'a', slug: 'acme' });
     expect(priv.resolveMinioBucketOwner('bf-acme-docs', projects)).toBeNull();
-    expect(svc.physicalBucketName({ slug: 'acme', storagePrefix: 'legacy' }, 'docs')).toBe('bf-legacy-docs');
-    expect(svc.physicalBucketName({ slug: 'acme' }, 'docs')).toBe('bf-acme-docs');
+    expect(svc.projectBucketPrefix({ slug: 'acme', storagePrefix: 'legacy' })).toBe('bf-legacy-');
+    expect(svc.projectBucketPrefix({ slug: 'acme' })).toBe('bf-acme-');
   });
 });
 
@@ -331,8 +337,10 @@ describe('bucket namespaces and S3 key hooks (feedback #225)', () => {
       afterCreate: jest.fn(async (pid: string, phys: string) => void order.push(`after:${pid}:${phys}`)),
     });
     await svc.createBucket('p1', undefined, 'docs');
-    expect(prisma.storageBucketOwner.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { physicalName: BUCKET }, create: { physicalName: BUCKET, projectId: 'p1' } }),
+    // The owner row is claimed before the bucket is made: it is the lock against a concurrent create.
+    expect(prisma.storageBucketOwner.create).toHaveBeenCalledWith({ data: { physicalName: BUCKET, projectId: 'p1' } });
+    expect(prisma.storageBucketOwner.create.mock.invocationCallOrder[0]).toBeLessThan(
+      client.makeBucket.mock.invocationCallOrder[0],
     );
     expect(order).toEqual(['make', `after:p1:${BUCKET}`]);
   });
