@@ -10,7 +10,7 @@ jest.mock('pg', () => ({
 }));
 jest.mock('../../prisma/prisma.service', () => ({ PrismaService: class {} }));
 
-import { PgBouncerService } from './pgbouncer.service';
+import { PgBouncerService, normaliseServerResetQuery } from './pgbouncer.service';
 
 function service(cfg: Record<string, unknown> = {}) {
   const config = { get: (k: string) => cfg[k] };
@@ -186,6 +186,52 @@ describe('buildUserlist', () => {
       '"kb_user_b" "pb"',
       expect.stringMatching(/^"pgbouncer_admin" /),
     ]);
+  });
+});
+
+describe('server_reset_query', () => {
+  it('leaves the ini unchanged when unset or blank', () => {
+    expect(ini(service({ 'pgbouncer.serverResetQuery': '' }), [owner, other])).toBe(TODAY);
+    expect(ini(service({ 'pgbouncer.serverResetQuery': '   ' }), [owner, other])).toBe(TODAY);
+  });
+
+  it('runs RESET ALL in transaction mode too when set', () => {
+    const out = ini(service({ 'pgbouncer.serverResetQuery': 'RESET ALL' }), [owner, other]);
+    expect(out).toBe(TODAY + 'server_reset_query = RESET ALL;\nserver_reset_query_always = 1\n');
+  });
+
+  it('keeps the reset ahead of the TLS block', () => {
+    const out = ini(service({ 'pgbouncer.serverResetQuery': 'reset all' }), [owner, other], true);
+    expect(out.indexOf('server_reset_query_always = 1')).toBeLessThan(out.indexOf('client_tls_sslmode'));
+  });
+
+  it('refuses a value that could inject ini lines or run arbitrary SQL', () => {
+    for (const bad of [
+      'RESET ALL\nadmin_users = attacker',
+      'RESET ALL; DROP TABLE x',
+      'SET default_transaction_read_only = off',
+      'select 1',
+    ]) {
+      expect(ini(service({ 'pgbouncer.serverResetQuery': bad }), [owner, other])).toBe(TODAY);
+    }
+  });
+});
+
+describe('normaliseServerResetQuery', () => {
+  it('accepts reset statements and normalises separators', () => {
+    expect(normaliseServerResetQuery('RESET ALL')).toBe('RESET ALL;');
+    expect(normaliseServerResetQuery(' reset   all ; DEALLOCATE ALL; ')).toBe('reset all; DEALLOCATE ALL;');
+    expect(normaliseServerResetQuery('RESET default_transaction_read_only')).toBe(
+      'RESET default_transaction_read_only;',
+    );
+    expect(normaliseServerResetQuery('DISCARD ALL')).toBe('DISCARD ALL;');
+  });
+
+  it('rejects anything else', () => {
+    expect(normaliseServerResetQuery(undefined)).toBeNull();
+    expect(normaliseServerResetQuery(';')).toBeNull();
+    expect(normaliseServerResetQuery('RESET ALL\nx = y')).toBeNull();
+    expect(normaliseServerResetQuery('UPDATE t SET a = 1')).toBeNull();
   });
 });
 

@@ -145,6 +145,12 @@ export default () => {
     maxDbConnectionsCeiling: parseInt(process.env.PGBOUNCER_MAX_DB_CONNECTIONS_CEILING || '100', 10),
     /** Also cap client connections per database (PgBouncer 1.24+, verified at runtime before it is written). */
     dbClientLimits: process.env.PGBOUNCER_DB_CLIENT_LIMITS === 'true',
+    /**
+     * server_reset_query, run in transaction mode too (server_reset_query_always).
+     * `RESET ALL` stops one client's session SET (e.g. default_transaction_read_only)
+     * from reaching the next client of the same pool. Unset = no reset, as before.
+     */
+    serverResetQuery: process.env.PGBOUNCER_SERVER_RESET_QUERY || '',
   },
 
   /** What a freshly provisioned project database receives besides its owner role. */

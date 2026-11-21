@@ -37,6 +37,27 @@ export type DbConnectionLimitSource = 'project' | 'plan' | 'platform' | 'none';
  */
 const CLIENTS_PER_SERVER_CONNECTION = 10;
 
+/**
+ * Statements accepted for `server_reset_query`, one per `;`-separated part.
+ * The value is written verbatim into the ini, so anything else — a newline, a
+ * second `key = value`, an arbitrary statement — is refused rather than
+ * escaped.
+ */
+const RESET_STATEMENT_RE =
+  /^(RESET ALL|RESET [a-z_][a-z0-9_.]*|DISCARD (ALL|PLANS|SEQUENCES|TEMP|TEMPORARY)|DEALLOCATE ALL|CLOSE ALL|UNLISTEN \*|SELECT pg_advisory_unlock_all\(\))$/i;
+
+/** `server_reset_query` as written, or null when the value is empty or not allowed. */
+export function normaliseServerResetQuery(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const parts = raw
+    .split(';')
+    .map((s) => s.trim().replace(/\s+/g, ' '))
+    .filter(Boolean);
+  if (parts.length === 0) return null;
+  if (!parts.every((p) => RESET_STATEMENT_RE.test(p))) return null;
+  return parts.join('; ') + ';';
+}
+
 @Injectable()
 export class PgBouncerService implements OnModuleInit {
   private readonly logger = new Logger(PgBouncerService.name);
@@ -153,7 +174,31 @@ log_pooler_errors = 1
 admin_users = pgbouncer_admin
 stats_users = pgbouncer_admin
 ignore_startup_parameters = extra_float_digits,search_path
-${tlsLines}`;
+${this.serverResetLines()}${tlsLines}`;
+  }
+
+  /**
+   * PGBOUNCER_SERVER_RESET_QUERY, run whenever a server connection goes back to
+   * the pool. In transaction mode PgBouncer skips the reset unless
+   * `server_reset_query_always` is on, so a session-level SET from one client
+   * (`SET default_transaction_read_only = on` from a psql one-liner, say) stays
+   * on that backend and the next client sharing the owner's pool — an app, a
+   * Keycloak — gets "cannot execute INSERT in a read-only transaction".
+   * `RESET ALL` clears such settings without dropping prepared statements.
+   * Unset (the default) leaves the ini exactly as before.
+   */
+  private serverResetLines(): string {
+    const raw = this.config.get<string | undefined>('pgbouncer.serverResetQuery');
+    if (raw == null || String(raw).trim() === '') return '';
+    const query = normaliseServerResetQuery(raw);
+    if (!query) {
+      this.logger.warn(
+        'PGBOUNCER_SERVER_RESET_QUERY ignored: only RESET / DISCARD / DEALLOCATE ALL / CLOSE ALL / ' +
+          'UNLISTEN * / SELECT pg_advisory_unlock_all() statements are accepted',
+      );
+      return '';
+    }
+    return `server_reset_query = ${query}\nserver_reset_query_always = 1\n`;
   }
 
   /** One `[databases]` line; exactly the old line unless a cap applies to this project. */
