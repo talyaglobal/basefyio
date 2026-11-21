@@ -548,8 +548,9 @@ services:
       PGBOUNCER_PORT: 6432
       PGBOUNCER_EXTERNAL_HOST: db.${DOMAIN}
       PGBOUNCER_EXTERNAL_PORT: 6432
-      # Unset = no reset (as before). RESET ALL stops a client's session SET from reaching the next client.
-      PGBOUNCER_SERVER_RESET_QUERY: ${PGBOUNCER_SERVER_RESET_QUERY:-}
+      # RESET ALL after every transaction, so one client's session SET (default_transaction_read_only…)
+      # never reaches the next client of the same pool. Set it to an empty value in .env.production to turn it off.
+      PGBOUNCER_SERVER_RESET_QUERY: ${PGBOUNCER_SERVER_RESET_QUERY-RESET ALL}
       PUBLIC_API_URL: https://api.${DOMAIN}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
