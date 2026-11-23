@@ -77,8 +77,27 @@ export class DataEngineController {
   @Get('entities')
   async listEntities(
     @Param('projectId') projectId: string,
+    @Query('withCounts') withCounts?: string,
   ) {
-    return this.dataEngine.listEntities(projectId);
+    const defs = await this.dataEngine.listEntities(projectId);
+    if (withCounts !== 'true' || !this.dataEngine.isAvailable()) return defs;
+    // Document counts for the Data sidebar (#176). Each is bounded; a count that
+    // fails or is slow is null and never fails the list.
+    return Promise.all(
+      defs.map(async (d) => ({ ...d, documentCount: await this.countOrNull(projectId, d.logicalName) })),
+    );
+  }
+
+  private async countOrNull(projectId: string, entity: string): Promise<number | null> {
+    try {
+      const col = await this.dataEngine.getEntityCollection(projectId, entity);
+      return await Promise.race([
+        col.count(),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 2000).unref?.()),
+      ]);
+    } catch {
+      return null;
+    }
   }
 
   @PlanGate('db_write')

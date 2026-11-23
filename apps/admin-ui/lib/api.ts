@@ -1680,8 +1680,10 @@ export const api = {
     dataEngineHealth(projectId: string) {
       return request<import('./types').DataEngineHealth>(`/v1/projects/${projectId}/data-engine/health`);
     },
-    listEntityDefinitions(projectId: string) {
-      return request<import('./types').EntityDefinitionInfo[]>(`/v1/projects/${projectId}/entities`);
+    listEntityDefinitions(projectId: string, opts?: { withCounts?: boolean }) {
+      return request<import('./types').EntityDefinitionInfo[]>(
+        `/v1/projects/${projectId}/entities${opts?.withCounts ? '?withCounts=true' : ''}`,
+      );
     },
     createEntityDefinition(projectId: string, data: { logicalName: string; displayName: string; fields: unknown[]; description?: string }) {
       return request<import('./types').EntityDefinitionInfo>(`/v1/projects/${projectId}/entities`, {

@@ -746,6 +746,8 @@ export interface DocumentListResult {
 
 export interface EntityDefinitionInfo {
   id: string;
+  /** Present when listed with withCounts; null when the count could not be read. */
+  documentCount?: number | null;
   logicalName: string;
   displayName: string;
   physicalCollection: string;

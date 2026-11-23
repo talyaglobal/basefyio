@@ -70,6 +70,25 @@ describe('DataEngineController (#173)', () => {
   });
 });
 
+describe('DataEngineController.listEntities counts (#176)', () => {
+  it('adds document counts only when asked, and a failing count is null', async () => {
+    const svc = {
+      isAvailable: () => true,
+      listEntities: jest.fn(async () => [{ logicalName: 'a' }, { logicalName: 'b' }]),
+      getEntityCollection: jest.fn(async (_p: string, e: string) => ({
+        count: e === 'a' ? jest.fn(async () => 7) : jest.fn(async () => { throw new Error('down'); }),
+      })),
+    };
+    const ctrl = new DataEngineController(svc as any);
+    expect(await ctrl.listEntities('p')).toEqual([{ logicalName: 'a' }, { logicalName: 'b' }]);
+    expect(svc.getEntityCollection).not.toHaveBeenCalled();
+    expect(await ctrl.listEntities('p', 'true')).toEqual([
+      { logicalName: 'a', documentCount: 7 },
+      { logicalName: 'b', documentCount: null },
+    ]);
+  });
+});
+
 describe('parseIfMatch / toHttpError', () => {
   it('reads plain, quoted and weak versions', () => {
     expect(parseIfMatch(undefined)).toBeUndefined();

@@ -830,7 +830,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
       kind: 'nosql' as const, name: c.name, label: c.name, count: c.documentCount as number | null,
     })),
     ...entities.map((e) => ({
-      kind: 'entity' as const, name: e.logicalName, label: e.logicalName, count: null,
+      kind: 'entity' as const, name: e.logicalName, label: e.logicalName, count: e.documentCount ?? null,
     })),
   ].sort((a, b) => a.label.localeCompare(b.label));
   const filteredItems = sidebarItems.filter(
@@ -910,7 +910,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
       const [result, colls, ents] = await Promise.all([
         api.projects.tables(projectId),
         api.projects.listCollections(projectId).catch(() => [] as CollectionInfo[]),
-        api.projects.listEntityDefinitions(projectId).catch(() => [] as EntityDefinitionInfo[]),
+        api.projects.listEntityDefinitions(projectId, { withCounts: true }).catch(() => [] as EntityDefinitionInfo[]),
       ]);
       setTables(result);
       setCollections(colls);
