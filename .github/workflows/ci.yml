@@ -7,6 +7,25 @@ on:
     branches: [main, production]
 
 jobs:
+  secret-scan:
+    name: Secret scan (gitleaks, full history)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # Pinned binary with a checksum (the gitleaks GitHub Action needs a paid licence for organisations).
+      - name: Install gitleaks 8.28.0
+        run: |
+          curl -sSfL -o /tmp/gitleaks.tgz https://github.com/gitleaks/gitleaks/releases/download/v8.28.0/gitleaks_8.28.0_linux_x64.tar.gz
+          echo "a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb  /tmp/gitleaks.tgz" | sha256sum -c -
+          tar -xzf /tmp/gitleaks.tgz -C /tmp gitleaks
+      # Allowed placeholders live in .gitleaks.toml; checked historical false positives in .gitleaksignore.
+      # A real secret must be rotated, then removed, never allowlisted.
+      - name: Scan every commit
+        run: /tmp/gitleaks git --no-banner --redact --exit-code 1 -c .gitleaks.toml .
+
   test-api:
     name: Platform API — lint + test
     runs-on: ubuntu-latest

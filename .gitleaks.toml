@@ -1,0 +1,28 @@
+# Secret scan (gitleaks) — run in CI on every push.
+# Extends the default rules; only documented placeholders and test fixtures are allowed.
+# A real secret found here must be rotated, not allowlisted.
+title = "basefyio"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Documentation placeholders and deterministic test keys"
+regexTarget = "secret"
+regexes = [
+  '''^(YOUR|your)[_-][A-Za-z0-9_-]+$''',
+  '''^<[A-Za-z0-9_-]+>$''',
+  '''^\$\{?[A-Za-z_][A-Za-z0-9_.]*\}?$''',
+  '''^(0123456789abcdef)+[0-9a-f]*$''',
+]
+
+# Marketing copy lists "authentication, S3-compatible storage, …"; the generic
+# keyword rule reads the next word as a key. Prose only, no code.
+[[rules]]
+id = "generic-api-key"
+[[rules.allowlists]]
+description = "Product descriptions in marketing copy"
+paths = [
+  '''apps/website/src/content/blog/.*\.mdx$''',
+  '''apps/website/src/lib/(seo|geo)/[a-z-]+\.ts$''',
+]

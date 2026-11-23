@@ -1,0 +1,6 @@
+# gitleaks false positives in history (prose and field names, checked 2026-11-24).
+27762e6da55651d47705a535a1266758ce90f663:apps/website/src/lib/geo/profile.ts:generic-api-key:122
+27762e6da55651d47705a535a1266758ce90f663:apps/platform-api/src/modules/projects/project-auth-validation.ts:linkedin-client-secret:258
+ddbba076acb6fcd1193f05becb22bb69155dd5ed:apps/website/src/content/blog/choosing-a-backend-for-your-ai-app.mdx:generic-api-key:55
+ddbba076acb6fcd1193f05becb22bb69155dd5ed:apps/website/src/lib/geo/profile.ts:generic-api-key:121
+ddbba076acb6fcd1193f05becb22bb69155dd5ed:apps/website/src/lib/seo/json-ld.ts:generic-api-key:48
