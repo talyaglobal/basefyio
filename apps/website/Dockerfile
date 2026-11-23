@@ -8,14 +8,21 @@ COPY packages/geo /geo
 RUN cd /geo && npm ci && npm run build
 
 FROM base AS deps
-COPY apps/website/package.json ./
-# Remove the local file: dependency before installing — we'll link it manually
-RUN sed -i '/"@basefyio\/geo"/d' package.json && npm install --ignore-scripts
-# Copy built geo package into node_modules
-COPY --from=geo /geo ./node_modules/@basefyio/geo
+# Install exactly what package-lock.json pins (npm ci). `npm install` without the
+# lockfile resolved the newest versions on every build, and a package published
+# minutes earlier once failed the deploy with a registry 404.
+# The stage mirrors the repo layout so the lockfile's "file:../../packages/geo"
+# entry matches; npm links it, and the link is replaced by a real copy so the
+# next stage does not carry a dangling symlink.
+WORKDIR /repo/apps/website
+COPY --from=geo /geo /repo/packages/geo
+COPY apps/website/package.json apps/website/package-lock.json ./
+RUN npm ci --ignore-scripts \
+  && rm -rf node_modules/@basefyio/geo \
+  && cp -R /repo/packages/geo node_modules/@basefyio/geo
 
 FROM base AS build
-COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /repo/apps/website/node_modules ./node_modules
 COPY apps/website/ .
 
 ARG NEXT_PUBLIC_SITE_URL=https://basefyio.com
