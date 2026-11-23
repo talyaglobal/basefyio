@@ -402,8 +402,10 @@ function DangerZone({
     const ok = await confirmDialog({
       title: 'Deactivate project',
       description:
-        'The project is frozen — closed to use, but its data is kept. It frees a slot on your plan so you can create another project. You can reactivate it anytime (a free slot is required). If left deactivated, it is permanently deleted after 14 days.',
+        'The project is frozen: it stops answering requests and its users cannot sign in. Nothing is deleted, however long it stays deactivated. It frees a slot on your plan, and you can reactivate it anytime (a free slot is required).',
       confirmText: 'Deactivate',
+      destructive: true,
+      requireText: projectName,
     });
     if (!ok) return;
     setBusy('deactivate');
@@ -421,9 +423,10 @@ function DangerZone({
   async function remove() {
     const ok = await confirmDialog({
       title: 'Move project to trash',
-      description: `Delete "${projectName}"? It stays in trash for 24 hours — the team owner can restore it during that window. After 24 hours it is permanently deleted.`,
+      description: `Delete "${projectName}"? It stays in trash for 24 hours — the team owner can restore it during that window. After 24 hours it is permanently deleted and cannot be recovered.`,
       confirmText: 'Move to trash',
       destructive: true,
+      requireText: projectName,
     });
     if (!ok) return;
     setBusy('delete');
@@ -453,7 +456,7 @@ function DangerZone({
         <div className="min-w-0">
           <p className="text-sm font-medium">Deactivate project</p>
           <p className="text-xs text-muted-foreground">
-            Freeze it and free a plan slot. Reactivate anytime within 14 days.
+            Freeze it and free a plan slot. Nothing is deleted; reactivate anytime.
           </p>
         </div>
         <Button type="button" variant="outline" onClick={deactivate} disabled={busy !== null} className="shrink-0">

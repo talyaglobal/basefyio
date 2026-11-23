@@ -230,7 +230,7 @@ export class ProjectExportService {
       const key = getBackupKey();
       if (!key) {
         throw new BadRequestException(
-          'This backup is encrypted; BACKUP_ENC_KEY is missing or does not match',
+          'This backup is encrypted and cannot be decrypted right now. Please contact support.',
         );
       }
       const decrypt = createDecryptStream(key);

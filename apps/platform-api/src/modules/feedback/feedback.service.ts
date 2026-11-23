@@ -115,10 +115,23 @@ export class FeedbackService {
         ? (dto.attachments as unknown as Prisma.InputJsonValue)
         : undefined;
 
+    // Resolve sender identity from the DB record rather than trusting the
+    // JWT to carry `email`. Some Keycloak realm configs omit the email claim
+    // from the access token, which previously produced "FROM ()" in the
+    // notification email and empty actor info in the Realtime payload.
+    const senderRecord = await this.prisma.user.findUnique({
+      where: { id: dto.userId },
+      select: { firstName: true, lastName: true, email: true },
+    });
+    const senderEmail = senderRecord?.email || dto.email || '';
+    const senderName =
+      [senderRecord?.firstName, senderRecord?.lastName].filter(Boolean).join(' ').trim() ||
+      (senderEmail ? senderEmail.split('@')[0] : 'Anonymous');
+
     const feedback = await this.prisma.feedback.create({
       data: {
         userId: dto.userId,
-        email: dto.email,
+        email: senderEmail,
         url: dto.url,
         title: dto.title,
         description: dto.description || null,
@@ -133,19 +146,6 @@ export class FeedbackService {
       action: 'FEEDBACK_CREATED',
       detail: dto.title,
     });
-
-    // Resolve sender identity from the DB record rather than trusting the
-    // JWT to carry `email`. Some Keycloak realm configs omit the email claim
-    // from the access token, which previously produced "FROM ()" in the
-    // notification email and empty actor info in the Realtime payload.
-    const senderRecord = await this.prisma.user.findUnique({
-      where: { id: dto.userId },
-      select: { firstName: true, lastName: true, email: true },
-    });
-    const senderEmail = senderRecord?.email || dto.email || '';
-    const senderName =
-      [senderRecord?.firstName, senderRecord?.lastName].filter(Boolean).join(' ').trim() ||
-      (senderEmail ? senderEmail.split('@')[0] : 'Anonymous');
 
     this.logger.log(
       `Feedback created: "${dto.title}" by ${senderEmail || dto.userId} (${feedback.id})`,
@@ -207,6 +207,8 @@ export class FeedbackService {
           orderBy: { createdAt: 'asc' },
           include: { user: { select: { email: true } } },
         },
+        // The stored email can be empty (older rows, tokens without an email claim); the UI falls back to the account.
+        user: { select: { email: true, firstName: true, lastName: true } },
       },
     });
   }

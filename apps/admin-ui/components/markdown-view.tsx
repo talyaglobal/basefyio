@@ -19,7 +19,12 @@ function inline(text: string, keyPrefix: string): React.ReactNode[] {
       nodes.push(<strong key={k}>{tok.slice(2, -2)}</strong>);
     } else {
       const mm = /\[([^\]]+)\]\(([^)]+)\)/.exec(tok)!;
-      nodes.push(<a key={k} href={mm[2]} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{mm[1]}</a>);
+      // Link targets can come from user input (feedback text): only web, mail and relative targets become links.
+      if (/^(https?:|mailto:|\/|#)/i.test(mm[2].trim())) {
+        nodes.push(<a key={k} href={mm[2].trim()} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{mm[1]}</a>);
+      } else {
+        nodes.push(mm[1]);
+      }
     }
     last = m.index + tok.length;
   }

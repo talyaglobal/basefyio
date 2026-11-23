@@ -146,8 +146,8 @@ export function ProjectBackupHealthPanel({
             <>
               <p className="font-medium">Off-site copies: not configured</p>
               <p className="text-xs text-muted-foreground">
-                Backups live only on this server. An operator can set BACKUP_S3_* and BACKUP_ENC_KEY on the API to copy
-                every nightly archive, encrypted, to a bucket elsewhere.
+                Backups are currently stored in one place only. Off-site encrypted copies of every nightly archive are not
+                enabled for this platform yet.
               </p>
             </>
           )}

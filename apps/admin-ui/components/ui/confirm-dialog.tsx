@@ -18,6 +18,8 @@ export interface ConfirmOptions {
   confirmText?: string;
   cancelText?: string;
   destructive?: boolean;
+  /** When set, the confirm button stays disabled until the user types exactly this text (e.g. a project name). */
+  requireText?: string;
 }
 
 export interface PromptOptions {
@@ -74,9 +76,7 @@ export function ConfirmDialogHost() {
     enqueue = (req) => {
       setQueue((q) => [...q, req]);
       setOpen(true);
-      if (req.kind === 'prompt') {
-        setInputValue(req.options.defaultValue ?? '');
-      }
+      setInputValue(req.kind === 'prompt' ? req.options.defaultValue ?? '' : '');
     };
     return () => {
       enqueue = null;
@@ -95,9 +95,7 @@ export function ConfirmDialogHost() {
         const rest = q.slice(1);
         if (rest.length > 0) {
           const next = rest[0];
-          if (next.kind === 'prompt') {
-            setInputValue(next.options.defaultValue ?? '');
-          }
+          setInputValue(next.kind === 'prompt' ? next.options.defaultValue ?? '' : '');
         } else {
           setOpen(false);
         }
@@ -116,7 +114,12 @@ export function ConfirmDialogHost() {
   const confirmText = options.confirmText ?? (isPrompt ? 'OK' : destructive ? 'Delete' : 'Confirm');
   const cancelText = options.cancelText ?? 'Cancel';
 
-  const handleConfirm = () => settle(isPrompt ? inputValue : true);
+  const requireText = !isPrompt ? (current.options as ConfirmOptions).requireText : undefined;
+  const typedOk = requireText == null || inputValue.trim() === requireText;
+  const handleConfirm = () => {
+    if (!typedOk) return;
+    settle(isPrompt ? inputValue : true);
+  };
 
   return (
     <Dialog
@@ -125,13 +128,32 @@ export function ConfirmDialogHost() {
         if (!next) settle(isPrompt ? null : false);
       }}
     >
-      <DialogContent className="max-w-md" hideClose>
+      <DialogContent className="z-[10000] max-w-md" overlayClassName="z-[10000]" hideClose>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           {options.description != null && (
             <DialogDescription className="break-words">{options.description}</DialogDescription>
           )}
         </DialogHeader>
+        {requireText != null && (
+          <div className="space-y-2">
+            <p className="text-sm">
+              Type <span className="font-semibold">{requireText}</span> to confirm.
+            </p>
+            <Input
+              autoFocus
+              value={inputValue}
+              placeholder="Type the name here"
+              onChange={(e) => setInputValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleConfirm();
+                }
+              }}
+            />
+          </div>
+        )}
         {isPrompt && (
           <Input
             autoFocus
@@ -152,7 +174,8 @@ export function ConfirmDialogHost() {
           </Button>
           <Button
             variant={destructive ? 'destructive' : 'default'}
-            autoFocus={!isPrompt}
+            autoFocus={!isPrompt && requireText == null}
+            disabled={!typedOk}
             onClick={handleConfirm}
           >
             {confirmText}

@@ -799,13 +799,13 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
           <DialogHeader>
             <DialogTitle>Confirm deletion of {project.name}</DialogTitle>
             <DialogDescription>
-              This will permanently delete project resources after trash retention.
+              The project moves to trash and is permanently deleted after 24 hours. The team owner can restore it until then.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-900">
-              <p className="font-semibold">This will permanently delete the {project.name}</p>
-              <p className="text-red-800">All project data will be lost, and cannot be undone.</p>
+              <p className="font-semibold">{project.name} will be permanently deleted after 24 hours in trash</p>
+              <p className="text-red-800">All project data will be lost once the 24 hours pass. Until then the team owner can restore it.</p>
             </div>
 
             <div className="space-y-2">
@@ -828,6 +828,7 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
               </div>
             </div>
 
+            {deleteReasonCode !== 'none' && (
             <div className="space-y-2">
               <label className="text-sm font-medium">
                 We appreciate your perspective. What aspects felt too high or problematic?
@@ -839,6 +840,7 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
                 placeholder="Optional details..."
               />
             </div>
+            )}
 
             <div className="space-y-2">
               <label className="text-sm font-medium">
@@ -856,7 +858,7 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
               <Input
                 value={deleteConfirmText}
                 onChange={(e) => setDeleteConfirmText(e.target.value)}
-                placeholder={project.name}
+                placeholder="Type the project name"
               />
             </div>
           </div>

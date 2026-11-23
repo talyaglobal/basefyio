@@ -25,13 +25,13 @@ DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
 
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & { hideClose?: boolean }
->(({ className, children, hideClose, onOpenAutoFocus, onCloseAutoFocus, ...props }, ref) => {
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & { hideClose?: boolean; overlayClassName?: string }
+>(({ className, children, hideClose, overlayClassName, onOpenAutoFocus, onCloseAutoFocus, ...props }, ref) => {
   // Radix returns focus only to a <DialogTrigger>; most dialogs here are opened by state, so remember the opener ourselves.
   const opener = React.useRef<HTMLElement | null>(null);
   return (
   <DialogPortal>
-    <DialogOverlay />
+    <DialogOverlay className={overlayClassName} />
     <DialogPrimitive.Content
       ref={ref}
       onOpenAutoFocus={(e) => {

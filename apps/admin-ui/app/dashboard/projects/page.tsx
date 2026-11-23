@@ -1977,7 +1977,7 @@ export default function ProjectsPage() {
             <Input
               value={deleteNameConfirm}
               onChange={(e) => setDeleteNameConfirm(e.target.value)}
-              placeholder={deleteConfirm.name}
+              placeholder="Type the project name"
               autoFocus
             />
           </div>
