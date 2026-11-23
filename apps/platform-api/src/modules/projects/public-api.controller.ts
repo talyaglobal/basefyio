@@ -34,6 +34,7 @@ import { PostgrestCompatFilter } from './postgrest/compat.filter';
 import { PostgrestHttpError, notAcceptableObject, postgrestBody } from './postgrest/errors';
 import { MAX_REST_ROWS } from './postgrest/parser';
 import { chooseProfile, exposedProfiles } from './postgrest/exposed-schemas';
+import { PlanGate } from '../../common/decorators/plan-gate.decorator';
 
 /** Query keys of a GET rpc that are never function arguments. */
 const RPC_QUERY_RESERVED = new Set(['select', 'order', 'limit', 'offset', 'apikey', 'columns', 'on_conflict']);
@@ -170,6 +171,7 @@ export class PublicApiController {
     return JSON.stringify(value === undefined ? null : value);
   }
 
+  @PlanGate('db_write')
   @Post(':table')
   async insert(
     @Param('table') table: string,
@@ -206,6 +208,7 @@ export class PublicApiController {
     return this.replyWrite(res, r, 201, accept);
   }
 
+  @PlanGate('db_write')
   @Patch(':table')
   async update(
     @Param('table') table: string,

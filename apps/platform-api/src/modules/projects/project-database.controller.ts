@@ -22,6 +22,7 @@ import {
   ProjectActivityKind,
   ProjectActivityService,
 } from './project-activity.service';
+import { PlanGate } from '../../common/decorators/plan-gate.decorator';
 
 @Controller('projects/:projectId/database')
 @UseGuards(JwtOrPlatformTokenGuard, ScopesGuard)
@@ -49,6 +50,7 @@ export class ProjectDatabaseController {
   }
 
   @Scopes('schema:write')
+  @PlanGate('db_write')
   @Post('indexes')
   async createIndex(
     @Param('projectId') id: string,

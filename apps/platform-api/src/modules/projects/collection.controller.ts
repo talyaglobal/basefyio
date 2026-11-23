@@ -23,6 +23,7 @@ import {
   ProjectActivityKind,
   ProjectActivityService,
 } from './project-activity.service';
+import { PlanGate } from '../../common/decorators/plan-gate.decorator';
 
 /**
  * Document collections, administrative side.
@@ -51,6 +52,7 @@ export class CollectionController {
     return this.collectionService.listCollections(projectId, user?.sub);
   }
 
+  @PlanGate('db_write')
   @Post()
   async createCollection(
     @Param('projectId') projectId: string,
@@ -114,6 +116,7 @@ export class CollectionController {
     );
   }
 
+  @PlanGate('db_write')
   @Post(':collectionName/documents')
   async insertDocuments(
     @Param('projectId') projectId: string,
@@ -152,6 +155,7 @@ export class CollectionController {
     );
   }
 
+  @PlanGate('db_write')
   @Patch(':collectionName/documents/:docId')
   async updateDocument(
     @Param('projectId') projectId: string,
@@ -176,6 +180,7 @@ export class CollectionController {
     return result;
   }
 
+  @PlanGate('db_write')
   @Put(':collectionName/documents/:docId')
   async replaceDocument(
     @Param('projectId') projectId: string,
@@ -262,6 +267,7 @@ export class CollectionController {
     );
   }
 
+  @PlanGate('db_write')
   @Post(':collectionName/indexes')
   async createIndex(
     @Param('projectId') projectId: string,

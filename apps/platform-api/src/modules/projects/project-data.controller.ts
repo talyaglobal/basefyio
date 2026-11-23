@@ -28,6 +28,7 @@ import {
   ProjectActivityKind,
   ProjectActivityService,
 } from './project-activity.service';
+import { PlanGate } from '../../common/decorators/plan-gate.decorator';
 
 /**
  * Tables, rows and connection strings.
@@ -100,6 +101,7 @@ export class ProjectDataController {
     );
   }
 
+  @PlanGate('db_write')
   @Post('tables')
   async createTable(
     @Param('projectId') projectId: string,
@@ -119,6 +121,7 @@ export class ProjectDataController {
     return result;
   }
 
+  @PlanGate('db_write')
   @Post('tables/:tableName/rows')
   async insertRow(
     @Param('projectId') projectId: string,
@@ -137,6 +140,7 @@ export class ProjectDataController {
     return row;
   }
 
+  @PlanGate('db_write')
   @Put('tables/:tableName/rows')
   async updateRow(
     @Param('projectId') projectId: string,
@@ -233,6 +237,7 @@ export class ProjectDataController {
     return result;
   }
 
+  @PlanGate('db_write')
   @Post('tables/:tableName/columns')
   async addColumn(
     @Param('projectId') projectId: string,

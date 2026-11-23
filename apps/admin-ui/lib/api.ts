@@ -2835,6 +2835,10 @@ export const api = {
     usage(teamId: string) {
       return request<any>(`/billing/usage?teamId=${teamId}`);
     },
+    /** Each enforced plan limit: usage, mode (off | warn | enforce), and whether it refuses now. */
+    limits(teamId: string) {
+      return request<any>(`/billing/limits?teamId=${teamId}`);
+    },
     async downloadInvoicePdf(teamId: string, invoiceId: string, type: 'invoice' | 'receipt' = 'invoice'): Promise<Blob> {
       const token = getAccessToken();
       const res = await fetch(

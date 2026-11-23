@@ -19,6 +19,7 @@ import { PublicCollectionApiService } from './public-collection-api.service';
 import { RlsContext } from './public-api.service';
 import { ApiKeyGuard, ApiKeyPayload } from '../../common/guards/api-key.guard';
 import { DataApiGuard } from '../../common/guards/data-api.guard';
+import { PlanGate } from '../../common/decorators/plan-gate.decorator';
 
 // Exempt from the global IP rate limiter (high-volume anonymous data API);
 // still protected by the API-key guard.
@@ -56,6 +57,7 @@ export class PublicCollectionApiController {
     );
   }
 
+  @PlanGate('db_write')
   @Post(':collection')
   async insertDocuments(
     @Param('collection') collection: string,
@@ -89,6 +91,7 @@ export class PublicCollectionApiController {
     );
   }
 
+  @PlanGate('db_write')
   @Patch(':collection/:docId')
   async updateDocument(
     @Param('collection') collection: string,
@@ -109,6 +112,7 @@ export class PublicCollectionApiController {
     );
   }
 
+  @PlanGate('db_write')
   @Put(':collection/:docId')
   async replaceDocument(
     @Param('collection') collection: string,

@@ -21,7 +21,47 @@ export const STORAGE_BILLING_SENTENCE =
 export const FILE_LIMIT_SENTENCE =
   'File storage: uploads that would go over the limit are refused until you delete files or upgrade.';
 export const DB_LIMIT_SENTENCE =
-  'Database size: shown against the limit and not cut off when it grows past it, but you cannot move to a plan it does not fit in.';
+  'Database size: measured every hour. Once enforced, writes that add data are refused past the limit plus a 10% grace; reading and deleting always work. You cannot move to a plan it does not fit in.';
+
+/** The plan limits whose enforcement root can roll out per metric (off | warn | enforce). */
+export type EnforcedMetric = 'api_requests' | 'egress' | 'mau' | 'db_size';
+export type EnforcementMode = 'off' | 'warn' | 'enforce';
+
+/** What is refused once a metric is past its limit plus the 10% grace, in enforce mode. */
+export function blockedSentence(metric: EnforcedMetric): string {
+  switch (metric) {
+    case 'api_requests':
+      return 'API requests are refused (HTTP 429) until the counter resets on the 1st (UTC).';
+    case 'egress':
+      return 'Requests are refused (HTTP 429) until the counter resets on the 1st (UTC).';
+    case 'mau':
+      return 'New sign-ups to your projects are refused (HTTP 402); existing users keep signing in.';
+    case 'db_size':
+      return 'Writes that add data are refused (HTTP 402); reading and deleting still work.';
+  }
+}
+
+const METRIC_NAME: Record<EnforcedMetric, string> = {
+  api_requests: 'API requests',
+  egress: 'Egress',
+  mau: 'Monthly active users',
+  db_size: 'Database size',
+};
+
+/**
+ * Exactly what a limit does today, by its rollout mode (verified against
+ * plan-enforcement.rules.ts in platform-api): `warn` and `off` never refuse
+ * anything; `enforce` refuses past the limit plus a 10% grace and mails the
+ * owners at 80% and 100%. Legacy plans and limits left empty are never enforced.
+ */
+export function enforcementSentence(metric: EnforcedMetric, mode: EnforcementMode): string {
+  const name = METRIC_NAME[metric];
+  if (mode === 'enforce') {
+    const what = blockedSentence(metric);
+    return `${name}: enforced. Owners are mailed at 80% and 100%; past the limit plus a 10% grace, ${what.charAt(0).toLowerCase()}${what.slice(1)}`;
+  }
+  return `${name}: counted and shown against the limit; not refused at present.`;
+}
 
 /** Compute in plain words: every project is on the shared server today. */
 export const SHARED_COMPUTE_SENTENCE =

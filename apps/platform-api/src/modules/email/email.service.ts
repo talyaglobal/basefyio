@@ -22,6 +22,7 @@ import { projectMagicLinkTemplate } from './templates/project-magic-link.templat
 import { projectChangeEmailTemplate } from './templates/project-change-email.template';
 import { projectReauthTemplate } from './templates/project-reauth.template';
 import { signupVerifyEmailTemplate } from './templates/signup-verify-email.template';
+import { planUsageTemplate } from './templates/plan-usage.template';
 
 @Injectable()
 export class EmailService implements OnModuleInit {
@@ -404,6 +405,20 @@ export class EmailService implements OnModuleInit {
   async sendProjectReauth(to: string, projectName: string, otp: string) {
     const html = projectReauthTemplate({ email: to, projectName, otp });
     return this.send({ to, subject: `[${projectName}] Confirm your identity`, html });
+  }
+
+  /** Tells an organization owner that an enforced plan limit is at 80% or 100%. */
+  async sendPlanUsageNotice(
+    to: string,
+    data: { teamName: string; planName: string; label: string; current: string; limit: string; threshold: 80 | 100; consequence: string },
+  ) {
+    const billingUrl = `${this.appUrl}/dashboard/billing`;
+    const html = planUsageTemplate({ ...data, billingUrl });
+    const subject =
+      data.threshold >= 100
+        ? `${data.teamName} has reached its ${data.label.toLowerCase()} limit`
+        : `${data.teamName} has used 80% of its ${data.label.toLowerCase()} limit`;
+    return this.send({ to, subject, html });
   }
 
   async sendRawHtml(to: string, subject: string, html: string) {

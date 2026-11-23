@@ -71,8 +71,41 @@ page. On Free, the plan costs $0, so none of it is charged.
 | Projects | Creating another project is refused until you delete or deactivate one, or upgrade. |
 | Team members | Inviting another member is refused. |
 | File storage | An upload that would take the organization over its limit is refused (HTTP `402`, `Quota Exceeded`) until you delete files or upgrade. |
-| Database size | Shown against the limit; the database is not cut off when it grows past it. A move to a plan whose limit your databases exceed is blocked until you delete data. |
-| API requests, egress, monthly active users | Counted and shown in Billing; not used to block requests at present. |
+| Database size | A move to a plan whose limit your databases exceed is blocked until you delete data. Growth past the limit follows the rollout mode below. |
+| API requests, egress, monthly active users, database size | Follow the rollout mode of each limit, below. |
+
+### API requests, egress, monthly active users and database size
+
+Each of these four limits has a rollout mode, set by the operator for the whole platform and
+shown on the Billing page next to each figure:
+
+- **warn** (the default today): nothing is refused. Usage is counted and shown against the
+  limit; the platform logs which organizations would be refused.
+- **enforce**: the owners of the organization are mailed once a month at **80%** and at
+  **100%** of the limit, and Billing shows a notice. Past the limit plus a **10% grace**:
+
+  | Limit | What is refused | Answer |
+  |---|---|---|
+  | API requests per month | Every request that names a project, until the counter resets on the 1st (UTC) or you upgrade | `429`, `Retry-After` until the 1st |
+  | Egress per month | The same | `429`, `Retry-After` until the 1st |
+  | Monthly active users | **New sign-ups** of your projects' end users (email/password sign-up, anonymous sign-in). Existing users keep signing in and refreshing their sessions. | `402` |
+  | Database size | Writes that add data through the API: inserts and updates over `/rest/v1` and collections, the table editor, imports, and SQL scripts with `INSERT`, `UPDATE`, `MERGE`, `CREATE`, `ALTER` or `COPY`. Reading, `DELETE`, `TRUNCATE`, `DROP` and `VACUUM` keep working, so you can always free space. | `402` |
+
+  A refusal is JSON with `code: "plan_limit_exceeded"`, the `resource`, the `current` and
+  `limit` figures, a `message` and an `upgradeUrl`. Upgrading lifts it within a minute.
+- **off**: the limit is not evaluated.
+
+Never refused, in any mode: health checks, the Billing and payment routes (you can always pay
+and upgrade), the dashboard itself (only its writes that add data fall under the database-size limit), and the project sign-in and session-refresh routes.
+Legacy plans, Enterprise limits left empty, and a monthly figure that still belongs to the
+previous month are never enforced.
+
+What the database-size limit cannot stop: connections straight to PostgreSQL through the
+connection pooler (`db.basefyio.com:6432`) do not pass through the API, so writes made that
+way are not refused; they still count toward the size, which is measured every hour. Database
+functions called over `/rest/v1/rpc` and a `SELECT` that calls a function which writes are not
+refused either. First sign-ins through an external identity provider (OAuth) are not counted as
+sign-ups for the MAU limit.
 
 ## How often usage is measured
 

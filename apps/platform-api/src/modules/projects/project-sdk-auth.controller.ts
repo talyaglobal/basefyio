@@ -18,6 +18,7 @@ import { ProjectAnonymousAuthService } from './project-anonymous-auth.service';
 import { SupabaseAuthCompatService } from './supabase-auth-compat.service';
 import { ApiKeyGuard, ApiKeyPayload } from '../../common/guards/api-key.guard';
 import { AuthenticatedKeyOnly } from '../../common/decorators/api-key-scope.decorator';
+import { PlanGate } from '../../common/decorators/plan-gate.decorator';
 
 @Controller('rest/v1/auth')
 @UseGuards(ApiKeyGuard)
@@ -38,6 +39,7 @@ export class ProjectSdkAuthController {
     return ip || undefined;
   }
 
+  @PlanGate('signup')
   @Post('signup')
   async signup(
     @Req() req: Request,
@@ -351,6 +353,7 @@ export class ProjectSdkAuthController {
   // ── Anonymous users ──
 
   /** A session without an account; off unless the project allows it. */
+  @PlanGate('signup')
   @Post('signin/anonymous')
   async signInAnonymously(@Req() req: Request) {
     const { projectId } = this.getPayload(req);

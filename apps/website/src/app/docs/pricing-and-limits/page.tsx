@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { withAbsoluteSiteUrls } from "@/lib/absolute-site-metadata";
 
 const pageDescription =
-  "What a basefyio project gets and what it costs: plan limits for database size and file storage, how storage is billed, compute, region, and what happens at a limit.";
+  "What a basefyio project gets and what it costs: plan limits, how storage is billed, compute, region, Enterprise, and what happens at each limit and in each rollout mode.";
 
 export async function generateMetadata(): Promise<Metadata> {
   return withAbsoluteSiteUrls("/docs/pricing-and-limits", {
@@ -144,16 +144,91 @@ export default function PricingAndLimitsDocs() {
           <tr>
             <td>Database size</td>
             <td>
-              Shown against the limit; the database is not cut off when it grows past it. A move to a plan
-              whose limit your databases exceed is blocked until you delete data.
+              A move to a plan whose limit your databases exceed is blocked until you delete data. Growth
+              past the limit follows the rollout mode below.
             </td>
           </tr>
           <tr>
-            <td>API requests, egress, monthly active users</td>
-            <td>Counted and shown in Billing; not used to block requests at present.</td>
+            <td>API requests, egress, monthly active users, database size</td>
+            <td>Follow the rollout mode of each limit, below.</td>
           </tr>
         </tbody>
       </table>
+
+      <h3>API requests, egress, monthly active users and database size</h3>
+      <p>
+        Each of these four limits has a rollout mode, set by the operator for the whole platform and shown
+        on the Billing page next to each figure:
+      </p>
+      <ul>
+        <li>
+          <strong>warn</strong> (the default today): nothing is refused. Usage is counted and shown against
+          the limit; the platform logs which organizations would be refused.
+        </li>
+        <li>
+          <strong>enforce</strong>: the owners of the organization are mailed once a month at{" "}
+          <strong>80%</strong> and at <strong>100%</strong> of the limit, and Billing shows a notice. Past the
+          limit plus a <strong>10% grace</strong>, the request is refused (table below).
+        </li>
+        <li>
+          <strong>off</strong>: the limit is not evaluated.
+        </li>
+      </ul>
+      <table>
+        <thead>
+          <tr><th>Limit (enforce, past the grace)</th><th>What is refused</th><th>Answer</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>API requests per month</td>
+            <td>Every request that names a project, until the counter resets on the 1st (UTC) or you upgrade.</td>
+            <td><code>429</code>, <code>Retry-After</code> until the 1st</td>
+          </tr>
+          <tr>
+            <td>Egress per month</td>
+            <td>The same.</td>
+            <td><code>429</code>, <code>Retry-After</code> until the 1st</td>
+          </tr>
+          <tr>
+            <td>Monthly active users</td>
+            <td>
+              <strong>New sign-ups</strong> of your projects&apos; end users (email/password sign-up, anonymous
+              sign-in). Existing users keep signing in and refreshing their sessions.
+            </td>
+            <td><code>402</code></td>
+          </tr>
+          <tr>
+            <td>Database size</td>
+            <td>
+              Writes that add data through the API: inserts and updates over <code>/rest/v1</code> and
+              collections, the table editor, imports, and SQL scripts with <code>INSERT</code>,{" "}
+              <code>UPDATE</code>, <code>MERGE</code>, <code>CREATE</code>, <code>ALTER</code> or{" "}
+              <code>COPY</code>. Reading, <code>DELETE</code>, <code>TRUNCATE</code>, <code>DROP</code> and{" "}
+              <code>VACUUM</code> keep working, so you can always free space.
+            </td>
+            <td><code>402</code></td>
+          </tr>
+        </tbody>
+      </table>
+      <p>
+        A refusal is JSON with <code>code: &quot;plan_limit_exceeded&quot;</code>, the <code>resource</code>,
+        the <code>current</code> and <code>limit</code> figures, a <code>message</code> and an{" "}
+        <code>upgradeUrl</code>. Upgrading lifts it within a minute.
+      </p>
+      <p>
+        Never refused, in any mode: health checks, the Billing and payment routes (you can always pay and
+        upgrade), the dashboard itself (only its writes that add data fall under the database-size limit), and the project sign-in and session-refresh routes. Legacy plans,
+        Enterprise limits left empty, and a monthly figure that still belongs to the previous month are
+        never enforced.
+      </p>
+      <p>
+        What the database-size limit cannot stop: connections straight to PostgreSQL through the connection
+        pooler (<code>db.basefyio.com:6432</code>) do not pass through the API, so writes made that way are
+        not refused; they still count toward the size, which is measured every hour. Database functions
+        called over <code>/rest/v1/rpc</code> and a <code>SELECT</code> that calls a function which writes
+        are not refused either. First sign-ins through an external identity provider (OAuth) are not counted
+        as sign-ups for the MAU limit.
+      </p>
 
       <h2>How often usage is measured</h2>
       <table>

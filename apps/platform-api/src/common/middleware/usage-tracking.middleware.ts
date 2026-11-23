@@ -1,7 +1,8 @@
-import { Injectable, NestMiddleware, Logger } from '@nestjs/common';
+import { Injectable, NestMiddleware, Logger, Optional } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsageService } from '../../modules/billing/usage.service';
+import { PlanEnforcementService } from '../../modules/billing/plan-enforcement.service';
 import { hashSecretKey, isSecretKey } from '../utils/secret-keys';
 
 /**
@@ -19,6 +20,27 @@ export function normalizeApiPath(raw: string): string {
   const scoped = /^\/api\/p\/[^/]+(\/.*)?$/.exec(path);
   if (scoped) path = `/api${scoped[1] || '/'}`;
   return path;
+}
+
+/**
+ * Never refused for API requests or egress, whatever the plan: health and
+ * metrics, billing and payment (so a customer can always upgrade or pay),
+ * the platform's own sign-in, and the project auth routes (an existing end
+ * user must always be able to sign in and refresh their session; new sign-ups
+ * are bounded by the MAU limit instead). The dashboard sends no API key and
+ * no x-project-id, so it is never resolved to a project here at all.
+ */
+const TRAFFIC_EXEMPT_PREFIXES = [
+  '/api/health',
+  '/api/metrics',
+  '/api/billing',
+  '/api/auth/',
+  '/api/rest/v1/auth/',
+];
+
+export function isTrafficExempt(path: string): boolean {
+  const p = path.toLowerCase();
+  return TRAFFIC_EXEMPT_PREFIXES.some((prefix) => p === prefix.replace(/\/$/, '') || p.startsWith(prefix));
 }
 
 interface ResolvedOwner {
@@ -54,6 +76,7 @@ export class UsageTrackingMiddleware implements NestMiddleware {
   constructor(
     private readonly prisma: PrismaService,
     private readonly usage: UsageService,
+    @Optional() private readonly enforcement?: PlanEnforcementService,
   ) {
     // Periodically evict expired entries to prevent memory leak
     this.evictionTimer = setInterval(() => this.evictExpired(), UsageTrackingMiddleware.EVICTION_INTERVAL_MS);
@@ -89,6 +112,20 @@ export class UsageTrackingMiddleware implements NestMiddleware {
 
     if (owner) {
       const { teamId, projectId } = owner;
+
+      // Plan limits for API requests and egress. Off and warn never refuse;
+      // enforce refuses past the limit plus the grace. Cached, and fails open.
+      if (this.enforcement && !isTrafficExempt(path)) {
+        const refusal = await this.enforcement.checkTraffic(teamId).catch(() => null);
+        if (refusal) {
+          if (refusal.retryAfterSeconds) res.setHeader('Retry-After', String(refusal.retryAfterSeconds));
+          res.statusCode = refusal.status;
+          res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          res.end(JSON.stringify(refusal.body));
+          return;
+        }
+      }
+
       this.usage.trackApiRequest(teamId, projectId).catch(() => {});
 
       const usageService = this.usage;

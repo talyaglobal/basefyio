@@ -21,6 +21,7 @@ import { DataEngineService } from './data-engine.service';
 import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
 import { AnonKeyAllowed, ServiceKeyOnly } from '../../common/decorators/api-key-scope.decorator';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
+import { PlanGate } from '../../common/decorators/plan-gate.decorator';
 
 /**
  * The data engine.
@@ -44,6 +45,7 @@ export class DataEngineController {
     return this.dataEngine.listEntities(projectId);
   }
 
+  @PlanGate('db_write')
   @Post('entities')
   async createEntity(
     @Param('projectId') projectId: string,
@@ -79,6 +81,7 @@ export class DataEngineController {
 
   // ── Document CRUD ────────────────────────────────────
 
+  @PlanGate('db_write')
   @Post('data/:entity')
   async createRecord(
     @Param('projectId') projectId: string,
@@ -147,6 +150,7 @@ export class DataEngineController {
     return doc;
   }
 
+  @PlanGate('db_write')
   @Patch('data/:entity/:id')
   async updateRecord(
     @Param('projectId') projectId: string,
@@ -161,6 +165,7 @@ export class DataEngineController {
     return col.update(id, body as any, { userId: user?.sub });
   }
 
+  @PlanGate('db_write')
   @Put('data/:entity/:id')
   async replaceRecord(
     @Param('projectId') projectId: string,

@@ -21,7 +21,7 @@ import { Button } from '@/components/ui/button';
 import { ProjectCostsPanel } from '@/components/project-costs-panel';
 import type { TeamCostReport } from '@/lib/types';
 import { formatDate, formatDateTime } from '@/lib/format';
-import { ENTERPRISE_CONTACT_HREF } from '@/lib/plan-resources';
+import { ENTERPRISE_CONTACT_HREF, blockedSentence, enforcementSentence } from '@/lib/plan-resources';
 
 let stripeLoading: ReturnType<typeof loadStripe> | null = null;
 function getStripePromise() {
@@ -72,6 +72,25 @@ interface Usage {
   apiRequestsMonth: number;
   bandwidthMonth: string;
   mauCount: number;
+}
+
+interface LimitMetric {
+  metric: 'api_requests' | 'egress' | 'mau' | 'db_size';
+  label: string;
+  unit: 'count' | 'bytes';
+  current: string;
+  limit: string | null;
+  percent: number | null;
+  level: 'ok' | 'warning' | 'limit' | 'over_grace';
+  mode: 'off' | 'warn' | 'enforce';
+  blocking: boolean;
+  wouldBlock: boolean;
+}
+
+interface LimitsStatus {
+  exempt: boolean;
+  metrics: LimitMetric[];
+  upgradeUrl: string;
 }
 
 interface Invoice {
@@ -399,6 +418,7 @@ export default function BillingPage() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [usage, setUsage] = useState<Usage | null>(null);
+  const [limits, setLimits] = useState<LimitsStatus | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [projectCosts, setProjectCosts] = useState<TeamCostReport | null>(null);
   const [loading, setLoading] = useState(true);
@@ -468,6 +488,7 @@ export default function BillingPage() {
         api.billing.paymentMethod(activeTeamId),
         api.billing.projectCosts(activeTeamId),
         api.billing.paymentMethods(activeTeamId),
+        api.billing.limits(activeTeamId),
       ]);
 
       const val = <T,>(r: PromiseSettledResult<T>, fallback: T): T =>
@@ -481,6 +502,7 @@ export default function BillingPage() {
       setPaymentMethod(val(results[5], null));
       setProjectCosts(val(results[6], null));
       setCards(val(results[7], null));
+      setLimits(val(results[8] as PromiseSettledResult<LimitsStatus | null>, null));
     } catch (err) {
       console.error('Failed to load billing data:', err);
     } finally {
@@ -1191,6 +1213,34 @@ export default function BillingPage() {
         )}
       </div>
 
+      {/* Plan limits past 80% (only for limits that are enforced) */}
+      {limits && !limits.exempt && limits.metrics.some((m) => m.mode === 'enforce' && m.level !== 'ok') && (
+        <div
+          role="alert"
+          className={`rounded-xl border p-4 text-sm ${
+            limits.metrics.some((m) => m.blocking)
+              ? 'border-destructive/50 bg-destructive/10 text-destructive'
+              : 'border-amber-500/50 bg-amber-500/10 text-amber-700 dark:text-amber-300'
+          }`}
+        >
+          <ul className="space-y-1">
+            {limits.metrics
+              .filter((m) => m.mode === 'enforce' && m.level !== 'ok')
+              .map((m) => (
+                <li key={m.metric}>
+                  <strong>{m.label}:</strong> {m.percent ?? 0}% of the plan limit.{' '}
+                  {m.blocking
+                    ? blockedSentence(m.metric)
+                    : m.level === 'warning'
+                      ? 'Nothing is refused yet.'
+                      : 'You are inside the 10% grace; past it, this limit is enforced.'}
+                </li>
+              ))}
+          </ul>
+          <p className="mt-2">Upgrade below to raise the limits; the change applies at once.</p>
+        </div>
+      )}
+
       {/* Usage */}
       {usage && currentPlan && (
         <div className="rounded-xl border bg-card p-6">
@@ -1202,7 +1252,17 @@ export default function BillingPage() {
             <UsageMeter label="Database Size" current={parseInt(usage.dbSizeBytes || '0', 10)} max={currentPlan.maxDbSizeBytes ? parseInt(currentPlan.maxDbSizeBytes, 10) : null} format="bytes" />
             <UsageMeter label="API Requests (this month)" current={usage.apiRequestsMonth} max={currentPlan.maxApiRequests} />
             <UsageMeter label="Bandwidth (this month)" current={parseInt(usage.bandwidthMonth || '0', 10)} max={currentPlan.maxBandwidthBytes ? parseInt(currentPlan.maxBandwidthBytes, 10) : null} format="bytes" />
+            <UsageMeter label="Monthly active users" current={usage.mauCount ?? 0} max={(currentPlan as any).maxMau ?? null} />
           </div>
+          {limits && !limits.exempt && (
+            <ul className="mt-4 space-y-1 text-xs text-muted-foreground">
+              {limits.metrics
+                .filter((m) => m.limit !== null)
+                .map((m) => (
+                  <li key={m.metric}>{enforcementSentence(m.metric, m.mode)}</li>
+                ))}
+            </ul>
+          )}
         </div>
       )}
 

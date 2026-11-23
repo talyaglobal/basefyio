@@ -40,6 +40,7 @@ export const CONTROLLER_POLICY: Record<string, [Policy, string]> = {
   'modules/tenant-embedding/ai-disclosure.controller.ts': ['token', 'what AI sees of a project (settings:read)'],
   'modules/notifications/notifications.controller.ts': ['token', 'your notifications (account:*)'],
   'modules/billing/billing.controller.ts': ['mixed', 'billing reads take billing:read; every payment, plan or account change needs a dashboard session'],
+  'modules/billing/plan-limits.controller.ts': ['mixed', 'plan limit status takes billing:read; the enforcement switch is root-only on a dashboard session'],
   'modules/feedback/feedback.controller.ts': ['mixed', 'triage reads, comments and status take feedback:*; edits and deletes need a session'],
   'modules/realtime-data/realtime-data.controller.ts': ['mixed', 'binding management takes realtime:*; the stream and broadcast take a project key'],
 

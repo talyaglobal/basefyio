@@ -23,6 +23,7 @@ import {
 import { DataImportService } from './data-import.service';
 import { StartImportDto } from './dto/start-import.dto';
 import { isImportEncoding, type ImportEncoding } from './lib/text-decoding';
+import { PlanGate } from '../../common/decorators/plan-gate.decorator';
 
 /** 'auto' unless the caller named a supported character set. */
 function parseEncoding(raw: string | undefined): ImportEncoding | 'auto' {
@@ -127,6 +128,7 @@ export class DataImportController {
   }
 
   @Scopes('data:write')
+  @PlanGate('db_write')
   @Post('jobs')
   async start(
     @Param('projectId') projectId: string,

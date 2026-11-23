@@ -14,12 +14,14 @@ import {
   CurrentUser,
   JwtPayload,
 } from '../../common/decorators/current-user.decorator';
+import { PlanGate } from '../../common/decorators/plan-gate.decorator';
 
 @Controller('sql')
 @UseGuards(JwtOrApiKeyGuard)
 export class SqlController {
   constructor(private readonly sqlService: SqlService) {}
 
+  @PlanGate('sql')
   @Post('execute')
   async execute(
     @Body() dto: ExecuteSqlDto,

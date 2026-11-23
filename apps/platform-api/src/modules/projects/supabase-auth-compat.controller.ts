@@ -24,6 +24,7 @@ import {
 } from '../../common/decorators/api-key-scope.decorator';
 import { SupabaseAuthCompatService } from './supabase-auth-compat.service';
 import { GoTrueError, GoTrueExceptionFilter } from './supabase-auth-compat.filter';
+import { PlanGate } from '../../common/decorators/plan-gate.decorator';
 
 /**
  * `/api/auth/v1/*` — the GoTrue (Supabase Auth) API, so `@supabase/supabase-js`
@@ -68,6 +69,7 @@ export class SupabaseAuthCompatController {
     }
   }
 
+  @PlanGate('signup')
   @Post('signup')
   @AnonKeyAllowed()
   async signup(
