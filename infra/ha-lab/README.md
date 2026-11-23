@@ -13,7 +13,7 @@ production stack.
 
 | Service | Image | Role |
 |---|---|---|
-| `pg-primary`, `pg-replica` | the production cluster image by digest, `ghcr.io/fsipka/basefyio-postgres@sha256:a8083c2a…6eb9` | Primary and streaming standby. Same `command:` as production plus the Stage 1 HA parameters (`max_wal_senders=10`, `max_replication_slots=10`, `max_slot_wal_keep_size=2GB`, `wal_log_hints=on`, `hot_standby=on`, `hot_standby_feedback=on`, `max_standby_streaming_delay=30s`). |
+| `pg-primary`, `pg-replica` | the production cluster image by digest, `ghcr.io/fsipka/basefyio-postgres@sha256:9b170265…751a` | Primary and streaming standby. Same `command:` as production plus the Stage 1 HA parameters (`max_wal_senders=10`, `max_replication_slots=10`, `max_slot_wal_keep_size=2GB`, `wal_log_hints=on`, `hot_standby=on`, `hot_standby_feedback=on`, `max_standby_streaming_delay=30s`). |
 | `rc-primary`, `rc-replica` | built from `role-check/` (Alpine 3.20 + `psql` + `socat`) | `pg-role-check`: HTTP on :8008, `/primary` is 200 only on a primary, `/replica[?lag=bytes]` is 200 only on a streaming standby within the lag. The same paths Patroni serves, so HAProxy's checks do not change at Stage 5. |
 | `haproxy` | `haproxy:3.0.31-alpine` (digest-pinned) | `pg-rw:5432` → the node answering `/primary`; `pg-ro:5433` → standbys answering `/replica?lag=16777216`, falling back to `pg-rw` when none is healthy. `on-marked-down shutdown-sessions` cuts clients off a node the moment it stops being primary. |
 | `pgbouncer` | `edoburu/pgbouncer:v1.25.1-p0` (digest-pinned) | Same settings the API generates in production (transaction mode, `auth_type = plain`), with every `[databases]` line pointing at `pg-rw`, so a promotion needs no `RELOAD`. |

@@ -22,7 +22,7 @@ x-pg-node: &pg-node
   # The ghcr package is private: `docker login ghcr.io` first, or run
   # `./lab.sh build-image` and set LAB_PG_IMAGE=basefyio-postgres:lab
   # (built from docker/postgres; same base, but not byte-identical to prod).
-  image: ${LAB_PG_IMAGE:-ghcr.io/fsipka/basefyio-postgres@sha256:a8083c2a705032571dd46a757b79765204f0420001cf6140392d81e945666eb9}
+  image: ${LAB_PG_IMAGE:-ghcr.io/fsipka/basefyio-postgres@sha256:9b1702650a182a6908f2c9f4e213080e3a8391743b4d8f3b2be7b36d14a5751a}
   restart: "no"
   # Same convention as docker-compose.prod.yml: a bash wrapper that prepares
   # the WAL archive directory, then hands over to the image's own
@@ -230,7 +230,7 @@ services:
 
   # psql for lab.sh and smoke.sh, so the owner's machine needs no client.
   client:
-    image: ${LAB_PG_IMAGE:-ghcr.io/fsipka/basefyio-postgres@sha256:a8083c2a705032571dd46a757b79765204f0420001cf6140392d81e945666eb9}
+    image: ${LAB_PG_IMAGE:-ghcr.io/fsipka/basefyio-postgres@sha256:9b1702650a182a6908f2c9f4e213080e3a8391743b4d8f3b2be7b36d14a5751a}
     restart: unless-stopped
     entrypoint: ["sleep", "infinity"]
     environment:

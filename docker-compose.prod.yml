@@ -42,7 +42,7 @@ services:
     # #202 part B, ready but NOT active: switching to the digest recreates
     # postgres (and Keycloak through depends_on), so it ships only in MW-1.
     # Swap the two lines then; see docs/ops/image-pinning.md.
-    # image: ghcr.io/${GHCR_OWNER}/basefyio-postgres@sha256:a8083c2a705032571dd46a757b79765204f0420001cf6140392d81e945666eb9
+    # image: ghcr.io/${GHCR_OWNER}/basefyio-postgres@sha256:9b1702650a182a6908f2c9f4e213080e3a8391743b4d8f3b2be7b36d14a5751a
     image: ghcr.io/${GHCR_OWNER}/basefyio-postgres:latest
     restart: always
     # The deploy builds three images on a 7.6 GB host. When that spike exhausts

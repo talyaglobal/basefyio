@@ -48,7 +48,10 @@ follows through `depends_on` logs every user out once. It therefore ships only i
 maintenance window (MW-1) together with the other Postgres-restarting changes. In that window: swap the
 commented digest line and the active `:latest` line, confirm the digest is still the `RepoDigests`
 entry of the running image (not its image ID), and point `PITR_POSTGRES_IMAGE` at the same reference.
-A future replica must pull exactly that digest.
+A future replica must pull exactly that digest. Check the reference resolves before the swap:
+`docker manifest inspect ghcr.io/<owner>/basefyio-postgres@sha256:<digest>`. (Until 2026-11-24 the
+prepared line held the image ID, which the registry does not know; a pull would have failed in the window.)
+The standby (`bf-standby-1`) runs the same image and moves to the same digest in the same window.
 
 ## Rollback
 
