@@ -1405,7 +1405,7 @@ export default function ProjectsPage() {
                       <Info className="h-4 w-4 text-muted-foreground" aria-hidden />
                       <span
                         role="tooltip"
-                        className="pointer-events-none absolute left-1/2 top-full z-50 mt-2 hidden w-[min(22rem,calc(100vw-2rem)))] -translate-x-1/2 rounded-md border bg-popover px-3 py-2 text-left text-xs leading-snug text-popover-foreground shadow-md group-hover:block group-focus-visible:block"
+                        className="pointer-events-none absolute left-1/2 top-full z-50 mt-2 hidden w-[min(22rem,calc(100vw-2rem))] -translate-x-1/2 rounded-md border bg-popover px-3 py-2 text-left text-xs leading-snug text-popover-foreground shadow-md group-hover:block group-focus-visible:block"
                       >
                         Projects stay in trash for <span className="font-medium">24 hours</span> from
                         deletion. After that they are <span className="font-medium">permanently removed</span>{' '}
