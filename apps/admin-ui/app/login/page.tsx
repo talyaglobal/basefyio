@@ -60,6 +60,10 @@ function LoginForm() {
   const [captchaQuestion, setCaptchaQuestion] = useState('');
   const [captchaAnswer, setCaptchaAnswer] = useState('');
   const [handingOff, setHandingOff] = useState(false);
+  // Two-factor (#196): the code step, and the setup a team requires.
+  const [totpRequired, setTotpRequired] = useState(false);
+  const [totp, setTotp] = useState('');
+  const [enrollment, setEnrollment] = useState<{ url: string; message: string } | null>(null);
 
   useEffect(() => {
     // Already signed in (session persists in localStorage across tabs/restarts):
@@ -129,7 +133,12 @@ function LoginForm() {
     setLoading(true);
 
     try {
-      const tokens = await api.auth.login(email, password, captchaRequired ? captchaAnswer : undefined);
+      const tokens = await api.auth.login(
+        email,
+        password,
+        captchaRequired ? captchaAnswer : undefined,
+        totpRequired ? totp.replace(/\s+/g, '') : undefined,
+      );
       setTokens(tokens);
       startProactiveRefresh();
       if (tokens.forcePasswordChange) {
@@ -144,6 +153,20 @@ function LoginForm() {
     } catch (err: any) {
       const rawMessage = String(err?.message || '');
       const normalizedMessage = rawMessage.toUpperCase();
+
+      if (err?.code === 'MFA_REQUIRED') {
+        if (totpRequired) toast.error('Enter the code from your authenticator app.');
+        setTotpRequired(true);
+        return;
+      }
+
+      if (err?.code === 'MFA_ENROLLMENT_REQUIRED') {
+        const url = (err?.details as { enrollUrl?: string } | undefined)?.enrollUrl;
+        if (url) {
+          setEnrollment({ url, message: rawMessage });
+          return;
+        }
+      }
 
       if (normalizedMessage.includes('ACCOUNT IS LOCKED')) {
         setCaptchaRequired(false);
@@ -173,7 +196,12 @@ function LoginForm() {
       }
 
       if (normalizedMessage.includes('INVALID CREDENTIALS')) {
-        toast.error('Email or password is incorrect.');
+        if (totpRequired) {
+          setTotp('');
+          toast.error('The password or the authenticator code is incorrect.');
+        } else {
+          toast.error('Email or password is incorrect.');
+        }
         return;
       }
 
@@ -340,15 +368,45 @@ function LoginForm() {
             </div>
           )}
 
+          {totpRequired && (
+            <div className="space-y-2">
+              <Label htmlFor="totp">Authenticator code</Label>
+              <Input
+                id="totp"
+                name="totp"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                value={totp}
+                onChange={(e) => setTotp(e.target.value)}
+                placeholder="123456"
+                maxLength={16}
+                autoFocus
+                required
+              />
+              <p className="text-xs text-muted-foreground">
+                Two-factor authentication is on for this account. Enter the 6-digit code from your authenticator app.
+              </p>
+            </div>
+          )}
+
+          {enrollment && (
+            <div role="alert" className="space-y-2 rounded-md border border-amber-400/60 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+              <p>{enrollment.message}</p>
+              <Button type="button" className="w-full" onClick={() => { window.location.href = enrollment.url; }}>
+                Set up two-factor authentication
+              </Button>
+            </div>
+          )}
+
           <Button
             type="button"
             className="w-full"
-            disabled={loading}
+            disabled={loading || (totpRequired && !totp.trim())}
             onClick={() => {
               void submitLogin();
             }}
           >
-            {loading ? 'Signing in...' : 'Sign in'}
+            {loading ? 'Signing in...' : totpRequired ? 'Verify and sign in' : 'Sign in'}
           </Button>
         </form>
 

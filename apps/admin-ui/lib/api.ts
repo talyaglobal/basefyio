@@ -451,10 +451,11 @@ export const api = {
         body: JSON.stringify({ email }),
       });
     },
-    login(email: string, password: string, captchaAnswer?: string) {
+    login(email: string, password: string, captchaAnswer?: string, totp?: string) {
       return request<AuthTokens>('/auth/login', {
         method: 'POST',
-        body: JSON.stringify({ email, password, captchaAnswer }),
+        // `totp` only when asked for, so the common request body stays as it was.
+        body: JSON.stringify({ email, password, captchaAnswer, ...(totp ? { totp } : {}) }),
       });
     },
     mfaStatus() {

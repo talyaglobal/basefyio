@@ -1,5 +1,8 @@
 import {
+  ForbiddenException,
+  HttpException,
   Injectable,
+  Optional,
   UnauthorizedException,
   BadRequestException,
   ConflictException,
@@ -22,6 +25,15 @@ import { RedisService } from '../redis/redis.service';
 import { getDisplayName } from '../../common/utils/display-name';
 import { escapeLike } from '../../common/utils/escape-like';
 import { OrganizationsCoreService } from '../organizations/organizations-core.service';
+import { LoginMfaState, PlatformMfaService } from './platform-mfa.service';
+
+/** Two-factor refusals the login's catch-all must pass through unchanged (#196). */
+const MFA_LOGIN_CODES = new Set(['MFA_REQUIRED', 'MFA_ENROLLMENT_REQUIRED']);
+const isMfaLoginSignal = (e: unknown): e is HttpException => {
+  if (!(e instanceof HttpException)) return false;
+  const body = e.getResponse();
+  return typeof body === 'object' && body !== null && MFA_LOGIN_CODES.has(String((body as { code?: unknown }).code));
+};
 
 type RolePermissionKey =
   | 'canAccessManagement'
@@ -111,6 +123,9 @@ export class AuthService {
     private readonly billing: BillingService,
     private readonly redis: RedisService,
     private readonly organizations: OrganizationsCoreService,
+    // Optional so a module that builds AuthService without it keeps working;
+    // the login then behaves as before (no second factor asked).
+    @Optional() private readonly mfa?: PlatformMfaService,
   ) {
     const accessKey = this.config.get<string>('minio.accessKey') || 'kolaybase';
     const secretKey = this.config.get<string>('minio.secretKey') || 'kolaybase_secret';
@@ -537,11 +552,19 @@ export class AuthService {
     password: string,
     meta?: { ipAddress?: string; userAgent?: string },
     captchaAnswer?: string,
+    totp?: string,
   ) {
     const normalizedEmail = this.normalizeEmail(email);
+    // The two-factor fields ride on this one lookup: an account with no
+    // authenticator and no team policy costs nothing more (pinned by
+    // auth.service.login-regression.spec.ts).
     const existingUser = await this.prisma.user.findUnique({
       where: { email: normalizedEmail },
-      select: { id: true },
+      select: {
+        id: true,
+        mfaEnrolledAt: true,
+        teamMembers: { where: { team: { requireMfa: true } }, select: { team: { select: { name: true } } } },
+      },
     });
     if (existingUser) {
       try {
@@ -601,6 +624,18 @@ export class AuthService {
     const keycloakUrl = this.config.get<string>('keycloak.url');
     const clientId = this.config.get<string>('keycloak.adminClientId');
 
+    const mfaState: LoginMfaState = this.mfa
+      ? await this.mfa.resolveLoginMfa(existingUser)
+      : { hasOtp: false, required: false, requiredBy: [] };
+    const code = totp?.replace(/\s+/g, '') || undefined;
+    if (mfaState.hasOtp && !code) {
+      // Asked before the grant so the missing code is not counted as a failed sign-in.
+      throw new UnauthorizedException({
+        code: 'MFA_REQUIRED',
+        message: 'Enter the 6-digit code from your authenticator app.',
+      });
+    }
+
     const tokenUrl = `${keycloakUrl}/realms/master/protocol/openid-connect/token`;
     const requestToken = async (username: string) => {
       const params = new URLSearchParams({
@@ -609,6 +644,8 @@ export class AuthService {
         username,
         password,
       });
+      // Keycloak's direct-grant flow checks the code itself (Conditional OTP).
+      if (code) params.set('totp', code);
 
       const { data } = await firstValueFrom(
         this.http.post(tokenUrl, params.toString(), {
@@ -634,8 +671,26 @@ export class AuthService {
       };
       try {
         data = await requestToken(email);
-      } catch {
-        throw new UnauthorizedException('Invalid credentials');
+      } catch (grantErr) {
+        const outcome = this.mfa ? await this.mfa.handleGrantError(grantErr, email, mfaState).catch(() => null) : null;
+        if (outcome?.kind === 'enrollment_required') throw this.mfaEnrollmentRequired(outcome.enrollUrl, mfaState);
+        if (outcome?.kind !== 'retry') throw new UnauthorizedException('Invalid credentials');
+        try {
+          data = await requestToken(email);
+        } catch {
+          throw new UnauthorizedException('Invalid credentials');
+        }
+      }
+
+      if (this.mfa && existingUser) {
+        // A member whose team requires two-factor and who has none yet gets no
+        // tokens: they are sent to set it up (and Keycloak is told to insist).
+        const outcome = await this.mfa.afterLoginSuccess(normalizedEmail, mfaState, {
+          id: existingUser.id,
+          email: normalizedEmail,
+          mfaEnrolledAt: existingUser.mfaEnrolledAt ?? null,
+        });
+        if (outcome?.kind === 'enrollment_required') throw this.mfaEnrollmentRequired(outcome.enrollUrl, mfaState);
       }
 
       const user = await this.prisma.user.findUnique({
@@ -711,7 +766,9 @@ export class AuthService {
         tokenType: data.token_type,
         forcePasswordChange,
       };
-    } catch {
+    } catch (e) {
+      // Not a failed sign-in: the password was right and a second factor is needed.
+      if (isMfaLoginSignal(e)) throw e;
       const failure = await this.registerFailedLogin(normalizedEmail);
       if (failure.locked) {
         throw new UnauthorizedException('Account is locked after 10 failed attempts');
@@ -721,6 +778,16 @@ export class AuthService {
       }
       throw new UnauthorizedException('Invalid credentials');
     }
+  }
+
+  /** 403 with where to set up the authenticator; the dashboard sends the user there. */
+  private mfaEnrollmentRequired(enrollUrl: string, state: LoginMfaState): ForbiddenException {
+    const teams = state.requiredBy.length ? state.requiredBy.join(', ') : 'your organization';
+    return new ForbiddenException({
+      code: 'MFA_ENROLLMENT_REQUIRED',
+      message: `${teams} requires two-factor authentication. Set up an authenticator app to continue.`,
+      details: { enrollUrl, requiredBy: state.requiredBy },
+    });
   }
 
   /**
@@ -987,6 +1054,17 @@ export class AuthService {
           }),
         );
 
+        // A member whose team requires two-factor and who has none yet gets no
+        // CLI token either; the setup happens in the browser (#196).
+        const cliUserId = this.decodeJwtSubject(data.access_token);
+        if (this.mfa && cliUserId && (await this.mfa.checkBrowserSignIn(cliUserId, false).catch(() => null))) {
+          return {
+            cliRedirectUrl: `http://127.0.0.1:${cliState.port}/callback?error=${encodeURIComponent(
+              'Your organization requires two-factor authentication. Sign in on the dashboard to set it up, then run the login again.',
+            )}`,
+          };
+        }
+
         // Store tokens under a one-time exchange code (60s TTL)
         const exchangeCode = randomBytes(32).toString('hex');
         await this.redis.set(
@@ -1018,6 +1096,7 @@ export class AuthService {
     // Standard web OAuth flow: state is base64url-encoded JSON
     const stateData = JSON.parse(Buffer.from(state, 'base64url').toString());
     const { redirectTo } = stateData;
+    const enrolmentReturn = stateData?.mfaEnroll === true;
 
     const params = new URLSearchParams({
       grant_type: 'authorization_code',
@@ -1032,6 +1111,18 @@ export class AuthService {
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         }),
       );
+
+      // Social sign-in and the return from authenticator setup: a member whose
+      // team requires two-factor and who has none yet is sent to set it up
+      // instead of getting tokens. The return from setup records the new factor.
+      const userId = this.decodeJwtSubject(data.access_token);
+      if (this.mfa && userId) {
+        const gate = await this.mfa.checkBrowserSignIn(userId, enrolmentReturn).catch((err: any) => {
+          this.logger.warn(`Two-factor check after OAuth sign-in failed for ${userId}: ${err?.message ?? err}`);
+          return null;
+        });
+        if (gate) return { mfaEnrollUrl: gate.enrollUrl };
+      }
 
       this.touchLastLogin(data.access_token);
       return {

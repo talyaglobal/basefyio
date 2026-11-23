@@ -130,6 +130,16 @@ ALTER TABLE profiles FORCE ROW LEVEL SECURITY;`}</code></pre>
         <li><strong>Use HTTPS</strong>. basefyio enforces HTTPS in production via Traefik with automatic Let&apos;s Encrypt certificates.</li>
       </ul>
 
+      <h2>Dashboard two-factor authentication</h2>
+      <p>
+        Anyone can turn on an authenticator app for their own basefyio account under Account. Signing in to the
+        dashboard then asks for the 6-digit code after the password. An organization owner can require two-factor
+        authentication for every member. The owner must have it on first, so they cannot lock themselves out. A
+        member who has not set it up yet is sent to the setup page at their next sign-in, whether they sign in with a
+        password, Google or GitHub, and gets no session until it is done. The CLI login is refused the same way until
+        setup is done. Sessions that are already open are not ended.
+      </p>
+
       <h2>Data Engine Security</h2>
       <p>
         The Data Engine enforces tenant isolation differently from RLS:

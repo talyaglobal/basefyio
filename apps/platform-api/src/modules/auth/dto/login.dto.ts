@@ -1,4 +1,4 @@
-import { IsEmail, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class LoginDto {
   @IsEmail()
@@ -12,4 +12,10 @@ export class LoginDto {
   @IsString()
   @IsOptional()
   captchaAnswer?: string;
+
+  /** The code from the account's authenticator app, when it has one (#196). */
+  @IsString()
+  @IsOptional()
+  @MaxLength(16)
+  totp?: string;
 }

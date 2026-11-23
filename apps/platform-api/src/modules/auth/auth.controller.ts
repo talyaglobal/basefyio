@@ -61,7 +61,7 @@ export class AuthController {
     return this.authService.login(dto.email, dto.password, {
       ipAddress,
       userAgent,
-    }, dto.captchaAnswer);
+    }, dto.captchaAnswer, dto.totp);
   }
 
   @Get('captcha')
@@ -610,6 +610,11 @@ export class AuthController {
       // CLI flow: redirect browser to the loopback server with the exchange code
       if ((result as any).cliRedirectUrl) {
         return res.redirect((result as any).cliRedirectUrl);
+      }
+
+      // Two-factor setup required by a team (#196): no tokens, straight to Keycloak's setup page.
+      if ((result as any).mfaEnrollUrl) {
+        return res.redirect((result as any).mfaEnrollUrl);
       }
 
       // Standard web flow: embed tokens in the fragment so the frontend can read them.

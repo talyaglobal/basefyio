@@ -13,11 +13,12 @@ jest.mock('../email/email.service', () => ({ EmailService: class {} }));
 jest.mock('../billing/billing.service', () => ({ BillingService: class {} }));
 jest.mock('../redis/redis.service', () => ({ RedisService: class {} }));
 jest.mock('./keycloak-admin.service', () => ({ KeycloakAdminService: class {} }));
-jest.mock('./platform-mfa.service', () => ({ PlatformMfaService: class {} }), { virtual: true });
+jest.mock('../organizations/organizations-core.service', () => ({ OrganizationsCoreService: class {} }));
 
 import { UnauthorizedException } from '@nestjs/common';
 import { of } from 'rxjs';
 import { AuthService } from './auth.service';
+import { PlatformMfaService } from './platform-mfa.service';
 
 const payload = Buffer.from(JSON.stringify({ sub: 'u1' })).toString('base64url');
 const TOKENS = {
@@ -108,12 +109,10 @@ function build(opts: { grantFails?: boolean } = {}) {
     }),
   };
   const email = { sendSignInNotification: jest.fn(() => Promise.resolve()) };
-  const mfa = {
-    resolveLoginMfa: jest.fn(async () => ({ hasOtp: false, required: false })),
-  };
-  // Constructed through `any` so the spec compiles against both the constructor
-  // before the two-factor work (7 parameters) and after it (8).
-  const ctorArgs: any[] = [config, http, keycloak, prisma, email, {}, {}, mfa];
+  // The real two-factor service, on the same recording stubs: on this path it
+  // must not add a single call (#196 wired it into the login).
+  const mfa = new PlatformMfaService(config as any, http as any, keycloak as any, prisma as any, email as any);
+  const ctorArgs: any[] = [config, http, keycloak, prisma, email, {}, {}, {}, mfa];
   const svc: AuthService = new (AuthService as any)(...ctorArgs);
   return { svc, calls, prisma, keycloak, http, email };
 }
