@@ -168,23 +168,57 @@ export class ProjectPitrService {
   // ── Recovery window ────────────────────────────────────────────────────────
 
   /** What range of timestamps this project can currently be restored to. */
-  async getRecoveryWindow(projectId: string, userId: string): Promise<RecoveryWindow> {
-    await this.assertMember(projectId, userId);
+  /**
+   * The cluster's WAL and base-backup listing is the same for every project and
+   * holds thousands of objects; listing it on every page load took seconds
+   * (#34). Its summary is kept for a minute, shared by all projects.
+   */
+  private clusterSummary: { at: number; value: Promise<{ walCount: number; newestWal: number | null; oldestBase: number | null }> } | null = null;
+  private static readonly CLUSTER_SUMMARY_TTL_MS = 60_000;
 
-    const [bases, wal, clusterBases] = await Promise.all([
-      this.storage
-        .listPlatformObjects(PITR_BUCKET, `${projectId}/base/`)
-        .catch(() => []),
+  private clusterPitrSummary() {
+    const now = Date.now();
+    if (this.clusterSummary && now - this.clusterSummary.at < ProjectPitrService.CLUSTER_SUMMARY_TTL_MS) {
+      return this.clusterSummary.value;
+    }
+    const value = Promise.all([
       // WAL is archived per cluster, not per project — the old per-project
       // prefix never matched anything, so this always reported zero segments.
       this.storage.listPlatformObjects(PITR_BUCKET, CLUSTER_WAL_PREFIX).catch(() => []),
       this.storage.listPlatformObjects(PITR_BUCKET, CLUSTER_BASE_PREFIX).catch(() => []),
+    ]).then(([wal, clusterBases]) => {
+      let newestWal: number | null = null;
+      for (const w of wal) {
+        const t = w.lastModified.getTime();
+        if (newestWal === null || t > newestWal) newestWal = t;
+      }
+      let oldestBase: number | null = null;
+      for (const b of clusterBases) {
+        const t = b.lastModified.getTime();
+        if (oldestBase === null || t < oldestBase) oldestBase = t;
+      }
+      return { walCount: wal.length, newestWal, oldestBase };
+    });
+    this.clusterSummary = { at: now, value };
+    // A failed listing is not kept.
+    value.catch(() => {
+      if (this.clusterSummary?.value === value) this.clusterSummary = null;
+    });
+    return value;
+  }
+
+  async getRecoveryWindow(projectId: string, userId: string): Promise<RecoveryWindow> {
+    await this.assertMember(projectId, userId);
+
+    const [bases, cluster] = await Promise.all([
+      this.storage
+        .listPlatformObjects(PITR_BUCKET, `${projectId}/base/`)
+        .catch(() => []),
+      this.clusterPitrSummary(),
     ]);
 
     // Exact replay can only reach back to the oldest physical base.
-    const continuousFrom = clusterBases.length
-      ? new Date(Math.min(...clusterBases.map((b) => b.lastModified.getTime()))).toISOString()
-      : null;
+    const continuousFrom = cluster.oldestBase !== null ? new Date(cluster.oldestBase).toISOString() : null;
 
     if (bases.length === 0) {
       return {
@@ -192,7 +226,7 @@ export class ProjectPitrService {
         latest: null,
         continuousFrom,
         baseBackupCount: 0,
-        walSegmentCount: wal.length,
+        walSegmentCount: cluster.walCount,
         retentionDays: RECOVERY_WINDOW_DAYS,
       };
     }
@@ -200,16 +234,14 @@ export class ProjectPitrService {
     const baseTimes = bases.map((b) => b.lastModified.getTime()).sort((a, b) => a - b);
     // Recovery can start at the oldest base backup; it can run forward to the
     // most recent shipped WAL (or the newest base when nothing shipped yet).
-    const newestWal = wal.length
-      ? Math.max(...wal.map((w) => w.lastModified.getTime()))
-      : baseTimes[baseTimes.length - 1];
+    const newestWal = cluster.newestWal ?? baseTimes[baseTimes.length - 1];
 
     return {
       earliest: new Date(baseTimes[0]).toISOString(),
       latest: new Date(newestWal).toISOString(),
       continuousFrom,
       baseBackupCount: bases.length,
-      walSegmentCount: wal.length,
+      walSegmentCount: cluster.walCount,
       retentionDays: RECOVERY_WINDOW_DAYS,
     };
   }

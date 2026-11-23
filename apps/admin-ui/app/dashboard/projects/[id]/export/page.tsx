@@ -230,7 +230,8 @@ export default function ProjectExportPage() {
     void loadHealth();
   }
 
-  useLiveProjectRefresh(id, ['project_export.', 'project.', 'project_backup.'], refreshBackups);
+  // Only backup and export events reload this page's backup data (#34); 'project.' matched every project edit.
+  useLiveProjectRefresh(id, ['project_export.', 'project_backup', 'project.zip_imported'], refreshBackups);
 
   useEffect(() => {
     refreshBackups();
