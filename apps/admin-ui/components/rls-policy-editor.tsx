@@ -318,7 +318,7 @@ export function RlsPolicyEditor({ projectId }: { projectId: string }) {
                         <th className="px-3 py-2 font-medium">Kind</th>
                         <th className="px-3 py-2 font-medium">USING</th>
                         <th className="px-3 py-2 font-medium">WITH CHECK</th>
-                        <th className="w-20" />
+                        <th className="w-20"><span className="sr-only">Actions</span></th>
                       </tr>
                     </thead>
                     <tbody>

@@ -268,7 +268,7 @@ function CodeExample({
           Copy
         </Button>
       </div>
-      <pre className="overflow-x-auto px-4 py-3">
+      <pre tabIndex={0} aria-label="Code sample" className="overflow-x-auto px-4 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <code className="text-sm font-mono text-muted-foreground whitespace-pre">
           {code}
         </code>
@@ -687,7 +687,7 @@ engine = create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True)`;
                 Copy {rawEditorFormat.toUpperCase()}
               </Button>
             </div>
-            <pre className="max-h-[420px] overflow-auto px-4 py-3">
+            <pre tabIndex={0} aria-label="Code sample" className="max-h-[420px] overflow-auto px-4 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
               <code className="whitespace-pre text-sm text-emerald-400">
                 {shownEditorContent}
               </code>
@@ -725,7 +725,7 @@ engine = create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True)`;
               </Button>
             </div>
             <div className="relative">
-              <pre className="max-h-[min(320px,45vh)] overflow-auto px-4 py-3 text-[11px] leading-relaxed text-muted-foreground sm:text-xs">
+              <pre tabIndex={0} aria-label="Code sample" className="max-h-[min(320px,45vh)] overflow-auto px-4 py-3 text-[11px] leading-relaxed text-muted-foreground sm:text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                 <code className="font-mono whitespace-pre-wrap break-words">
                   {aiQuickConnectPrompt}
                 </code>

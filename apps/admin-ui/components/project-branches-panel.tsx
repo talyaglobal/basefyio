@@ -204,7 +204,7 @@ export function ProjectBranchesPanel({ projectId }: { projectId: string }) {
                     <th className="py-2 pr-3 font-medium">Copied</th>
                     <th className="py-2 pr-3 font-medium">Status</th>
                     <th className="py-2 pr-3 font-medium">Created</th>
-                    <th className="py-2 font-medium" />
+                    <th className="py-2 font-medium"><span className="sr-only">Actions</span></th>
                   </tr>
                 </thead>
                 <tbody>

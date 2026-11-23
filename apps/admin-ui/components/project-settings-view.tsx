@@ -214,7 +214,7 @@ export function ProjectSettingsView() {
                 <p className="text-xs text-muted-foreground">
                   <Link
                     href="/dashboard/projects"
-                    className="text-primary underline-offset-4 hover:underline"
+                    className="text-primary underline underline-offset-4"
                   >
                     Projects dashboard
                   </Link>

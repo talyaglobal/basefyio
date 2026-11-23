@@ -221,9 +221,9 @@ export default function DatabasePage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-muted/50 text-left">
-                {tab === 'indexes' && <><th className="px-3 py-2">Name</th><th className="px-3 py-2">Table</th><th className="px-3 py-2">Size</th><th className="px-3 py-2">Definition</th><th className="sticky right-0 w-12 bg-muted" /></>}
-                {tab === 'triggers' && <><th className="px-3 py-2">Name</th><th className="px-3 py-2">Table</th><th className="px-3 py-2">Enabled</th><th className="px-3 py-2">Definition</th><th className="w-12" /></>}
-                {tab === 'functions' && <><th className="px-3 py-2">Name</th><th className="px-3 py-2">Args</th><th className="px-3 py-2">Returns</th><th className="px-3 py-2">Lang</th><th className="px-3 py-2">Security</th><th className="w-12" /></>}
+                {tab === 'indexes' && <><th className="px-3 py-2">Name</th><th className="px-3 py-2">Table</th><th className="px-3 py-2">Size</th><th className="px-3 py-2">Definition</th><th className="sticky right-0 w-12 bg-muted"><span className="sr-only">Actions</span></th></>}
+                {tab === 'triggers' && <><th className="px-3 py-2">Name</th><th className="px-3 py-2">Table</th><th className="px-3 py-2">Enabled</th><th className="px-3 py-2">Definition</th><th className="w-12"><span className="sr-only">Actions</span></th></>}
+                {tab === 'functions' && <><th className="px-3 py-2">Name</th><th className="px-3 py-2">Args</th><th className="px-3 py-2">Returns</th><th className="px-3 py-2">Lang</th><th className="px-3 py-2">Security</th><th className="w-12"><span className="sr-only">Actions</span></th></>}
                 {tab === 'extensions' && <><th className="px-3 py-2">Name</th><th className="px-3 py-2">Version</th><th className="px-3 py-2">Description</th><th className="px-3 py-2">Enabled</th></>}
               </tr>
             </thead>

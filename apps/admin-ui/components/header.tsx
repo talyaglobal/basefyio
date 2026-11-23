@@ -990,7 +990,7 @@ function UserMenu({
         {/* Avatar */}
         <div className="h-8 w-8 rounded-full overflow-hidden ring-1 ring-border shrink-0">
           {avatarUrl ? (
-            <img src={avatarUrl} alt={displayName} className="h-full w-full object-cover" />
+            <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
           ) : (
             <div className="h-full w-full bg-primary/10 flex items-center justify-center text-xs font-semibold text-primary">
               {initials}
@@ -1014,7 +1014,7 @@ function UserMenu({
             <div className="border-b px-3 py-2.5 flex items-center gap-2.5">
               <div className="h-9 w-9 rounded-full overflow-hidden ring-1 ring-border shrink-0">
                 {avatarUrl ? (
-                  <img src={avatarUrl} alt={displayName} className="h-full w-full object-cover" />
+                  <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
                 ) : (
                   <div className="h-full w-full bg-primary/10 flex items-center justify-center text-sm font-semibold text-primary">
                     {initials}

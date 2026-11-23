@@ -195,7 +195,7 @@ export function ApiTokens() {
                 <th className="px-4 py-2.5 font-medium whitespace-nowrap">Created</th>
                 <th className="px-4 py-2.5 font-medium whitespace-nowrap">Expires</th>
                 <th className="px-4 py-2.5 font-medium">Status</th>
-                <th className="px-4 py-2.5" />
+                <th className="px-4 py-2.5"><span className="sr-only">Actions</span></th>
               </tr>
             </thead>
             <tbody>

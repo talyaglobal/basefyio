@@ -1980,7 +1980,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
                                   </th>
                                 );
                               })}
-                              <th className="sticky right-0 z-[11] w-10 bg-muted/50 px-2 py-2 text-xs font-medium" />
+                              <th className="sticky right-0 z-[11] w-10 bg-muted/50 px-2 py-2 text-xs font-medium"><span className="sr-only">Actions</span></th>
                             </tr>
                           </thead>
                           <tbody>
