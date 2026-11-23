@@ -28,3 +28,21 @@ describe('feedback edits', () => {
     expect(prisma.feedback.update).not.toHaveBeenCalled();
   });
 });
+
+describe('feedback author', () => {
+  it('stores the account email when the token carries none', async () => {
+    const prisma = {
+      feedback: { create: jest.fn().mockResolvedValue({ id: 'f', title: 't', type: 'GENERAL', createdAt: new Date() }) },
+      feedbackEvent: { create: jest.fn() },
+      user: {
+        findUnique: jest.fn().mockResolvedValue({ firstName: 'A', lastName: 'B', email: 'a@b.com' }),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+    };
+    const realtime = { publish: jest.fn() };
+    const email = { sendFeedbackNotification: jest.fn().mockResolvedValue(undefined) };
+    const service = new FeedbackService(prisma as any, email as any, {} as any, realtime as any, {} as any);
+    await service.create({ userId: 'u', email: '', url: '/x', title: 't' } as any);
+    expect(prisma.feedback.create.mock.calls[0][0].data.email).toBe('a@b.com');
+  });
+});

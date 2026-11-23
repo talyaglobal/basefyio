@@ -32,6 +32,8 @@ import { subscribebasefyioRealtime, isRealtimePhase1Enabled } from '@/lib/basefy
 import type { RealtimeEventEnvelope } from '@/lib/realtime-types';
 import { formatBytes, formatDateTime } from '@/lib/format';
 import { foldText } from '@/lib/utils';
+import { MarkdownView } from '@/components/markdown-view';
+import { activityActionLabel, activityDetailLabel, currentPageUrl, feedbackAuthor } from '@/lib/feedback-format';
 import { MAX_FEEDBACK_FILES, feedbackFileProblem, uploadFeedbackFiles } from '@/lib/feedback-media';
 
 type FeedbackItem = Awaited<ReturnType<typeof api.feedback.list>>[number];
@@ -48,6 +50,8 @@ function parseAttachments(raw: unknown): FeedbackAttachment[] {
   );
 }
 
+const PAGE_SIZE = 25;
+const COLLAPSE_AFTER_CHARS = 700;
 const STATUS_OPTIONS = ['OPEN', 'IN_PROGRESS', 'DONE', 'CLOSED'] as const;
 const FEEDBACK_STATUS_FILTER_KEY = 'basefyio_feedbacks_status_filter';
 const FEEDBACK_TYPE_FILTER_KEY = 'basefyio_feedbacks_type_filter';
@@ -90,6 +94,8 @@ export default function FeedbacksPage() {
   const [commentLoadingId, setCommentLoadingId] = useState<string | null>(null);
   const [commentUploadStatus, setCommentUploadStatus] = useState('');
   const [showDeleted, setShowDeleted] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [expandedDescriptions, setExpandedDescriptions] = useState<Record<string, boolean>>({});
   const [replyToByFeedback, setReplyToByFeedback] = useState<Record<string, { id: string; email: string } | null>>({});
   const [editingComment, setEditingComment] = useState<{ id: string; text: string } | null>(null);
   const [savingComment, setSavingComment] = useState(false);
@@ -267,27 +273,32 @@ export default function FeedbacksPage() {
   const normalizedSearch = foldText(search.trim());
   const liveFeedbacks = feedbacks.filter((f) => !f.deletedAt);
   const deletedCount = feedbacks.length - liveFeedbacks.length;
-  const filtered = (showDeleted ? feedbacks : liveFeedbacks).filter((f) => {
-    if (filterStatus && f.status !== filterStatus) return false;
-    if (filterType === 'ISSUE' && f.type === 'FEATURE') return false;
-    if (filterType === 'IDEA' && f.type !== 'FEATURE') return false;
+  const matchesSearch = (f: FeedbackItem) => {
     if (!normalizedSearch) return true;
-    const haystack = [
-      f.title,
-      f.description || '',
-      f.email,
-      f.url,
-      f.status,
-      f.type,
-    ]
-      .join(' ');
+    const haystack = [f.title, f.description || '', f.email, feedbackAuthor(f), f.url, f.status, f.type].join(' ');
     return foldText(haystack).includes(normalizedSearch);
-  });
+  };
+  const matchesType = (f: FeedbackItem) =>
+    !filterType || (filterType === 'IDEA' ? f.type === 'FEATURE' : f.type !== 'FEATURE');
+  const pool = showDeleted ? feedbacks : liveFeedbacks;
+  const filtered = pool.filter(
+    (f) => (!filterStatus || f.status === filterStatus) && matchesType(f) && matchesSearch(f),
+  );
+  const visible = filtered.slice(0, visibleCount);
 
-  const counts = liveFeedbacks.reduce<Record<string, number>>((acc, f) => {
+  // Counters follow the search and the other filter, so the buttons match what a click will show.
+  const statusPool = liveFeedbacks.filter((f) => matchesType(f) && matchesSearch(f));
+  const counts = statusPool.reduce<Record<string, number>>((acc, f) => {
     acc[f.status] = (acc[f.status] || 0) + 1;
     return acc;
   }, {});
+  const typePool = liveFeedbacks.filter((f) => (!filterStatus || f.status === filterStatus) && matchesSearch(f));
+  const issueCount = typePool.filter((f) => f.type !== 'FEATURE').length;
+  const ideaCount = typePool.length - issueCount;
+
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [filterStatus, filterType, search, showDeleted]);
 
   if (profile === null) {
     return (
@@ -322,7 +333,7 @@ export default function FeedbacksPage() {
             !filterStatus ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-accent'
           }`}
         >
-          All ({liveFeedbacks.length})
+          All ({statusPool.length})
         </button>
         {STATUS_OPTIONS.map((s) => {
           const cfg = STATUS_CONFIG[s];
@@ -361,7 +372,7 @@ export default function FeedbacksPage() {
             }`}
           >
             <Bug className="h-3 w-3 text-red-500" />
-            Issues
+            Issues ({issueCount})
           </button>
           <button
             onClick={() => setFilterType(filterType === 'IDEA' ? null : 'IDEA')}
@@ -371,7 +382,7 @@ export default function FeedbacksPage() {
             }`}
           >
             <Lightbulb className="h-3 w-3 text-purple-500" />
-            Ideas
+            Ideas ({ideaCount})
           </button>
           {deletedCount > 0 && (
             <button
@@ -405,7 +416,7 @@ export default function FeedbacksPage() {
         </div>
       ) : (
         <div className="space-y-3">
-          {filtered.map((fb) => {
+          {visible.map((fb) => {
             const typeCfg = TYPE_CONFIG[fb.type] || TYPE_CONFIG.GENERAL;
             const statusCfg = STATUS_CONFIG[fb.status] || STATUS_CONFIG.OPEN;
             const attachments = parseAttachments(fb.attachments);
@@ -647,9 +658,28 @@ export default function FeedbacksPage() {
                         </div>
                       </div>
                     ) : fb.description && (
-                      <p className="whitespace-pre-wrap text-sm text-muted-foreground">
-                        {fb.description}
-                      </p>
+                      <div className="min-w-0 text-sm text-muted-foreground [overflow-wrap:anywhere]">
+                        <div
+                          className={
+                            fb.description.length > COLLAPSE_AFTER_CHARS && !expandedDescriptions[fb.id]
+                              ? 'max-h-48 overflow-hidden'
+                              : ''
+                          }
+                        >
+                          <MarkdownView md={fb.description} />
+                        </div>
+                        {fb.description.length > COLLAPSE_AFTER_CHARS && (
+                          <button
+                            type="button"
+                            className="mt-1 text-xs font-medium text-primary hover:underline"
+                            onClick={() =>
+                              setExpandedDescriptions((prev) => ({ ...prev, [fb.id]: !prev[fb.id] }))
+                            }
+                          >
+                            {expandedDescriptions[fb.id] ? 'Show less' : 'Show more'}
+                          </button>
+                        )}
+                      </div>
                     )}
 
                     {attachments.length > 0 && (
@@ -684,10 +714,14 @@ export default function FeedbacksPage() {
                     )}
 
                     <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                      <span>
-                        <strong>{fb.email}</strong>
-                      </span>
-                      <span>·</span>
+                      {feedbackAuthor(fb) && (
+                        <>
+                          <span>
+                            <strong>{feedbackAuthor(fb)}</strong>
+                          </span>
+                          <span>·</span>
+                        </>
+                      )}
                       <span>{formatDateTime(fb.createdAt)}</span>
                       {isRoot && fb.appVersion && (
                         <>
@@ -697,7 +731,7 @@ export default function FeedbacksPage() {
                       )}
                       <span>·</span>
                       <a
-                        href={fb.url}
+                        href={currentPageUrl(fb.url)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="flex items-center gap-1 hover:text-primary"
@@ -973,6 +1007,13 @@ export default function FeedbacksPage() {
               </div>
             );
           })}
+          {filtered.length > visible.length && (
+            <div className="flex justify-center pt-2">
+              <Button variant="outline" size="sm" onClick={() => setVisibleCount((n) => n + PAGE_SIZE)}>
+                Show more ({filtered.length - visible.length} remaining)
+              </Button>
+            </div>
+          )}
         </div>
       )}
 
@@ -1025,8 +1066,8 @@ export default function FeedbacksPage() {
                     <span className="text-muted-foreground">·</span>
                     <span className="text-muted-foreground">{formatDateTime(item.createdAt)}</span>
                   </div>
-                  <p className="mt-1 text-sm font-medium">{item.action.replaceAll('_', ' ')}</p>
-                  {item.detail && <p className="text-xs text-muted-foreground">{item.detail}</p>}
+                  <p className="mt-1 text-sm font-medium">{activityActionLabel(item.action)}</p>
+                  {item.detail && <p className="text-xs text-muted-foreground">{activityDetailLabel(item.detail)}</p>}
                 </div>
               ))}
             </div>
