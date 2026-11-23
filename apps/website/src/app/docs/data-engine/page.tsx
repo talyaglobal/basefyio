@@ -30,8 +30,8 @@ export default function DataEngineDocs() {
       <ul>
         <li><strong>Schema-driven documents</strong> — Define entities with typed fields. Documents are validated against your schema on every write.</li>
         <li><strong>Nested data</strong> — Objects inside objects, arrays of objects, repeatable sections. No flattening required.</li>
-        <li><strong>Document versioning</strong> — Every document carries a <code>_version</code> and <code>_eventSequence</code>. Optimistic concurrency via <code>If-Match</code>.</li>
-        <li><strong>Soft delete</strong> — Deleted documents are recoverable. Query with <code>includeSoftDeleted</code> to see them.</li>
+        <li><strong>Document versioning</strong> — Every document carries a <code>_version</code> and <code>_eventSequence</code>. Optimistic concurrency: send <code>If-Match: &quot;&lt;_version&gt;&quot;</code> on PATCH or PUT and a stale version answers <code>409</code>; reads and writes return the version as <code>ETag</code>.</li>
+        <li><strong>Soft delete</strong> — Deleted documents are kept. List them with <code>?includeSoftDeleted=true</code> and bring one back with <code>POST /v1/projects/:projectId/data/:entity/:id/restore</code>.</li>
         <li><strong>Multi-tenant isolation</strong> — Every query has <code>_projectId</code> injected server-side. Project A can never read Project B&apos;s data.</li>
         <li><strong>Event system</strong> — Every write produces an outbox event: <code>document.created</code>, <code>document.updated</code>, <code>document.deleted</code>.</li>
         <li><strong>Provider-agnostic</strong> — Switch between NoSQL store and database with a single environment variable.</li>
@@ -161,16 +161,16 @@ await bf.data.collection('patients').update(patient._id, {
   tags: ['cardiology', 'vip', 'follow-up'],
 })
 
-// Soft delete
+// Only if nobody changed it since you read it (409 otherwise, nothing written)
+await bf.data.collection('patients').update(patient._id, { age: 37 }, { ifMatch: patient._version })
+
+// Soft delete, list deleted documents, restore one
 await bf.data.collection('patients').delete(patient._id)
+const { data: withDeleted } = await bf.data.collection('patients').find().includeDeleted()
+await bf.data.collection('patients').restore(patient._id)
 
 // List entities
 const { data: entities } = await bf.data.listEntities()
-
-// Read a server-defined projection / view (paginated)
-const { data: feed } = await bf.data.view('mobileFeedCard', { limit: 20 })
-// feed.data[]  feed.total  feed.hasMore  feed.nextCursor
-// params: { limit?, offset?, cursor? }
 
 // Health check
 const { data: health } = await bf.data.health()

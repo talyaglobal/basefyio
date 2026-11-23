@@ -418,6 +418,26 @@ class MongoEntityCollection implements EntityCollection {
     if (!updated) throw new DocumentNotFoundError(this.entity, id);
   }
 
+  async restore(id: string, _opts?: WriteOpts): Promise<DocResult> {
+    const col = await this.engine._records();
+    const now = new Date().toISOString();
+    const updated = await col.findOneAndUpdate(
+      {
+        'envelope.projectId': this.projectId,
+        'envelope.entity': this.entity,
+        'envelope.status': 'deleted',
+        _id: id,
+      },
+      {
+        $set: { 'envelope.status': 'active', 'envelope.deletedAt': null, 'envelope.updatedAt': now },
+        $inc: { 'envelope.version': 1, 'envelope.eventSequence': 1 },
+      },
+      { returnDocument: 'after' },
+    );
+    if (!updated) throw new DocumentNotFoundError(this.entity, id);
+    return flattenStored(updated as unknown as StoredDoc);
+  }
+
   async query(q: EntityQuery): Promise<Page<DocResult>> {
     const col = await this.engine._records();
 

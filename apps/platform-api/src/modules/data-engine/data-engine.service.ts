@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -262,51 +262,55 @@ export class DataEngineService implements OnModuleInit {
       sourceSheet?: string;
     },
   ) {
-    const { sanitizeEntityName } = await import('@basefyio/data-engine');
+    const { sanitizeEntityName, compileFieldsToJsonSchema } = await import('@basefyio/data-engine');
+    const fields = data.fields ?? [];
+    if (!Array.isArray(fields)) throw new BadRequestException('fields must be an array');
     const physicalName = sanitizeEntityName(data.logicalName);
+    // Compiled before anything is written (#173): a malformed field list used to
+    // fail after the entity row existed, answering 500 with the entity created.
+    let snapshot: unknown;
+    try {
+      snapshot = compileFieldsToJsonSchema(fields as any);
+    } catch (err: any) {
+      throw new BadRequestException(`Invalid fields: ${err?.message ?? 'could not be compiled'}`);
+    }
 
-    const entity = await this.prisma.entityDefinition.create({
-      data: {
-        projectId,
-        logicalName: data.logicalName,
-        displayName: data.displayName,
-        physicalCollection: physicalName,
-        storageStrategy: 'shared-records',
-        provider: this.config.get('dataEngine.provider') || 'postgres',
-        fields: data.fields as any,
-        rules: (data.rules ?? []) as any,
-        description: data.description,
-        generatedByAI: data.generatedByAI ?? false,
-        aiPrompt: data.aiPrompt,
-        aiReasoning: data.aiReasoning as any,
-        confidenceScore: data.confidenceScore,
-        sourceWorkbook: data.sourceWorkbook,
-        sourceSheet: data.sourceSheet,
-      },
-    });
-
-    // Create initial schema version
-    const { compileFieldsToJsonSchema } = await import('@basefyio/data-engine');
-    const snapshot = compileFieldsToJsonSchema(data.fields as any);
-
-    await this.prisma.entitySchemaVersion.create({
-      data: {
-        entityDefinitionId: entity.id,
-        version: 1,
-        snapshot: snapshot as any,
-        createdBy: 'system',
-      },
-    });
-
-    // Write outbox event
-    await this.prisma.dataEngineOutbox.create({
-      data: {
-        type: 'entity.created',
-        projectId,
-        entity: data.logicalName,
-        schemaVersion: 1,
-      },
-    });
+    let entity;
+    try {
+      entity = await this.prisma.$transaction(async (tx) => {
+        const created = await tx.entityDefinition.create({
+          data: {
+            projectId,
+            logicalName: data.logicalName,
+            displayName: data.displayName,
+            physicalCollection: physicalName,
+            storageStrategy: 'shared-records',
+            provider: this.config.get('dataEngine.provider') || 'postgres',
+            fields: fields as any,
+            rules: (data.rules ?? []) as any,
+            description: data.description,
+            generatedByAI: data.generatedByAI ?? false,
+            aiPrompt: data.aiPrompt,
+            aiReasoning: data.aiReasoning as any,
+            confidenceScore: data.confidenceScore,
+            sourceWorkbook: data.sourceWorkbook,
+            sourceSheet: data.sourceSheet,
+          },
+        });
+        await tx.entitySchemaVersion.create({
+          data: { entityDefinitionId: created.id, version: 1, snapshot: snapshot as any, createdBy: 'system' },
+        });
+        await tx.dataEngineOutbox.create({
+          data: { type: 'entity.created', projectId, entity: data.logicalName, schemaVersion: 1 },
+        });
+        return created;
+      });
+    } catch (err: any) {
+      if (err?.code === 'P2002') {
+        throw new ConflictException(`An entity named "${data.logicalName}" already exists in this project`);
+      }
+      throw err;
+    }
 
     return entity;
   }

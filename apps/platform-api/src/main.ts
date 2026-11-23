@@ -100,6 +100,8 @@ async function bootstrap() {
       'upload-offset',
       'x-signature',
       'x-metadata',
+      // data engine optimistic concurrency (#173)
+      'if-match',
     ],
     exposedHeaders: [
       'Content-Range',

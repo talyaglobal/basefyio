@@ -51,6 +51,13 @@ export interface EntityCollection {
   /** Soft-delete a document (sets _deletedAt, _status='deleted'). */
   delete(id: string, opts?: WriteOpts): Promise<void>;
 
+  /**
+   * Bring a soft-deleted document back (status 'active', _deletedAt cleared,
+   * version bumped). DocumentNotFoundError when there is no deleted document
+   * with this id. Optional: providers without it answer 501 at the API.
+   */
+  restore?(id: string, opts?: WriteOpts): Promise<DocResult>;
+
   /** Query documents with filter, sort, pagination, projection. */
   query(q: EntityQuery): Promise<Page<DocResult>>;
 

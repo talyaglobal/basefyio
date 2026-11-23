@@ -66,6 +66,7 @@ export class DataEngineQuery<T = Record<string, unknown>>
   private _sort?: DataEngineSort[];
   private _limit?: number;
   private _offset?: number;
+  private _includeDeleted = false;
 
   constructor(
     private readonly http: BasefyioFetchClient,
@@ -100,6 +101,12 @@ export class DataEngineQuery<T = Record<string, unknown>>
     return this.offset(n);
   }
 
+  /** Also return soft-deleted documents (their `_status` is 'deleted'); see `restore()`. */
+  includeDeleted(): this {
+    this._includeDeleted = true;
+    return this;
+  }
+
   async execute(): Promise<BasefyioResponse<DataEnginePage<T>>> {
     try {
       const params = new URLSearchParams();
@@ -111,6 +118,7 @@ export class DataEngineQuery<T = Record<string, unknown>>
       }
       if (this._limit !== undefined) params.set('limit', String(this._limit));
       if (this._offset !== undefined) params.set('offset', String(this._offset));
+      if (this._includeDeleted) params.set('includeSoftDeleted', 'true');
 
       const qs = params.toString();
       const path = qs ? `${this.basePath}?${qs}` : this.basePath;
@@ -186,11 +194,16 @@ export class EntityClient<T = Record<string, unknown>> {
    * @example
    * await bf.data.collection('patients').update(id, { age: 36 });
    */
-  async update(id: string, patch: Partial<T>): Promise<BasefyioResponse<DataEngineDocument<T>>> {
+  async update(
+    id: string,
+    patch: Partial<T>,
+    opts?: { ifMatch?: number },
+  ): Promise<BasefyioResponse<DataEngineDocument<T>>> {
     try {
       const data = await this.http.json<DataEngineDocument<T>>(`${this.basePath}/${id}`, {
         method: 'PATCH',
         body: JSON.stringify(patch),
+        ...ifMatchHeader(opts),
       });
       return { data, error: null };
     } catch (err: unknown) {
@@ -199,13 +212,14 @@ export class EntityClient<T = Record<string, unknown>> {
   }
 
   /**
-   * Full document replacement.
+   * Full document replacement. `ifMatch` as in {@link update}.
    */
-  async replace(id: string, doc: T): Promise<BasefyioResponse<DataEngineDocument<T>>> {
+  async replace(id: string, doc: T, opts?: { ifMatch?: number }): Promise<BasefyioResponse<DataEngineDocument<T>>> {
     try {
       const data = await this.http.json<DataEngineDocument<T>>(`${this.basePath}/${id}`, {
         method: 'PUT',
         body: JSON.stringify(doc),
+        ...ifMatchHeader(opts),
       });
       return { data, error: null };
     } catch (err: unknown) {
@@ -224,6 +238,27 @@ export class EntityClient<T = Record<string, unknown>> {
       return { data: null, error: err as BasefyioError };
     }
   }
+
+  /**
+   * Bring back a soft-deleted document. Find deleted ones with
+   * `.find().includeDeleted()` or `?includeSoftDeleted=true`.
+   */
+  async restore(id: string): Promise<BasefyioResponse<DataEngineDocument<T>>> {
+    try {
+      const data = await this.http.json<DataEngineDocument<T>>(`${this.basePath}/${id}/restore`, { method: 'POST' });
+      return { data, error: null };
+    } catch (err: unknown) {
+      return { data: null, error: err as BasefyioError };
+    }
+  }
+}
+
+/**
+ * `If-Match: "<version>"`: the write succeeds only while the document is still
+ * at that `_version`; otherwise the server answers 409 and nothing changes.
+ */
+function ifMatchHeader(opts?: { ifMatch?: number }): { headers?: Record<string, string> } {
+  return typeof opts?.ifMatch === 'number' ? { headers: { 'If-Match': `"${opts.ifMatch}"` } } : {};
 }
 
 // ── DataEngineClient (top-level) ───────────────────────────
@@ -249,27 +284,22 @@ export class DataEngineClient {
   }
 
   /**
-   * Fetch a projection (mobile-ready read model).
+   * Projections (read models) are not available on the server yet; this always
+   * answers an error without a request. Query the entity with `collection()`.
    *
-   * @example
-   * const { data } = await bf.data.view('mobileFeedCard');
+   * @deprecated Not served yet: there is no `/views` endpoint.
    */
   async view<T = Record<string, unknown>>(
     projectionName: string,
-    params?: { limit?: number; offset?: number; cursor?: string },
+    _params?: { limit?: number; offset?: number; cursor?: string },
   ): Promise<BasefyioResponse<DataEnginePage<T>>> {
-    try {
-      const qs = new URLSearchParams();
-      if (params?.limit) qs.set('limit', String(params.limit));
-      if (params?.offset) qs.set('offset', String(params.offset));
-      if (params?.cursor) qs.set('cursor', params.cursor);
-      const query = qs.toString();
-      const path = `${this.basePath}/views/${projectionName}${query ? `?${query}` : ''}`;
-      const data = await this.http.json<DataEnginePage<T>>(path);
-      return { data, error: null };
-    } catch (err: unknown) {
-      return { data: null, error: err as BasefyioError };
-    }
+    return {
+      data: null,
+      error: {
+        message: `Projections are not available yet ("${projectionName}"). Query the entity with bf.data.collection() instead.`,
+        status: 501,
+      } as BasefyioError,
+    };
   }
 
   /**

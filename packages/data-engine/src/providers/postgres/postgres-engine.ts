@@ -321,6 +321,19 @@ class PgEntityCollection implements EntityCollection {
     if (result.rowCount === 0) throw new DocumentNotFoundError(this.entity, id);
   }
 
+  async restore(id: string, _opts?: WriteOpts): Promise<DocResult> {
+    const pool = await this.pool();
+    const result = await pool.query(
+      `UPDATE ${SCHEMA}.${RECORDS_TABLE}
+       SET status = 'active', deleted_at = NULL, version = version + 1, event_sequence = event_sequence + 1, updated_at = now()
+       WHERE id = $1 AND project_id = $2 AND entity = $3 AND status = 'deleted'
+       RETURNING *`,
+      [id, this.projectId, this.entity],
+    );
+    if (result.rowCount === 0) throw new DocumentNotFoundError(this.entity, id);
+    return this.toDocResult(result.rows[0]);
+  }
+
   async query(q: EntityQuery): Promise<Page<DocResult>> {
     const pool = await this.pool();
     const params: unknown[] = [this.projectId, this.entity];
