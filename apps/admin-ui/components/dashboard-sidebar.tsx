@@ -251,6 +251,7 @@ export function DashboardSidebar({
 
   return (
     <aside
+      aria-label="Dashboard"
       className={cn(
         'hidden md:flex shrink-0 flex-col border-r border-border bg-card transition-[width] duration-200 ease-out',
         !hydrated && 'opacity-0',
@@ -265,7 +266,7 @@ export function DashboardSidebar({
       }}
     >
 
-      <nav className="flex flex-1 flex-col gap-0.5 p-2 overflow-y-auto">
+      <nav aria-label="Dashboard sections" className="flex flex-1 flex-col gap-0.5 p-2 overflow-y-auto">
         {items.map((item) => renderNavLink(item, pathname, collapsed, host))}
 
         {rootItems.length > 0 && (

@@ -1348,7 +1348,8 @@ export default function ProjectsPage() {
           {mobileNavOpen && <div className="absolute inset-0 z-20 bg-black/40 lg:hidden" onClick={() => setMobileNavOpen(false)} />}
 
           {/* ── Main content ──────────────────────────────────────────────────── */}
-          <main className="flex-1 overflow-y-auto">
+          <div className="flex-1 overflow-y-auto">
+            <h1 className="sr-only">Projects</h1>
             {showTrash ? (
               /* ── Trash view ────────────────────────────────────────────────────── */
               <div className="p-6">
@@ -1665,7 +1666,7 @@ export default function ProjectsPage() {
             </div>
             </>
             )}
-          </main>
+          </div>
         </div>
       </div>
 

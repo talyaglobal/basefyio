@@ -336,7 +336,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
         </Link>
 
         {/* Primary nav links */}
-        <nav className="hidden xl:flex items-center gap-1">
+        <nav aria-label="Main" className="hidden xl:flex items-center gap-1">
           <Link
             href="/dashboard"
             className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"

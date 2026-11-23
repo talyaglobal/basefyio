@@ -404,6 +404,7 @@ export default function ProjectLayout({
         <div className="fixed inset-0 z-30 bg-black/40 md:hidden" onClick={() => setMobileNavOpen(false)} aria-hidden />
       )}
       <aside
+        aria-label="Project"
         className={cn(
           'h-full shrink-0 md:w-[var(--aside-w)]',
           'border-r bg-card flex flex-col overflow-hidden',
@@ -429,7 +430,7 @@ export default function ProjectLayout({
               </div>
             </div>
 
-            <nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-2">
+            <nav aria-label="Project sections" className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-2">
               {navItems.map((item) => {
                 const href = `${basePath}${item.href}`;
                 const active =
@@ -539,7 +540,7 @@ export default function ProjectLayout({
                 <Database className="h-4 w-4 text-primary" />
               </div>
             </div>
-            <nav className="flex min-h-0 flex-1 flex-col items-center gap-0.5 overflow-y-auto py-2">
+            <nav aria-label="Project sections" className="flex min-h-0 flex-1 flex-col items-center gap-0.5 overflow-y-auto py-2">
               {navItems.map((item) => {
                 const href = `${basePath}${item.href}`;
                 const active =
@@ -627,14 +628,20 @@ export default function ProjectLayout({
         <span className="min-w-0 truncate text-sm font-medium">{project.name}</span>
       </div>
       <div className="relative flex min-h-0 min-w-0 flex-1">
-        <main
+        <div
           className={cn(
             'h-full min-h-0 min-w-0 flex-1 p-3 md:p-6',
             (isLogsRoute || isFullHeightRoute) ? 'flex flex-col overflow-hidden' : 'overflow-y-auto',
           )}
         >
+          {/* Every project page gets a level-one heading (#155); pages that show their own title keep it. */}
+          <h1 className="sr-only">
+            {(navItems.find((item) => (item.href === '' ? pathname === basePath : pathname.startsWith(`${basePath}${item.href}`)))?.label ?? 'Project')}
+            {' · '}
+            {project.name}
+          </h1>
           {children}
-        </main>
+        </div>
         <ContextHelpPanel />
       </div>
       </div>
