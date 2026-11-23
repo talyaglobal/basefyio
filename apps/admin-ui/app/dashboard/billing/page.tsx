@@ -3,7 +3,9 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { CreditCard, Check, AlertTriangle, Circle, XCircle } from 'lucide-react';
-import { loadStripe } from '@stripe/stripe-js';
+// `/pure` does not inject the third-party script on import; it loads only when
+// loadStripe() is called, which happens the first time the card form opens (#151).
+import { loadStripe } from '@stripe/stripe-js/pure';
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { toast } from 'sonner';
 import { api, type DowngradePreview, type SavedCards } from '@/lib/api';
@@ -20,9 +22,13 @@ import { ProjectCostsPanel } from '@/components/project-costs-panel';
 import type { TeamCostReport } from '@/lib/types';
 import { formatDate, formatDateTime } from '@/lib/format';
 
-const stripePromise = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
-  ? loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY)
-  : null;
+let stripeLoading: ReturnType<typeof loadStripe> | null = null;
+function getStripePromise() {
+  const key = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
+  if (!key) return null;
+  if (!stripeLoading) stripeLoading = loadStripe(key);
+  return stripeLoading;
+}
 
 interface Plan {
   id: string;
@@ -1030,8 +1036,8 @@ export default function BillingPage() {
               Enter your card details. Your card will be securely saved for future billing.
             </DialogDescription>
           </DialogHeader>
-          {stripePromise ? (
-            <Elements stripe={stripePromise} options={{ locale: 'en' }}>
+          {getStripePromise() ? (
+            <Elements stripe={getStripePromise()} options={{ locale: 'en' }}>
               <CardForm
                 teamId={activeTeamId}
                 onSuccess={() => {
