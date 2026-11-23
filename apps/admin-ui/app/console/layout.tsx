@@ -168,14 +168,14 @@ export default function ConsoleLayout({ children }: { children: ReactNode }) {
                 basefyio
                 <BetaBadge tone="dark" />
               </div>
-              <div className="text-[11px] uppercase tracking-wider text-zinc-500">Root console</div>
+              <div className="text-[11px] uppercase tracking-wider text-zinc-400">Root console</div>
             </div>
           </div>
 
           <nav className="flex-1 space-y-5 overflow-y-auto px-2 pb-4">
             {NAV.map((section) => (
               <div key={section.group}>
-                <div className="px-2 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+                <div className="px-2 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
                   {section.group}
                 </div>
                 <div className="space-y-0.5">
@@ -201,7 +201,7 @@ export default function ConsoleLayout({ children }: { children: ReactNode }) {
           </nav>
 
           <div className="space-y-1 border-t border-white/10 p-3 text-sm">
-            <div className="truncate px-2 pb-1 text-xs text-zinc-500" title={profile.email}>
+            <div className="truncate px-2 pb-1 text-xs text-zinc-400" title={profile.email}>
               {profile.email}
             </div>
             <a
