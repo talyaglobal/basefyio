@@ -35,6 +35,7 @@ import { ProjectActivityKind, ProjectActivityService } from '../projects/project
  * Resumable uploads.
  *
  *   POST   upload-sessions                 { path, size, contentType?, chunkSize? } → session
+ *   GET    upload-sessions                 → open sessions the caller may resume
  *   GET    upload-sessions/:id             → session (also Upload-Offset / Upload-Length headers)
  *   HEAD   upload-sessions/:id             → headers only
  *   PATCH  upload-sessions/:id             Upload-Offset header + raw chunk body → session (new offset)
@@ -77,6 +78,18 @@ export class UploadSessionController {
     const view = await this.sessions.createUploadSession(projectId, storageCaller(req), user?.sub, bucketName, body);
     this.sessionHeaders(res, view);
     return view;
+  }
+
+  /** Open sessions the caller may resume, newest first (#261). */
+  @Get()
+  @AuthenticatedKeyOnly()
+  async list(
+    @Param('projectId') projectId: string,
+    @Param('bucketName') bucketName: string,
+    @Req() req: Request,
+    @CurrentUser() user?: JwtPayload,
+  ): Promise<UploadSessionView[]> {
+    return this.sessions.listSessions(projectId, storageCaller(req), user?.sub, bucketName);
   }
 
   @Get(':sessionId')

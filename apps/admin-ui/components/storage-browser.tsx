@@ -715,15 +715,18 @@ function ObjectBrowser({
   }
 
   // Big files go through a resumable session in chunks; small ones in one request.
+  // Both report progress and stop when Cancel is pressed (#261).
+  const uploadAbortRef = useRef<AbortController | null>(null);
   async function uploadOne(path: string, file: File) {
-    if (file.size >= RESUMABLE_THRESHOLD) {
-      try {
-        await api.storage.uploadResumable(projectId, bucketName, path, file, setUploadProgress);
-      } finally {
-        setUploadProgress(null);
+    const signal = uploadAbortRef.current?.signal;
+    try {
+      if (file.size >= RESUMABLE_THRESHOLD) {
+        await api.storage.uploadResumable(projectId, bucketName, path, file, setUploadProgress, signal);
+      } else {
+        await api.storage.upload(projectId, bucketName, path, file, { onProgress: setUploadProgress, signal });
       }
-    } else {
-      await api.storage.upload(projectId, bucketName, path, file);
+    } finally {
+      setUploadProgress(null);
     }
   }
 
@@ -765,26 +768,39 @@ function ObjectBrowser({
     }
 
     setUploading(true);
+    uploadAbortRef.current = new AbortController();
     try {
-      // Each file is independent: one failure never cancels the rest.
+      // Each file is independent: one failure never cancels the rest; Cancel stops them all.
       const failed: string[] = [];
       let firstError = '';
+      let done = 0;
+      let cancelled = false;
       for (const { file, name } of plan) {
+        if (uploadAbortRef.current?.signal.aborted) {
+          cancelled = true;
+          break;
+        }
         try {
           await uploadOne(prefix + name, file);
+          done++;
         } catch (err: any) {
+          if (err?.name === 'AbortError') {
+            cancelled = true;
+            break;
+          }
           failed.push(name);
           if (!firstError) firstError = err?.message ?? 'upload failed';
         }
       }
-      const ok = plan.length - failed.length;
-      if (failed.length === 0) toast.success(`Uploaded ${plan.length} file(s)`);
-      else toast.error(`Uploaded ${ok} of ${plan.length} file(s). Failed: ${failed.join(', ')} (${firstError})`);
+      if (cancelled) toast.message(`Upload cancelled. ${done} of ${plan.length} file(s) were uploaded.`);
+      else if (failed.length === 0) toast.success(`Uploaded ${plan.length} file(s)`);
+      else toast.error(`Uploaded ${done} of ${plan.length} file(s). Failed: ${failed.join(', ')} (${firstError})`);
       await load();
     } catch (err: any) {
       toast.error(err.message);
     } finally {
       setUploading(false);
+      uploadAbortRef.current = null;
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   }
@@ -1028,6 +1044,11 @@ function ObjectBrowser({
           <Upload className="mr-1.5 h-3.5 w-3.5" />
           {uploading ? (uploadProgress ? `Uploading… ${uploadProgress.percent}%` : 'Uploading…') : 'Upload'}
         </Button>
+        {uploading && (
+          <Button size="sm" variant="outline" onClick={() => uploadAbortRef.current?.abort()}>
+            Cancel upload
+          </Button>
+        )}
         <input
           ref={fileInputRef}
           type="file"

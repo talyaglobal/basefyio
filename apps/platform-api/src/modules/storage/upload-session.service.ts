@@ -205,6 +205,30 @@ export class UploadSessionService {
     return this.view(row);
   }
 
+  /**
+   * Open (active) sessions in a bucket the caller may resume (#261): all of them
+   * for the service key and the dashboard, only their own for a signed-in user.
+   */
+  async listSessions(
+    projectId: string,
+    caller: StorageCaller,
+    dashboardUserId: string | undefined,
+    bucket: string,
+  ): Promise<UploadSessionView[]> {
+    await this.storage.resolveProject(projectId, dashboardUserId);
+    const rows = await this.prisma.storageUploadSession.findMany({
+      where: {
+        projectId,
+        bucket,
+        status: 'active',
+        ...(isPrivileged(caller) ? {} : { ownerSub: caller.kind === 'authenticated' ? caller.sub ?? '__none__' : '__none__' }),
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+    return rows.map((r) => this.view(r));
+  }
+
   async getSession(
     projectId: string,
     caller: StorageCaller,

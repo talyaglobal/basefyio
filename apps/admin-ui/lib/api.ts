@@ -2653,19 +2653,52 @@ export const api = {
       const p = prefix ? `?prefix=${encodeURIComponent(prefix)}` : '';
       return request<StorageObject[]>(`/projects/${projectId}/storage/buckets/${bucketName}/objects${p}`);
     },
-    async upload(projectId: string, bucketName: string, path: string, file: File) {
+    /**
+     * One-request upload. With `onProgress` / `signal` it goes over XHR, which
+     * reports upload progress and can be cancelled (#261); otherwise fetch.
+     */
+    async upload(
+      projectId: string,
+      bucketName: string,
+      path: string,
+      file: File,
+      opts?: { onProgress?: (p: import('./types').UploadProgress) => void; signal?: AbortSignal },
+    ) {
       const token = getAccessToken();
       const form = new FormData();
       form.append('file', file);
+      const url = `/api/proxy/projects/${projectId}/storage/buckets/${bucketName}/objects?path=${encodeURIComponent(path)}`;
 
-      const res = await fetch(
-        `/api/proxy/projects/${projectId}/storage/buckets/${bucketName}/objects?path=${encodeURIComponent(path)}`,
-        {
-          method: 'POST',
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-          body: form,
-        },
-      );
+      if (opts?.onProgress || opts?.signal) {
+        return new Promise<any>((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open('POST', url);
+          if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+          xhr.upload.onprogress = (e) => {
+            if (!e.lengthComputable) return;
+            opts.onProgress?.({ uploaded: e.loaded, total: e.total, percent: Math.floor((e.loaded / e.total) * 100) });
+          };
+          xhr.onload = () => {
+            let body: any = {};
+            try { body = JSON.parse(xhr.responseText || '{}'); } catch { /* not JSON */ }
+            if (xhr.status >= 200 && xhr.status < 300) resolve(body);
+            else reject(new Error(body.message || `Upload failed: ${xhr.status}`));
+          };
+          xhr.onerror = () => reject(new Error("Can't reach the server. Check your connection and try again."));
+          xhr.onabort = () => reject(Object.assign(new Error('Upload cancelled'), { name: 'AbortError' }));
+          if (opts.signal) {
+            if (opts.signal.aborted) return xhr.onabort?.(new ProgressEvent('abort'));
+            opts.signal.addEventListener('abort', () => xhr.abort(), { once: true });
+          }
+          xhr.send(form);
+        });
+      }
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: form,
+      });
 
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -2735,6 +2768,7 @@ export const api = {
       path: string,
       file: File,
       onProgress?: (progress: import('./types').UploadProgress) => void,
+      signal?: AbortSignal,
     ) {
       type Session = { id: string; offset: number; size: number; chunkSize: number };
       const sessions = `/projects/${projectId}/storage/buckets/${encodeURIComponent(bucketName)}/upload-sessions`;
@@ -2748,18 +2782,31 @@ export const api = {
       let offset = session.offset;
       let failures = 0;
       report(offset);
+      const abortSession = async () => {
+        // Cancelled: free the server-side session (and its stored parts) at once.
+        await request(`${sessions}/${session.id}`, { method: 'DELETE' }).catch(() => undefined);
+        throw Object.assign(new Error('Upload cancelled'), { name: 'AbortError' });
+      };
       while (offset < file.size) {
+        if (signal?.aborted) await abortSession();
         const slice = file.slice(offset, Math.min(offset + session.chunkSize, file.size));
         const token = getAccessToken();
-        const res = await fetch(`/api/proxy${sessions}/${session.id}`, {
-          method: 'PATCH',
-          headers: {
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            'Upload-Offset': String(offset),
-            'Content-Type': 'application/offset+octet-stream',
-          },
-          body: slice,
-        });
+        let res: Response;
+        try {
+          res = await fetch(`/api/proxy${sessions}/${session.id}`, {
+            signal,
+            method: 'PATCH',
+            headers: {
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+              'Upload-Offset': String(offset),
+              'Content-Type': 'application/offset+octet-stream',
+            },
+            body: slice,
+          });
+        } catch (err: any) {
+          if (err?.name === 'AbortError') await abortSession();
+          throw err;
+        }
         if (res.ok) {
           const body = await parseOkJsonBody<{ offset?: number }>(res);
           offset = typeof body?.offset === 'number' && body.offset > offset ? body.offset : offset + slice.size;
