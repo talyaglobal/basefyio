@@ -10,20 +10,21 @@ What a project gets, what it costs, and what happens at a limit. Two short answe
   have a limit for database size and for file storage.
 
 The plan catalogue is live data: `GET /api/billing/plans` (public) and the Billing page show
-the values in force. The table below lists the defaults a fresh installation starts with; an
-operator can change them.
+the values in force. The table below lists the figures of the hosted service as of
+2026-11-23; if it differs from the Billing page, the Billing page is right. A self-hosted
+installation starts from different defaults and its operator can change them.
 
 ## Limits per plan
 
 | | Free | Pro | Business | Legacy |
 |---|---|---|---|---|
-| Price per month | $0 | $25 | $99 | $0 (grandfathered) |
-| Projects | 5 | 20 | 50 | Unlimited |
-| Database size | 1 GB | 16 GB | 64 GB | Unlimited |
-| File storage | 2 GB | 200 GB | 1 TB | Unlimited |
-| Team members | 3 | 10 | 30 | Unlimited |
-| Egress per month | 2 GB | 500 GB | 2 TB | Unlimited |
-| API requests per month | 500,000 | 5,000,000 | 20,000,000 | Unlimited |
+| Price per month | $0 | $20 | $100 | $0 (grandfathered) |
+| Projects | 2 | 10 | 100 | Unlimited |
+| Database size | 1 GB | 30 GB | 300 GB | Unlimited |
+| File storage | 1 GB | 30 GB | 300 GB | Unlimited |
+| Team members | 2 | 10 | 100 | Unlimited |
+| Egress per month | 1 GB | 50 GB | 500 GB | Unlimited |
+| API requests per month | 50,000 | 1,000,000 | 10,000,000 | Unlimited |
 | Monthly active users | 50,000 | 100,000 | Unlimited | Unlimited |
 | Compute | Shared | Shared today (see below) | Shared today (see below) | Shared |
 

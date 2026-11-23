@@ -16,13 +16,13 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 const PLAN_ROWS: Array<[string, string, string, string, string]> = [
-  ["Price per month", "$0", "$25", "$99", "$0 (grandfathered)"],
-  ["Projects", "5", "20", "50", "Unlimited"],
-  ["Database size", "1 GB", "16 GB", "64 GB", "Unlimited"],
-  ["File storage", "2 GB", "200 GB", "1 TB", "Unlimited"],
-  ["Team members", "3", "10", "30", "Unlimited"],
-  ["Egress per month", "2 GB", "500 GB", "2 TB", "Unlimited"],
-  ["API requests per month", "500,000", "5,000,000", "20,000,000", "Unlimited"],
+  ["Price per month", "$0", "$20", "$100", "$0 (grandfathered)"],
+  ["Projects", "2", "10", "100", "Unlimited"],
+  ["Database size", "1 GB", "30 GB", "300 GB", "Unlimited"],
+  ["File storage", "1 GB", "30 GB", "300 GB", "Unlimited"],
+  ["Team members", "2", "10", "100", "Unlimited"],
+  ["Egress per month", "1 GB", "50 GB", "500 GB", "Unlimited"],
+  ["API requests per month", "50,000", "1,000,000", "10,000,000", "Unlimited"],
   ["Monthly active users", "50,000", "100,000", "Unlimited", "Unlimited"],
   ["Compute", "Shared", "Shared today", "Shared today", "Shared"],
 ];
@@ -47,8 +47,9 @@ export default function PricingAndLimitsDocs() {
         </li>
       </ul>
       <p>
-        The values below are the defaults a fresh installation starts with; the Billing page in the
-        dashboard and the public <code>GET /api/billing/plans</code> route show the ones in force.
+        The values below are the figures of the hosted service as of 2026-11-23. The Billing page in the
+        dashboard and the public <code>GET /api/billing/plans</code> route show the ones in force, and are
+        right if they differ. A self-hosted installation starts from different defaults.
       </p>
 
       <h2>Limits per plan</h2>
