@@ -48,6 +48,41 @@ export default function ProjectLogsPage() {
   const [reloadTick, setReloadTick] = useState(0);
   const [page, setPage] = useState(1);
   const filtered = !!(query || kind || from || to);
+  const [exporting, setExporting] = useState(false);
+
+  /** CSV of the events the current filters match, newest first, at most 5,000 (#27). */
+  async function exportCsv() {
+    setExporting(true);
+    try {
+      const rows: ProjectActivityItem[] = [];
+      for (let p = 1; p <= 10; p++) {
+        const a = await api.projects.listActivity(id, { page: p, limit: 500, q: query, kind, from, to });
+        rows.push(...a.items);
+        if (p >= a.totalPages) break;
+      }
+      const cell = (v: unknown) => {
+        const t = v == null ? '' : String(v);
+        return /[",\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+      };
+      const csv = [
+        ['time', 'type', 'title', 'detail', 'by'].join(','),
+        ...rows.map((r) => [r.createdAt, r.kind, r.title, r.detail ?? '', r.actorName ?? r.userId ?? 'System'].map(cell).join(',')),
+      ].join('\n');
+      const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `project-logs-${id}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success(`${rows.length.toLocaleString('en-US')} events exported${rows.length >= 5000 ? ' (first 5,000)' : ''}`);
+    } catch (err: any) {
+      toast.error(err.message || 'Export failed');
+    } finally {
+      setExporting(false);
+    }
+  }
   const topRef = useRef<HTMLElement | null>(null);
 
   // Debounced server-side search over the whole history (#27).
@@ -256,6 +291,9 @@ export default function ProjectLogsPage() {
           </label>
           <Button type="button" variant="outline" size="sm" onClick={() => setReloadTick((t) => t + 1)}>
             Refresh
+          </Button>
+          <Button type="button" variant="outline" size="sm" onClick={() => void exportCsv()} disabled={exporting}>
+            {exporting ? 'Exporting…' : 'Export CSV'}
           </Button>
           {filtered && (
             <Button

@@ -432,17 +432,23 @@ export class SqlService implements OnModuleDestroy {
       // feed look misleadingly empty during normal heavy SQL usage.
       // Quoted values are replaced, so data a statement writes is not kept in the log (#27).
       const qPreview = query.replace(/'(?:[^']|'')*'/g, "'…'").replace(/\s+/g, ' ').trim().slice(0, 240);
+      // A script reports every statement's rows, not only the last one's (#27).
+      const statementCount = allResults.length;
+      const rowsTotal = allResults.reduce((n, r) => n + (typeof r.rowCount === 'number' ? r.rowCount : 0), 0);
+      const rowsLabel = `${rowsTotal.toLocaleString('en-US')} ${rowsTotal === 1 ? 'row' : 'rows'}`;
       await this.activity.append(projectId, {
         userId: userId || undefined,
         // Anything but a single plain read may have changed rows or schema: say
         // so, so the Data editor in other tabs reloads (#149).
         kind: readOnly || !findNonReadStatement(query) ? ProjectActivityKind.SQL_EXECUTED : ProjectActivityKind.SQL_CHANGED,
         title:
-          result.rowCount != null
-            ? `SQL executed (${result.rowCount} ${result.rowCount === 1 ? 'row' : 'rows'}, ${duration}ms)`
-            : `SQL executed (${duration}ms)`,
+          statementCount > 1
+            ? `SQL executed (${statementCount} statements, ${rowsLabel}, ${duration}ms)`
+            : result.rowCount != null
+              ? `SQL executed (${result.rowCount} ${result.rowCount === 1 ? 'row' : 'rows'}, ${duration}ms)`
+              : `SQL executed (${duration}ms)`,
         detail: `${qPreview}${query.length > 240 ? '…' : ''}`,
-        metadata: { rowCount: result.rowCount ?? null, duration },
+        metadata: { rowCount: result.rowCount ?? null, statements: statementCount, rowsTotal, duration },
       });
 
       return {
