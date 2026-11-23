@@ -930,6 +930,7 @@ function PoliciesTab({ projectId }: { projectId: string }) {
         waitIncrementSeconds: pol.waitIncrementSeconds,
         maxFailureWaitSeconds: pol.maxFailureWaitSeconds,
         password: pol.password,
+        ...(pol.revokeRefreshToken !== undefined ? { revokeRefreshToken: pol.revokeRefreshToken } : {}),
       });
       setPol(updated);
       toast.success('Policies saved');
@@ -967,6 +968,24 @@ function PoliciesTab({ projectId }: { projectId: string }) {
           </div>
         )}
       </div>
+
+      {/* Refresh token rotation */}
+      {pol.revokeRefreshToken !== undefined && (
+        <div className="rounded-lg border p-6 space-y-2">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h3 className="text-sm font-semibold">Single-use refresh tokens</h3>
+              <p className="text-xs text-muted-foreground">
+                Each refresh token works once; a token that was already used is refused, so a stolen token stops
+                working after the next refresh. Off by default. Before you turn it on, make sure your app refreshes
+                from one place at a time: two tabs or requests refreshing with the same token at once will sign one
+                of them out.
+              </p>
+            </div>
+            <Toggle checked={pol.revokeRefreshToken} onChange={(v) => set({ revokeRefreshToken: v })} />
+          </div>
+        </div>
+      )}
 
       {/* Password policy */}
       <div className="rounded-lg border p-6 space-y-4">

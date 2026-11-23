@@ -1158,6 +1158,8 @@ export class KeycloakAdminService implements OnModuleInit {
       waitIncrementSeconds: r?.waitIncrementSeconds ?? 60,
       maxFailureWaitSeconds: r?.maxFailureWaitSeconds ?? 900,
       passwordPolicy: r?.passwordPolicy ?? '',
+      // Rotation with reuse detection: a refresh token works once (#246).
+      revokeRefreshToken: !!r?.revokeRefreshToken && (r?.refreshTokenMaxReuse ?? 0) === 0,
     };
   }
 
@@ -1171,6 +1173,8 @@ export class KeycloakAdminService implements OnModuleInit {
       'waitIncrementSeconds',
       'maxFailureWaitSeconds',
       'passwordPolicy',
+      'revokeRefreshToken',
+      'refreshTokenMaxReuse',
     ]) {
       if (data[k] !== undefined) update[k] = data[k];
     }

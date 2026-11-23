@@ -504,6 +504,11 @@ export class ProjectAuthController {
     ]) {
       if (body[k] !== undefined) update[k] = body[k];
     }
+    if (body.revokeRefreshToken !== undefined) {
+      // On: each refresh token works once and a reused one is refused (max reuse 0).
+      update.revokeRefreshToken = body.revokeRefreshToken === true;
+      update.refreshTokenMaxReuse = 0;
+    }
     if (body.password) update.passwordPolicy = buildPasswordPolicy(body.password);
     await this.keycloak.updateRealmPolicies(project.keycloakRealm, update);
     await this.activity.append(projectId, {

@@ -489,21 +489,41 @@ export class AuthClient {
     return this.session?.accessToken ?? null;
   }
 
-  async refreshSession(): Promise<BasefyioResponse<AuthTokens>> {
+  /**
+   * Refreshes the session. Calls made while a refresh is in flight share it, so
+   * one refresh token is never sent twice (a project with single-use refresh
+   * tokens would refuse the second use and sign the user out). Only a refusal
+   * (400/401) ends the session; a network error or 5xx keeps it for a retry.
+   */
+  refreshSession(): Promise<BasefyioResponse<AuthTokens>> {
     if (!this.session?.refreshToken) {
-      return { data: null, error: { message: 'No refresh token available' } };
+      return Promise.resolve({ data: null, error: { message: 'No refresh token available' } });
     }
+    if (!this.refreshInFlight) {
+      const refreshToken = this.session.refreshToken;
+      this.refreshInFlight = this.doRefresh(refreshToken).finally(() => {
+        this.refreshInFlight = null;
+      });
+    }
+    return this.refreshInFlight;
+  }
+
+  private refreshInFlight: Promise<BasefyioResponse<AuthTokens>> | null = null;
+
+  private async doRefresh(refreshToken: string): Promise<BasefyioResponse<AuthTokens>> {
     try {
       const data = await this.http.json<AuthTokens>('/rest/v1/auth/refresh', {
         method: 'POST',
-        body: JSON.stringify({ refreshToken: this.session.refreshToken }),
+        body: JSON.stringify({ refreshToken }),
       });
       this.setSession(data);
       this.emit('TOKEN_REFRESHED');
       return { data, error: null };
     } catch (err: any) {
-      this.clearSession();
-      return { data: null, error: { message: err.message, status: err.status } };
+      if (err?.status === 400 || err?.status === 401) this.clearSession();
+      // A transient failure keeps the session and tries again in ~15 s.
+      else this.scheduleRefresh(45);
+      return { data: null, error: { message: err?.message, status: err?.status } };
     }
   }
 

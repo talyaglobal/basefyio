@@ -895,6 +895,8 @@ export interface RealmPolicies {
   waitIncrementSeconds: number;
   maxFailureWaitSeconds: number;
   passwordPolicy: string;
+  /** Single-use refresh tokens (rotation with reuse refused). Absent on older servers. */
+  revokeRefreshToken?: boolean;
   password: {
     minLength: number;
     requireUppercase: boolean;

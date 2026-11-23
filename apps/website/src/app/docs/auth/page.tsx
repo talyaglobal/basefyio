@@ -89,6 +89,12 @@ await bf.auth.signOut()`}</code></pre>
         token before it expires. Read it any time, attach a token to your own
         backend calls, or react to auth changes:
       </p>
+      <p>
+        <strong>Single-use refresh tokens.</strong> Under Auth &gt; Policies you can make each refresh token
+        work once: a token that was already used is refused, so a stolen one stops working after the next
+        refresh. It is off by default. With it on, refresh from one place at a time; basefyio-js 2.4.1 and later
+        share one refresh between calls made at the same moment, and keep the session on a network error.
+      </p>
       <pre><code>{`const session = bf.auth.getSession()
 const token = bf.auth.getAccessToken()   // send as: Authorization: Bearer <token>
 

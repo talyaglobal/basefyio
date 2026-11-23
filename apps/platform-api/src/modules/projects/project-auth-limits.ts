@@ -28,4 +28,7 @@ export function assertPolicyBody(body: Record<string, any>): void {
   if (body.failureFactor !== undefined) whole('failureFactor', body.failureFactor, 1, 100);
   if (body.waitIncrementSeconds !== undefined) whole('waitIncrementSeconds', body.waitIncrementSeconds, 0, 86400);
   if (body.maxFailureWaitSeconds !== undefined) whole('maxFailureWaitSeconds', body.maxFailureWaitSeconds, 0, 86400);
+  if (body.revokeRefreshToken !== undefined && typeof body.revokeRefreshToken !== 'boolean') {
+    throw new BadRequestException('revokeRefreshToken must be true or false');
+  }
 }

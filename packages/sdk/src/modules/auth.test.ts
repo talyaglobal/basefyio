@@ -174,3 +174,36 @@ describe('AuthClient — anonymous sessions', () => {
     expect(res.error?.status).toBe(403);
   });
 });
+
+describe('AuthClient.refreshSession (#246)', () => {
+  async function signedIn(responses: Record<string, unknown>) {
+    const { http, sent } = fakeHttp({ '/rest/v1/auth/signin': TOKENS, '/rest/v1/auth/me': { sub: 'u1' }, ...responses });
+    const auth = new AuthClient(http, false);
+    await auth.signIn({ email: 'a@b.c', password: 'pw' });
+    return { auth, sent };
+  }
+
+  it('sends one refresh token once, even when called twice at the same time', async () => {
+    const next = { ...TOKENS, refreshToken: 'r2' };
+    const { auth, sent } = await signedIn({ '/rest/v1/auth/refresh': next });
+    const [a, b] = await Promise.all([auth.refreshSession(), auth.refreshSession()]);
+    expect(sent.filter((s) => s.path === '/rest/v1/auth/refresh')).toHaveLength(1);
+    expect(a.data).toEqual(next);
+    expect(b.data).toEqual(next);
+    expect(auth.getSession()?.refreshToken).toBe('r2');
+  });
+
+  it('ends the session when the server refuses the refresh token', async () => {
+    const { auth } = await signedIn({ '/rest/v1/auth/refresh': { throws: { message: 'Stale token', status: 400 } } });
+    const res = await auth.refreshSession();
+    expect(res.error?.status).toBe(400);
+    expect(auth.getSession()).toBeNull();
+  });
+
+  it('keeps the session on a network error or 5xx', async () => {
+    const { auth } = await signedIn({ '/rest/v1/auth/refresh': { throws: { message: 'Bad gateway', status: 502 } } });
+    const res = await auth.refreshSession();
+    expect(res.error?.status).toBe(502);
+    expect(auth.getSession()?.refreshToken).toBe('r1');
+  });
+});
