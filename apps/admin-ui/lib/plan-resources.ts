@@ -73,7 +73,23 @@ export interface PlanLimits {
   /** Bytes as a string or number (the API sends BigInt as a string); null = no cap. */
   maxDbSizeBytes?: string | number | null;
   maxStorageBytes?: string | number | null;
+  /** null = no cap. */
+  maxProjects?: number | null;
   priceMonthly?: number;
+}
+
+/**
+ * True when the organization already holds its plan's maximum number of projects,
+ * judged from the same team usage row the server's quota check reads. Unknown
+ * inputs never block: the server stays the authority (it answers 402).
+ */
+export function projectLimitReached(
+  projectCount: number | null | undefined,
+  plan: PlanLimits | null | undefined,
+): boolean {
+  if (typeof projectCount !== 'number' || !plan) return false;
+  const max = plan.maxProjects;
+  return typeof max === 'number' && projectCount >= max;
 }
 
 /** A limit as words: the byte size, or `Unlimited` only when the plan has no cap. */

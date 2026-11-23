@@ -56,7 +56,7 @@ import { saveProjectSupabaseImportLog } from '@/lib/import-log-storage';
 import { DatabaseAdvisor } from '@/components/database-advisor';
 import { ImportReconciliationTable } from '@/components/import-reconciliation-table';
 import { ProjectPlanSummary } from '@/components/project-plan-summary';
-import { resolvePlanLimits, type PlanLimits } from '@/lib/plan-resources';
+import { projectLimitReached, resolvePlanLimits, type PlanLimits } from '@/lib/plan-resources';
 
 export interface ReimportTarget {
   projectId: string;
@@ -276,8 +276,11 @@ export function CreateProjectDialog({
   const [githubConnecting, setGithubConnecting] = useState(false);
   const [freePlanMaxProjects, setFreePlanMaxProjects] = useState<number | null>(null);
   const [publicPlans, setPublicPlans] = useState<PlanLimits[]>([]);
+  /** The organization's project count from its usage row; null when unknown (no billing access). */
+  const [teamProjectCount, setTeamProjectCount] = useState<number | null>(null);
   const targetTeam = teams.find((t) => t.id === targetTeamId) ?? null;
   const planLimits = resolvePlanLimits(targetTeam?.plan?.name, publicPlans);
+  const atProjectLimit = projectLimitReached(teamProjectCount, planLimits);
   const computeTierOptions: ComputeOptions['tiers'] = computeOptions?.tiers ?? [
     { id: 'shared', label: 'Shared', vcpu: null, memoryGb: null, available: true, reason: null },
   ];
@@ -287,6 +290,13 @@ export function CreateProjectDialog({
     let cancelled = false;
     setComputeOptions(null);
     setGithubStatus(null);
+    setTeamProjectCount(null);
+    api.billing
+      .usage(targetTeamId)
+      .then((u) => {
+        if (!cancelled && typeof u?.projectCount === 'number') setTeamProjectCount(u.projectCount);
+      })
+      .catch(() => { /* members without billing access: the server still checks */ });
     // A dedicated size the newly chosen team cannot place falls back to shared.
     setComputeTier('shared');
     api.projects
@@ -1432,6 +1442,22 @@ export function CreateProjectDialog({
                 </div>
               )}
 
+              {atProjectLimit && planLimits && (
+                <div
+                  role="alert"
+                  className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-xs text-destructive"
+                  data-testid="project-limit-reached"
+                >
+                  {targetTeam?.name ?? 'This organization'} already has {teamProjectCount} of{' '}
+                  {planLimits.maxProjects} projects on the {planLimits.displayName} plan, so a new project cannot be
+                  created.{' '}
+                  <a href="/dashboard/billing" className="font-medium underline underline-offset-2">
+                    Upgrade on Billing
+                  </a>{' '}
+                  or delete a project to make room.
+                </div>
+              )}
+
               <DialogFooter className="gap-2">
                 <Button type="button" variant="outline" onClick={() => setView('db-type')}>
                   Back
@@ -1440,6 +1466,7 @@ export function CreateProjectDialog({
                   type="submit"
                   disabled={
                     loading ||
+                    atProjectLimit ||
                     !name.trim() ||
                     (dbPassword.trim() !== '' && passwordProblems(dbPassword.trim()).length > 0)
                   }

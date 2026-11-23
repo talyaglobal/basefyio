@@ -589,10 +589,11 @@ function MaxRowsCard({
   return (
     <section className="space-y-3 rounded-xl border bg-card p-6">
       <div>
-        <h2 className="text-lg font-semibold">Rows per table</h2>
+        <h2 className="text-lg font-semibold">Data editor page size</h2>
         <p className="text-sm text-muted-foreground">
-          How many rows the Data grid loads per table. Higher limits are available on paid
-          plans — Free up to 1,000, Pro up to 10,000, Business up to 100,000.
+          The most rows the Data editor loads in one page. It does not limit how many rows a table
+          can hold, and the REST API keeps its own ceiling of 1,000 rows per request. Larger pages
+          are available on paid plans: Free up to 1,000, Pro up to 10,000, Business up to 100,000.
         </p>
       </div>
       <div className="flex items-center gap-3">
@@ -604,7 +605,7 @@ function MaxRowsCard({
           }}
           disabled={saving}
         >
-          <SelectTrigger aria-label="Rows per table" className="w-48">
+          <SelectTrigger aria-label="Data editor page size" className="w-48">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

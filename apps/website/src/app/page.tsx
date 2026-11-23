@@ -91,8 +91,9 @@ function planFeatures(plan: PublicPlan): string[] {
     `${formatReq(plan.maxApiRequests)} API requests/mo`,
     `${formatBytes(plan.maxBandwidthBytes)} bandwidth/mo`,
     `${formatReq(plan.maxMau)} monthly active users`,
+    // Dedicated compute is not provisionable yet; never advertise it as included.
     plan.dedicatedDb || plan.dedicatedStorage
-      ? "Dedicated infrastructure"
+      ? "Shared infrastructure (dedicated compute coming soon)"
       : "Shared infrastructure",
   ];
 }

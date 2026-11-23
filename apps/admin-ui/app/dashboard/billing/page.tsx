@@ -203,6 +203,15 @@ function UsageMeter({
           />
         </div>
       )}
+      {isAtLimit && (
+        <p className="text-xs text-destructive">
+          Limit reached.{' '}
+          <a href="#plans" className="font-medium underline underline-offset-2">
+            See plans
+          </a>{' '}
+          to raise it.
+        </p>
+      )}
     </div>
   );
 }
@@ -1254,8 +1263,13 @@ export default function BillingPage() {
             <UsageMeter label="Bandwidth (this month)" current={parseInt(usage.bandwidthMonth || '0', 10)} max={currentPlan.maxBandwidthBytes ? parseInt(currentPlan.maxBandwidthBytes, 10) : null} format="bytes" />
             <UsageMeter label="Monthly active users" current={usage.mauCount ?? 0} max={(currentPlan as any).maxMau ?? null} />
           </div>
+          <p className="mt-4 text-xs text-muted-foreground">
+            Database size is measured every hour and file storage every 6 hours (and after an import); requests,
+            bandwidth and monthly active users update continuously. Sizes use binary units: 1 GB = 1,024 MB =
+            1,073,741,824 bytes.
+          </p>
           {limits && !limits.exempt && (
-            <ul className="mt-4 space-y-1 text-xs text-muted-foreground">
+            <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
               {limits.metrics
                 .filter((m) => m.limit !== null)
                 .map((m) => (
@@ -1274,7 +1288,7 @@ export default function BillingPage() {
 
       {/* Plans */}
       {!isLegacy && !isEnterprise && (
-        <div>
+        <div id="plans" className="scroll-mt-20">
           <h2 className="text-lg font-semibold text-foreground mb-4">
             {isFree ? 'Upgrade Your Plan' : 'Available Plans'}
           </h2>
@@ -1305,9 +1319,11 @@ export default function BillingPage() {
                     <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 text-primary" />{plan.maxProjects === null ? 'Unlimited' : plan.maxProjects} projects</li>
                     <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 text-primary" />{plan.maxStorageBytes === null ? 'Unlimited' : formatBytes(plan.maxStorageBytes)} storage</li>
                     <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 text-primary" />{plan.maxTeamMembers === null ? 'Unlimited' : plan.maxTeamMembers} team members</li>
+                    <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 text-primary" />{plan.maxDbSizeBytes === null ? 'Unlimited' : formatBytes(plan.maxDbSizeBytes)} database</li>
                     <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 text-primary" />{plan.maxApiRequests === null ? 'Unlimited' : formatNumber(plan.maxApiRequests)} API req/mo</li>
-                    {plan.dedicatedDb && <li className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400"><Check className="h-3.5 w-3.5" />Dedicated Database</li>}
-                    {plan.dedicatedStorage && <li className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400"><Check className="h-3.5 w-3.5" />Dedicated Storage</li>}
+                    <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 text-primary" />{plan.maxBandwidthBytes === null ? 'Unlimited' : formatBytes(plan.maxBandwidthBytes)} bandwidth/mo</li>
+                    <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 text-primary" />{plan.maxMau === null ? 'Unlimited' : formatNumber(plan.maxMau)} monthly active users</li>
+                    {(plan.dedicatedDb || plan.dedicatedStorage) && <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 text-primary" />Shared infrastructure (dedicated compute coming soon)</li>}
                   </ul>
                   {canUpgrade && (
                     <Button
