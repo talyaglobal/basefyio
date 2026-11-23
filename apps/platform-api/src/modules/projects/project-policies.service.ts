@@ -101,6 +101,53 @@ const HELPERS_SQL = `
   WHERE n.nspname = 'auth' AND p.pronargs = 0
     AND p.proname IN ('uid', 'jwt', 'role', 'email')`;
 
+const UID_TYPE_SQL = `
+  SELECT pg_get_function_result(p.oid) AS returns
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'auth' AND p.proname = 'uid' AND p.pronargs = 0`;
+
+/**
+ * Everything that would break if auth.uid() changed type: objects Postgres
+ * records as depending on it (policies, column defaults, views), plus functions
+ * whose body mentions it (bodies are not tracked as dependencies).
+ */
+const UID_USERS_SQL = `
+  WITH uid AS (
+    SELECT p.oid FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'auth' AND p.proname = 'uid' AND p.pronargs = 0
+  )
+  SELECT 'policy ' || quote_ident(pol.polname) || ' on ' || pol.polrelid::regclass::text AS what
+    FROM pg_depend d JOIN uid ON d.refobjid = uid.oid
+    JOIN pg_policy pol ON d.classid = 'pg_policy'::regclass AND d.objid = pol.oid
+  UNION
+  SELECT 'default of ' || ad.adrelid::regclass::text || '.' || quote_ident(a.attname)
+    FROM pg_depend d JOIN uid ON d.refobjid = uid.oid
+    JOIN pg_attrdef ad ON d.classid = 'pg_attrdef'::regclass AND d.objid = ad.oid
+    JOIN pg_attribute a ON a.attrelid = ad.adrelid AND a.attnum = ad.adnum
+  UNION
+  SELECT 'view ' || r.ev_class::regclass::text
+    FROM pg_depend d JOIN uid ON d.refobjid = uid.oid
+    JOIN pg_rewrite r ON d.classid = 'pg_rewrite'::regclass AND d.objid = r.oid
+  UNION
+  SELECT 'function ' || p.oid::regprocedure::text
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace, uid
+    WHERE p.oid <> uid.oid AND p.prosrc ILIKE '%auth.uid()%'
+  ORDER BY 1`;
+
+/** The uuid helper. A sub that is not a uuid reads as NULL (matches nothing) instead of failing. */
+const UID_TO_UUID_SQL = [
+  'DROP FUNCTION auth.uid()',
+  `CREATE FUNCTION auth.uid() RETURNS uuid
+    LANGUAGE sql STABLE
+    AS $body$
+      SELECT CASE
+        WHEN (auth.jwt() ->> 'sub') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        THEN (auth.jwt() ->> 'sub')::uuid
+      END;
+    $body$`,
+  'GRANT EXECUTE ON FUNCTION auth.uid() TO anon, authenticated, service_role',
+];
+
 const POLICY_EXISTS_SQL = `
   SELECT 1 FROM pg_policies
   WHERE schemaname = $1 AND tablename = $2 AND policyname = $3`;
@@ -259,6 +306,60 @@ export class ProjectPoliciesService {
       buildRlsSql(toggle.table, toggle.enabled, toggle.force),
       opts,
       `Row-level security ${what}${forced} on "${toggle.table}"`,
+    );
+  }
+
+  /**
+   * Opt-in, per project (#249): make auth.uid() return uuid instead of text, so
+   * `owner uuid DEFAULT auth.uid()` and `owner = auth.uid()` work as they do on
+   * Supabase. Runs as the platform admin (the helper's owner) in one
+   * transaction, and refuses, changing nothing, while any policy, default,
+   * view or function still uses auth.uid(): those were written for text and
+   * would break. A sub that is not a uuid reads as NULL, so it matches no row.
+   * `dryRun` reports what would happen and always rolls back.
+   */
+  async convertUidToUuid(
+    projectId: string,
+    userId: string,
+    opts: { dryRun?: boolean } = {},
+  ): Promise<{ changed: boolean; uid: 'uuid' | 'text' | null; blockers: string[]; message: string }> {
+    return this.db.withProjectDb(
+      projectId,
+      userId,
+      async (client) => {
+        const current = await client.query(UID_TYPE_SQL);
+        if (!current.rowCount) {
+          return { changed: false, uid: null, blockers: [], message: 'This database has no auth.uid() helper' };
+        }
+        const returns = String(current.rows[0].returns ?? '');
+        if (/uuid/i.test(returns)) {
+          return { changed: false, uid: 'uuid', blockers: [], message: 'auth.uid() already returns uuid' };
+        }
+        const blockers = (await client.query(UID_USERS_SQL)).rows.map((r) => String(r.what));
+        if (blockers.length) {
+          return {
+            changed: false,
+            uid: 'text',
+            blockers,
+            message:
+              'auth.uid() is still used by the objects listed, which were written for text. Change or drop them, then switch.',
+          };
+        }
+        if (opts.dryRun) {
+          return { changed: false, uid: 'text', blockers: [], message: 'Nothing uses auth.uid(); it can be switched to uuid' };
+        }
+        try {
+          await client.query('BEGIN');
+          await client.query(LOCK_TIMEOUT_SQL);
+          for (const statement of UID_TO_UUID_SQL) await client.query(statement);
+          await client.query('COMMIT');
+        } catch (e) {
+          await client.query('ROLLBACK').catch(() => undefined);
+          throw this.mapPolicyPgError(e);
+        }
+        return { changed: true, uid: 'uuid', blockers: [], message: 'auth.uid() now returns uuid' };
+      },
+      true,
     );
   }
 

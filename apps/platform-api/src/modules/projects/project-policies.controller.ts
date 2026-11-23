@@ -83,6 +83,26 @@ export class ProjectPoliciesController {
     return r;
   }
 
+  /** Opt-in: make auth.uid() return uuid (#249). `dryRun: true` only reports. */
+  @Scopes('schema:write')
+  @Post('uid-uuid')
+  async uidToUuid(
+    @Param('projectId') id: string,
+    @Body() body: MutationBody,
+    @CurrentUser() u: JwtPayload,
+  ) {
+    const r = await this.policies.convertUidToUuid(id, u.sub, { dryRun: body?.dryRun === true });
+    if (r.changed) {
+      void this.activity.append(id, {
+        userId: u.sub,
+        kind: ProjectActivityKind.PROJECT_UPDATED,
+        title: 'auth.uid() switched to uuid',
+        detail: 'auth.uid() now returns uuid',
+      });
+    }
+    return r;
+  }
+
   @Scopes('schema:write')
   @Post('rls')
   async setRls(

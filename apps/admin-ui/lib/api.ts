@@ -1140,6 +1140,13 @@ export const api = {
         { method: 'DELETE' },
       );
     },
+    /** Opt-in: make auth.uid() return uuid. `dryRun` only reports what would happen (#249). */
+    dbUidToUuid(projectId: string, dryRun = false) {
+      return request<{ changed: boolean; uid: 'uuid' | 'text' | null; blockers: string[]; message: string }>(
+        `/projects/${projectId}/database/policies/uid-uuid`,
+        { method: 'POST', body: JSON.stringify({ dryRun }) },
+      );
+    },
     dbSetRls(projectId: string, data: { table: string; enabled: boolean; force?: boolean } & RlsMutationOptions) {
       return request<RlsMutationResult>(`/projects/${projectId}/database/policies/rls`, { method: 'POST', body: JSON.stringify(data) });
     },

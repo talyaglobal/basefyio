@@ -65,6 +65,37 @@ export function RlsPolicyEditor({ projectId }: { projectId: string }) {
   const [loading, setLoading] = useState(true);
   const [busyTable, setBusyTable] = useState<string | null>(null);
   const [dialog, setDialog] = useState<DialogTarget | null>(null);
+  const [uidBlockers, setUidBlockers] = useState<string[] | null>(null);
+  const [switchingUid, setSwitchingUid] = useState(false);
+
+  async function switchUidToUuid() {
+    setSwitchingUid(true);
+    try {
+      const check = await api.projects.dbUidToUuid(projectId, true);
+      if (check.blockers.length) {
+        setUidBlockers(check.blockers);
+        return;
+      }
+      const ok = await confirmDialog({
+        title: 'Make auth.uid() return uuid',
+        description:
+          'auth.uid() will return the signed-in user id as uuid, so uuid columns can use DEFAULT auth.uid() and compare without a cast. Nothing uses the text version today. You cannot switch back from here.',
+        confirmText: 'Switch to uuid',
+      });
+      if (!ok) return;
+      const r = await api.projects.dbUidToUuid(projectId);
+      if (r.blockers.length) setUidBlockers(r.blockers);
+      else {
+        setUidBlockers(null);
+        toast.success(r.message);
+        await load();
+      }
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setSwitchingUid(false);
+    }
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -178,6 +209,30 @@ export function RlsPolicyEditor({ projectId }: { projectId: string }) {
         <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
           This database has no <code>auth.uid()</code> helper; templates read the signed-in user with{' '}
           <code>current_setting(&apos;request.jwt.claims&apos;, true)</code> directly.
+        </div>
+      )}
+
+      {overview.helpers.uid === 'text' && (
+        <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="max-w-2xl">
+              <code>auth.uid()</code> returns the user id as <strong>text</strong> in this project, so a uuid column
+              needs a cast (<code>owner_id::text = auth.uid()</code> or <code>DEFAULT auth.uid()::uuid</code>). You can
+              make it return uuid instead, as on Supabase, while nothing uses it yet.
+            </p>
+            <Button size="sm" variant="outline" disabled={switchingUid} onClick={() => void switchUidToUuid()}>
+              {switchingUid ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+              Switch to uuid
+            </Button>
+          </div>
+          {uidBlockers && uidBlockers.length > 0 && (
+            <div className="rounded border border-amber-300 bg-amber-50 p-2 text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
+              Not switched: these still use <code>auth.uid()</code> as text. Change or drop them first:
+              <ul className="mt-1 list-disc pl-5 font-mono">
+                {uidBlockers.map((b) => <li key={b}>{b}</li>)}
+              </ul>
+            </div>
+          )}
         </div>
       )}
 

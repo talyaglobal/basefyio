@@ -96,7 +96,15 @@ create policy "todos owner delete" on todos for delete to authenticated
 With these four policies and no policy for `anon`, the anon key sees nothing in `todos`, a
 signed-in user sees and edits only their own rows, and the service key still sees everything.
 `auth.uid()` returns `text`, so store the owner in a `text` column
-(`user_id text not null default auth.uid()` fills it in automatically on insert).
+(`user_id text not null default auth.uid()` fills it in automatically on insert), or cast it for a
+`uuid` column (`owner uuid default auth.uid()::uuid`).
+
+To have `auth.uid()` return `uuid` instead (as on Supabase), use **Switch to uuid** on the Database →
+Policies page, or `POST /api/projects/:projectId/database/policies/uid-uuid` (`{"dryRun": true}` only
+reports). It runs in one transaction and is refused, changing nothing, while any policy, column
+default, view or function still uses `auth.uid()`; the answer lists them. After the switch a token
+whose `sub` is not a uuid reads as `NULL` and matches no row. New and existing projects keep `text`
+until you switch.
 
 Policies can be written in the SQL editor, or through the dashboard's Database → Policies
 page, which uses `GET/POST/PUT/DELETE /api/projects/:projectId/database/policies` and
