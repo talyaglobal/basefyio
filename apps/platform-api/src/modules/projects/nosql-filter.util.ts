@@ -18,6 +18,11 @@ import { BadRequestException } from '@nestjs/common';
  *   { field: { $exists: bool }} → data ? 'field' / NOT (data ? 'field')
  *   { field: { $regex: pat } }  → data->>'field' ~ $N
  *   { field: { $iregex: pat } } → data->>'field' ~* $N
+ *   { field: { $like: pat } }   → data->>'field' LIKE $N   (% and _ wildcards)
+ *   { field: { $ilike: pat } }  → data->>'field' ILIKE $N
+ *   { field: { $all: [...] } }  → data->'field' @> '[...]'  (array holds every value)
+ *   { field: { $elemMatch: f }} → an element of the array matches f (fields of the
+ *                                 element, or operators on the element itself)
  *   { $and: [...] }             → (clause AND clause AND ...)
  *   { $or:  [...] }             → (clause OR  clause OR  ...)
  *   Nested paths: "a.b.c"       → data #>> '{a,b,c}'
@@ -47,31 +52,42 @@ function validateFieldName(field: string): void {
  * Returns the SQL expression to extract a text value from the `data` JSONB column.
  * Supports dotted paths like "address.city" → data #>> '{address,city}'.
  */
-function jsonTextField(field: string): string {
+function jsonTextField(field: string, root = 'data'): string {
   const parts = field.split('.');
   if (parts.length === 1) {
-    return `data->>'${parts[0]}'`;
+    return `${root}->>'${parts[0]}'`;
   }
-  return `data #>> '{${parts.join(',')}}'`;
+  return `${root} #>> '{${parts.join(',')}}'`;
 }
 
 /**
  * Returns the SQL expression to extract a JSONB value from the `data` column.
  * Supports dotted paths like "tags.0" → data #> '{tags,0}'.
  */
-function jsonJsonbField(field: string): string {
+function jsonJsonbField(field: string, root = 'data'): string {
   const parts = field.split('.');
   if (parts.length === 1) {
-    return `data->'${parts[0]}'`;
+    return `${root}->'${parts[0]}'`;
   }
-  return `data #> '{${parts.join(',')}}'`;
+  return `${root} #> '{${parts.join(',')}}'`;
 }
 
+/** The pseudo-field `$elemMatch` uses for operators applied to the element itself. */
+const SELF = '\u0000self';
+
+/**
+ * Clauses for `filter` over the JSONB expression `root` (the document's `data`,
+ * or an array element inside `$elemMatch`). `depth` keeps element aliases unique.
+ */
 function buildClauses(
   filter: Record<string, unknown>,
   params: unknown[],
+  root = 'data',
+  depth = 0,
 ): string[] {
   const clauses: string[] = [];
+  const text = (field: string) => (field === SELF ? `(${root} #>> '{}')` : jsonTextField(field, root));
+  const jsonb = (field: string) => (field === SELF ? root : jsonJsonbField(field, root));
 
   for (const [key, value] of Object.entries(filter)) {
     // Logical operators
@@ -80,7 +96,7 @@ function buildClauses(
         throw new BadRequestException('$and must be an array');
       }
       const sub = value.map((f) => {
-        const inner = buildClauses(f as Record<string, unknown>, params);
+        const inner = buildClauses(f as Record<string, unknown>, params, root, depth);
         return inner.length === 1 ? inner[0] : `(${inner.join(' AND ')})`;
       });
       clauses.push(`(${sub.join(' AND ')})`);
@@ -92,14 +108,14 @@ function buildClauses(
         throw new BadRequestException('$or must be an array');
       }
       const sub = value.map((f) => {
-        const inner = buildClauses(f as Record<string, unknown>, params);
+        const inner = buildClauses(f as Record<string, unknown>, params, root, depth);
         return inner.length === 1 ? inner[0] : `(${inner.join(' AND ')})`;
       });
       clauses.push(`(${sub.join(' OR ')})`);
       continue;
     }
 
-    validateFieldName(key);
+    if (key !== SELF) validateFieldName(key);
 
     // Simple equality: { field: "value" } or { field: 123 }
     if (value === null || typeof value !== 'object' || Array.isArray(value)) {
@@ -109,11 +125,11 @@ function buildClauses(
         .reverse()
         .reduce<unknown>((acc, part) => ({ [part]: acc }), value);
       params.push(JSON.stringify(nested));
-      const eqClause = `data @> $${params.length}::jsonb`;
+      const eqClause = `${root} @> $${params.length}::jsonb`;
       if (value !== null && !Array.isArray(value)) {
         // A scalar also matches when the field is an array containing it ({"tags":"y"}).
         params.push(JSON.stringify([value]));
-        clauses.push(`(${eqClause} OR ${jsonJsonbField(key)} @> $${params.length}::jsonb)`);
+        clauses.push(`(${eqClause} OR ${jsonb(key)} @> $${params.length}::jsonb)`);
       } else {
         clauses.push(eqClause);
       }
@@ -127,12 +143,12 @@ function buildClauses(
       switch (op) {
         case '$eq': {
           params.push(opVal);
-          clauses.push(`${jsonTextField(key)} = $${params.length}`);
+          clauses.push(`${text(key)} = $${params.length}`);
           break;
         }
         case '$ne': {
           params.push(opVal);
-          clauses.push(`${jsonTextField(key)} != $${params.length}`);
+          clauses.push(`${text(key)} != $${params.length}`);
           break;
         }
         case '$gt':
@@ -142,7 +158,7 @@ function buildClauses(
           params.push(opVal);
           const sqlOp = COMPARISON_OPS[op];
           clauses.push(
-            `(${jsonTextField(key)})::numeric ${sqlOp} $${params.length}`,
+            `(${text(key)})::numeric ${sqlOp} $${params.length}`,
           );
           break;
         }
@@ -155,7 +171,7 @@ function buildClauses(
             return `$${params.length}`;
           });
           clauses.push(
-            `${jsonTextField(key)} IN (${placeholders.join(', ')})`,
+            `${text(key)} IN (${placeholders.join(', ')})`,
           );
           break;
         }
@@ -168,7 +184,7 @@ function buildClauses(
             return `$${params.length}`;
           });
           clauses.push(
-            `${jsonTextField(key)} NOT IN (${ninPlaceholders.join(', ')})`,
+            `${text(key)} NOT IN (${ninPlaceholders.join(', ')})`,
           );
           break;
         }
@@ -176,26 +192,59 @@ function buildClauses(
           // Array containment: data->'tags' @> '["value"]'
           params.push(JSON.stringify([opVal]));
           clauses.push(
-            `${jsonJsonbField(key)} @> $${params.length}::jsonb`,
+            `${jsonb(key)} @> $${params.length}::jsonb`,
           );
           break;
         }
         case '$exists': {
+          if (key === SELF) throw new BadRequestException('$exists needs a field inside $elemMatch');
           if (opVal === true) {
-            clauses.push(`data ? '${key}'`);
+            clauses.push(`${root} ? '${key}'`);
           } else {
-            clauses.push(`NOT (data ? '${key}')`);
+            clauses.push(`NOT (${root} ? '${key}')`);
           }
           break;
         }
         case '$regex': {
           params.push(opVal);
-          clauses.push(`${jsonTextField(key)} ~ $${params.length}`);
+          clauses.push(`${text(key)} ~ $${params.length}`);
           break;
         }
         case '$iregex': {
           params.push(opVal);
-          clauses.push(`${jsonTextField(key)} ~* $${params.length}`);
+          clauses.push(`${text(key)} ~* $${params.length}`);
+          break;
+        }
+        case '$like':
+        case '$ilike': {
+          if (typeof opVal !== 'string') throw new BadRequestException(`${op} requires a string pattern`);
+          params.push(opVal);
+          clauses.push(`${text(key)} ${op === '$like' ? 'LIKE' : 'ILIKE'} $${params.length}`);
+          break;
+        }
+        case '$all': {
+          if (!Array.isArray(opVal) || opVal.length === 0) {
+            throw new BadRequestException('$all requires a non-empty array');
+          }
+          params.push(JSON.stringify(opVal));
+          clauses.push(`${jsonb(key)} @> $${params.length}::jsonb`);
+          break;
+        }
+        case '$elemMatch': {
+          if (!opVal || typeof opVal !== 'object' || Array.isArray(opVal) || !Object.keys(opVal).length) {
+            throw new BadRequestException('$elemMatch requires a non-empty object');
+          }
+          if (depth >= 3) throw new BadRequestException('$elemMatch can be nested at most 3 levels deep');
+          const sub = opVal as Record<string, unknown>;
+          // { $gt: 5 } applies to the element itself; { qty: { $gt: 5 } } to its fields.
+          const onSelf = Object.keys(sub).every((k) => k.startsWith('$') && k !== '$and' && k !== '$or');
+          const alias = `e${depth}`;
+          const inner = buildClauses(onSelf ? { [SELF]: sub } : sub, params, `${alias}.value`, depth + 1);
+          const arr = jsonb(key);
+          // CASE keeps jsonb_array_elements away from a value that is not an array.
+          clauses.push(
+            `(CASE WHEN jsonb_typeof(${arr}) = 'array' THEN EXISTS (SELECT 1 FROM jsonb_array_elements(${arr}) AS ${alias} WHERE ${inner.join(' AND ') || 'true'}) ELSE false END)`,
+          );
           break;
         }
         default:

@@ -59,7 +59,12 @@ function InsertDocumentDialog({
     try {
       parsed = JSON.parse(json);
     } catch {
-      toast.error('Invalid JSON');
+      toast.error('This is not valid JSON. A document looks like {"name": "Ada"}; text needs quotes inside it.');
+      return;
+    }
+    const isObject = (v: unknown) => !!v && typeof v === 'object' && !Array.isArray(v);
+    if (!(isObject(parsed) || (Array.isArray(parsed) && parsed.length > 0 && parsed.every(isObject)))) {
+      toast.error('A document must be a JSON object, e.g. {"name": "Ada"}, or an array of objects.');
       return;
     }
     setSaving(true);

@@ -79,3 +79,34 @@ describe('nosql-filter.util', () => {
     });
   });
 });
+
+describe('buildNoSqlFilter — $like, $ilike, $all, $elemMatch (#176)', () => {
+  it('$like / $ilike bind the pattern', () => {
+    expect(buildNoSqlFilter({ name: { $like: 'An%' } })).toEqual({ where: "data->>'name' LIKE $1", params: ['An%'] });
+    expect(buildNoSqlFilter({ name: { $ilike: '%bar' } }).where).toBe("data->>'name' ILIKE $1");
+  });
+
+  it('$all asks the array to hold every value', () => {
+    expect(buildNoSqlFilter({ tags: { $all: ['x', 'y'] } })).toEqual({ where: "data->'tags' @> $1::jsonb", params: ['["x","y"]'] });
+  });
+
+  it('$elemMatch over element fields, guarded against non-arrays', () => {
+    const { where, params } = buildNoSqlFilter({ items: { $elemMatch: { sku: 'b', qty: { $gt: 5 } } } });
+    expect(where).toContain("CASE WHEN jsonb_typeof(data->'items') = 'array'");
+    expect(where).toContain("FROM jsonb_array_elements(data->'items') AS e0");
+    expect(where).toContain("(e0.value->>'qty')::numeric > $3");
+    expect(params).toEqual(['{"sku":"b"}', '["b"]', 5]);
+  });
+
+  it('$elemMatch with operators applies them to the element itself', () => {
+    const { where, params } = buildNoSqlFilter({ scores: { $elemMatch: { $gte: 8 } } });
+    expect(where).toContain("((e0.value #>> '{}'))::numeric >= $1");
+    expect(params).toEqual([8]);
+  });
+
+  it('rejects malformed operands', () => {
+    expect(() => buildNoSqlFilter({ tags: { $all: [] } })).toThrow('$all requires a non-empty array');
+    expect(() => buildNoSqlFilter({ tags: { $elemMatch: {} } })).toThrow('$elemMatch requires a non-empty object');
+    expect(() => buildNoSqlFilter({ name: { $like: 3 } })).toThrow('$like requires a string pattern');
+  });
+});

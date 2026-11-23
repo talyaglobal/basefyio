@@ -177,7 +177,11 @@ export function CreateTableDialog({ open, onOpenChange, projectId, onCreated, on
       return;
     }
     if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(trimmed)) {
-      toast.error('Collection name must start with a letter or underscore and contain only alphanumeric characters');
+      toast.error('Use letters, digits and _ only, starting with a letter or _ (no spaces or dashes).');
+      return;
+    }
+    if (trimmed.length > 63) {
+      toast.error('Collection names are limited to 63 characters.');
       return;
     }
     setSaving(true);
@@ -421,7 +425,12 @@ export function CreateTableDialog({ open, onOpenChange, projectId, onCreated, on
                 value={collectionName}
                 onChange={(e) => setCollectionName(e.target.value)}
                 placeholder="e.g. posts, products, events"
+                maxLength={63}
+                aria-describedby="cc-name-rule"
               />
+              <p id="cc-name-rule" className={`text-xs ${collectionName.trim() && !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(collectionName.trim()) ? 'text-red-600' : 'text-muted-foreground'}`}>
+                Letters, digits and _ only, starting with a letter or _; up to 63 characters.
+              </p>
               <p className="text-xs text-muted-foreground">
                 No columns to define — documents can have any JSON structure.
                 You can insert documents right after creating the collection.
