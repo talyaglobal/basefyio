@@ -202,7 +202,7 @@ function FilterReference({ columns }: { columns: ColumnInfo[] }) {
   return (
     <div className="rounded-lg border bg-card">
       <div className="px-4 py-3 border-b">
-        <h3 className="text-sm font-semibold">Filter Reference</h3>
+        <h2 className="text-sm font-semibold">Filter Reference</h2>
         <p className="text-xs text-muted-foreground mt-0.5">
           Add filters as query parameters. Combine multiple with <code className="bg-muted px-1 rounded">&amp;</code>
         </p>

@@ -269,7 +269,7 @@ function GitHubCard({
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h3 className="font-semibold">GitHub</h3>
+              <h2 className="font-semibold">GitHub</h2>
               {useTeamToken && (
                 <Badge variant="outline" className="text-[10px] h-4 border-emerald-500 text-emerald-600 dark:text-emerald-400">
                   <Link2 className="h-2.5 w-2.5 mr-1" />
@@ -664,7 +664,7 @@ function VercelCard({
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h3 className="font-semibold">Vercel</h3>
+              <h2 className="font-semibold">Vercel</h2>
               {useTeamToken && (
                 <Badge variant="outline" className="text-[10px] h-4 border-emerald-500 text-emerald-600 dark:text-emerald-400">
                   <Link2 className="h-2.5 w-2.5 mr-1" />

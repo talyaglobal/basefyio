@@ -330,10 +330,10 @@ export default function AccountPage() {
       </div>
 
       <div className="rounded-lg border bg-card p-6 space-y-6">
-        <div className="flex items-center gap-2 text-sm font-medium">
+        <h2 className="flex items-center gap-2 text-sm font-medium">
           <User className="h-4 w-4" />
           Account information
-        </div>
+        </h2>
 
         <div className="flex items-center gap-5">
           <div className="relative">
@@ -437,10 +437,10 @@ export default function AccountPage() {
       </div>
 
        {/* <div className="rounded-lg border bg-card p-6 space-y-4">
-        <div className="flex items-center gap-2 text-sm font-medium">
+        <h2 className="flex items-center gap-2 text-sm font-medium">
           <Github className="h-4 w-4" />
           GitHub account
-        </div>
+        </h2>
 
         {profile.githubUsername ? (
           <div className="flex items-center justify-between rounded-md border bg-muted/30 p-4">
@@ -516,10 +516,10 @@ export default function AccountPage() {
       </div> */}
 
       <div className="rounded-lg border bg-card p-6 space-y-4">
-        <div className="flex items-center gap-2 text-sm font-medium">
+        <h2 className="flex items-center gap-2 text-sm font-medium">
           <Bell className="h-4 w-4" />
           Email notifications
-        </div>
+        </h2>
         <p className="text-xs text-muted-foreground">
           Choose which email notifications you want to receive.
         </p>
@@ -579,10 +579,10 @@ export default function AccountPage() {
       </div>
 
       <div className="rounded-lg border bg-card p-6 space-y-4">
-        <div className="flex items-center gap-2 text-sm font-medium">
+        <h2 className="flex items-center gap-2 text-sm font-medium">
           <BellRing className="h-4 w-4" />
           Browser notifications
-        </div>
+        </h2>
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-3">
             <div className="pr-4">
@@ -637,10 +637,10 @@ export default function AccountPage() {
 
       {isExternalAuth && !forcePasswordChange && (
         <div className="rounded-lg border bg-card p-6 space-y-2">
-          <div className="flex items-center gap-2 text-sm font-medium">
+          <h2 className="flex items-center gap-2 text-sm font-medium">
             <KeyRound className="h-4 w-4" />
             Sign-in and security
-          </div>
+          </h2>
           <p className="text-sm text-muted-foreground">
             You sign in with {providerLabel}, so your password, two-step verification and active sessions are
             managed in your {providerLabel} account.
@@ -650,10 +650,10 @@ export default function AccountPage() {
 
       {!isExternalAuth && (
       <div className="rounded-lg border bg-card p-6 space-y-4">
-        <div className="flex items-center gap-2 text-sm font-medium">
+        <h2 className="flex items-center gap-2 text-sm font-medium">
           <KeyRound className="h-4 w-4" />
           Change password
-        </div>
+        </h2>
         {forcePasswordChange && (
           <div className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
             Your password was reset by an administrator. You must set a new password to continue.
