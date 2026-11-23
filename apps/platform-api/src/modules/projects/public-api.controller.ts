@@ -73,7 +73,9 @@ export class PublicApiController {
           `None of these media types are available: ${accept}. Only application/json is served.`,
         );
       }
-      return this.publicApi.select(payload.projectId, table, this.queryWithRange(req), this.buildCtx(payload));
+      // `Prefer: count=none` skips the total, which on a large table costs more than the page (#186).
+      const skipCount = /(^|[\s,;])count=none\b/i.test(prefer ?? '');
+      return this.publicApi.select(payload.projectId, table, this.queryWithRange(req), this.buildCtx(payload), skipCount);
     }
 
     this.assertCompatHeaders(req, accept);

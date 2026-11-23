@@ -135,6 +135,22 @@ const ALLOWED_ROLES: ReadonlySet<PgDbRole> = new Set<PgDbRole>([
  *  connecting user lacks GRANTed membership in the target role. */
 const PG_INSUFFICIENT_PRIVILEGE = '42501';
 
+/** Postgres's ceiling on bound values in one statement. */
+export const MAX_BIND_PARAMS = 65535;
+
+/**
+ * A bulk write that cannot go as one statement and cannot be split here: a
+ * clear 400 with the batch size that fits, instead of the driver's 500 (#186).
+ */
+export function tooManyValues(rows: number, columns: number, compat = false): Error {
+  const fit = Math.max(1, Math.floor(MAX_BIND_PARAMS / Math.max(1, columns)));
+  const message = `This insert sends ${(rows * columns).toLocaleString('en-US')} values (${rows.toLocaleString('en-US')} rows x ${columns} columns); one statement can carry at most ${MAX_BIND_PARAMS.toLocaleString('en-US')}.`;
+  const hint = `Send at most ${fit.toLocaleString('en-US')} rows of ${columns} columns per request.`;
+  return compat
+    ? new PostgrestHttpError(400, postgrestBody('PGRST100', message, null, hint))
+    : new BadRequestException(`${message} ${hint}`);
+}
+
 @Injectable()
 export class PublicApiService {
   private readonly logger = new Logger(PublicApiService.name);
@@ -189,7 +205,8 @@ export class PublicApiService {
     table: string,
     query: Record<string, string | string[]>,
     ctx: RlsContext,
-  ): Promise<{ data: Record<string, unknown>[]; count: number }>;
+    skipCount?: boolean,
+  ): Promise<{ data: Record<string, unknown>[]; count: number | null }>;
   async select(
     projectId: string,
     table: string,
@@ -202,9 +219,11 @@ export class PublicApiService {
     table: string,
     query: Record<string, string | string[]>,
     ctx: RlsContext,
-    opts?: SelectOptions,
-  ): Promise<{ data: Record<string, unknown>[]; count: number } | CompatRows> {
+    optsOrSkip?: SelectOptions | boolean,
+  ): Promise<{ data: Record<string, unknown>[]; count: number | null } | CompatRows> {
     this.validateTableName(table);
+    const opts = typeof optsOrSkip === 'object' ? optsOrSkip : undefined;
+    const skipCount = optsOrSkip === true;
     const parsed = this.parse(query, !!opts);
     if (opts) return this.selectCompat(projectId, table, parsed, ctx, opts);
 
@@ -218,16 +237,15 @@ export class PublicApiService {
         const dataBuilder = new SelectBuilder(schema, this.schemaCache);
         const { sql, params } = dataBuilder.build(table, parsed);
 
-        const countBuilder = new SelectBuilder(schema, this.schemaCache);
-        const count = countBuilder.buildCount(table, parsed);
+        const count = skipCount ? null : new SelectBuilder(schema, this.schemaCache).buildCount(table, parsed);
 
         const [dataResult, countResult] = await Promise.all([
           client.query(sql, params),
-          client.query(count.sql, count.params),
+          count ? client.query(count.sql, count.params) : Promise.resolve(null),
         ]);
         return {
           data: dataResult.rows,
-          count: countResult.rows[0]?.total ?? 0,
+          count: countResult ? (countResult.rows[0]?.total ?? 0) : null,
         };
       };
 
@@ -523,37 +541,55 @@ export class PublicApiService {
 
       const cols = keys.map((k) => this.quoteIdent(k, 'insert column')).join(', ');
 
-      const allValues: unknown[] = [];
-      const valueGroups: string[] = [];
-
-      for (const row of rows) {
-        const placeholders: string[] = [];
-        for (const key of keys) {
-          allValues.push(row[key] ?? null);
-          placeholders.push(`$${allValues.length}`);
+      // Postgres takes at most 65,535 bound values per statement (#186). A larger
+      // body is written as several INSERTs inside this request's one
+      // transaction, so it still lands all at once or not at all.
+      const rowsPerStatement = Math.max(1, Math.floor(MAX_BIND_PARAMS / keys.length));
+      const chunks: Array<{ values: unknown[]; groups: string[] }> = [];
+      for (let i = 0; i < rows.length; i += rowsPerStatement) {
+        const values: unknown[] = [];
+        const groups: string[] = [];
+        for (const row of rows.slice(i, i + rowsPerStatement)) {
+          const placeholders: string[] = [];
+          for (const key of keys) {
+            values.push(row[key] ?? null);
+            placeholders.push(`$${values.length}`);
+          }
+          groups.push(`(${placeholders.join(', ')})`);
         }
-        valueGroups.push(`(${placeholders.join(', ')})`);
+        chunks.push({ values, groups });
+      }
+      if (parsed && chunks.length > 1) {
+        throw tooManyValues(rows.length, keys.length);
       }
 
       const run = async (force: boolean) => {
         // The schema is read only when the answer needs it: an upsert's default
         // conflict target, or a shaped representation.
         const schema = resolution || parsed ? await this.schemaCache.get(projectId, client, force, ctx.schema) : null;
-        let sql = `INSERT INTO ${qualifiedRelation(ctx.schema, table)} (${cols}) VALUES ${valueGroups.join(', ')}`;
-        if (resolution && schema) {
-          sql += this.conflictClause(this.tableInfo(schema, table), table, keys, resolution, query.on_conflict);
-        }
-        // RETURNING * unconditionally: realtime needs the rows to broadcast full INSERT payloads.
-        sql += ' RETURNING *';
+        const statementFor = (groups: string[]) => {
+          let sql = `INSERT INTO ${qualifiedRelation(ctx.schema, table)} (${cols}) VALUES ${groups.join(', ')}`;
+          if (resolution && schema) {
+            sql += this.conflictClause(this.tableInfo(schema, table), table, keys, resolution, query.on_conflict);
+          }
+          // RETURNING * unconditionally: realtime needs the rows to broadcast full INSERT payloads.
+          return `${sql} RETURNING *`;
+        };
         if (parsed && schema) {
-          const w = await this.runCompatWrite(client, schema, table, parsed, sql, allValues, {
+          const w = await this.runCompatWrite(client, schema, table, parsed, statementFor(chunks[0].groups), chunks[0].values, {
             prefer: { return: 'representation', raw: new Map() },
             wantsObject: false,
           });
           return { __raw: w.raw, __rows: w.out, __count: w.count };
         }
-        const result = await client.query(sql, allValues);
-        return { __raw: result.rows, __rows: result.rows, __count: result.rowCount };
+        const written: Record<string, unknown>[] = [];
+        let count = 0;
+        for (const chunk of chunks) {
+          const result = await client.query(statementFor(chunk.groups), chunk.values);
+          written.push(...result.rows);
+          count += result.rowCount ?? 0;
+        }
+        return { __raw: written, __rows: written, __count: count };
       };
       return this.withSchemaRetry(projectId, run);
     }).then((r: any) => {
@@ -642,6 +678,7 @@ export class PublicApiService {
           });
           return `(${cells.join(', ')})`;
         });
+        if (params.length > MAX_BIND_PARAMS) throw tooManyValues(rows.length, cols.length, true);
 
         let sql = `INSERT INTO ${qualifiedRelation(ctx.schema, table)} (${cols.map((c) => `"${c}"`).join(', ')}) VALUES ${groups.join(', ')}`;
         if (opts.prefer.resolution) {

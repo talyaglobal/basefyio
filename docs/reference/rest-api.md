@@ -63,6 +63,14 @@ A read returns at most 1,000 rows: with no `limit` you get 1,000, and a larger `
 received and page with `offset`. There is no `page` parameter: `?page=2` answers `400` naming `limit`
 and `offset`.
 
+`count` is the exact total of the filtered rows, and on a large table it can cost more than the page
+itself. Send `Prefer: count=none` to skip it; `count` is then `null`.
+
+A bulk insert can be larger than Postgres's ceiling of 65,535 bound values per statement (rows x
+columns). The API splits it into several statements inside one transaction, so it still succeeds or
+fails as a whole. Where it cannot split (an insert that returns a shaped `select=`, or a
+PostgREST-client insert), a larger body answers `400` with the number of rows that fit.
+
 **PostgREST dialect**: the body is the bare array. The total is computed only on
 `Prefer: count=exact` (`planned`/`estimated` are treated as exact) and returned in
 `Content-Range: <from>-<to>/<total>` (`*/<total>` for an empty page, `/*` when no count was
