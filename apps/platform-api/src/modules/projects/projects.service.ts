@@ -5,6 +5,7 @@ import {
   ForbiddenException,
   InternalServerErrorException,
   BadRequestException,
+  BadGatewayException,
   OnApplicationBootstrap,
   Optional,
 } from '@nestjs/common';
@@ -79,6 +80,9 @@ export interface RlsDiagnostic {
   failedRoles: string[];
   sentinelPassed: boolean;
 }
+
+const AUTH_RECREATED_MESSAGE =
+  'Project reactivated. Authentication was recreated; previous users and settings could not be restored.';
 
 @Injectable()
 export class ProjectsService implements OnApplicationBootstrap {
@@ -1711,12 +1715,42 @@ export class ProjectsService implements OnApplicationBootstrap {
       throw err;
     }
 
+    // Sign-in comes back first, and the project only turns ACTIVE once it is
+    // proven to work. enableRealm sends only {enabled:true}, so every user,
+    // client and setting the realm kept while the project slept is untouched.
+    let authRecreated = false;
     try {
-      if (await this.keycloak.realmExists(project.keycloakRealm)) {
-        await this.keycloak.enableRealm(project.keycloakRealm);
+      const realmName = project.keycloakRealm;
+      const state = await this.keycloak.getRealmState(realmName);
+      if (state === 'missing') {
+        // Legacy case: the realm is really gone. Rebuild it with the same
+        // bootstrap project creation uses (createRealm + createClients).
+        await this.keycloak.createRealm(realmName);
+        const clients = await this.keycloak.createClients(realmName);
+        await this.prisma.project.update({
+          where: { id },
+          data: { anonKey: clients.anonKey, serviceKey: clients.serviceKey },
+        });
+        authRecreated = true;
+      } else {
+        if (state === 'disabled') await this.keycloak.enableRealm(realmName);
+        if ((await this.keycloak.getRealmState(realmName)) !== 'enabled') {
+          throw new Error('realm still disabled after enabling');
+        }
       }
-    } catch (err) {
-      this.logger.warn(`Reactivate: could not re-enable Keycloak realm: ${err}`);
+    } catch (err: any) {
+      this.logger.error(`Reactivate: sign-in for "${project.name}" could not be restored: ${err?.message ?? err}`);
+      await this.activity
+        .append(id, {
+          userId,
+          kind: ProjectActivityKind.PROJECT_UPDATED,
+          title: 'Reactivation failed',
+          detail: 'Could not re-enable sign-in for this project; nothing was changed',
+        })
+        .catch(() => undefined);
+      throw new BadGatewayException(
+        'Could not re-enable sign-in for this project, try again; nothing was changed',
+      );
     }
 
     await this.prisma.project.update({
@@ -1746,6 +1780,14 @@ export class ProjectsService implements OnApplicationBootstrap {
       title: 'Project reactivated',
       detail: project.name,
     });
+    if (authRecreated) {
+      await this.activity.append(id, {
+        userId,
+        kind: ProjectActivityKind.PROJECT_UPDATED,
+        title: 'Authentication recreated',
+        detail: AUTH_RECREATED_MESSAGE,
+      });
+    }
 
     {
       const memberIds = await this.teamMemberUserIds(project.teamId);
@@ -1761,7 +1803,7 @@ export class ProjectsService implements OnApplicationBootstrap {
       });
     }
 
-    return { message: 'Project reactivated' };
+    return { message: authRecreated ? AUTH_RECREATED_MESSAGE : 'Project reactivated' };
   }
 
   async listDeletionReasons(userId: string, limit = 200) {

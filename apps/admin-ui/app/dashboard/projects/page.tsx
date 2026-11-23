@@ -785,9 +785,9 @@ export default function ProjectsPage() {
   async function handleReactivate(id: string) {
     setReactivatingId(id);
     try {
-      await api.projects.reactivate(id);
+      const res = await api.projects.reactivate(id);
       setDeactivatedProjects((prev) => prev.filter((p) => p.id !== id));
-      toast.success('Project activated');
+      toast.success(res?.message || 'Project activated');
       loadAll();
     } catch (err: any) {
       toast.error(err.message || 'Failed to reactivate project');

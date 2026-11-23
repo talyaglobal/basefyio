@@ -312,9 +312,9 @@ export default function ProjectLayout({
         return;
       }
       try {
-        await api.projects.reactivate(id);
+        const res = await api.projects.reactivate(id);
         await refreshProject();
-        toast.success('Project is active again');
+        toast.success(res?.message || 'Project is active again');
       } catch (err) {
         toast.error(err instanceof Error ? err.message : 'Failed to activate the project');
       }
