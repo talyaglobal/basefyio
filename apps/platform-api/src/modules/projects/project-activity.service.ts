@@ -20,6 +20,7 @@ export const ProjectActivityKind = {
   PROJECT_PITR_FAILED: 'project.pitr_failed',
   PROJECT_PERMANENT_DELETE: 'project.permanent_delete',
   PROJECT_MOVED_TEAM: 'project.moved_team',
+  PROJECT_SECRETS_REVEALED: 'project.secrets_revealed',
   SQL_EXECUTED: 'sql.executed',
   /** A successful statement that can change data or schema; open Data editors refresh on it (#149). */
   SQL_CHANGED: 'sql.changed',

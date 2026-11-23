@@ -125,34 +125,93 @@ export function setApiUrl(url: string): void {
   userConfig.set('apiUrl', url);
 }
 
-// Write basefyio variables into .env without touching existing content.
-// Existing BASEFYIO_* keys are updated in-place; new ones are appended.
-export async function writeEnvFile(
+/** The credentials `writeEnvFile` can use (from `POST /api/projects/:id/secrets/reveal`). */
+export interface EnvSecrets {
+  password?: string | null;
+  uri?: string | null;
+  poolerUri?: string | null;
+  serviceKey?: string | null;
+}
+
+/** A masked URI from `GET connect` still holds this instead of the password. */
+const PASSWORD_PLACEHOLDER = '[YOUR-PASSWORD]';
+
+/**
+ * The basefyio variables for `.env`. The general project read carries no password or service
+ * key (#14): they come from `secrets` (the reveal endpoint) or, right after `basefyio init`,
+ * from the creation response. A variable whose value is unknown is left out, so an existing
+ * line in `.env` is kept as it is; the names are returned in `missing`.
+ */
+export function buildEnvVars(
   project: any,
-  connect?: { poolerUri: string; uri: string },
-): Promise<void> {
-  const apiUrl = getApiUrl();
+  apiUrl: string,
+  connect?: { poolerUri: string; uri: string; poolerHost?: string; poolerPort?: number; host?: string; port?: number; user?: string; database?: string },
+  secrets?: EnvSecrets | null,
+): { vars: Record<string, string>; missing: string[] } {
+  const password = secrets?.password ?? project.dbPassword ?? null;
+  const usable = (uri?: string | null) => (uri && !uri.includes(PASSWORD_PLACEHOLDER) ? uri : null);
+  const withPassword = (uri?: string | null) =>
+    uri && password ? uri.replace(PASSWORD_PLACEHOLDER, encodeURIComponent(password)) : null;
+  const fallbackDbUrl = password
+    ? `postgresql://${encodeURIComponent(project.dbUser)}:${encodeURIComponent(password)}@${project.dbHost}:${project.dbPort}/${project.dbName}`
+    : null;
+  const databaseUrl =
+    usable(secrets?.poolerUri) ?? usable(connect?.poolerUri) ?? withPassword(connect?.poolerUri) ?? fallbackDbUrl;
+  const directUrl = usable(secrets?.uri) ?? usable(connect?.uri) ?? withPassword(connect?.uri) ?? databaseUrl;
+  const serviceKey = secrets?.serviceKey ?? project.serviceKey ?? null;
 
-  const fallbackDbUrl = `postgresql://${project.dbUser}:${project.dbPassword}@${project.dbHost}:${project.dbPort}/${project.dbName}`;
-  const databaseUrl = connect?.poolerUri || fallbackDbUrl;
-  const directUrl = connect?.uri || databaseUrl;
-
-  const basefyioVars: Record<string, string> = {
+  const all: Record<string, string | null> = {
     BASEFYIO_PROJECT_ID: project.id,
     BASEFYIO_ANON_KEY: project.anonKey,
-    BASEFYIO_SERVICE_KEY: project.serviceKey,
+    BASEFYIO_SERVICE_KEY: serviceKey,
     BASEFYIO_API_URL: apiUrl,
     BASEFYIO_PROJECT_SLUG: project.slug,
     BASEFYIO_DB_HOST: project.dbHost,
     BASEFYIO_DB_PORT: String(project.dbPort),
     BASEFYIO_DB_NAME: project.dbName,
     BASEFYIO_DB_USER: project.dbUser,
-    BASEFYIO_DB_PASSWORD: project.dbPassword,
+    BASEFYIO_DB_PASSWORD: password,
     BASEFYIO_DATABASE_URL: databaseUrl,
     DATABASE_URL: databaseUrl,
     DIRECT_URL: directUrl,
     BASEFYIO_KEYCLOAK_REALM: project.keycloakRealm,
   };
+  const vars: Record<string, string> = {};
+  const missing: string[] = [];
+  for (const [key, value] of Object.entries(all)) {
+    if (value == null || value === '') missing.push(key);
+    else vars[key] = value;
+  }
+  return { vars, missing };
+}
+
+/** What to tell the user about variables `writeEnvFile` had no value for. */
+export function missingEnvHint(missing: string[]): string | null {
+  if (missing.length === 0) return null;
+  const parts: string[] = [];
+  if (missing.includes('BASEFYIO_DB_PASSWORD')) {
+    parts.push(
+      'the database password is hidden from your role: ask a team owner or admin, or copy it from the dashboard Connection page',
+    );
+  }
+  if (missing.includes('BASEFYIO_SERVICE_KEY')) {
+    parts.push(
+      'the service key is in use, so it is no longer shown: rotate it or create a secret key under Connection → API keys',
+    );
+  }
+  return `Not written to .env: ${missing.join(', ')}${parts.length ? ` — ${parts.join('; ')}` : ''}`;
+}
+
+// Write basefyio variables into .env without touching existing content.
+// Existing BASEFYIO_* keys are updated in-place; new ones are appended.
+// Returns the variables that could not be written (no credential available).
+export async function writeEnvFile(
+  project: any,
+  connect?: { poolerUri: string; uri: string },
+  secrets?: EnvSecrets | null,
+): Promise<string[]> {
+  const apiUrl = getApiUrl();
+  const { vars: basefyioVars, missing } = buildEnvVars(project, apiUrl, connect, secrets);
 
   // Read existing .env (or start empty)
   let existing = '';
@@ -197,6 +256,7 @@ export async function writeEnvFile(
       await fs.writeFile('.gitignore', gi + '\n.env\n');
     }
   } catch { /* best-effort */ }
+  return missing;
 }
 
 // Local .env management

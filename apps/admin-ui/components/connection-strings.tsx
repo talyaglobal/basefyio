@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { z } from 'zod';
 import { api } from '@/lib/api';
-import type { ConnectionStrings } from '@/lib/types';
+import type { ConnectionSecrets, ConnectionStrings } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -23,6 +23,8 @@ import {
   ChevronRight,
   Copy,
   Database,
+  Eye,
+  EyeOff,
   Key,
   Link2,
   Shield,
@@ -234,6 +236,105 @@ function CopyBlock({
   );
 }
 
+/** What a masked value shows on screen. */
+const MASK = '••••••••••••';
+
+/** `[YOUR-PASSWORD]` (the API's placeholder) shown as dots. */
+function maskUri(uri: string): string {
+  return uri.replace('[YOUR-PASSWORD]', '••••••••');
+}
+
+/**
+ * A credential: masked by default. Reveal and Copy fetch the value on demand (each fetch is
+ * recorded in the project's activity log) and keep it in memory only.
+ */
+function SecretCopyBlock({
+  label,
+  value,
+  masked,
+  icon: Icon,
+  canReveal,
+  onReveal,
+}: {
+  label: string;
+  /** The value once revealed; null while masked or when it may not be shown. */
+  value: string | null | undefined;
+  masked: string;
+  icon?: React.ElementType;
+  canReveal: boolean;
+  /** Fetches the credentials; resolves to this block's value, or null. */
+  onReveal: () => Promise<string | null>;
+}) {
+  const [visible, setVisible] = useState(false);
+  const [busy, setBusy] = useState(false);
+  // Values dropped after a rotation are fetched again; hide until then.
+  useEffect(() => {
+    if (!value) setVisible(false);
+  }, [value]);
+
+  async function resolve(): Promise<string | null> {
+    if (value) return value;
+    setBusy(true);
+    try {
+      return await onReveal();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function toggle() {
+    if (visible) {
+      setVisible(false);
+      return;
+    }
+    if (await resolve()) setVisible(true);
+  }
+
+  async function copy() {
+    const v = await resolve();
+    if (!v) return;
+    try {
+      await navigator.clipboard.writeText(v);
+      toast.success(`${label} copied`);
+    } catch {
+      toast.error('The browser blocked the clipboard; try Copy again');
+    }
+  }
+
+  return (
+    <div className="rounded-md border bg-card">
+      <div className="flex items-center justify-between border-b px-4 py-2">
+        <div className="flex items-center gap-2 text-sm font-medium">
+          {Icon && <Icon className="h-4 w-4 text-muted-foreground" />}
+          {label}
+        </div>
+        {canReveal && (
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => void toggle()}
+              disabled={busy}
+              className="h-7 px-2 text-xs"
+              aria-label={visible ? `Hide ${label}` : `Reveal ${label}`}
+            >
+              {visible ? <EyeOff className="mr-1.5 h-3 w-3" /> : <Eye className="mr-1.5 h-3 w-3" />}
+              {visible ? 'Hide' : 'Reveal'}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => void copy()} disabled={busy} className="h-7 px-2 text-xs">
+              <Copy className="mr-1.5 h-3 w-3" />
+              Copy
+            </Button>
+          </div>
+        )}
+      </div>
+      <div className="px-4 py-3">
+        <code className="text-sm break-all font-mono">{visible && value ? value : masked}</code>
+      </div>
+    </div>
+  );
+}
+
 function CodeExample({
   label,
   language,
@@ -296,6 +397,8 @@ export function ConnectionStringsView({
   const [extraRoleLabel, setExtraRoleLabel] = useState('');
   const [extraRoleMemberOf, setExtraRoleMemberOf] = useState('none');
   const [creatingExtraRole, setCreatingExtraRole] = useState(false);
+  // The credentials in clear, fetched on demand (#14) and kept in memory for this page only.
+  const [secrets, setSecrets] = useState<ConnectionSecrets | null>(null);
 
   useEffect(() => {
     api.projects
@@ -347,8 +450,9 @@ const { data, count } = await res.json();`;
 
   const prismaExample = `// prisma/schema.prisma
 datasource db {
-  provider = "postgresql"
-  url      = "${conn.poolerUri}"
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }`;
   const drizzleExample = `// db.ts — postgres-js; the pooler runs in transaction mode, so no prepared statements
 import { drizzle } from 'drizzle-orm/postgres-js';
@@ -378,76 +482,92 @@ engine = create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True)`;
       ? publicHostname
       : null;
   const restBaseUrl = conn.publicBaseUrl;
-  const pooledUrl = rewriteLocalhostInPgUri(conn.poolerUri, replacementHost);
-  const directUrl = rewriteLocalhostInPgUri(conn.uri, replacementHost);
+  const canReveal = !!conn.canRevealSecrets;
 
-  const baseVars = {
-    DATABASE_URL: pooledUrl,
-    DIRECT_URL: directUrl,
-    NEXT_PUBLIC_BASEFYIO_URL: restBaseUrl,
-    NEXT_PUBLIC_BASEFYIO_ANON_KEY: conn.anonKey,
-    // The real key, so the copied .env works as it is. Only unprefixed variables carry it,
-    // which Vite (VITE_*) and Expo (EXPO_PUBLIC_*) never put into a browser bundle.
-    BASEFYIO_SERVICE_ROLE_KEY: conn.serviceKey,
-    PROJECT_ID: projectId,
-  } as const;
+  /**
+   * The credentials, fetched once per page view on demand. Each fetch is recorded in the
+   * project's activity log; nothing is stored beyond this component's state.
+   */
+  async function ensureSecrets(): Promise<ConnectionSecrets | null> {
+    if (secrets) return secrets;
+    if (!canReveal) {
+      toast.error('Your role cannot see this project\'s credentials. Ask a team owner or admin.');
+      return null;
+    }
+    try {
+      const fresh = await api.projects.revealSecrets(projectId);
+      setSecrets(fresh);
+      return fresh;
+    } catch (err: any) {
+      toast.error(err.message || 'Could not reveal the credentials');
+      return null;
+    }
+  }
 
-  const frameworkVars: Record<FrameworkPreset, Record<string, string>> = {
-    nextjs: {
-      NEXT_PUBLIC_BASEFYIO_URL: baseVars.NEXT_PUBLIC_BASEFYIO_URL,
-      NEXT_PUBLIC_BASEFYIO_ANON_KEY: baseVars.NEXT_PUBLIC_BASEFYIO_ANON_KEY,
-      BASEFYIO_SERVICE_ROLE_KEY: baseVars.BASEFYIO_SERVICE_ROLE_KEY,
-      DATABASE_URL: baseVars.DATABASE_URL,
-      DIRECT_URL: baseVars.DIRECT_URL,
-      PROJECT_ID: baseVars.PROJECT_ID,
-    },
-    vite: {
-      VITE_BASEFYIO_URL: baseVars.NEXT_PUBLIC_BASEFYIO_URL,
-      VITE_BASEFYIO_ANON_KEY: baseVars.NEXT_PUBLIC_BASEFYIO_ANON_KEY,
-      BASEFYIO_SERVICE_ROLE_KEY: baseVars.BASEFYIO_SERVICE_ROLE_KEY,
-      DATABASE_URL: baseVars.DATABASE_URL,
-      DIRECT_URL: baseVars.DIRECT_URL,
-      PROJECT_ID: baseVars.PROJECT_ID,
-    },
-    'react-native': {
-      EXPO_PUBLIC_BASEFYIO_URL: baseVars.NEXT_PUBLIC_BASEFYIO_URL,
-      EXPO_PUBLIC_BASEFYIO_ANON_KEY: baseVars.NEXT_PUBLIC_BASEFYIO_ANON_KEY,
-      BASEFYIO_SERVICE_ROLE_KEY: baseVars.BASEFYIO_SERVICE_ROLE_KEY,
-      DATABASE_URL: baseVars.DATABASE_URL,
-      DIRECT_URL: baseVars.DIRECT_URL,
-      PROJECT_ID: baseVars.PROJECT_ID,
-    },
-    node: {
-      BASEFYIO_URL: baseVars.NEXT_PUBLIC_BASEFYIO_URL,
-      BASEFYIO_ANON_KEY: baseVars.NEXT_PUBLIC_BASEFYIO_ANON_KEY,
-      BASEFYIO_SERVICE_ROLE_KEY: baseVars.BASEFYIO_SERVICE_ROLE_KEY,
-      DATABASE_URL: baseVars.DATABASE_URL,
-      DIRECT_URL: baseVars.DIRECT_URL,
-      PROJECT_ID: baseVars.PROJECT_ID,
-    },
-  };
+  const SERVICE_KEY_PLACEHOLDER = '<your-secret-key>';
+  const DB_PASSWORD_PLACEHOLDER = '[YOUR-PASSWORD]';
 
-  const selectedVars = frameworkVars[framework];
-  const rawEnvContent = Object.entries(selectedVars)
+  /** The env variables; real values only when `values` holds revealed credentials. */
+  function buildFrameworkVars(values: ConnectionSecrets | null): Record<string, string> {
+    const pooled = rewriteLocalhostInPgUri(values?.poolerUri ?? conn!.poolerUri, replacementHost);
+    const direct = rewriteLocalhostInPgUri(values?.uri ?? conn!.uri, replacementHost);
+    // Only unprefixed variables carry the service key, which Vite (VITE_*) and Expo
+    // (EXPO_PUBLIC_*) never put into a browser bundle.
+    const serviceKey = values?.serviceKey ?? SERVICE_KEY_PLACEHOLDER;
+    const publicPrefix: Record<FrameworkPreset, string> = {
+      nextjs: 'NEXT_PUBLIC_BASEFYIO',
+      vite: 'VITE_BASEFYIO',
+      'react-native': 'EXPO_PUBLIC_BASEFYIO',
+      node: 'BASEFYIO',
+    };
+    const prefix = publicPrefix[framework];
+    return {
+      [`${prefix}_URL`]: restBaseUrl,
+      [`${prefix}_ANON_KEY`]: conn!.anonKey,
+      BASEFYIO_SERVICE_ROLE_KEY: serviceKey,
+      DATABASE_URL: pooled,
+      DIRECT_URL: direct,
+      PROJECT_ID: projectId,
+    };
+  }
+
+  function formatVars(vars: Record<string, string>): string {
+    return rawEditorFormat === 'env'
+      ? Object.entries(vars)
+          .map(([key, value]) => formatDotenvLine(key, value))
+          .join('\n')
+      : JSON.stringify(vars, null, 2);
+  }
+
+  // On screen the credentials are never shown: placeholders stand in for them. Copy fetches
+  // the real values (when the role may see them) and puts them on the clipboard only.
+  const shownEditorContent = formatVars(buildFrameworkVars(null)).split(DB_PASSWORD_PLACEHOLDER).join('••••••••');
+
+  async function copyEditorContent() {
+    const values = canReveal ? await ensureSecrets() : null;
+    try {
+      await navigator.clipboard.writeText(formatVars(buildFrameworkVars(values)));
+    } catch {
+      toast.error('The browser blocked the clipboard; try Copy again');
+      return;
+    }
+    if (!values) {
+      toast.success(`${rawEditorFormat.toUpperCase()} copied with placeholders for the password and the service key`);
+    } else if (!values.serviceKey) {
+      toast.success(
+        `${rawEditorFormat.toUpperCase()} copied. The service key is in use, so it is not shown: rotate it or create a secret key under API keys.`,
+      );
+    } else {
+      toast.success(`${rawEditorFormat.toUpperCase()} copied with its values — keep it out of version control`);
+    }
+  }
+
+  // The prompt is pasted into a third-party assistant: it never carries the credentials.
+  const promptEnvContent = Object.entries(buildFrameworkVars(null))
     .map(([key, value]) => formatDotenvLine(key, value))
-    .join('\n');
-  const rawJsonContent = JSON.stringify(selectedVars, null, 2);
-  const rawEditorContent = rawEditorFormat === 'env' ? rawEnvContent : rawJsonContent;
-
-  // On screen the secrets are masked; Copy puts the real values on the clipboard.
-  const hideSecrets = (text: string) =>
-    [conn.serviceKey, conn.password]
-      .filter((secret): secret is string => !!secret && secret.length >= 8)
-      .reduce((out, secret) => out.split(secret).join(`${secret.slice(0, 6)}••••••••`), text);
-  const shownEditorContent = hideSecrets(rawEditorContent);
-
-  // The prompt is pasted into a third-party assistant: it never carries the secrets themselves.
-  const promptEnvContent = [conn.serviceKey, conn.password]
-    .filter((secret): secret is string => !!secret && secret.length >= 8)
-    .reduce(
-      (out, secret) => out.split(secret).join(secret === conn.serviceKey ? '<your-secret-key>' : '<db-password>'),
-      rawEnvContent,
-    );
+    .join('\n')
+    .split(DB_PASSWORD_PLACEHOLDER)
+    .join('<db-password>');
   const aiQuickConnectPrompt = buildAiQuickConnectPrompt(promptEnvContent, framework);
 
   const passwordValidation =
@@ -471,6 +591,7 @@ engine = create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True)`;
       setNextPassword(result.password);
       const fresh = await api.projects.connect(projectId);
       setConn(fresh);
+      setSecrets(null);
       toast.success('Database password reset');
     } catch (err: any) {
       toast.error(err.message || 'Password reset failed');
@@ -482,6 +603,8 @@ engine = create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True)`;
   async function refreshConnection() {
     const fresh = await api.projects.connect(projectId);
     setConn(fresh);
+    // Passwords may have changed: fetch them again on the next Reveal or Copy.
+    setSecrets(null);
   }
 
   async function handleReadonlyRole(action: 'create' | 'rotate' | 'remove') {
@@ -678,10 +801,7 @@ engine = create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True)`;
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => {
-                  navigator.clipboard.writeText(rawEditorContent);
-                  toast.success(`${rawEditorFormat.toUpperCase()} copied with its values — keep it out of version control`);
-                }}
+                onClick={() => void copyEditorContent()}
               >
                 <Copy className="mr-1.5 h-3.5 w-3.5" />
                 Copy {rawEditorFormat.toUpperCase()}
@@ -705,9 +825,10 @@ engine = create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True)`;
                     AI prompt for quick connect
                   </h3>
                   <p className="mt-0.5 text-xs text-violet-800/90 dark:text-violet-200/80">
-                    Copy into your AI assistant. Wraps the exact ENV block above (byte-identical
-                    values) plus instructions on auth via basefyio-js, migrations, REST/fetch
-                    fallback, CORS/CSP, and safe handling of secrets.
+                    Copy into your AI assistant. Wraps the ENV block above with placeholders
+                    instead of the database password and the service key, plus instructions on
+                    auth via basefyio-js, migrations, REST/fetch fallback, CORS/CSP, and safe
+                    handling of secrets.
                   </p>
                 </div>
               </div>
@@ -732,8 +853,8 @@ engine = create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True)`;
               </pre>
             </div>
             <p className="border-t border-violet-200/60 px-4 py-2 text-[11px] text-violet-800/80 dark:border-violet-900/50 dark:text-violet-300/80">
-              This text includes database passwords and API keys. Only paste into tools you
-              trust; do not share in public channels.
+              This text never includes the database password or the service key; fill them
+              in from Copy ENV in your own .env file, not in the assistant.
             </p>
           </div>
         </section>
@@ -756,7 +877,7 @@ engine = create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True)`;
           <ul className="mt-1.5 list-inside list-disc text-blue-700 dark:text-blue-300 space-y-1">
             <li><strong>pgAdmin:</strong> Add Server → Connection tab → paste Host, Port, Database, Username, Password below</li>
             <li><strong>DBeaver:</strong> New Connection → select PostgreSQL → paste Host, Port, Database, Username, Password</li>
-            <li><strong>Terminal:</strong> <code className="rounded bg-blue-100 dark:bg-blue-900 px-1 text-xs">psql &quot;{conn.poolerUri}&quot;</code></li>
+            <li><strong>Terminal:</strong> <code className="rounded bg-blue-100 dark:bg-blue-900 px-1 text-xs">psql &quot;{maskUri(conn.poolerUri)}&quot;</code></li>
           </ul>
         </div>
       </section>
@@ -770,10 +891,16 @@ engine = create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True)`;
         <p className="text-sm text-muted-foreground">
           Connection pooling endpoint. Use this for Prisma, Drizzle, pgAdmin, DBeaver, or any SQL client.
         </p>
-        <CopyBlock
+        <SecretCopyBlock
           label="Pooler Connection URI"
-          value={conn.poolerUri}
+          value={secrets ? rewriteLocalhostInPgUri(secrets.poolerUri, replacementHost) : null}
+          masked={maskUri(conn.poolerUri)}
           icon={Link2}
+          canReveal={canReveal}
+          onReveal={async () => {
+            const v = await ensureSecrets();
+            return v ? rewriteLocalhostInPgUri(v.poolerUri, replacementHost) : null;
+          }}
         />
         <div className="basefyio-grid-row-hover grid gap-3 sm:grid-cols-2">
           <CopyBlock
@@ -788,9 +915,22 @@ engine = create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True)`;
           />
           <CopyBlock label="Database" value={conn.database} icon={Database} />
           <CopyBlock label="User" value={conn.user} icon={Database} />
-          <CopyBlock label="Password" value={conn.password} icon={Key} />
+          <SecretCopyBlock
+            label="Password"
+            value={secrets?.password}
+            masked={MASK}
+            icon={Key}
+            canReveal={canReveal}
+            onReveal={async () => (await ensureSecrets())?.password ?? null}
+          />
           <CopyBlock label="Project ID" value={projectId} icon={Database} />
         </div>
+        {!canReveal && (
+          <p className="text-xs text-muted-foreground">
+            The password is hidden. A team owner or admin, or a role with the database password
+            permission, can reveal it; each reveal is recorded in the project&apos;s activity log.
+          </p>
+        )}
         {conn.canResetDbPassword && (
           <Button
             variant="outline"
@@ -886,10 +1026,24 @@ engine = create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True)`;
         </p>
         {conn.readonly ? (
           <>
-            <CopyBlock label="Read-only Pooler URI" value={conn.readonly.poolerUri} icon={Link2} />
+            <SecretCopyBlock
+              label="Read-only Pooler URI"
+              value={secrets?.readonly?.poolerUri}
+              masked={maskUri(conn.readonly.poolerUri)}
+              icon={Link2}
+              canReveal={canReveal}
+              onReveal={async () => (await ensureSecrets())?.readonly?.poolerUri ?? null}
+            />
             <div className="basefyio-grid-row-hover grid gap-3 sm:grid-cols-2">
               <CopyBlock label="Read-only User" value={conn.readonly.user} icon={Database} />
-              <CopyBlock label="Read-only Password" value={conn.readonly.password} icon={Key} />
+              <SecretCopyBlock
+                label="Read-only Password"
+                value={secrets?.readonly?.password}
+                masked={MASK}
+                icon={Key}
+                canReveal={canReveal}
+                onReveal={async () => (await ensureSecrets())?.readonly?.password ?? null}
+              />
             </div>
             {conn.canResetDbPassword && (
               <div className="flex flex-wrap gap-2">
@@ -947,10 +1101,28 @@ engine = create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True)`;
                   </span>
                 )}
               </div>
-              <CopyBlock label="Pooler URI" value={role.poolerUri} icon={Link2} />
+              <SecretCopyBlock
+                label="Pooler URI"
+                value={secrets?.extraRoles.find((r) => r.id === role.id)?.poolerUri}
+                masked={maskUri(role.poolerUri)}
+                icon={Link2}
+                canReveal={canReveal}
+                onReveal={async () =>
+                  (await ensureSecrets())?.extraRoles.find((r) => r.id === role.id)?.poolerUri ?? null
+                }
+              />
               <div className="basefyio-grid-row-hover grid gap-3 sm:grid-cols-2">
                 <CopyBlock label="User" value={role.user} icon={Database} />
-                <CopyBlock label="Password" value={role.password} icon={Key} />
+                <SecretCopyBlock
+                  label="Password"
+                  value={secrets?.extraRoles.find((r) => r.id === role.id)?.password}
+                  masked={MASK}
+                  icon={Key}
+                  canReveal={canReveal}
+                  onReveal={async () =>
+                    (await ensureSecrets())?.extraRoles.find((r) => r.id === role.id)?.password ?? null
+                  }
+                />
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button

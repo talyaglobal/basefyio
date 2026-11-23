@@ -49,10 +49,26 @@ export default function ConnectDocs() {
           <tr><td><strong>Port</strong></td><td>Connection pooler port (default <code>6432</code>)</td></tr>
           <tr><td><strong>Database</strong></td><td>Your project&apos;s database name</td></tr>
           <tr><td><strong>User</strong></td><td>Database username for your project</td></tr>
-          <tr><td><strong>Password</strong></td><td>Database password (can be reset from the Connection page)</td></tr>
-          <tr><td><strong>Connection URI</strong></td><td>Full connection string — copy and paste directly</td></tr>
+          <tr><td><strong>Password</strong></td><td>Database password, masked until you click <strong>Reveal</strong> or <strong>Copy</strong> (can be reset from the Connection page)</td></tr>
+          <tr><td><strong>Connection URI</strong></td><td>Full connection string, masked the same way — copy and paste directly</td></tr>
         </tbody>
       </table>
+
+      <h3>Revealing the password and keys</h3>
+      <p>
+        The database password, the read-only and extra role passwords, the URIs that carry them and
+        the service key are hidden on the Connection page. <strong>Reveal</strong> shows a value and{" "}
+        <strong>Copy</strong> puts it on the clipboard; <strong>Copy ENV</strong> copies the
+        environment block with the real values. The project details the dashboard, the API and the
+        MCP tools read never contain them.
+      </p>
+      <ul>
+        <li>Team owners and admins can reveal them, and so can any role with the <em>reset database password</em> permission. Other members see the masked details.</li>
+        <li>Every reveal is recorded in the project&apos;s activity log with who did it.</li>
+        <li>The service key is shown only until an application first uses it; after that, rotate it or create a secret key under <strong>API keys</strong>.</li>
+        <li>The <strong>AI prompt</strong> on the Connection page never includes the password or the service key: it carries placeholders, so pasting it into an assistant does not hand over your credentials.</li>
+        <li>For scripts, <code>POST /api/projects/:id/secrets/reveal</code> with a dashboard session returns the values; an API token is refused. The CLI&apos;s <code>basefyio link</code> and <code>basefyio status --show-keys</code> use it.</li>
+      </ul>
 
       {/* ── pgAdmin ──────────────────────────────────── */}
 

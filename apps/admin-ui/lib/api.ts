@@ -21,6 +21,7 @@ import type {
   AuditSinkTestResult,
   ColumnInfo,
   ConnectionStrings,
+  ConnectionSecrets,
   GitHubBranch,
   GitHubCommit,
   GitHubIntegration,
@@ -1766,8 +1767,17 @@ export const api = {
       );
     },
 
+    /** Connection details with every password and the service key masked (#14). */
     connect(projectId: string) {
       return request<ConnectionStrings>(`/projects/${projectId}/connect`);
+    },
+    /**
+     * The credentials in clear, on demand: owners, admins and roles with the credentials
+     * permission. Each call is recorded in the project's activity log; keep the result in
+     * component state only.
+     */
+    revealSecrets(projectId: string) {
+      return request<ConnectionSecrets>(`/projects/${projectId}/secrets/reveal`, { method: 'POST' });
     },
     rotateDbPassword(projectId: string, password?: string) {
       return request<{ password: string }>(`/projects/${projectId}/db-password`, {

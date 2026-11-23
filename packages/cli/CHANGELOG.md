@@ -2,6 +2,20 @@
 
 All notable changes to `basefyio-cli` are documented here.
 
+## Unreleased
+
+### Changed
+
+- **Credentials come from the reveal endpoint.** The project read (`GET /api/projects/:id`) and
+  `GET /api/projects/:id/connect` no longer return the database password or the service key.
+  `basefyio link` and `basefyio status --show-keys` now call
+  `POST /api/projects/:id/secrets/reveal`, which needs a team owner, admin or a role with the
+  database password permission and is recorded in the project's activity log. `basefyio init`
+  uses the password and service key from the creation response. A value the CLI cannot get is
+  left out of `.env` (an existing line is kept) and named in a warning; the CLI never writes a
+  placeholder. The service key is shown only until an application first uses it, as on the
+  dashboard. Earlier CLI versions cannot fill `DATABASE_URL` against this API: upgrade.
+
 ## 2.3.0
 
 ### Changed

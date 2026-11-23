@@ -14,6 +14,7 @@ const KIND_LABELS: Record<string, string> = {
   'project.restored': 'Project',
   'project.permanent_delete': 'Project',
   'project.moved_team': 'Project',
+  'project.secrets_revealed': 'Credentials',
   'sql.executed': 'SQL',
   'sql.changed': 'SQL',
   'sql.failed': 'SQL',

@@ -2,8 +2,8 @@ import inquirer from 'inquirer';
 import chalk from 'chalk';
 import fs from 'fs/promises';
 import { apiClient, handleApiError } from '../lib/api.js';
-import { setProjectConfig, isLoggedIn, writeEnvFile } from '../lib/config.js';
-import { success, error, createSpinner } from '../lib/ui.js';
+import { setProjectConfig, isLoggedIn, writeEnvFile, missingEnvHint } from '../lib/config.js';
+import { success, error, warning, createSpinner } from '../lib/ui.js';
 
 interface LinkOptions {
   projectId?: string;
@@ -91,9 +91,20 @@ export async function linkCommand(options: LinkOptions) {
       linkedAt: new Date().toISOString(),
     });
 
-    await writeEnvFile(project, connect);
+    // The project read carries no password or service key (#14); the reveal endpoint does,
+    // for a team owner, admin or a role with the credentials permission.
+    let secrets: Awaited<ReturnType<typeof apiClient.revealProjectSecrets>> | null = null;
+    try {
+      secrets = await apiClient.revealProjectSecrets(projectId!);
+    } catch {
+      /* role may not see the credentials, or an older API */
+    }
+
+    const missing = await writeEnvFile(project, connect, secrets);
 
     spinner.succeed(`Linked to ${chalk.cyan(project.name)}`);
+    const hint = missingEnvHint(missing);
+    if (hint) warning(hint);
     console.log();
     console.log(`    ${chalk.gray('Database')}      ${project.dbName}`);
     console.log(`    ${chalk.gray('Realm')}         ${project.keycloakRealm}`);

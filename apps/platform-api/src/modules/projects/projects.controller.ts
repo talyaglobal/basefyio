@@ -4,6 +4,7 @@ import {
   Get,
   Post,
   HttpCode,
+  Header,
   Patch,
   Delete,
   Param,
@@ -17,6 +18,8 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { ProjectsService } from './projects.service';
+import { ProjectSecretsService } from './project-secrets.service';
+import { projectCreationResponse } from './project-secrets';
 import { SupabaseImportService } from './supabase-import.service';
 import { ProjectExportService } from './project-export.service';
 import { ProjectPitrService } from './project-pitr.service';
@@ -45,6 +48,7 @@ export class ProjectsController {
     private readonly projectActivity: ProjectActivityService,
     private readonly projectPitr: ProjectPitrService,
     private readonly pitrRestoreJobs: PitrRestoreJobsService,
+    private readonly projectSecrets: ProjectSecretsService,
   ) {}
 
   // Typed as the class itself, not an intersection: an intersection compiles
@@ -53,7 +57,8 @@ export class ProjectsController {
   @Scopes('projects:write')
   @Post()
   async create(@Body() body: CreateProjectDto, @CurrentUser() user: JwtPayload) {
-    return this.projectsService.create(body, user.sub);
+    // The generated password and the service key come back once, here; no later read has them.
+    return projectCreationResponse(await this.projectsService.create(body, user.sub));
   }
 
   @Scopes('projects:write')
@@ -405,6 +410,20 @@ export class ProjectsController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.projectsService.moveToTeam(id, targetTeamId, user.sub);
+  }
+
+  /**
+   * The connection credentials in clear: database passwords, the URIs that carry them and the
+   * service key while it is unused (#14). Dashboard session only; owners, admins and roles with
+   * the credentials permission. Every call writes an activity entry; never cached.
+   */
+  @JwtOnly()
+  @Post(':id/secrets/reveal')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @Header('Pragma', 'no-cache')
+  async revealSecrets(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    return this.projectSecrets.reveal(id, user.sub);
   }
 
   @Scopes('secrets:write')

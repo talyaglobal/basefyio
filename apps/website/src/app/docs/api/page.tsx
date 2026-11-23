@@ -244,7 +244,8 @@ Response: { id, email, username, emailVerified, ... }`}</code></pre>
         <tbody>
           <tr><td>POST</td><td><code>/projects</code></td><td>Create project</td></tr>
           <tr><td>GET</td><td><code>/projects?teamId=...</code></td><td>List projects</td></tr>
-          <tr><td>GET</td><td><code>/projects/:id</code></td><td>Get project details</td></tr>
+          <tr><td>GET</td><td><code>/projects/:id</code></td><td>Get project details (never the database password or service key)</td></tr>
+          <tr><td>POST</td><td><code>/projects/:id/secrets/reveal</code></td><td>Reveal the connection credentials (dashboard session; owners, admins, database password permission; logged)</td></tr>
           <tr><td>DELETE</td><td><code>/projects/:id</code></td><td>Delete project</td></tr>
         </tbody>
       </table>

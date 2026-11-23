@@ -49,6 +49,7 @@ import { AdminTarget, ProjectProvisioningService } from './project-provisioning.
 import { ProjectReadonlyRoleService, readonlyRoleNameFor } from './project-readonly-role.service';
 import { ProjectExtraRoleService, type ExtraRoleMemberOf } from './project-extra-role.service';
 import { previewBranchOf } from './branches/preview-branch';
+import { stripProjectSecrets } from './project-secrets';
 import { prefixIsAmbiguous } from '../storage/bucket-names';
 import { BootTaskService } from '../cluster/boot-task.service';
 import {
@@ -1140,7 +1141,11 @@ export class ProjectsService implements OnApplicationBootstrap {
       await this.assertTeamMember(project.teamId, userId);
     }
 
-    const { githubToken, vercelToken, embeddingApiKey, folder, tags, parent, ...safe } = project;
+    // No stored credential leaves the general read (#14): the database passwords, the service
+    // key and the integration tokens. The dashboard reveals the connection credentials on
+    // demand through POST /projects/:id/secrets/reveal.
+    const { folder, tags, parent, ...rest } = project;
+    const safe = stripProjectSecrets(rest);
 
     const externalHost = this.config.get<string>('pgbouncer.externalHost') || project.dbHost;
     const externalPort = this.config.get<number>('pgbouncer.externalPort') || project.dbPort;
