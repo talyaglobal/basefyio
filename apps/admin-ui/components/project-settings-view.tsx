@@ -1,5 +1,6 @@
 'use client';
 
+import { MoveToTrashDialog, TRASH_RETENTION_HOURS } from '@/components/move-to-trash-dialog';
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -420,26 +421,9 @@ function DangerZone({
     }
   }
 
-  async function remove() {
-    const ok = await confirmDialog({
-      title: 'Move project to trash',
-      description: `Delete "${projectName}"? It stays in trash for 24 hours — the team owner can restore it during that window. After 24 hours it is permanently deleted and cannot be recovered.`,
-      confirmText: 'Move to trash',
-      destructive: true,
-      requireText: projectName,
-    });
-    if (!ok) return;
-    setBusy('delete');
-    try {
-      await api.projects.delete(projectId);
-      toast.success('Project moved to trash');
-      onDone();
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to delete project');
-    } finally {
-      setBusy(null);
-    }
-  }
+  // The same dialog as the Overview and the Projects list (#28).
+  const [trashOpen, setTrashOpen] = useState(false);
+  const remove = () => setTrashOpen(true);
 
   return (
     <section className="space-y-4 rounded-xl border border-destructive/30 bg-destructive/[0.03] p-6">
@@ -469,14 +453,20 @@ function DangerZone({
         <div className="min-w-0">
           <p className="text-sm font-medium">Delete project</p>
           <p className="text-xs text-muted-foreground">
-            Move to trash. Permanently removed after 24 hours.
+            Move to trash. Permanently removed after {TRASH_RETENTION_HOURS} hours.
           </p>
         </div>
         <Button type="button" variant="destructive" onClick={remove} disabled={busy !== null} className="shrink-0">
-          {busy === 'delete' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+          <Trash2 className="mr-2 h-4 w-4" />
           Delete
         </Button>
       </div>
+      <MoveToTrashDialog
+        project={{ id: projectId, name: projectName }}
+        open={trashOpen}
+        onOpenChange={setTrashOpen}
+        onMoved={() => onDone()}
+      />
     </section>
   );
 }

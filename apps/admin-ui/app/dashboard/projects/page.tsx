@@ -1,6 +1,7 @@
 'use client';
 
 import { useEscape } from '@/lib/keyboard';
+import { DELETE_REASONS, MoveToTrashDialog } from '@/components/move-to-trash-dialog';
 import React, {
   useCallback,
   useEffect,
@@ -126,19 +127,6 @@ const SORT_OPTIONS = [
 ] as const;
 type SortValue = typeof SORT_OPTIONS[number]['value'];
 
-const DELETE_REASONS = [
-  { code: 'performance', label: 'Performance or reliability insufficient.' },
-  { code: 'trust', label: 'I lost trust in the company or its future direction.' },
-  { code: 'exploring', label: 'I was just exploring, or it was a hobby/student project.' },
-  { code: 'cancelled', label: 'My project was cancelled or put on hold.' },
-  { code: 'support', label: 'I was not satisfied with the customer support I received.' },
-  { code: 'pricing_unpredictable', label: 'The pricing is unpredictable and hard to budget for.' },
-  { code: 'too_expensive', label: 'Too expensive' },
-  { code: 'missing_feature', label: 'basefyio is missing a specific feature I need.' },
-  { code: 'company_closed', label: 'My company went out of business or was acquired.' },
-  { code: 'difficult', label: 'I found it difficult to use or build with.' },
-  { code: 'none', label: 'None of the above' },
-] as const;
 
 // ── Session state key ─────────────────────────────────────────────────────────
 const SESSION_KEY = 'basefyio_projects_state';
@@ -281,11 +269,7 @@ export default function ProjectsPage() {
 
   // Single-project delete confirm
   const [deleteConfirm, setDeleteConfirm] = useState<ProjectListItem | null>(null);
-  const [deleting, setDeleting] = useState(false);
   // Rich single-delete confirm (mirrors the project detail delete modal).
-  const [deleteReasonCode, setDeleteReasonCode] = useState('none');
-  const [deleteDetailsText, setDeleteDetailsText] = useState('');
-  const [deleteNameConfirm, setDeleteNameConfirm] = useState('');
 
   // Bulk delete confirm
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
@@ -330,7 +314,6 @@ export default function ProjectsPage() {
 
   // Reset the single-delete confirm fields each time the modal opens.
   useEffect(() => {
-    if (deleteConfirm) { setDeleteReasonCode('none'); setDeleteDetailsText(''); setDeleteNameConfirm(''); }
   }, [deleteConfirm]);
 
   // Sort dropdown ref
@@ -659,30 +642,12 @@ export default function ProjectsPage() {
   }
 
   // ── Delete project (single) ───────────────────────────────────────────────────
-  async function confirmDeleteProject() {
-    if (!deleteConfirm) return;
-    if (deleteNameConfirm.trim() !== deleteConfirm.name) {
-      toast.error('Type the project name to confirm');
-      return;
-    }
-    setDeleting(true);
-    try {
-      const selectedReason = DELETE_REASONS.find((x) => x.code === deleteReasonCode);
-      await api.projects.delete(deleteConfirm.id, {
-        reasonCode: deleteReasonCode,
-        reasonLabel: selectedReason?.label || 'None of the above',
-        details: deleteDetailsText.trim() || undefined,
-      });
-      setProjects((prev) => prev.filter((p) => p.id !== deleteConfirm.id));
-      setSelectedProjects((prev) => { const n = new Set(prev); n.delete(deleteConfirm.id); return n; });
-      toast.success(`"${deleteConfirm.name}" moved to trash`);
-      setDeleteConfirm(null);
-      if (isOwner && activeTeamId) loadDeletedProjects();
-    } catch (err: any) {
-      toast.error(err.message);
-    } finally {
-      setDeleting(false);
-    }
+  /** After the shared dialog moved a project to trash (#28). */
+  function onProjectMovedToTrash(projectId: string) {
+    setProjects((prev) => prev.filter((p) => p.id !== projectId));
+    setSelectedProjects((prev) => { const n = new Set(prev); n.delete(projectId); return n; });
+    setDeleteConfirm(null);
+    if (isOwner && activeTeamId) loadDeletedProjects();
   }
 
   async function handleMoveToTeam() {
@@ -1924,79 +1889,12 @@ export default function ProjectsPage() {
       )}
 
       {/* ── Single delete confirm modal ───────────────────────────────────── */}
-      {deleteConfirm && (
-        <Modal title="Move to Trash" onClose={() => setDeleteConfirm(null)}>
-          <p className="text-sm text-muted-foreground mb-1">Move to trash:</p>
-          <p className="text-sm font-semibold mb-3">&quot;{deleteConfirm.name}&quot;</p>
-
-          <div className="mb-3">
-            <p className="mb-1 text-xs font-medium text-muted-foreground">Reason for deletion</p>
-            <div className="max-h-28 overflow-auto rounded-lg border p-2">
-              <div className="flex flex-wrap gap-1.5">
-                {DELETE_REASONS.map((r) => (
-                  <button
-                    key={r.code}
-                    type="button"
-                    onClick={() => setDeleteReasonCode(r.code)}
-                    className={`rounded-full border px-2.5 py-1 text-[11px] transition-colors ${
-                      deleteReasonCode === r.code
-                        ? 'border-primary bg-primary/10 text-primary'
-                        : 'border-border text-muted-foreground hover:bg-accent'
-                    }`}
-                  >
-                    {r.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="mb-4">
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">
-              Additional details (optional)
-            </label>
-            <textarea
-              value={deleteDetailsText}
-              onChange={(e) => setDeleteDetailsText(e.target.value)}
-              rows={3}
-              placeholder="Tell us why this project is being deleted..."
-              className="w-full resize-none rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-primary/50"
-            />
-          </div>
-
-          <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-3 py-2 mb-4">
-            <p className="text-xs text-amber-700 dark:text-amber-400">
-              This project will remain in trash for <strong>24 hours</strong>. The team owner can restore it during this period. After 24 hours it will be permanently deleted.
-            </p>
-          </div>
-
-          <div className="mb-4">
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">
-              Type <span className="font-semibold text-foreground">{deleteConfirm.name}</span> to confirm.
-            </label>
-            <Input
-              value={deleteNameConfirm}
-              onChange={(e) => setDeleteNameConfirm(e.target.value)}
-              placeholder="Type the project name"
-              autoFocus
-            />
-          </div>
-
-          <div className="flex gap-2">
-            <Button variant="outline" className="flex-1" onClick={() => setDeleteConfirm(null)}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              className="flex-1"
-              onClick={confirmDeleteProject}
-              disabled={deleting || deleteNameConfirm.trim() !== deleteConfirm.name}
-            >
-              {deleting ? 'Moving…' : 'Move to Trash'}
-            </Button>
-          </div>
-        </Modal>
-      )}
+      <MoveToTrashDialog
+        project={deleteConfirm ? { id: deleteConfirm.id, name: deleteConfirm.name } : null}
+        open={!!deleteConfirm}
+        onOpenChange={(v) => { if (!v) setDeleteConfirm(null); }}
+        onMoved={onProjectMovedToTrash}
+      />
 
       {/* ── Deactivate confirm modal ──────────────────────────────────────── */}
       {deactivateConfirm && (
