@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { KeycloakAdminService } from '../auth/keycloak-admin.service';
 import { PaymentProbeService } from './payment-probe.service';
+import { StandbyProbeService } from './standby-probe.service';
 import { PlatformAlertsService } from './platform-alerts.service';
 import { PlatformHealthService, REALM_PROBE } from './platform-health.service';
 
@@ -11,6 +12,7 @@ import { PlatformHealthService, REALM_PROBE } from './platform-health.service';
     PlatformAlertsService,
     PlatformHealthService,
     PaymentProbeService,
+    StandbyProbeService,
     { provide: REALM_PROBE, useExisting: KeycloakAdminService },
   ],
   exports: [PlatformAlertsService],

@@ -401,6 +401,7 @@ Point-in-time recovery uses volumes only the production file defines; see
 | `PITR_POSTGRES_IMAGE` | `pgvector/pgvector:pg16` | no / derived `ghcr.io/${GHCR_OWNER}/basefyio-postgres:latest` | Image of the throwaway Postgres that replays WAL. It must match the running cluster, extensions included. |
 | `PITR_SCRATCH_VOLUME` | `kolaybase_pitr_scratch` | no / no | Docker volume handed to that container (and to the schema-dump step of Supabase imports). Compose names the volume `<project>_pitr_scratch`; the default matches a checkout in a directory named `kolaybase`, so set it (through an override) when your compose project has another name. |
 | `PITR_RESTORE_ENABLED` | `true` | no / yes | `false` refuses new point-in-time restores with a 503 (running ones finish). |
+| `PG_STANDBY_SLOTS` | empty | no / yes | Physical replication slots of a Postgres standby, comma separated (e.g. `bf_standby_1`). Every 5 minutes the API checks each slot exists, is connected and holds back less than 8 GB of WAL; two failing checks raise the critical alert `pg_standby_unhealthy`. Empty = no check. |
 | `PITR_RESTORE_MAX_CONCURRENT` | `1` | no / yes | Restores running at once, cluster-wide. Each one unpacks a full copy of the cluster. |
 | `PITR_RESTORE_MAX_QUEUED` | `5` | no / no | Restores waiting for a slot, cluster-wide; more answer 503. |
 | `PITR_RESTORE_MAX_PER_HOUR` | `3` | no / no | Restores one project may request per hour; more answer 429. |

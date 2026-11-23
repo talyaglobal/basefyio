@@ -639,6 +639,9 @@ services:
       # new ones (503) without a build; the caps keep a restore from starving
       # the host the live cluster runs on. Defaults: on, 1 running, 60 min.
       PITR_RESTORE_ENABLED: ${PITR_RESTORE_ENABLED:-true}
+      # Physical replication slots of the Postgres standby to watch (comma list, e.g. bf_standby_1);
+      # empty = no standby check. A slot missing, disconnected or lagging raises pg_standby_unhealthy.
+      PG_STANDBY_SLOTS: ${PG_STANDBY_SLOTS:-}
       PITR_RESTORE_MAX_CONCURRENT: ${PITR_RESTORE_MAX_CONCURRENT:-1}
       PITR_RESTORE_TIMEOUT_MINUTES: ${PITR_RESTORE_TIMEOUT_MINUTES:-60}
       DOCKER_NETWORK: ${DOCKER_NETWORK:-kolaybase_default}
