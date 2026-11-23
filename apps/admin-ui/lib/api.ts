@@ -1,4 +1,5 @@
 import type { TechDocPage, TechDocSummary } from '@/lib/techdocs-types';
+import { isNetworkError, NETWORK_ERROR_MESSAGE } from './network-error';
 import { getAccessToken, getRefreshToken, setTokens, clearTokens } from './auth';
 import type { ConsoleOverview, ConsoleProjectDetail, ConsoleProjectList, ConsoleStorage, ConsoleDisk } from './console-types';
 import type { ConsoleAlertFeed } from './console-alert-types';
@@ -188,6 +189,11 @@ async function requestOnce<T>(
   } catch (err: any) {
     if (err?.name === 'AbortError') {
       throw new Error('Request timed out — the server may be restarting. Try again shortly.');
+    }
+    if (isNetworkError(err)) {
+      const friendly = new Error(NETWORK_ERROR_MESSAGE) as Error & { isNetworkError?: boolean };
+      friendly.isNetworkError = true;
+      throw friendly;
     }
     throw err;
   } finally {
@@ -1708,6 +1714,13 @@ export const api = {
       return request<import('./types').DataEngineDoc>(
         `/v1/projects/${projectId}/data/${encodeURIComponent(entityName)}/${docId}`,
         { method: 'PATCH', body: JSON.stringify(patch) },
+      );
+    },
+    /** Full replace (PUT): fields missing from `doc` are removed, unlike the PATCH merge above. */
+    replaceDataEngineDocument(projectId: string, entityName: string, docId: string, doc: Record<string, unknown>) {
+      return request<import('./types').DataEngineDoc>(
+        `/v1/projects/${projectId}/data/${encodeURIComponent(entityName)}/${docId}`,
+        { method: 'PUT', body: JSON.stringify(doc) },
       );
     },
     deleteDataEngineDocument(projectId: string, entityName: string, docId: string) {

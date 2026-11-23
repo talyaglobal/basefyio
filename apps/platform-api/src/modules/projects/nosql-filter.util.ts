@@ -103,8 +103,20 @@ function buildClauses(
 
     // Simple equality: { field: "value" } or { field: 123 }
     if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-      params.push(JSON.stringify({ [key.split('.')[0]]: value }));
-      clauses.push(`data @> $${params.length}::jsonb`);
+      // Dotted paths nest ("meta.city" -> {"meta":{"city":v}}), not a flat first segment.
+      const nested = key
+        .split('.')
+        .reverse()
+        .reduce<unknown>((acc, part) => ({ [part]: acc }), value);
+      params.push(JSON.stringify(nested));
+      const eqClause = `data @> $${params.length}::jsonb`;
+      if (value !== null && !Array.isArray(value)) {
+        // A scalar also matches when the field is an array containing it ({"tags":"y"}).
+        params.push(JSON.stringify([value]));
+        clauses.push(`(${eqClause} OR ${jsonJsonbField(key)} @> $${params.length}::jsonb)`);
+      } else {
+        clauses.push(eqClause);
+      }
       continue;
     }
 

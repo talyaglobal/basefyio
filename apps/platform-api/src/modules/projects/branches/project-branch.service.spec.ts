@@ -29,7 +29,7 @@ jest.mock('../../entitlement/entitlement.service', () => ({ EntitlementService: 
 jest.mock('../../../common/realtime/realtime-events.service', () => ({ RealtimeEventsService: class {} }));
 
 import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
-import { ProjectBranchService, previewBranchOf } from './project-branch.service';
+import { ProjectBranchService, previewBranchOf, describeIgnoredRestoreErrors } from './project-branch.service';
 
 const parentRow = {
   id: 'parent',
@@ -224,6 +224,24 @@ describe('ProjectBranchService.createPreviewBranch — happy path', () => {
     expect((out as any).project.dbPassword).toBeUndefined();
     expect(activity.append).toHaveBeenCalledWith('parent', expect.objectContaining({ kind: 'project.branch_created' }));
     expect(populate).toHaveBeenCalledWith(expect.objectContaining({ id: 'parent' }), branchRow, 'full', 'u1');
+  });
+});
+
+describe('describeIgnoredRestoreErrors (#177)', () => {
+  it('stays neutral when every ignored error is an already-exists collision', () => {
+    const stderr = 'pg_restore: error: could not execute query: ERROR:  schema "auth" already exists\n';
+    expect(describeIgnoredRestoreErrors(stderr, 1)).toMatch(/all objects the project bootstrap had already created/);
+  });
+
+  it('names objects that were not copied', () => {
+    const stderr = [
+      'pg_restore: error: could not execute query: ERROR:  type "public.vector" does not exist',
+      'pg_restore: error: could not execute query: ERROR:  schema "auth" already exists',
+    ].join('\n');
+    const msg = describeIgnoredRestoreErrors(stderr, 2);
+    expect(msg).toMatch(/^Partial copy/);
+    expect(msg).toContain('type "public.vector" does not exist');
+    expect(msg).not.toContain('"auth" already exists');
   });
 });
 

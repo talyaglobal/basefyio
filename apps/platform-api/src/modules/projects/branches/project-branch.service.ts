@@ -252,7 +252,7 @@ export class ProjectBranchService {
         const stderr = String(err?.stderr ?? '');
         const ignored = stderr.match(/errors ignored on restore: (\d+)/);
         if (err?.code === 1 && ignored) {
-          warnings.push(`pg_restore ignored ${ignored[1]} error(s), typically objects the project bootstrap had already created`);
+          warnings.push(describeIgnoredRestoreErrors(stderr, ignored[1]));
         } else {
           throw new Error(`pg_restore failed: ${lastLines(stderr) || err?.message}`);
         }
@@ -407,6 +407,21 @@ export class ProjectBranchService {
       await client.end().catch(() => undefined);
     }
   }
+}
+
+/**
+ * "already exists" errors are the bootstrap colliding with the parent's copy and are harmless.
+ * Anything else (a missing extension, a type that depends on one) means objects were NOT copied,
+ * so name them instead of calling the branch clean.
+ */
+export function describeIgnoredRestoreErrors(stderr: string, count: string | number): string {
+  const messages = [...stderr.matchAll(/^pg_restore: error: .*?\bERROR:\s+(.+)$/gm)].map((m) => m[1].trim());
+  const real = [...new Set(messages.filter((m) => !/already exists/i.test(m)))];
+  if (real.length === 0) {
+    return `pg_restore ignored ${count} error(s), all objects the project bootstrap had already created`;
+  }
+  const shown = real.slice(0, 5).map((m) => m.slice(0, 160)).join('; ');
+  return `Partial copy: some objects were not copied (${shown}${real.length > 5 ? `; and ${real.length - 5} more` : ''}). Objects that depend on an extension missing in the branch are skipped. Auth users, storage, flows and realtime settings are never copied.`;
 }
 
 function lastLines(text: string, n = 5): string {

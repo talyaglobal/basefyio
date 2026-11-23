@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/dialog';
 import { Loader2, Plus, Trash2, RefreshCw } from 'lucide-react';
 import { RlsPolicyEditor } from '@/components/rls-policy-editor';
+import { friendlyError } from '@/lib/network-error';
 
 type Tab = 'indexes' | 'triggers' | 'functions' | 'extensions' | 'policies';
 
@@ -64,6 +65,7 @@ export default function DatabasePage() {
   const [triggerFns, setTriggerFns] = useState<string[]>([]);
   // Create-function form
   const [fnSql, setFnSql] = useState(FN_TEMPLATE);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async (t: Tab) => {
     if (t === 'policies') {
@@ -73,6 +75,7 @@ export default function DatabasePage() {
       return;
     }
     setLoading(true);
+    setLoadError(null);
     try {
       const data =
         t === 'indexes' ? await api.projects.dbIndexes(id)
@@ -81,7 +84,8 @@ export default function DatabasePage() {
         : await api.projects.dbExtensions(id);
       setRows(data as any[]);
     } catch (err: any) {
-      toast.error(err.message);
+      // A failed load is not an empty list: say so, and offer a retry instead of "No extensions yet".
+      setLoadError(friendlyError(err, 'Could not load this list'));
       setRows([]);
     } finally {
       setLoading(false);
@@ -89,6 +93,13 @@ export default function DatabasePage() {
   }, [id]);
 
   useEffect(() => { void load(tab); }, [tab, load]);
+  // Retry by itself when the connection comes back.
+  useEffect(() => {
+    if (!loadError) return;
+    const retry = () => void load(tab);
+    window.addEventListener('online', retry);
+    return () => window.removeEventListener('online', retry);
+  }, [loadError, tab, load]);
   useEffect(() => {
     api.projects.tables(id).then((t) => setTables(t.map((x: any) => x.name))).catch(() => {});
   }, [id]);
@@ -195,6 +206,11 @@ export default function DatabasePage() {
       ) : loading ? (
         <div className="flex h-40 items-center justify-center">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : loadError ? (
+        <div role="alert" className="flex flex-col items-center gap-3 rounded-md border border-destructive/30 bg-destructive/5 p-6 text-center text-sm">
+          <p className="text-destructive">Could not load {tab}. {loadError}</p>
+          <Button size="sm" variant="outline" onClick={() => void load(tab)}>Try again</Button>
         </div>
       ) : rows.length === 0 ? (
         <div className="rounded-md border bg-muted/30 p-6 text-center text-sm text-muted-foreground">

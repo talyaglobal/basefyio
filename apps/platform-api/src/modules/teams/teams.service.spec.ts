@@ -124,3 +124,24 @@ describe('TeamsService.listTeamInvites / leaveTeam', () => {
     expect(owner.prisma.teamMember.deleteMany).not.toHaveBeenCalled();
   });
 });
+
+describe('TeamsService.listMembers avatar payload (#150)', () => {
+  function makeService(avatars: Array<string | null>) {
+    const rows = avatars.map((avatarUrl, i) => ({
+      role: 'MEMBER',
+      createdAt: new Date(),
+      user: { id: `u${i}`, email: `u${i}@x.io`, firstName: 'A', lastName: 'B', avatarUrl },
+    }));
+    const prisma = { teamMember: { findMany: jest.fn().mockResolvedValue(rows) } };
+    const svc = new TeamsService(prisma as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any);
+    (svc as any).assertMember = jest.fn().mockResolvedValue(undefined);
+    return svc;
+  }
+
+  it('omits embedded data: URIs but keeps real URLs', async () => {
+    const big = 'data:image/png;base64,' + 'A'.repeat(90000);
+    const out = await makeService([big, 'https://cdn.example/a.png', null]).listMembers('t1', 'u0');
+    expect(out.map((m) => m.avatarUrl)).toEqual([null, 'https://cdn.example/a.png', null]);
+    expect(JSON.stringify(out).length).toBeLessThan(2000);
+  });
+});
