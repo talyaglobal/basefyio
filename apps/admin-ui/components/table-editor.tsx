@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from 'react';
 import { toast } from 'sonner';
 import { confirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
+import { friendlyError } from '@/lib/network-error';
 import { useLiveProjectRefresh } from '@/lib/use-live-refresh';
 import type {
   TableInfo,
@@ -860,6 +861,16 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
     loadTables();
   }, [projectId]);
 
+  // The table list failed to load (#148): show that, not "no tables", and try
+  // again by itself when the browser is back online.
+  const [tablesError, setTablesError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!tablesError) return;
+    const retry = () => void loadTables();
+    window.addEventListener('online', retry);
+    return () => window.removeEventListener('online', retry);
+  }, [tablesError]);
+
   useEffect(() => {
     if (editRef.current) editRef.current.focus();
   }, [editingCell]);
@@ -904,6 +915,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
       setTables(result);
       setCollections(colls);
       setEntities(ents);
+      setTablesError(null);
 
       // An item key is valid only if its backing object still exists.
       const normalize = (key: string) => {
@@ -912,7 +924,8 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
       };
       const validKey = (key: string): boolean => {
         const { kind, name } = parseKey(key);
-        if (kind === 'sql') return result.some((t) => t.name === name);
+        // SQL keys are schema-qualified outside public (#263).
+        if (kind === 'sql') return result.some((t) => sqlKeyOf(t) === name);
         if (kind === 'nosql') return colls.some((c) => c.name === name);
         return ents.some((e) => e.logicalName === name);
       };
@@ -954,9 +967,12 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
         setOpenTabs((prev) => prev.map(normalize).filter(validKey));
       }
 
+      // Prefer a public table to open first; collections live in the nosql schema and are listed as collections.
+      const sqlTables = result.filter((t) => t.schema !== 'nosql');
+      const firstSql = sqlTables.find((t) => t.schema === 'public') ?? sqlTables[0];
       const firstAvailable =
-        result.length > 0
-          ? keyOf('sql', result[0].name)
+        firstSql
+          ? keyOf('sql', sqlKeyOf(firstSql))
           : colls.length > 0
             ? keyOf('nosql', colls[0].name)
             : ents.length > 0
@@ -980,7 +996,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
         setData(null);
       }
     } catch (err: any) {
-      toast.error(err.message);
+      setTablesError(friendlyError(err, 'The tables could not be loaded.'));
     } finally {
       setLoading(false);
     }
@@ -1076,7 +1092,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
   /** Update the cached table list with the exact row count we just observed. */
   function syncSidebarCount(name: string, total: number) {
     setTables((prev) =>
-      prev.map((t) => (t.name === name ? { ...t, rowCount: total } : t)),
+      prev.map((t) => (sqlKeyOf(t) === name ? { ...t, rowCount: total } : t)),
     );
   }
 
@@ -1584,7 +1600,15 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
             </div>
 
             <div className="flex-1 overflow-y-auto p-1 space-y-0.5">
-              {filteredItems.length === 0 ? (
+              {tablesError ? (
+                <div role="alert" className="space-y-2 px-3 py-6">
+                  <p className="text-xs text-red-600 dark:text-red-400">{tablesError}</p>
+                  <p className="text-xs text-muted-foreground">Your tables are still there; the list just did not load.</p>
+                  <Button size="sm" variant="outline" onClick={() => void loadTables()}>
+                    Try again
+                  </Button>
+                </div>
+              ) : filteredItems.length === 0 ? (
                 <div className="px-3 py-6">
                   <p className="text-xs text-muted-foreground">
                     {tableSearchLower.length > 0
