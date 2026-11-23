@@ -396,3 +396,15 @@ describe('SqlService.execute — read-only path (AI Agent mode, #157)', () => {
     expect(client.query).not.toHaveBeenCalled();
   });
 });
+
+describe('SqlService.execute — which runs tell open Data editors to reload (#149)', () => {
+  it.each([
+    ['SELECT 1', 'sql.executed'],
+    ['UPDATE notes SET body = $1', 'sql.changed'],
+    ['CREATE TABLE notes (id int)', 'sql.changed'],
+  ])('%s is logged as %s', async (sql, kind) => {
+    const { svc, activity } = harness();
+    await svc.execute('p1', sql, 'u1', sql.startsWith('UPDATE') ? { params: ['x'] } : undefined);
+    expect(activity.append).toHaveBeenCalledWith('p1', expect.objectContaining({ kind }));
+  });
+});
