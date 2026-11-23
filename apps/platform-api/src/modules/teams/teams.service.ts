@@ -217,7 +217,9 @@ export class TeamsService {
       email: m.user.email,
       firstName: m.user.firstName,
       lastName: m.user.lastName,
-      avatarUrl: m.user.avatarUrl,
+      // Old uploads embedded the image as a data: URI (~88 KB per member).
+      // Lists carry real URLs only; the single profile endpoint still returns the stored value.
+      avatarUrl: m.user.avatarUrl?.startsWith('data:') ? null : m.user.avatarUrl,
       role: m.role,
       joinedAt: m.createdAt,
     }));
