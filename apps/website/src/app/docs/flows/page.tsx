@@ -36,7 +36,7 @@ export default function FlowsDocs() {
           <tr><th>Term</th><th>Meaning</th></tr>
         </thead>
         <tbody>
-          <tr><td><strong>Trigger</strong></td><td><code>manual</code>, <code>webhook</code> or <code>schedule</code>. Only <code>manual</code> can be fired today — you start it from the dashboard or the <code>trigger</code> route. <code>webhook</code> and <code>schedule</code> definitions are accepted and stored, but nothing receives or schedules them yet.</td></tr>
+          <tr><td><strong>Trigger</strong></td><td><code>manual</code>, <code>webhook</code> or <code>schedule</code>. A <code>manual</code> flow runs from the dashboard&apos;s Run button or the <code>trigger</code> route. A <code>webhook</code> flow gets its own URL, <code>POST /api/webhooks/flows/:flowId</code>, and a secret shown once when it is saved; each call must carry <code>x-basefyio-signature: sha256=&lt;HMAC-SHA256 of the raw body, hex&gt;</code>, and the JSON body becomes the run&apos;s input. A <code>schedule</code> flow needs a 5-field cron expression in UTC (<code>trigger.cron</code>) and is checked every minute.</td></tr>
           <tr><td><strong>Action</strong></td><td>A step. <code>log</code> writes a message; <code>http.request</code> calls a URL (<code>method</code>, <code>url</code>, optional <code>headers</code> and <code>body</code>).</td></tr>
           <tr><td><strong>Run</strong></td><td>One execution. It stores its status, the input it was given and one <code>{`{ type, ok, status?, detail? }`}</code> result per action.</td></tr>
         </tbody>

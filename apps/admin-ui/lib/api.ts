@@ -2187,6 +2187,10 @@ export const api = {
     runs(projectId: string, id: string) {
       return request<FlowRun[]>(`/projects/${projectId}/flows/${id}/runs`);
     },
+    /** New secret for a webhook flow; shown once. */
+    rotateWebhookSecret(projectId: string, id: string) {
+      return request<{ webhookSecret: string }>(`/projects/${projectId}/flows/${id}/rotate-webhook-secret`, { method: 'POST' });
+    },
   },
 
   blueprints: {

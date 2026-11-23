@@ -105,6 +105,33 @@ function parseCron(expr: string) {
 
 const TRIGGER_TYPES = ['manual', 'webhook', 'schedule'];
 const ACTION_TYPES = ['log', 'http.request'];
+const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
+
+/**
+ * Keeps only the fields each trigger and action type uses (#23): an action
+ * switched from log to http.request no longer carries its old message, an
+ * http.request without a method is a POST, and a schedule keeps only its cron.
+ */
+export function normalizeFlowDefinition(dto: FlowDefinitionInput): FlowDefinitionInput {
+  const t = dto.trigger;
+  const trigger =
+    t.type === 'schedule'
+      ? { type: t.type, cron: t.cron!.trim() }
+      : { type: t.type };
+  const actions = dto.actions.map((a) => {
+    if (a.type === 'log') return { type: 'log', message: String(a.message).trim() };
+    const method = typeof a.method === 'string' ? a.method.toUpperCase() : 'POST';
+    return {
+      type: 'http.request',
+      method,
+      url: String(a.url).trim(),
+      ...(a.headers && typeof a.headers === 'object' ? { headers: a.headers } : {}),
+      ...(a.body !== undefined ? { body: a.body } : {}),
+      ...(a.continueOnError ? { continueOnError: true } : {}),
+    };
+  });
+  return { ...dto, name: dto.name.trim(), trigger, actions } as FlowDefinitionInput;
+}
 
 /**
  * Project automation flows: a trigger plus an ordered list of actions, executed
@@ -145,8 +172,14 @@ export class FlowsService {
       if (!a || !ACTION_TYPES.includes(a.type)) {
         throw new BadRequestException(`action.type must be one of ${ACTION_TYPES.join(', ')}`);
       }
+      if (a.type === 'log' && !(typeof a.message === 'string' && a.message.trim())) {
+        throw new BadRequestException('A log action needs a message');
+      }
       if (a.type === 'http.request') {
         if (!a.url) throw new BadRequestException('http.request action requires a url');
+        if (a.method !== undefined && !HTTP_METHODS.includes(String(a.method).toUpperCase())) {
+          throw new BadRequestException(`http.request method must be one of ${HTTP_METHODS.join(', ')}`);
+        }
         await assertSafeUrl(a.url);
       }
     }
@@ -189,10 +222,11 @@ export class FlowsService {
     return flow;
   }
 
-  async create(projectId: string, dto: FlowDefinitionInput, userId?: string) {
+  async create(projectId: string, input: FlowDefinitionInput, userId?: string) {
     await this.assertProject(projectId, userId);
     await this.entitlement.assertCan(projectId, EntitlementKey.FLOWS);
-    await this.validate(dto);
+    await this.validate(input);
+    const dto = normalizeFlowDefinition(input);
     const enabled = dto.enabled ?? true;
     const nextRunAt = enabled ? this.computeNextRunAt(dto.trigger) : null;
     // Auto-assign a webhook secret for webhook-triggered flows.
@@ -215,21 +249,24 @@ export class FlowsService {
     return sanitizeFlow(created);
   }
 
-  async update(projectId: string, id: string, dto: FlowDefinitionInput, userId?: string) {
+  async update(projectId: string, id: string, input: FlowDefinitionInput, userId?: string) {
     // assertProject first so an unauthorized caller cannot infer whether the flow exists.
     await this.assertProject(projectId, userId);
     // getRaw so we can carry the existing secret forward when trigger type stays webhook.
     const existing = await this.getRaw(projectId, id);
-    await this.validate(dto);
+    await this.validate(input);
+    const dto = normalizeFlowDefinition(input);
     const enabled = dto.enabled ?? true;
     const nextRunAt = enabled ? this.computeNextRunAt(dto.trigger) : null;
     // Preserve the existing webhook secret if the trigger stays webhook; generate
     // a new one if it was not webhook before but is now; clear it if no longer webhook.
     let webhookSecret: string | null = existing.webhookSecret ?? null;
+    let newSecret = false;
     if (dto.trigger.type !== 'webhook') {
       webhookSecret = null;
     } else if (!webhookSecret) {
       webhookSecret = generateWebhookSecret();
+      newSecret = true;
     }
     const updated = await this.prisma.flow.update({
       where: { id },
@@ -242,7 +279,8 @@ export class FlowsService {
         webhookSecret,
       },
     });
-    return sanitizeFlow(updated);
+    // A flow that just became a webhook flow shows its new secret once, as on create.
+    return newSecret ? { ...sanitizeFlow(updated), webhookSecret } : sanitizeFlow(updated);
   }
 
   /** Rotate the webhook secret for a webhook-triggered flow. Returns the new secret. */
@@ -265,7 +303,8 @@ export class FlowsService {
     // When re-enabling a schedule flow, set the next run time from now so it
     // doesn't immediately fire for every missed minute while it was disabled.
     const nextRunAt = enabled ? this.computeNextRunAt(trigger) : null;
-    return this.prisma.flow.update({ where: { id }, data: { enabled, nextRunAt } });
+    // Sanitized: the raw record carries the webhook secret, which is shown only once.
+    return sanitizeFlow(await this.prisma.flow.update({ where: { id }, data: { enabled, nextRunAt } }));
   }
 
   async remove(projectId: string, id: string, userId?: string) {
