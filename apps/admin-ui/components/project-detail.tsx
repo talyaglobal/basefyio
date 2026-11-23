@@ -180,8 +180,8 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
     setStatusSaving(true);
     try {
       if (statusChoice === 'ACTIVE') {
-        await api.projects.reactivate(project.id);
-        toast.success('Project is active again');
+        const res = await api.projects.reactivate(project.id);
+        toast.success(res?.message || 'Project is active again');
       } else {
         await api.projects.sleep(project.id);
         toast.success('Project deactivated. A request with its API key activates it again.');

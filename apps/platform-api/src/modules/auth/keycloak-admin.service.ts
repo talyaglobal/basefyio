@@ -848,6 +848,25 @@ export class KeycloakAdminService implements OnModuleInit {
     this.logger.log(`Realm "${realmName}" enabled`);
   }
 
+  /**
+   * Tells "the realm is gone" apart from "Keycloak could not be asked".
+   * realmExists() answers false for both, which is fine for a probe but never
+   * for a decision that creates (and so replaces) a realm. This throws on any
+   * failure other than a clean not-found.
+   */
+  async getRealmState(realmName: string): Promise<'enabled' | 'disabled' | 'missing'> {
+    await this.ensureAuth();
+    try {
+      const realm = await this.client.realms.findOne({ realm: realmName });
+      if (!realm) return 'missing';
+      return realm.enabled ? 'enabled' : 'disabled';
+    } catch (err: any) {
+      const status = err?.response?.status ?? err?.status;
+      if (status === 404) return 'missing';
+      throw err;
+    }
+  }
+
   async realmExists(realmName: string): Promise<boolean> {
     await this.ensureAuth();
     try {
