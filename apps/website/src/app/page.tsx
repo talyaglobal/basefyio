@@ -205,7 +205,7 @@ export default async function Home() {
           <div className="text-left lg:col-span-6">
             <div className="landing-pill mb-7 animate-fade-in motion-reduce:animate-none">
               <span className="pulse-dot" />
-              30 days free trial
+              Free plan, no credit card
             </div>
             <h1 className="animate-fade-in text-4xl font-bold uppercase leading-[1.06] tracking-tight [animation-delay:80ms] motion-reduce:animate-none sm:text-5xl md:text-[56px]">
               NEXT-GEN DATABASE.{" "}
@@ -248,7 +248,7 @@ export default async function Home() {
               </Link>
             </div>
             <div className="animate-fade-in mt-5 flex flex-wrap gap-5 text-sm text-muted-foreground [animation-delay:300ms] motion-reduce:animate-none">
-              {["30-day free trial", "No credit card", "Cancel anytime"].map(
+              {["Start on the Free plan", "No credit card to start", "Cancel anytime"].map(
                 (t) => (
                   <span key={t} className="flex items-center gap-2">
                     <Check className="h-3 w-3 text-primary" />
@@ -334,7 +334,7 @@ export default async function Home() {
                     <p className="mt-2 text-xs text-muted-foreground">
                       {plan.priceMonthly === 0
                         ? "Free to try"
-                        : "14-day trial"}
+                        : "Billed monthly · cancel anytime"}
                     </p>
                     <ul className="mt-6 flex-1 space-y-3 text-sm">
                       {features.map((f) => (
@@ -356,7 +356,7 @@ export default async function Home() {
                     >
                       {plan.priceMonthly === 0
                         ? "Get started"
-                        : `Start trial`}
+                        : `Choose ${plan.displayName ?? plan.name}`}
                     </Link>
                   </div>
                 </ScrollReveal>
