@@ -281,6 +281,12 @@ const { data } = await bucket.list('user-123/')
 // The lifetime is in seconds: pass a number or { expiresIn }.
 const { data } = await bucket.createSignedUrl('user-123/photo.jpg', 3600)
 
+// Signed upload URL: someone without a key can upload this one object (2 hours).
+// The upload still counts against the plan and the bucket's rules; no overwrite unless upsert.
+const { data: up } = await bucket.createSignedUploadUrl('user-123/avatar.png', { upsert: false })
+// up.signedUrl to hand out, or upload with the token:
+await bucket.uploadToSignedUrl('user-123/avatar.png', up.token, file)
+
 // Download-route URL (a plain string). It carries no key, so a browser
 // cannot open it for a private object: use createSignedUrl() for that.
 const url = bucket.getPublicUrl('user-123/photo.jpg')

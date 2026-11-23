@@ -189,6 +189,55 @@ export class StorageBucketApi {
     }
   }
 
+  /**
+   * A URL anyone can upload this one object to, without a key (#261), valid for
+   * two hours. Pass the token to {@link uploadToSignedUrl} or PUT the file to
+   * `signedUrl`. The upload still counts against the plan and the bucket's rules;
+   * it does not overwrite an existing object unless `upsert` is set.
+   */
+  async createSignedUploadUrl(
+    path: string,
+    options?: { upsert?: boolean },
+  ): Promise<BasefyioResponse<{ signedUrl: string; token: string; path: string }>> {
+    try {
+      const key = path.split('/').map(encodeURIComponent).join('/');
+      const data = await this.http.json<{ url: string }>(
+        `/storage/v1/object/upload/sign/${encodeURIComponent(this.bucket)}/${key}`,
+        { method: 'POST', headers: { 'x-upsert': options?.upsert ? 'true' : 'false' } },
+      );
+      const token = new URL(data.url, 'http://x').searchParams.get('token') ?? '';
+      return { data: { signedUrl: `${this.http.getBaseUrl()}/storage/v1${data.url}`, token, path }, error: null };
+    } catch (err: any) {
+      return { data: null, error: { message: err.message, status: err.status } };
+    }
+  }
+
+  /** Upload a file with a token from {@link createSignedUploadUrl}; no key or session is needed. */
+  async uploadToSignedUrl(
+    path: string,
+    token: string,
+    file: Blob | ArrayBuffer | Uint8Array,
+    options?: { contentType?: string },
+  ): Promise<BasefyioResponse<{ path: string }>> {
+    try {
+      const key = path.split('/').map(encodeURIComponent).join('/');
+      const body = file instanceof Blob ? file : new Blob([file as BlobPart], { type: options?.contentType ?? 'application/octet-stream' });
+      const form = new FormData();
+      form.append('', body);
+      const res = await fetch(
+        `${this.http.getBaseUrl()}/storage/v1/object/upload/sign/${encodeURIComponent(this.bucket)}/${key}?token=${encodeURIComponent(token)}`,
+        { method: 'PUT', body: form },
+      );
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))) as { message?: string };
+        return { data: null, error: { message: err.message || `Upload failed with status ${res.status}`, status: res.status } };
+      }
+      return { data: { path }, error: null };
+    } catch (err: any) {
+      return { data: null, error: { message: err.message, status: err.status } };
+    }
+  }
+
   async remove(paths: string[]): Promise<BasefyioResponse<{ message: string }>> {
     try {
       const data = await this.http.json<{ message: string }>(`${this.basePath()}/objects`, {

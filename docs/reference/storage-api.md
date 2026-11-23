@@ -112,6 +112,17 @@ an access rule narrows it:
 The service key and dashboard team members are never restricted. A rule row:
 `{ id, projectId, bucket, pathPrefix, mode, createdBy, createdAt, updatedAt }`.
 
+## Signed upload URLs
+
+To let someone upload one object without a key, mint a signed upload URL with the project key:
+`POST /api/storage/v1/object/upload/sign/:bucket/:path` (header `x-upsert: true` to allow
+overwriting) answers `{ url }`; the holder `PUT`s the file to `/api/storage/v1` + `url`
+(multipart, file under the empty field name, or the raw bytes). The token is valid for two hours
+and names the project, the object and whether overwriting is allowed; the upload goes through the
+normal path (plan storage limit, bucket rules, catalog). basefyio-js: `createSignedUploadUrl(path,
+{ upsert })` and `uploadToSignedUrl(path, token, file)`. See also
+[storage-v1-api.md](storage-v1-api.md).
+
 ## Resumable uploads
 
 For large files, upload in chunks that survive a dropped connection. Base path

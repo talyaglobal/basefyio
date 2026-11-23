@@ -300,3 +300,21 @@ describe('createSignedUrl lifetime', () => {
     expect(expiryOf(calls[0].path)).toBe('3600');
   });
 });
+
+describe('StorageBucketApi signed uploads (#261)', () => {
+  it('createSignedUploadUrl asks the storage API and returns the absolute URL and token', async () => {
+    const { http, calls } = fakeHttp(() => ({ url: '/object/upload/sign/avatars/me/a.png?token=t0k' }));
+    const bucket = new StorageBucketApi(http, 'project-1', 'avatars');
+    const r = await bucket.createSignedUploadUrl('me/a.png', { upsert: true });
+    expect(calls[0]).toMatchObject({
+      path: '/storage/v1/object/upload/sign/avatars/me/a.png',
+      method: 'POST',
+      headers: { 'x-upsert': 'true' },
+    });
+    expect(r.data).toEqual({
+      signedUrl: 'https://api.example.com/api/storage/v1/object/upload/sign/avatars/me/a.png?token=t0k',
+      token: 't0k',
+      path: 'me/a.png',
+    });
+  });
+});
