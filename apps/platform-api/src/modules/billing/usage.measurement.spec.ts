@@ -171,4 +171,42 @@ describe('normalizeApiPath (what the usage middleware counts)', () => {
     expect(next).toHaveBeenCalled();
     expect(usage.trackApiRequest).toHaveBeenCalledWith('t1', 'p1');
   });
+
+  function egressHarness() {
+    const prisma = { project: { findUnique: jest.fn().mockResolvedValue({ id: 'p1', teamId: 't1' }) } } as any;
+    const usage = { trackApiRequest: jest.fn().mockResolvedValue(undefined), trackBandwidth: jest.fn().mockResolvedValue(undefined) } as any;
+    const mw = new UsageTrackingMiddleware(prisma, usage);
+    clearInterval((mw as any).evictionTimer);
+    return { mw, usage };
+  }
+
+  it('counts only response bytes as egress: an upload body is ingress (#179)', async () => {
+    const { mw, usage } = egressHarness();
+    const req = { originalUrl: '/api/storage/v1/object/b/x.bin', url: '/api/storage/v1/object/b/x.bin', headers: { 'x-project-id': 'p1', 'content-length': String(2 * 1024 * 1024) } } as any;
+    const res = { write: jest.fn(), end: jest.fn() } as any;
+    await mw.use(req, res, jest.fn());
+    res.end('{"Key":"b/x.bin"}');
+    expect(usage.trackBandwidth).toHaveBeenCalledTimes(1);
+    expect(usage.trackBandwidth).toHaveBeenCalledWith('t1', Buffer.byteLength('{"Key":"b/x.bin"}'), 'p1');
+  });
+
+  it('counts a streamed download in full', async () => {
+    const { mw, usage } = egressHarness();
+    const req = { originalUrl: '/api/storage/v1/object/b/x.bin', url: '/api/storage/v1/object/b/x.bin', headers: { 'x-project-id': 'p1' } } as any;
+    const res = { write: jest.fn(), end: jest.fn() } as any;
+    await mw.use(req, res, jest.fn());
+    res.write(Buffer.alloc(1000));
+    res.write(Buffer.alloc(500));
+    res.end();
+    expect(usage.trackBandwidth).toHaveBeenCalledWith('t1', 1500, 'p1');
+  });
+
+  it('records no egress for an upload answered with an empty body', async () => {
+    const { mw, usage } = egressHarness();
+    const req = { originalUrl: '/api/rest/v1/t', url: '/api/rest/v1/t', headers: { 'x-project-id': 'p1', 'content-length': '4096' } } as any;
+    const res = { write: jest.fn(), end: jest.fn() } as any;
+    await mw.use(req, res, jest.fn());
+    res.end();
+    expect(usage.trackBandwidth).not.toHaveBeenCalled();
+  });
 });

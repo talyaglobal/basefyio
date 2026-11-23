@@ -255,7 +255,7 @@ export default function PricingAndLimitsDocs() {
             <td>
               Every request that names a project (its API key or <code>x-project-id</code>) through the API, on
               every path the SDKs use (<code>/rest/v1</code>, <code>/auth/v1</code>, <code>/storage/v1</code>,{" "}
-              <code>/realtime/v1</code>); egress is the request and response bytes. Counted continuously,
+              <code>/realtime/v1</code>); egress is the response bytes only (uploads and other request bodies are not counted). Counted continuously,
               written to the database every few hours; reset on the first of each month (UTC).
             </td>
           </tr>

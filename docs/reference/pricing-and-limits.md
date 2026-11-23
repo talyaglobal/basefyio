@@ -113,7 +113,7 @@ sign-ups for the MAU limit.
 |---|---|
 | Database size | From PostgreSQL's own size of the database, every hour for every project. The Overview also re-measures when the stored value is older than one hour. |
 | File storage | Every six hours, and right after an import. Uploads are checked against the last measured total, so a limit can be passed by a little before the next measurement. |
-| API requests and egress | Every request that names a project (its API key or `x-project-id`) through the API, on every path the SDKs use (`/rest/v1`, `/auth/v1`, `/storage/v1`, `/realtime/v1`); egress is the request and response bytes. Counted continuously, written to the database every few hours; reset on the first of each month (UTC). |
+| API requests and egress | Every request that names a project (its API key or `x-project-id`) through the API, on every path the SDKs use (`/rest/v1`, `/auth/v1`, `/storage/v1`, `/realtime/v1`); egress is the response bytes only (uploads and other request bodies are not counted). Counted continuously, written to the database every few hours; reset on the first of each month (UTC). |
 | Monthly active users | Distinct end users of the organization's projects who signed in, refreshed a session or called the API with their user token during the calendar month (UTC); anonymous sign-ins count too. Updated every hour; reset on the first of each month. |
 
 ## Over the API

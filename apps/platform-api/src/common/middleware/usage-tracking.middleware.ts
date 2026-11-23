@@ -147,13 +147,10 @@ export class UsageTrackingMiddleware implements NestMiddleware {
             typeof chunk === 'string' ? Buffer.byteLength(chunk) : chunk.length;
         }
 
-        const requestSize = req.headers['content-length']
-          ? parseInt(req.headers['content-length'], 10)
-          : 0;
-        const totalBytes = requestSize + responseSize;
-
-        if (totalBytes > 0) {
-          usageService.trackBandwidth(teamId, totalBytes, projectId).catch(() => {});
+        // Egress is what leaves the platform: response bytes only. Request
+        // bodies (uploads, inserts) are ingress and are not billed (#179).
+        if (responseSize > 0) {
+          usageService.trackBandwidth(teamId, responseSize, projectId).catch(() => {});
         }
 
         return originalEnd.apply(res, [chunk, ...args]);
