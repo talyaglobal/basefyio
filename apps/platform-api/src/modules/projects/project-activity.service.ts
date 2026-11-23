@@ -48,6 +48,7 @@ export const ProjectActivityKind = {
   DATA_IMPORT_FAILED: 'data_import.failed',
   PROJECT_EXPORT_STARTED: 'project_export.started',
   PROJECT_BACKUP_RESTORE_STARTED: 'project_backup_restore.started',
+  PROJECT_BACKUP_DELETED: 'project_backup.deleted',
   PROJECT_BACKUP_VERIFIED: 'project_backup.verified',
   PROJECT_BACKUP_VERIFICATION_FAILED: 'project_backup.verification_failed',
   PROJECT_BACKUP_OFFSITE_COPIED: 'project_backup.offsite_copied',

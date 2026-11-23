@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { ArrowLeft, Download, Loader2, Minimize2, PackageCheck, Play } from 'lucide-react';
+import { ArrowLeft, Download, Loader2, Minimize2, PackageCheck, Play, Trash2 } from 'lucide-react';
+import { confirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
 import { useProject } from '@/contexts/project-context';
 import { useLiveProjectRefresh } from '@/lib/use-live-refresh';
@@ -130,6 +131,47 @@ export default function ProjectExportPage() {
       toast.error(err.message || 'Failed to download export');
     } finally {
       setDownloading(false);
+    }
+  }
+
+  const [backupBusyKey, setBackupBusyKey] = useState<string | null>(null);
+
+  async function downloadBackup(b: CloudBackupItem) {
+    setBackupBusyKey(b.objectKey);
+    try {
+      const { blob, filename } = await api.projects.downloadCloudBackup(id, b.objectKey, b.kind === 'auto' ? 'auto' : 'manual');
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to download the backup');
+    } finally {
+      setBackupBusyKey(null);
+    }
+  }
+
+  async function deleteBackup(b: CloudBackupItem) {
+    const ok = await confirmDialog({
+      title: 'Delete this export',
+      description: `Delete "${b.filename}" from cloud backups? It cannot be restored afterwards. Nightly backups are not affected.`,
+      confirmText: 'Delete export',
+      destructive: true,
+    });
+    if (!ok) return;
+    setBackupBusyKey(b.objectKey);
+    try {
+      await api.projects.deleteCloudBackup(id, b.objectKey);
+      setCloudBackups((prev) => prev.filter((x) => x.objectKey !== b.objectKey));
+      toast.success('Export deleted');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete the export');
+    } finally {
+      setBackupBusyKey(null);
     }
   }
 
@@ -412,6 +454,27 @@ export default function ProjectExportPage() {
                   {b.kind === 'auto' && ' • daily backup, kept 7 days'}
                 </p>
               </div>
+              <div className="flex shrink-0 items-center gap-1">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => void downloadBackup(b)}
+                disabled={backupBusyKey === b.objectKey}
+                aria-label={`Download ${b.filename}`}
+              >
+                <Download className="h-4 w-4" />
+              </Button>
+              {b.kind !== 'auto' && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => void deleteBackup(b)}
+                  disabled={backupBusyKey === b.objectKey}
+                  aria-label={`Delete ${b.filename}`}
+                >
+                  <Trash2 className="h-4 w-4 text-red-500" />
+                </Button>
+              )}
               <Button
                 size="sm"
                 onClick={() => openRestoreDialog(b)}
@@ -426,6 +489,7 @@ export default function ProjectExportPage() {
                   'Restore'
                 )}
               </Button>
+              </div>
             </div>
             );
           })}

@@ -1338,6 +1338,25 @@ export const api = {
     listCloudBackups(projectId: string) {
       return request<CloudBackupItem[]>(`/projects/${projectId}/backups`);
     },
+    /** One cloud backup as a file, decrypted when stored encrypted (#34). */
+    async downloadCloudBackup(projectId: string, objectKey: string, kind: 'manual' | 'auto'): Promise<{ blob: Blob; filename: string }> {
+      const token = getAccessToken();
+      const qs = new URLSearchParams({ objectKey, kind });
+      const res = await fetch(`/api/proxy/projects/${projectId}/backups/download?${qs.toString()}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { message?: string }).message || `Download failed: ${res.status}`);
+      }
+      const cd = res.headers.get('content-disposition') || '';
+      const filename = cd.match(/filename="?([^";]+)"?/i)?.[1] || objectKey.split('/').pop() || 'backup.zip';
+      return { blob: await res.blob(), filename };
+    },
+    /** Delete a manual export from cloud backups (#34); nightly backups cannot be deleted. */
+    deleteCloudBackup(projectId: string, objectKey: string) {
+      return request<{ deleted: boolean }>(`/projects/${projectId}/backups?objectKey=${encodeURIComponent(objectKey)}`, { method: 'DELETE' });
+    },
     /** Range of timestamps this project can currently be recovered to. */
     getRecoveryWindow(projectId: string) {
       return request<PitrRecoveryWindow>(`/projects/${projectId}/pitr/window`);

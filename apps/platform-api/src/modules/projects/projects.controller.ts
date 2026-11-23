@@ -710,6 +710,35 @@ export class ProjectsController {
     return this.projectExport.listCloudBackups(id, user.sub);
   }
 
+  /** Download one cloud backup (decrypted when stored encrypted) (#34). */
+  @Scopes('backups:read')
+  @Get(':id/backups/download')
+  async downloadCloudBackup(
+    @Param('id') id: string,
+    @Query('objectKey') objectKey: string,
+    @Query('kind') kind: string | undefined,
+    @CurrentUser() user: JwtPayload,
+    @Res() res: Response,
+  ) {
+    const file = await this.projectExport.getCloudBackupFile(id, user.sub, objectKey, kind === 'auto' ? 'auto' : 'manual');
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${file.filename.replace(/"/g, '')}"`);
+    if (file.size != null) res.setHeader('Content-Length', String(file.size));
+    file.stream.on('error', () => res.destroy());
+    file.stream.pipe(res);
+  }
+
+  /** Delete a manual export from cloud backups (#34). Nightly backups follow retention. */
+  @Scopes('backups:write')
+  @Delete(':id/backups')
+  async deleteCloudBackup(
+    @Param('id') id: string,
+    @Query('objectKey') objectKey: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.projectExport.deleteCloudBackup(id, user.sub, objectKey);
+  }
+
   @Scopes('backups:write')
   @Post(':id/backups/restore')
   async restoreCloudBackup(

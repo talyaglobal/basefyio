@@ -416,6 +416,8 @@ belongs to the project and that the caller is a member of it.
 | GET | `/api/projects/:id/export/jobs/:jobId/download` | session · token `backups:read` | the finished archive (`application/zip`) |
 | GET | `/api/projects/:id/backups` | session · token `backups:read` | stored archives: manual exports and nightly backups |
 | POST | `/api/projects/:id/backups/restore` | session · token `backups:write` | restore a stored archive into this or a new project (the dashboard defaults to a new project; overwriting asks for the project name) |
+| GET | `/api/projects/:id/backups/download?objectKey=&kind=manual\|auto` | session · token `backups:read` | download one cloud backup as a zip, decrypted when it is stored encrypted |
+| DELETE | `/api/projects/:id/backups?objectKey=` | session · token `backups:write` | delete a manual export (owner, or a role allowed to delete projects); nightly backups follow their retention and cannot be deleted |
 | GET | `/api/projects/:id/pitr/window` | session · token `backups:read` | the range of instants the database can be recovered to |
 | POST | `/api/projects/:id/pitr/restore` | session · token `backups:write` | `{ targetTime }` — start recovering the database to that instant → 202 job |
 | GET | `/api/projects/:id/pitr/restore/:jobId` | session · token `backups:read` | one restore job: status, phase, message, outcome |

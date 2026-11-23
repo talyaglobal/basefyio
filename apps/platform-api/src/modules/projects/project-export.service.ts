@@ -14,6 +14,7 @@ import { StorageService } from '../storage/storage.service';
 import { ProjectsService } from './projects.service';
 import { ProjectArchiveImportService } from './project-archive-import.service';
 import { EXPORT_QUEUE } from '../queue/queue.module';
+import { grantedByRole } from '../teams/role-permissions';
 import type {
   ExportJobData,
   ExportJobResult,
@@ -202,6 +203,66 @@ export class ProjectExportService {
       ...manual.map((o) => toEntry(o, 'manual' as const)),
       ...auto.map((o) => toEntry(o, 'auto' as const)),
     ].sort((a, b) => (a.lastModified < b.lastModified ? 1 : -1));
+  }
+
+  /**
+   * One cloud backup as a download (#34), decrypted when it is stored encrypted,
+   * so the file is a usable archive. Manual exports and nightly backups alike.
+   */
+  async getCloudBackupFile(projectId: string, userId: string, objectKey: string, kind: 'manual' | 'auto' = 'manual') {
+    await this.projectsService.findOne(projectId, userId);
+    const key = objectKey?.trim();
+    if (!key?.startsWith(`${projectId}/`) || key.includes('..')) {
+      throw new ForbiddenException('Backup does not belong to this project');
+    }
+    const bucket = kind === 'auto' ? AUTO_BACKUP_BUCKET : EXPORT_BUCKET;
+    const file = await this.storage.getPlatformObject(bucket, key).catch(() => {
+      throw new NotFoundException('Backup not found');
+    });
+    let stream: Readable = file.stream;
+    let size: number | undefined = file.stat?.size;
+    if (key.endsWith(ENCRYPTED_SUFFIX)) {
+      const secret = getBackupKey();
+      if (!secret) throw new BadRequestException('This backup is encrypted and cannot be decrypted right now. Please contact support.');
+      const decrypt = createDecryptStream(secret);
+      file.stream.on('error', (err) => decrypt.destroy(err));
+      stream = file.stream.pipe(decrypt);
+      size = undefined; // the plaintext length is not known up front
+    }
+    const filename = (key.split('/').pop() || 'backup.zip').replace(ENCRYPTED_SUFFIX, '');
+    return { stream, size, filename };
+  }
+
+  /**
+   * Delete a manual export from cloud storage (#34). Nightly backups follow the
+   * retention policy and cannot be deleted here. Needs the right to delete
+   * projects (owner, or a role granted canDeleteProjects): it cannot be undone.
+   */
+  async deleteCloudBackup(projectId: string, userId: string, objectKey: string) {
+    const project = await this.projectsService.findOne(projectId, userId);
+    const key = objectKey?.trim();
+    if (!key?.startsWith(`${projectId}/`) || key.includes('..')) {
+      throw new ForbiddenException('Backup does not belong to this project');
+    }
+    const membership = await this.prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId: project.teamId, userId } },
+    });
+    if (
+      !membership ||
+      (membership.role !== 'OWNER' &&
+        !(await grantedByRole(this.prisma, project.teamId, membership.role, 'canDeleteProjects')))
+    ) {
+      throw new ForbiddenException('Only members who may delete projects can delete backups');
+    }
+    const exists = (await this.storage.listPlatformObjects(EXPORT_BUCKET, key)).some((o) => o.name === key);
+    if (!exists) throw new NotFoundException('Backup not found');
+    await this.storage.removePlatformObject(EXPORT_BUCKET, key);
+    await this.activity.append(projectId, {
+      userId,
+      kind: ProjectActivityKind.PROJECT_BACKUP_DELETED,
+      title: `Backup deleted: ${key.split('/').pop()}`,
+    });
+    return { deleted: true };
   }
 
   async restoreCloudBackup(
