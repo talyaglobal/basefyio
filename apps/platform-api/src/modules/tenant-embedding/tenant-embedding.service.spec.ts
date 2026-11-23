@@ -377,7 +377,8 @@ describe('TenantEmbeddingService.setProvider', () => {
     for (const baseUrl of ['http://10.0.0.5:11434', 'https://keycloak:8080', 'http://ollama.example.com']) {
       const err = await svc.setProvider('p1', { provider: 'ollama', baseUrl }).catch((e) => e);
       expect(err).toBeInstanceOf(BadRequestException);
-      expect(err.message).toContain('EMBEDDING_ALLOW_PRIVATE_BASE_URL');
+      expect(err.message).toContain('not allowed');
+      expect(err.message).not.toContain('EMBEDDING_');
     }
     await expect(
       svc.setProvider('p1', { provider: 'ollama', baseUrl: 'https://user:pw@ollama.example.com' }),
