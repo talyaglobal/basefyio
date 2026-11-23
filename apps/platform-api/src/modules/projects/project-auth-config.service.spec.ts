@@ -41,3 +41,23 @@ describe('ProjectAuthConfigService.update token lifetime', () => {
     await svc.update('p', { tokenExpirySeconds: 2592000 });
   });
 });
+
+describe('ProjectAuthConfigService.update password length', () => {
+  const row = { minPasswordLength: 6 };
+  const prisma: any = {
+    projectAuthConfig: {
+      findUnique: jest.fn().mockResolvedValue(row),
+      update: jest.fn().mockImplementation(({ data }) => Promise.resolve({ ...row, ...data })),
+    },
+  };
+  const svc = new ProjectAuthConfigService(prisma, { append: jest.fn() } as any);
+
+  it.each([0, 1, 5, 129, 'abc', null])('rejects %p', async (v) => {
+    await expect(svc.update('p', { minPasswordLength: v })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('accepts 128', async () => {
+    await svc.update('p', { minPasswordLength: 128 });
+    expect(prisma.projectAuthConfig.update.mock.calls.pop()[0].data.minPasswordLength).toBe(128);
+  });
+});

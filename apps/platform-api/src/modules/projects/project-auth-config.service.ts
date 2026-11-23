@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { assertPasswordMinLength } from './project-auth-limits';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   ProjectActivityKind,
@@ -57,6 +58,10 @@ export class ProjectAuthConfigService {
     userId?: string,
   ) {
     await this.getOrCreate(projectId);
+
+    if (data.minPasswordLength !== undefined) {
+      data = { ...data, minPasswordLength: assertPasswordMinLength(data.minPasswordLength) };
+    }
 
     if (data.tokenExpirySeconds !== undefined) {
       const n = Number(data.tokenExpirySeconds);

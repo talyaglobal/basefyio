@@ -903,13 +903,24 @@ function PoliciesTab({ projectId }: { projectId: string }) {
 
   useEffect(() => {
     api.projects.getAuthPolicies(projectId)
-      .then(setPol)
+      .then((p) => setPol({ ...p, password: { ...p.password, minLength: p.password.minLength || 6 } }))
       .catch((err) => toast.error(err.message))
       .finally(() => setLoading(false));
   }, [projectId]);
 
+  const policyProblem = pol ? (
+    pol.password.minLength < 6 || pol.password.minLength > 128 ||
+    pol.password.historyCount < 0 || pol.password.historyCount > 24 ||
+    pol.password.expiryDays < 0 || pol.password.expiryDays > 3650 ||
+    (pol.bruteForceProtected && (
+      pol.failureFactor < 1 || pol.failureFactor > 100 ||
+      pol.waitIncrementSeconds < 0 || pol.waitIncrementSeconds > 86400 ||
+      pol.maxFailureWaitSeconds < 0 || pol.maxFailureWaitSeconds > 86400
+    ))
+  ) : false;
+
   async function save() {
-    if (!pol) return;
+    if (!pol || policyProblem) return;
     setSaving(true);
     try {
       const updated = await api.projects.updateAuthPolicies(projectId, {
@@ -946,9 +957,9 @@ function PoliciesTab({ projectId }: { projectId: string }) {
         </div>
         {pol.bruteForceProtected && (
           <div className="grid gap-4 sm:grid-cols-2">
-            <NumField label="Max login failures" value={pol.failureFactor} onChange={(v) => set({ failureFactor: v })} />
-            <NumField label="Wait increment (seconds)" value={pol.waitIncrementSeconds} onChange={(v) => set({ waitIncrementSeconds: v })} />
-            <NumField label="Max wait (seconds)" value={pol.maxFailureWaitSeconds} onChange={(v) => set({ maxFailureWaitSeconds: v })} />
+            <NumField label="Max login failures" min={1} max={100} value={pol.failureFactor} onChange={(v) => set({ failureFactor: v })} />
+            <NumField label="Wait increment (seconds)" min={0} max={86400} value={pol.waitIncrementSeconds} onChange={(v) => set({ waitIncrementSeconds: v })} />
+            <NumField label="Max wait (seconds)" min={0} max={86400} value={pol.maxFailureWaitSeconds} onChange={(v) => set({ maxFailureWaitSeconds: v })} />
             <div className="flex items-center justify-between rounded-md border px-3 py-2">
               <span className="text-sm">Permanent lockout</span>
               <Toggle checked={pol.permanentLockout} onChange={(v) => set({ permanentLockout: v })} />
@@ -964,9 +975,9 @@ function PoliciesTab({ projectId }: { projectId: string }) {
           <p className="text-xs text-muted-foreground">Complexity rules enforced when users set a password.</p>
         </div>
         <div className="grid gap-4 sm:grid-cols-3">
-          <NumField label="Minimum length" value={pol.password.minLength} onChange={(v) => setPw({ minLength: v })} />
-          <NumField label="Password history (remembered)" value={pol.password.historyCount} onChange={(v) => setPw({ historyCount: v })} />
-          <NumField label="Expiry (days, 0 = never)" value={pol.password.expiryDays} onChange={(v) => setPw({ expiryDays: v })} />
+          <NumField label="Minimum length (6-128)" min={6} max={128} value={pol.password.minLength} onChange={(v) => setPw({ minLength: v })} />
+          <NumField label="Password history (remembered)" min={0} max={24} value={pol.password.historyCount} onChange={(v) => setPw({ historyCount: v })} />
+          <NumField label="Expiry (days, 0 = never)" min={0} max={3650} value={pol.password.expiryDays} onChange={(v) => setPw({ expiryDays: v })} />
         </div>
         <div className="grid gap-2 sm:grid-cols-2">
           <CheckRow label="Require uppercase letter" checked={pol.password.requireUppercase} onChange={(v) => setPw({ requireUppercase: v })} />
@@ -976,7 +987,7 @@ function PoliciesTab({ projectId }: { projectId: string }) {
         </div>
       </div>
 
-      <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save policies'}</Button>
+      <Button onClick={save} disabled={saving || policyProblem}>{saving ? 'Saving…' : 'Save policies'}</Button>
     </div>
   );
 }
@@ -995,11 +1006,14 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
   );
 }
 
-function NumField({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+function NumField({ label, value, onChange, min, max }: { label: string; value: number; onChange: (v: number) => void; min?: number; max?: number }) {
+  const bad = (min != null && value < min) || (max != null && value > max) || !Number.isInteger(value);
   return (
     <div className="space-y-1">
       <Label className="text-xs">{label}</Label>
-      <Input type="number" value={value} onChange={(e) => onChange(Number(e.target.value) || 0)} />
+      <Input type="number" value={value} min={min} max={max} aria-invalid={bad} className={bad ? 'border-destructive' : undefined}
+        onChange={(e) => onChange(Number(e.target.value) || 0)} />
+      {bad && <p className="text-xs text-destructive">Enter a whole number{min != null && max != null ? ` between ${min} and ${max}` : ''}.</p>}
     </div>
   );
 }
@@ -1411,14 +1425,22 @@ function SettingsTab({
   const [enforceMfa, setEnforceMfa] = useState(config.mfaEnforceEnrollment ?? false);
   const [saving, setSaving] = useState(false);
 
+  const minPwNum = Number(minPwLen);
+  const minPwError = !/^\d+$/.test(minPwLen.trim()) || minPwNum < 6 || minPwNum > 128
+    ? 'Enter a whole number between 6 and 128.' : null;
+  const expiryNum = Number(tokenExpiry);
+  const expiryError = !/^\d+$/.test(tokenExpiry.trim()) || expiryNum < 300 || expiryNum > 2592000
+    ? 'Enter a whole number of seconds between 300 and 2592000 (30 days).' : null;
+
   async function handleSave() {
+    if (minPwError || expiryError) return;
     setSaving(true);
     try {
       const updated = await api.projects.updateAuthConfig(projectId, {
         allowSignup: selfSignup,
         requireEmailVerify: emailVerification,
-        minPasswordLength: parseInt(minPwLen, 10) || 6,
-        tokenExpirySeconds: parseInt(tokenExpiry, 10) || 1800,
+        minPasswordLength: minPwNum,
+        tokenExpirySeconds: expiryNum,
         allowAnonymous,
         mfaEnforceEnrollment: enforceMfa,
       });
@@ -1486,11 +1508,15 @@ function SettingsTab({
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label>Minimum length</Label>
-            <Input type="number" value={minPwLen} onChange={(e) => setMinPwLen(e.target.value)} min={6} max={128} />
+            <Input type="number" value={minPwLen} onChange={(e) => setMinPwLen(e.target.value)} min={6} max={128}
+              aria-invalid={!!minPwError} className={minPwError ? 'border-destructive' : undefined} />
+            {minPwError && <p className="text-xs text-destructive">{minPwError}</p>}
           </div>
           <div className="space-y-1.5">
             <Label>Token expiry (seconds)</Label>
-            <Input type="number" value={tokenExpiry} onChange={(e) => setTokenExpiry(e.target.value)} min={300} />
+            <Input type="number" value={tokenExpiry} onChange={(e) => setTokenExpiry(e.target.value)} min={300} max={2592000}
+              aria-invalid={!!expiryError} className={expiryError ? 'border-destructive' : undefined} />
+            {expiryError && <p className="text-xs text-destructive">{expiryError}</p>}
           </div>
         </div>
       </div>
@@ -1500,7 +1526,7 @@ function SettingsTab({
         <p>Settings are saved per-project. Changes will take effect immediately for new auth requests.</p>
       </div>
 
-      <Button onClick={handleSave} disabled={saving}>
+      <Button onClick={handleSave} disabled={saving || !!minPwError || !!expiryError}>
         {saving ? 'Saving...' : 'Save Settings'}
       </Button>
     </div>

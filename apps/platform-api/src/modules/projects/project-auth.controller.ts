@@ -37,6 +37,7 @@ import {
   ProjectActivityKind,
   ProjectActivityService,
 } from './project-activity.service';
+import { assertPolicyBody } from './project-auth-limits';
 
 const logger = new Logger('ProjectAuth');
 
@@ -491,6 +492,7 @@ export class ProjectAuthController {
     @Body() body: Record<string, any>,
     @CurrentUser() user?: JwtPayload,
   ) {
+    assertPolicyBody(body);
     const project = await this.projectsService.findOne(projectId, user?.sub);
     const update: Record<string, any> = {};
     for (const k of [
