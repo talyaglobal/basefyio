@@ -147,7 +147,14 @@ export function QueryEditor({ projectId }: QueryEditorProps) {
 
   useEffect(() => {
     if (!activeTabId || tabs.length === 0) return;
-    localStorage.setItem(storageKey, JSON.stringify({ tabs, activeTabId }));
+    // Queries are kept between visits; result rows are not, so data never sits
+    // in browser storage on a shared computer (#149).
+    try {
+      const slim = tabs.map((t) => ({ ...t, result: null, error: null }));
+      localStorage.setItem(storageKey, JSON.stringify({ tabs: slim, activeTabId }));
+    } catch {
+      /* storage full or blocked: nothing to keep */
+    }
   }, [tabs, activeTabId, storageKey]);
 
   useEffect(() => {

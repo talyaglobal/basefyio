@@ -15,6 +15,7 @@ const KIND_LABELS: Record<string, string> = {
   'project.permanent_delete': 'Project',
   'project.moved_team': 'Project',
   'sql.executed': 'SQL',
+  'sql.changed': 'SQL',
   'sql.failed': 'SQL',
   'integration.github_connected': 'GitHub',
   'integration.github_disconnected': 'GitHub',

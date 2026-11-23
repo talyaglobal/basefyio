@@ -433,7 +433,9 @@ export class SqlService implements OnModuleDestroy {
       const qPreview = query.replace(/\s+/g, ' ').trim().slice(0, 240);
       await this.activity.append(projectId, {
         userId: userId || undefined,
-        kind: ProjectActivityKind.SQL_EXECUTED,
+        // Anything but a single plain read may have changed rows or schema: say
+        // so, so the Data editor in other tabs reloads (#149).
+        kind: readOnly || !findNonReadStatement(query) ? ProjectActivityKind.SQL_EXECUTED : ProjectActivityKind.SQL_CHANGED,
         title:
           result.rowCount != null
             ? `SQL executed (${result.rowCount} ${result.rowCount === 1 ? 'row' : 'rows'}, ${duration}ms)`

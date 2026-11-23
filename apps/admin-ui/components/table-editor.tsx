@@ -897,7 +897,8 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
     }
   }, [selectedKey, openTabs, stateStorageKey]);
 
-  useLiveProjectRefresh(projectId, ['table.'], () => {
+  // SQL that changed data or schema in any tab reloads the list and the rows too (#149).
+  useLiveProjectRefresh(projectId, ['table.', 'sql.changed'], () => {
     void loadTables();
     void reloadRows();
   });
@@ -979,6 +980,11 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
               ? keyOf('entity', ents[0].logicalName)
               : null;
 
+      // The open table was dropped elsewhere (SQL editor, another tab): say so
+      // instead of silently switching to another table (#149).
+      if (selectedKey && !validKey(selectedKey)) {
+        toast.message(`"${parseKey(selectedKey).name}" no longer exists; it was dropped or renamed.`);
+      }
       const target =
         deepLinkKey ??
         restoredSelected ??

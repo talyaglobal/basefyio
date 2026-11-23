@@ -21,6 +21,8 @@ export const ProjectActivityKind = {
   PROJECT_PERMANENT_DELETE: 'project.permanent_delete',
   PROJECT_MOVED_TEAM: 'project.moved_team',
   SQL_EXECUTED: 'sql.executed',
+  /** A successful statement that can change data or schema; open Data editors refresh on it (#149). */
+  SQL_CHANGED: 'sql.changed',
   SQL_FAILED: 'sql.failed',
   DATA_QUERY_EXECUTED: 'data_query.executed',
   DATA_QUERY_FAILED: 'data_query.failed',
