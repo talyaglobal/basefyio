@@ -710,8 +710,19 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
 
   // Look up schema for a given table name from the listTables result so the
   // backend resolves "public.users" vs "auth.users" unambiguously.
-  const schemaFor = (name: string | null): string | undefined =>
-    name ? tables.find((t) => t.name === name)?.schema : undefined;
+  // A table outside `public` is keyed and labelled `schema.name` (#263), so it
+  // never mixes with, or opens, a public table of the same name.
+  const sqlKeyOf = (t: { schema: string; name: string }): string =>
+    t.schema === 'public' ? t.name : `${t.schema}.${t.name}`;
+  const tableRef = (key: string | null): { schema?: string; name: string } | null => {
+    if (!key) return null;
+    const t = tables.find((x) => sqlKeyOf(x) === key) ?? tables.find((x) => x.name === key && x.schema === 'public');
+    return t ? { schema: t.schema, name: t.name } : { name: key };
+  };
+  const schemaFor = (key: string | null): string | undefined => tableRef(key)?.schema;
+  /** The bare table name the API expects for a sidebar key. */
+  const nameOf = (key: string): string => tableRef(key)?.name ?? key;
+  const isPublicKey = (key: string): boolean => (schemaFor(key) ?? 'public') === 'public';
   /** Selected sidebar item key (`kind:name`); null = nothing open. */
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   /** SQL table name currently driving the grid — set only for kind 'sql'. */
@@ -812,7 +823,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
   const sidebarItems: SidebarItem[] = [
     // A collection is stored as a table in the nosql schema; it is listed once, as a collection.
     ...tables.filter((t) => t.schema !== 'nosql').map((t) => ({
-      kind: 'sql' as const, name: t.name, label: t.name, count: t.rowCount as number | null,
+      kind: 'sql' as const, name: sqlKeyOf(t), label: sqlKeyOf(t), count: t.rowCount as number | null,
     })),
     ...collections.map((c) => ({
       kind: 'nosql' as const, name: c.name, label: c.name, count: c.documentCount as number | null,
@@ -1037,7 +1048,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
     // effect below, which is the single source of truth for the data set.
     // Loading both here would cause a redundant fetch when the effect fires.
     try {
-      const cols = await api.projects.columns(projectId, name, schemaFor(name));
+      const cols = await api.projects.columns(projectId, nameOf(name), schemaFor(name));
       setColumns(cols);
     } catch (err: any) {
       toast.error(err.message);
@@ -1049,8 +1060,8 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
     setDataLoading(true);
     try {
       const [cols, rows] = await Promise.all([
-        api.projects.columns(projectId, selected, schemaFor(selected)),
-        api.projects.rows(projectId, selected, page, 50, schemaFor(selected), appliedFilter, sortBy ?? undefined, sortDir),
+        api.projects.columns(projectId, nameOf(selected), schemaFor(selected)),
+        api.projects.rows(projectId, nameOf(selected), page, 50, schemaFor(selected), appliedFilter, sortBy ?? undefined, sortDir),
       ]);
       setColumns(cols);
       setData(rows);
@@ -1081,7 +1092,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
     let cancelled = false;
     setDataLoading(true);
     api.projects
-      .rows(projectId, selected, 1, 50, schemaFor(selected), appliedFilter, sortBy ?? undefined, sortDir)
+      .rows(projectId, nameOf(selected), 1, 50, schemaFor(selected), appliedFilter, sortBy ?? undefined, sortDir)
       .then((rows) => {
         if (cancelled) return;
         setData(rows);
@@ -1103,7 +1114,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
     if (!selected) return;
     setDataLoading(true);
     try {
-      const rows = await api.projects.rows(projectId, selected, page, 50, schemaFor(selected), appliedFilter, sortBy ?? undefined, sortDir);
+      const rows = await api.projects.rows(projectId, nameOf(selected), page, 50, schemaFor(selected), appliedFilter, sortBy ?? undefined, sortDir);
       setData(rows);
       if (!appliedFilter) syncSidebarCount(selected, rows.total);
     } catch (err: any) {
@@ -1120,7 +1131,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
     setSelectedRows(new Set());
     setDataLoading(true);
     try {
-      const rows = await api.projects.rows(projectId, selected, p, 50, schemaFor(selected), appliedFilter, sortBy ?? undefined, sortDir);
+      const rows = await api.projects.rows(projectId, nameOf(selected), p, 50, schemaFor(selected), appliedFilter, sortBy ?? undefined, sortDir);
       setData(rows);
       if (!appliedFilter) syncSidebarCount(selected, rows.total);
     } catch (err: any) {
@@ -1231,7 +1242,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
     }
 
     try {
-      await api.projects.updateRow(projectId, selected, pkWhere, {
+      await api.projects.updateRow(projectId, nameOf(selected), pkWhere, {
         [editingCell.field]: newVal,
       }, schemaFor(selected));
       toast.success('Cell updated');
@@ -1287,7 +1298,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
     }
 
     try {
-      await api.projects.insertRow(projectId, selected, payload, schemaFor(selected));
+      await api.projects.insertRow(projectId, nameOf(selected), payload, schemaFor(selected));
       toast.success('Row inserted');
       setAddingRow(false);
       setNewRow({});
@@ -1308,7 +1319,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
     if (!(await confirmDialog({ title: 'Delete row', description: 'Delete this row?', destructive: true }))) return;
 
     try {
-      await api.projects.deleteRow(projectId, selected, pkWhere, schemaFor(selected));
+      await api.projects.deleteRow(projectId, nameOf(selected), pkWhere, schemaFor(selected));
       toast.success('Row deleted');
       reloadRows();
       loadTables();
@@ -1343,7 +1354,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
       const row = filteredRows[idx];
       if (!row) continue;
       try {
-        await api.projects.deleteRow(projectId, selected, getRowMatch(row), schemaFor(selected));
+        await api.projects.deleteRow(projectId, nameOf(selected), getRowMatch(row), schemaFor(selected));
         deleted++;
       } catch {}
     }
@@ -1404,7 +1415,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
       const all: Record<string, unknown>[] = [];
       let names: string[] = [];
       for (let p = 1; ; p++) {
-        const res = await api.projects.rows(projectId, selected, p, 1000, schemaFor(selected), appliedFilter, sortBy ?? undefined, sortDir);
+        const res = await api.projects.rows(projectId, nameOf(selected), p, 1000, schemaFor(selected), appliedFilter, sortBy ?? undefined, sortDir);
         names = res.fields.map((f) => f.name).filter((n) => n !== '_bf_ctid');
         all.push(...res.rows);
         if (p >= res.totalPages || all.length >= EXPORT_MAX) break;
@@ -1642,7 +1653,12 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
                           </button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-44">
-                          {t.kind === 'sql' ? (
+                          {t.kind === 'sql' && !isPublicKey(t.name) ? (
+                            // Rename, column edits and drop act on public tables only.
+                            <DropdownMenuItem disabled>
+                              Change this table in the SQL editor
+                            </DropdownMenuItem>
+                          ) : t.kind === 'sql' ? (
                             <>
                               <DropdownMenuItem
                                 onClick={() => {
@@ -2159,7 +2175,8 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
                   </div>
 
                   {/* Column side panel */}
-                  {columnPanelOpen && selected && (
+                  {/* Column changes go to public tables only (the column API has no schema). */}
+                  {columnPanelOpen && selected && isPublicKey(selected) && (
                     <ColumnSidePanel
                       columns={columns}
                       tables={tables}
@@ -2232,7 +2249,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
           open={dedupeOpen}
           onOpenChange={setDedupeOpen}
           projectId={projectId}
-          tableName={selected}
+          tableName={nameOf(selected)}
           schema={schemaFor(selected)}
           columns={columns}
           onCompleted={() => {
@@ -2275,7 +2292,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
         </DialogContent>
       </Dialog>
 
-      {selected && (
+      {selected && isPublicKey(selected) && (
         <AddColumnDialog
           open={addColumnOpen}
           onOpenChange={setAddColumnOpen}
