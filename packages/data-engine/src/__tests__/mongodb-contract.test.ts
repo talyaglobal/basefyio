@@ -221,6 +221,23 @@ describe('MongoDataEngine contract', () => {
     expect(await col.count()).toBe(0);
   });
 
+  it('restore brings a soft-deleted document back and bumps its version (#173)', async () => {
+    const col = engine.collection('p1', 'orders');
+    const created = await col.insert({ x: 1 });
+    await col.delete(created._id);
+    const restored = await col.restore!(created._id);
+    expect(restored._status).toBe('active');
+    expect(restored._deletedAt).toBeNull();
+    expect(restored._version).toBe(3);
+    expect((await col.get(created._id))?.x).toBe(1);
+  });
+
+  it('restore of a document that is not deleted is DocumentNotFoundError', async () => {
+    const col = engine.collection('p1', 'orders');
+    const created = await col.insert({ x: 1 });
+    await expect(col.restore!(created._id)).rejects.toThrow(/not found/);
+  });
+
   it('query composes scope + translated filter and flattens rows', async () => {
     const col = engine.collection('p1', 'orders');
     await col.insert({ status: 'paid', total: 10 });
