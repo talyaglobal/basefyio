@@ -2843,7 +2843,18 @@ export default function ManagementPage() {
           <table className="w-full min-w-[1220px] text-left text-sm">
             <thead>
               <tr className="border-b text-xs text-muted-foreground">
-                <th className="px-2 py-2">Time</th>
+                <th className="px-2 py-2" title="Shown in your browser's time zone">
+                  Time{' '}
+                  <span className="font-normal">
+                    ({(() => {
+                      try {
+                        return Intl.DateTimeFormat().resolvedOptions().timeZone;
+                      } catch {
+                        return 'local time';
+                      }
+                    })()})
+                  </span>
+                </th>
                 <th className="px-2 py-2">Severity</th>
                 <th className="px-2 py-2">Result</th>
                 <th className="px-2 py-2">Action</th>

@@ -26,6 +26,7 @@ export interface DocumentResult {
 }
 
 const NOSQL_SCHEMA = 'nosql';
+const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 const VALID_COLLECTION_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 const MAX_DOCUMENT_SIZE_BYTES = 16 * 1024 * 1024; // 16 MB
 
@@ -91,6 +92,13 @@ export class CollectionService {
       throw new BadRequestException(
         `Invalid collection name: "${name}". Must start with a letter or underscore and contain only alphanumeric characters.`,
       );
+    }
+  }
+
+  /** A malformed id cannot exist: answer 404 instead of leaking the Postgres uuid parse error. */
+  private assertDocumentId(docId: string): void {
+    if (!UUID_RE.test(docId)) {
+      throw new NotFoundException(`Document "${docId}" not found`);
     }
   }
 
@@ -315,6 +323,12 @@ export class CollectionService {
     const client = await pool.connect();
 
     try {
+      const exists = await client.query(`SELECT to_regclass($1) AS rel`, [
+        this.qualifiedName(collectionName),
+      ]);
+      if (!exists.rows[0]?.rel) {
+        throw new NotFoundException(`Collection "${collectionName}" not found`);
+      }
       await client.query(
         `DROP TABLE IF EXISTS ${this.qualifiedName(collectionName)} CASCADE`,
       );
@@ -490,6 +504,7 @@ export class CollectionService {
     userId?: string,
   ): Promise<DocumentResult> {
     this.validateCollectionName(collectionName);
+    this.assertDocumentId(docId);
 
     const { pool } = await this.getProjectPool(projectId, userId);
     const client = await pool.connect();
@@ -527,6 +542,7 @@ export class CollectionService {
     userId?: string,
   ): Promise<DocumentResult> {
     this.validateCollectionName(collectionName);
+    this.assertDocumentId(docId);
 
     const { pool } = await this.getProjectPool(projectId, userId);
     const client = await pool.connect();
@@ -572,6 +588,7 @@ export class CollectionService {
     userId?: string,
   ): Promise<DocumentResult> {
     this.validateCollectionName(collectionName);
+    this.assertDocumentId(docId);
 
     const size = Buffer.byteLength(JSON.stringify(newDoc), 'utf8');
     if (size > MAX_DOCUMENT_SIZE_BYTES) {
@@ -622,6 +639,7 @@ export class CollectionService {
     userId?: string,
   ): Promise<{ message: string }> {
     this.validateCollectionName(collectionName);
+    this.assertDocumentId(docId);
 
     const { pool } = await this.getProjectPool(projectId, userId);
     const client = await pool.connect();
@@ -727,7 +745,7 @@ export class CollectionService {
     userId?: string,
   ): Promise<{ message: string }> {
     this.validateCollectionName(collectionName);
-    if (!VALID_COLLECTION_RE.test(fieldPath)) {
+    if (typeof fieldPath !== 'string' || !fieldPath || !VALID_COLLECTION_RE.test(fieldPath)) {
       throw new BadRequestException(`Invalid field path: "${fieldPath}"`);
     }
 

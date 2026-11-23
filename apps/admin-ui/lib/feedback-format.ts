@@ -11,10 +11,17 @@ const STATUS_LABELS: Record<string, string> = {
 export function currentPageUrl(url: string): string {
   try {
     const u = new URL(url);
+    let changed = false;
     if (u.hostname === 'kolaybase.com' || u.hostname.endsWith('.kolaybase.com')) {
       u.hostname = u.hostname.replace(/kolaybase\.com$/, 'basefyio.com');
-      return u.toString();
+      changed = true;
     }
+    // Pages that no longer exist open the dashboard instead of a 404.
+    if (u.pathname === '/dashboard/management' || u.pathname.startsWith('/dashboard/management/')) {
+      u.pathname = '/dashboard';
+      changed = true;
+    }
+    if (changed) return u.toString();
   } catch {
     /* relative or malformed: leave as stored */
   }

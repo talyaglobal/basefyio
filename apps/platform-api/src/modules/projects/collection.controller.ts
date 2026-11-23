@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Controller,
   Get,
   Post,
@@ -24,6 +25,16 @@ import {
   ProjectActivityService,
 } from './project-activity.service';
 import { PlanGate } from '../../common/decorators/plan-gate.decorator';
+
+/** A query parameter that must hold JSON: malformed input is a 400 naming the parameter, not a 500. */
+export function parseJsonQuery(name: string, raw?: string): any {
+  if (!raw) return undefined;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new BadRequestException(`Query parameter "${name}" must be valid JSON`);
+  }
+}
 
 /**
  * Document collections, administrative side.
@@ -104,9 +115,9 @@ export class CollectionController {
     @Query('offset', new DefaultValuePipe(0), ParseIntPipe) offset?: number,
     @CurrentUser() user?: JwtPayload,
   ) {
-    const filter = filterRaw ? JSON.parse(filterRaw) : undefined;
-    const sort = sortRaw ? JSON.parse(sortRaw) : undefined;
-    const project = projectRaw ? JSON.parse(projectRaw) : undefined;
+    const filter = parseJsonQuery('filter', filterRaw);
+    const sort = parseJsonQuery('sort', sortRaw);
+    const project = parseJsonQuery('project', projectRaw);
 
     return this.collectionService.findDocuments(
       projectId,
@@ -258,7 +269,7 @@ export class CollectionController {
     @Query('filter') filterRaw?: string,
     @CurrentUser() user?: JwtPayload,
   ) {
-    const filter = filterRaw ? JSON.parse(filterRaw) : undefined;
+    const filter = parseJsonQuery('filter', filterRaw);
     return this.collectionService.countDocuments(
       projectId,
       collectionName,
@@ -278,7 +289,7 @@ export class CollectionController {
     return this.collectionService.createIndex(
       projectId,
       collectionName,
-      body.fieldPath,
+      body?.fieldPath,
       user?.sub,
     );
   }
