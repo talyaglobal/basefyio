@@ -4,6 +4,7 @@ import path from 'path';
 import { apiClient, handleApiError } from '../lib/api.js';
 import { setProjectConfig, isLoggedIn, getProjectConfig, writeEnvFile, missingEnvHint } from '../lib/config.js';
 import { success, error, warning, createSpinner, printHeader } from '../lib/ui.js';
+import { resolveProjectSecrets } from '../lib/secrets.js';
 
 interface InitOptions {
   name?: string;
@@ -88,8 +89,15 @@ export async function initCommand(options: InitOptions) {
       /* fall back */
     }
 
-    // The creation response carries the new password and service key once; nothing else does.
-    const missing = await writeEnvFile(project, connect);
+    // The reveal endpoint gives the URIs with the password; an older server has no such route
+    // and still returns the fields. The creation response carries the new password and service
+    // key once either way, so writeEnvFile falls back to it.
+    const resolved = await resolveProjectSecrets(() => apiClient.revealProjectSecrets(project.id), {
+      project,
+      connect,
+    });
+    const missing = await writeEnvFile(project, connect, resolved.secrets);
+    if (resolved.message && missing.length > 0) warning(resolved.message);
     const hint = missingEnvHint(missing);
     if (hint) warning(hint);
 

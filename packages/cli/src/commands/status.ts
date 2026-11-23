@@ -2,6 +2,7 @@ import chalk from 'chalk';
 import { apiClient, handleApiError } from '../lib/api.js';
 import { getProjectConfig, isLoggedIn } from '../lib/config.js';
 import { error, printHeader, createSpinner } from '../lib/ui.js';
+import { resolveProjectSecrets, type ResolvedSecrets } from '../lib/secrets.js';
 
 interface StatusOptions {
   showKeys?: boolean;
@@ -27,17 +28,14 @@ export async function statusCommand(options: StatusOptions) {
     // The project read carries no password or service key (#14). --show-keys asks the reveal
     // endpoint, which needs a team owner, admin or the credentials permission and is recorded
     // in the project's activity log.
-    let secrets: Awaited<ReturnType<typeof apiClient.revealProjectSecrets>> | null = null;
+    // An older server has no reveal route (404) but still returns the fields on the project read.
+    let secrets: ResolvedSecrets['secrets'] = null;
     let secretsNote: string | null = null;
     if (options.showKeys) {
-      try {
-        secrets = await apiClient.revealProjectSecrets(config.projectId);
-      } catch (err: any) {
-        secretsNote =
-          err?.response?.status === 403
-            ? 'Your role cannot see this project\'s credentials; ask a team owner or admin.'
-            : 'Could not fetch the credentials.';
-      }
+      const projectId = config.projectId;
+      const resolved = await resolveProjectSecrets(() => apiClient.revealProjectSecrets(projectId), { project });
+      secrets = resolved.secrets;
+      secretsNote = resolved.message;
     }
     spinner.stop();
 
@@ -82,7 +80,7 @@ export async function statusCommand(options: StatusOptions) {
       'Service Key',
       serviceKey
         ? serviceKey
-        : secrets && !secrets.serviceKeyRevealable
+        : secrets && secrets.serviceKeyRevealable === false
           ? chalk.gray('in use, no longer shown — rotate it or create a secret key')
           : HIDDEN,
     );

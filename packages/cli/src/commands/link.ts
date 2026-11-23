@@ -4,6 +4,7 @@ import fs from 'fs/promises';
 import { apiClient, handleApiError } from '../lib/api.js';
 import { setProjectConfig, isLoggedIn, writeEnvFile, missingEnvHint } from '../lib/config.js';
 import { success, error, warning, createSpinner } from '../lib/ui.js';
+import { resolveProjectSecrets } from '../lib/secrets.js';
 
 interface LinkOptions {
   projectId?: string;
@@ -91,18 +92,17 @@ export async function linkCommand(options: LinkOptions) {
       linkedAt: new Date().toISOString(),
     });
 
-    // The project read carries no password or service key (#14); the reveal endpoint does,
-    // for a team owner, admin or a role with the credentials permission.
-    let secrets: Awaited<ReturnType<typeof apiClient.revealProjectSecrets>> | null = null;
-    try {
-      secrets = await apiClient.revealProjectSecrets(projectId!);
-    } catch {
-      /* role may not see the credentials, or an older API */
-    }
+    // The project read carries no password or service key on a current server (#14); the
+    // reveal endpoint does. An older server has no reveal route but still returns the fields.
+    const resolved = await resolveProjectSecrets(() => apiClient.revealProjectSecrets(projectId!), {
+      project,
+      connect,
+    });
 
-    const missing = await writeEnvFile(project, connect, secrets);
+    const missing = await writeEnvFile(project, connect, resolved.secrets);
 
     spinner.succeed(`Linked to ${chalk.cyan(project.name)}`);
+    if (resolved.message) warning(resolved.message);
     const hint = missingEnvHint(missing);
     if (hint) warning(hint);
     console.log();
