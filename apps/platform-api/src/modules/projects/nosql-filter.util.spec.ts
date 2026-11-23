@@ -20,6 +20,24 @@ describe('nosql-filter.util', () => {
       expect(JSON.stringify(params)).toContain('active');
     });
 
+    it('nests dotted paths for bare equality (#176)', () => {
+      const { where, params } = buildNoSqlFilter({ 'meta.city': 'Ankara' });
+      expect(params[0]).toBe(JSON.stringify({ meta: { city: 'Ankara' } }));
+      expect(where).toContain("data #> '{meta,city}' @>");
+    });
+
+    it('matches a scalar against array membership for bare equality (#176)', () => {
+      const { where, params } = buildNoSqlFilter({ tags: 'y' });
+      expect(params).toEqual([JSON.stringify({ tags: 'y' }), JSON.stringify(['y'])]);
+      expect(where).toContain("data->'tags' @> $2::jsonb");
+    });
+
+    it('keeps array equality exact', () => {
+      const { where, params } = buildNoSqlFilter({ tags: ['a'] });
+      expect(params).toHaveLength(1);
+      expect(where).toBe('data @> $1::jsonb');
+    });
+
     it('shifts placeholders by paramOffset', () => {
       const { where } = buildNoSqlFilter({ status: 'active' }, 5);
       expect(where).toContain('$6');

@@ -1710,6 +1710,13 @@ export const api = {
         { method: 'PATCH', body: JSON.stringify(patch) },
       );
     },
+    /** Full replace (PUT): fields missing from `doc` are removed, unlike the PATCH merge above. */
+    replaceDataEngineDocument(projectId: string, entityName: string, docId: string, doc: Record<string, unknown>) {
+      return request<import('./types').DataEngineDoc>(
+        `/v1/projects/${projectId}/data/${encodeURIComponent(entityName)}/${docId}`,
+        { method: 'PUT', body: JSON.stringify(doc) },
+      );
+    },
     deleteDataEngineDocument(projectId: string, entityName: string, docId: string) {
       return request<void>(
         `/v1/projects/${projectId}/data/${encodeURIComponent(entityName)}/${docId}`,

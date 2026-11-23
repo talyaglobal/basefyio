@@ -145,7 +145,7 @@ function EditDocDialog({
     try { parsed = JSON.parse(json); } catch { toast.error('Invalid JSON'); return; }
     setSaving(true);
     try {
-      await api.projects.updateDataEngineDocument(projectId, entityName, doc._id, parsed);
+      await api.projects.replaceDataEngineDocument(projectId, entityName, doc._id, parsed);
       toast.success('Document saved');
       onOpenChange(false);
       onSaved();
