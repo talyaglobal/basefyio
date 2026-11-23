@@ -20,6 +20,8 @@ import {
   EMAIL_COLUMN_CANDIDATES,
   OWNER_COLUMN_CANDIDATES,
   pickColumn,
+  pickOwnerColumn,
+  ownerColumnWarning,
   RLS_POLICY_COMMANDS,
   RLS_POLICY_TEMPLATES,
   type RlsHelpers,
@@ -387,7 +389,9 @@ function PolicyDialog({
     let col: ColumnInfo | undefined;
     if (next.column) {
       const candidates = next.column === 'owner' ? OWNER_COLUMN_CANDIDATES : EMAIL_COLUMN_CANDIDATES;
-      col = columns.find((c) => c.name === columnName) ?? pickColumn(columns, candidates) ?? columns[0];
+      col =
+        columns.find((c) => c.name === columnName) ??
+        (next.column === 'owner' ? pickOwnerColumn(columns) : pickColumn(columns, candidates));
       setColumnName(col?.name ?? '');
     }
     const fill = applyTemplate(next, { helpers, column: col });
@@ -496,10 +500,14 @@ function PolicyDialog({
               <select aria-label="Policy column" value={columnName} onChange={(e) => chooseColumn(e.target.value)}
                 className="h-9 w-full rounded-md border bg-background px-3 text-sm">
                 {columns.length === 0 && <option value="">No columns found</option>}
+                {columns.length > 0 && !column && <option value="">Choose a column</option>}
                 {columns.map((c) => (
                   <option key={c.name} value={c.name}>{c.name} ({c.type})</option>
                 ))}
               </select>
+              {template.column === 'owner' && ownerColumnWarning(column) && (
+                <p className="text-xs text-amber-600 dark:text-amber-400">{ownerColumnWarning(column)}</p>
+              )}
             </div>
           )}
 

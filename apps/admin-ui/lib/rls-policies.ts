@@ -97,7 +97,7 @@ export function emailExpression(helpers: RlsHelpers, column: Pick<ColumnInfo, 'n
     : `(current_setting('request.jwt.claims', true)::jsonb ->> 'email') = ${col}`;
 }
 
-export const OWNER_COLUMN_CANDIDATES = ['user_id', 'owner_id', 'created_by', 'author_id', 'uid'];
+export const OWNER_COLUMN_CANDIDATES = ['user_id', 'owner_id', 'owner', 'created_by', 'author_id', 'creator_id', 'uid', 'user'];
 export const EMAIL_COLUMN_CANDIDATES = ['email', 'user_email', 'owner_email'];
 
 export function pickColumn(columns: ColumnInfo[], candidates: string[]): ColumnInfo | undefined {
@@ -247,4 +247,29 @@ export function applyTemplate(template: RlsPolicyTemplate, ctx: TemplateContext)
     using: resolveExpression(template.using, ctx),
     withCheck: resolveExpression(template.withCheck, ctx),
   };
+}
+
+const idLikeType = (type: string) => /^(uuid|text|character varying|varchar)/i.test(type);
+
+/**
+ * The column most likely to hold the signed-in user's id: a well-known name,
+ * then any user/owner-looking uuid or text column, then the first uuid column
+ * that is not the table's own id. Never the first column by position, and
+ * never an integer: undefined means "let the user choose".
+ */
+export function pickOwnerColumn(columns: ColumnInfo[]): ColumnInfo | undefined {
+  const named = pickColumn(columns, OWNER_COLUMN_CANDIDATES);
+  if (named) return named;
+  const looksLikeUser = columns.find(
+    (c) => /(user|owner|author|creator)/i.test(c.name) && idLikeType(c.type),
+  );
+  if (looksLikeUser) return looksLikeUser;
+  return columns.find((c) => /^uuid$/i.test(c.type) && c.name.toLowerCase() !== 'id');
+}
+
+/** A warning for an owner column that cannot hold a user id (auth.uid() is a uuid/text value). */
+export function ownerColumnWarning(column: Pick<ColumnInfo, 'name' | 'type'> | undefined): string | null {
+  if (!column) return null;
+  if (idLikeType(column.type)) return null;
+  return `"${column.name}" is ${column.type}, but the signed-in user's id is a uuid. Pick a uuid column that stores the user id, or the policy will never match.`;
 }
