@@ -674,6 +674,14 @@ export class ProjectsService implements OnApplicationBootstrap {
     }
     if (data.description !== undefined) updateData.description = data.description || null;
 
+    // What was there before, so the log names only the fields that really changed (#27).
+    const previousTagIds =
+      data.tags !== undefined
+        ? (await this.prisma.projectTagAssignment.findMany({ where: { projectId: id }, select: { tagId: true } }))
+            .map((t) => t.tagId)
+            .sort()
+        : [];
+
     const [updatedProject] = await this.prisma.$transaction(async (tx) => {
       const p = await tx.project.update({ where: { id }, data: updateData });
 
@@ -690,10 +698,14 @@ export class ProjectsService implements OnApplicationBootstrap {
     });
 
     const changes: string[] = [];
-    if (data.name !== undefined) changes.push('name');
-    if (data.description !== undefined) changes.push('description');
-    if (data.folderId !== undefined) changes.push('folder');
-    if (data.tags !== undefined) changes.push('tags');
+    if (updateData.name !== undefined && updateData.name !== project.name) changes.push('name');
+    if (updateData.description !== undefined && (updateData.description ?? null) !== ((project as any).description ?? null)) {
+      changes.push('description');
+    }
+    if (updateData.folderId !== undefined && (updateData.folderId ?? null) !== ((project as any).folderId ?? null)) {
+      changes.push('folder');
+    }
+    if (data.tags !== undefined && [...data.tags].sort().join(',') !== previousTagIds.join(',')) changes.push('tags');
     if (changes.length > 0) {
       await this.activity.append(id, {
         userId,

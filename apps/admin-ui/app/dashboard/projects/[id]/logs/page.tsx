@@ -22,13 +22,42 @@ import type { RealtimeEventEnvelope } from '@/lib/realtime-types';
 
 const PAGE_SIZE = 50;
 
+/** Event groups for the type filter: prefixes of the activity kinds. */
+const KIND_FILTERS: { value: string; label: string }[] = [
+  { value: '', label: 'All types' },
+  { value: 'sql.', label: 'SQL' },
+  { value: 'table.', label: 'Tables' },
+  { value: 'auth', label: 'Auth' },
+  { value: 'storage.', label: 'Storage' },
+  { value: 'flow.', label: 'Flows' },
+  { value: 'embeddings.', label: 'Embeddings' },
+  { value: 'project', label: 'Project and backups' },
+  { value: 'collection.', label: 'Collections' },
+];
+
 export default function ProjectLogsPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const [project, setProject] = useState<Project | null>(null);
   const [activity, setActivity] = useState<ProjectActivityItem[]>([]);
   const [search, setSearch] = useState('');
+  const [query, setQuery] = useState('');
+  const [kind, setKind] = useState('');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [reloadTick, setReloadTick] = useState(0);
   const [page, setPage] = useState(1);
+  const filtered = !!(query || kind || from || to);
+  const topRef = useRef<HTMLElement | null>(null);
+
+  // Debounced server-side search over the whole history (#27).
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setQuery(search.trim());
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [search]);
   const [totalPages, setTotalPages] = useState(1);
   const [totalActivity, setTotalActivity] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -76,6 +105,8 @@ export default function ProjectLogsPage() {
   pageRef.current = page;
   const totalActivityRef = useRef(totalActivity);
   totalActivityRef.current = totalActivity;
+  const filteredRef = useRef(filtered);
+  filteredRef.current = filtered;
 
   useEffect(() => {
     if (loading || !project) return;
@@ -88,6 +119,7 @@ export default function ProjectLogsPage() {
           kind?: string;
           title?: string;
           detail?: string | null;
+          actorName?: string;
         };
         const newItem: ProjectActivityItem = {
           id: event.entityId,
@@ -97,8 +129,10 @@ export default function ProjectLogsPage() {
           metadata: null,
           createdAt: event.emittedAt,
           userId: event.actorUserId ?? null,
-          actorName: undefined,
+          actorName: payload.actorName,
         };
+        // A filtered view is refetched instead; a live row may not match it.
+        if (filteredRef.current) return;
         setTotalActivity((t) => t + 1);
         setTotalPages(() => Math.max(1, Math.ceil((totalActivityRef.current + 1) / PAGE_SIZE)));
         if (pageRef.current !== 1) return;
@@ -121,12 +155,13 @@ export default function ProjectLogsPage() {
     let cancelled = false;
     setActivityLoading(true);
     api.projects
-      .listActivity(id, { page, limit: PAGE_SIZE })
+      .listActivity(id, { page, limit: PAGE_SIZE, q: query, kind, from, to })
       .then((a) => {
         if (cancelled) return;
         setActivity(a.items);
         setTotalPages(a.totalPages);
         setTotalActivity(a.total);
+        topRef.current?.scrollIntoView({ block: 'start' });
       })
       .catch((err) => {
         if (!cancelled) toast.error(err.message);
@@ -137,9 +172,9 @@ export default function ProjectLogsPage() {
     return () => {
       cancelled = true;
     };
-    // Intentionally exclude `loading` — we only want page changes to refetch.
+    // Intentionally exclude `loading` — only page, filter or refresh changes refetch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, page]);
+  }, [id, page, query, kind, from, to, reloadTick]);
 
   if (loading || !project) {
     return (
@@ -157,23 +192,7 @@ export default function ProjectLogsPage() {
     (project.supabaseImportLog === null || project.supabaseImportLog === undefined) &&
     importLog !== null;
   const showImportLog = importLog && shouldShowSupabaseImportLog(importLog);
-  // Search filters only the current page client-side. With server-side paging
-  // we no longer have the full history in memory; that's the tradeoff for
-  // being able to scroll to the very first event in a project with 10k+ logs.
-  const normalizedSearch = search.trim().toLowerCase();
-  const pagedActivity = activity.filter((item) => {
-    if (!normalizedSearch) return true;
-    const haystack = [
-      item.kind,
-      item.title,
-      item.detail || '',
-      item.createdAt,
-      JSON.stringify(item.metadata || {}),
-    ]
-      .join(' ')
-      .toLowerCase();
-    return haystack.includes(normalizedSearch);
-  });
+  const pagedActivity = activity;
   const safePage = Math.min(page, totalPages);
 
   return (
@@ -197,24 +216,66 @@ export default function ProjectLogsPage() {
         </Button>
       </header>
 
-      <section className="rounded-lg border bg-card p-5">
+      <section ref={topRef} className="scroll-mt-4 rounded-lg border bg-card p-5">
         <h2 className="text-sm font-semibold text-foreground">Activity</h2>
         <p className="mt-1 text-xs text-muted-foreground">
           Newest first. {totalActivity.toLocaleString('en-US')}{' '}
           {totalActivity === 1 ? 'event' : 'events'}{' '}recorded. Use the page
           controls below to scroll back through the project&apos;s full history.
         </p>
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="mt-3 flex flex-wrap items-center gap-2">
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Filter this page (title, detail, type)..."
+            placeholder="Search all events (title, detail, type)..."
+            aria-label="Search all events"
             className="max-w-sm"
           />
-          <p className="text-xs text-muted-foreground">
-            Showing {pagedActivity.length} of {activity.length} on this page
-            {' · '}
-            {totalActivity.toLocaleString('en-US')} total
+          <select
+            value={kind}
+            onChange={(e) => {
+              setKind(e.target.value);
+              setPage(1);
+            }}
+            aria-label="Event type"
+            className="h-9 rounded-md border bg-background px-2 text-sm"
+          >
+            {KIND_FILTERS.map((k) => (
+              <option key={k.value} value={k.value}>
+                {k.label}
+              </option>
+            ))}
+          </select>
+          <label className="flex items-center gap-1 text-xs text-muted-foreground">
+            From
+            <Input type="date" value={from} onChange={(e) => { setFrom(e.target.value); setPage(1); }} className="h-9 w-36" />
+          </label>
+          <label className="flex items-center gap-1 text-xs text-muted-foreground">
+            To
+            <Input type="date" value={to} onChange={(e) => { setTo(e.target.value); setPage(1); }} className="h-9 w-36" />
+          </label>
+          <Button type="button" variant="outline" size="sm" onClick={() => setReloadTick((t) => t + 1)}>
+            Refresh
+          </Button>
+          {filtered && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setSearch('');
+                setQuery('');
+                setKind('');
+                setFrom('');
+                setTo('');
+                setPage(1);
+              }}
+            >
+              Clear filters
+            </Button>
+          )}
+          <p className="ml-auto text-xs text-muted-foreground">
+            {totalActivity.toLocaleString('en-US')} {filtered ? 'matching' : 'total'}
           </p>
         </div>
         <div className="relative mt-4">
@@ -223,7 +284,10 @@ export default function ProjectLogsPage() {
               <div className="h-6 w-6 animate-spin rounded-full border-4 border-primary border-t-transparent" />
             </div>
           )}
-          <ProjectActivityTimeline items={pagedActivity} />
+          <ProjectActivityTimeline
+            items={pagedActivity}
+            emptyText={filtered ? 'No events match these filters.' : undefined}
+          />
         </div>
         <div className="mt-4 flex items-center justify-between gap-2">
           <p className="text-xs text-muted-foreground">

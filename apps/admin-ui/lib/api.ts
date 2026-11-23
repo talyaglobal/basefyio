@@ -959,16 +959,23 @@ export const api = {
     get(id: string) {
       return request<Project>(`/projects/${id}`);
     },
-    listActivity(id: string, opts: { page?: number; limit?: number } = {}) {
-      const limit = opts.limit ?? 50;
-      const page = opts.page ?? 1;
+    listActivity(
+      id: string,
+      opts: { page?: number; limit?: number; q?: string; kind?: string; from?: string; to?: string } = {},
+    ) {
+      const qs = new URLSearchParams({ limit: String(opts.limit ?? 50), page: String(opts.page ?? 1) });
+      // Search and filters run on the server over the whole history (#27).
+      if (opts.q?.trim()) qs.set('q', opts.q.trim());
+      if (opts.kind) qs.set('kind', opts.kind);
+      if (opts.from) qs.set('from', opts.from);
+      if (opts.to) qs.set('to', opts.to);
       return request<{
         items: ProjectActivityItem[];
         total: number;
         page: number;
         limit: number;
         totalPages: number;
-      }>(`/projects/${id}/activity?limit=${limit}&page=${page}`);
+      }>(`/projects/${id}/activity?${qs.toString()}`);
     },
     create(data: {
       name: string;

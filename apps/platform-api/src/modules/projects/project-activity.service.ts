@@ -49,6 +49,17 @@ export const ProjectActivityKind = {
   PROJECT_EXPORT_STARTED: 'project_export.started',
   PROJECT_BACKUP_RESTORE_STARTED: 'project_backup_restore.started',
   PROJECT_BACKUP_DELETED: 'project_backup.deleted',
+  // Flows and embeddings were missing from the log (#27).
+  FLOW_CREATED: 'flow.created',
+  FLOW_UPDATED: 'flow.updated',
+  FLOW_DELETED: 'flow.deleted',
+  FLOW_TRIGGERED: 'flow.triggered',
+  FLOW_ENABLED: 'flow.enabled',
+  FLOW_DISABLED: 'flow.disabled',
+  EMBEDDINGS_ENABLED: 'embeddings.enabled',
+  EMBEDDINGS_DISABLED: 'embeddings.disabled',
+  EMBEDDING_KEY_UPDATED: 'embeddings.key_updated',
+  EMBEDDING_PROVIDER_UPDATED: 'embeddings.provider_updated',
   PROJECT_BACKUP_VERIFIED: 'project_backup.verified',
   PROJECT_BACKUP_VERIFICATION_FAILED: 'project_backup.verification_failed',
   PROJECT_BACKUP_OFFSITE_COPIED: 'project_backup.offsite_copied',
@@ -151,6 +162,8 @@ export class ProjectActivityService {
             kind: params.kind,
             title: params.title,
             detail: params.detail ?? null,
+            // The name, so a row that arrives live never shows a bare user id (#27).
+            actorName: await this.actorName(params.userId),
           },
         });
       } catch {
@@ -163,6 +176,15 @@ export class ProjectActivityService {
     }
   }
 
+  private async actorName(userId?: string | null): Promise<string> {
+    if (!userId) return 'System';
+    const u = await this.prisma.user
+      .findUnique({ where: { id: userId }, select: { firstName: true, lastName: true, email: true } })
+      .catch(() => null);
+    if (!u) return 'System';
+    return [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.email;
+  }
+
   /**
    * Paginated activity feed for a single project. The DB happily holds tens of
    * thousands of rows per project (every table edit, every SQL exec, every
@@ -173,7 +195,7 @@ export class ProjectActivityService {
   async listForProject(
     projectId: string,
     userId: string,
-    opts: { page?: number; limit?: number } = {},
+    opts: { page?: number; limit?: number; q?: string; kind?: string; from?: Date; to?: Date } = {},
   ) {
     const project = await this.prisma.project.findFirst({
       where: { id: projectId, status: { not: 'DELETED' } },
@@ -190,10 +212,29 @@ export class ProjectActivityService {
     const page = Math.max(opts.page ?? 1, 1);
     const skip = (page - 1) * limit;
 
+    // Search and filters run on the server over the whole history, not one page (#27).
+    const q = opts.q?.trim();
+    const where: Prisma.ProjectActivityLogWhereInput = {
+      projectId,
+      ...(q
+        ? {
+            OR: [
+              { title: { contains: q, mode: 'insensitive' } },
+              { detail: { contains: q, mode: 'insensitive' } },
+              { kind: { contains: q, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+      ...(opts.kind ? { kind: { startsWith: opts.kind } } : {}),
+      ...(opts.from || opts.to
+        ? { createdAt: { ...(opts.from ? { gte: opts.from } : {}), ...(opts.to ? { lte: opts.to } : {}) } }
+        : {}),
+    };
+
     const [total, items] = await Promise.all([
-      this.prisma.projectActivityLog.count({ where: { projectId } }),
+      this.prisma.projectActivityLog.count({ where }),
       this.prisma.projectActivityLog.findMany({
-        where: { projectId },
+        where,
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit,

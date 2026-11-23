@@ -20,6 +20,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { TenantEmbeddingService } from './tenant-embedding.service';
 import { SetEmbeddingProviderDto } from './dto/set-embedding-provider.dto';
 import { assertProjectTeamMember } from './tenant-embedding.access';
+import { ProjectActivityKind, ProjectActivityService } from '../projects/project-activity.service';
 
 @Controller('projects/:projectId/embeddings')
 @UseGuards(JwtOrPlatformTokenGuard, ScopesGuard)
@@ -27,7 +28,13 @@ export class TenantEmbeddingController {
   constructor(
     private readonly tenantEmbedding: TenantEmbeddingService,
     private readonly prisma: PrismaService,
+    private readonly activity: ProjectActivityService,
   ) {}
+
+  /** Embedding settings are part of the project log (#27); never fails the request. */
+  private log(projectId: string, userId: string, kind: (typeof ProjectActivityKind)[keyof typeof ProjectActivityKind], title: string) {
+    void this.activity.append(projectId, { userId, kind, title }).catch(() => undefined);
+  }
 
   /** Get the pgvector / embedding status for a project. */
   @Scopes('embeddings:read')
@@ -49,6 +56,7 @@ export class TenantEmbeddingController {
   ) {
     await this.assertTeamMember(projectId, user.sub);
     await this.tenantEmbedding.enablePgvector(projectId);
+    this.log(projectId, user.sub, ProjectActivityKind.EMBEDDINGS_ENABLED, 'pgvector enabled');
     return { message: 'pgvector enabled', projectId };
   }
 
@@ -61,6 +69,7 @@ export class TenantEmbeddingController {
   ) {
     await this.assertTeamMember(projectId, user.sub);
     await this.tenantEmbedding.disablePgvector(projectId);
+    this.log(projectId, user.sub, ProjectActivityKind.EMBEDDINGS_DISABLED, 'pgvector disabled');
     return { message: 'pgvector disabled', projectId };
   }
 
@@ -74,6 +83,8 @@ export class TenantEmbeddingController {
   ) {
     await this.assertTeamMember(projectId, user.sub);
     await this.tenantEmbedding.setEmbeddingApiKey(projectId, body.apiKey);
+    // The key itself is never logged.
+    this.log(projectId, user.sub, ProjectActivityKind.EMBEDDING_KEY_UPDATED, body.apiKey ? 'Embedding API key set' : 'Embedding API key cleared');
     return { message: body.apiKey ? 'API key set' : 'API key cleared' };
   }
 
@@ -102,7 +113,14 @@ export class TenantEmbeddingController {
     @CurrentUser() user: JwtPayload,
   ) {
     await this.assertTeamMember(projectId, user.sub);
-    return this.tenantEmbedding.setProvider(projectId, body);
+    const result = await this.tenantEmbedding.setProvider(projectId, body);
+    this.log(
+      projectId,
+      user.sub,
+      ProjectActivityKind.EMBEDDING_PROVIDER_UPDATED,
+      `Embedding provider set to ${body.provider ?? 'platform default'}${body.model ? ` (${body.model})` : ''}`,
+    );
+    return result;
   }
 
   /** Re-embed every stored vector with the project's current provider. */

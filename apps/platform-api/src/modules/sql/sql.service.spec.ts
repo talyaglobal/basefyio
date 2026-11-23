@@ -408,3 +408,13 @@ describe('SqlService.execute — which runs tell open Data editors to reload (#1
     expect(activity.append).toHaveBeenCalledWith('p1', expect.objectContaining({ kind }));
   });
 });
+
+describe('SqlService.execute — the log keeps no quoted values (#27)', () => {
+  it('replaces string literals in the logged statement', async () => {
+    const { svc, activity } = harness();
+    await svc.execute('p1', "insert into notes(body) values ('secret text')", 'u1');
+    const detail = (activity.append.mock.calls as any)[0][1].detail as string;
+    expect(detail).toContain("values ('…')");
+    expect(detail).not.toContain('secret text');
+  });
+});

@@ -59,17 +59,19 @@ function categoryForKind(kind: string): string {
 export interface ProjectActivityTimelineProps {
   items: ProjectActivityItem[];
   className?: string;
+  /** Shown instead of the default when there is nothing to list (e.g. a filter matched nothing). */
+  emptyText?: string;
 }
 
 export function ProjectActivityTimeline({
   items,
   className,
+  emptyText,
 }: ProjectActivityTimelineProps) {
   if (items.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
-        No activity recorded yet. Imports, edits, SQL, and integrations will
-        show up here.
+        {emptyText ?? 'No activity recorded yet. Imports, edits, SQL, and integrations will show up here.'}
       </p>
     );
   }

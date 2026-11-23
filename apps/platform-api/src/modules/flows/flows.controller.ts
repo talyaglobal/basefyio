@@ -16,6 +16,7 @@ import {
 } from '../../common/decorators/current-user.decorator';
 import { FlowsService } from './flows.service';
 import { FlowDefinitionInput } from './flow.types';
+import { ProjectActivityKind, ProjectActivityService } from '../projects/project-activity.service';
 
 /**
  * Automations.
@@ -28,7 +29,15 @@ import { FlowDefinitionInput } from './flow.types';
 @UseGuards(JwtOrApiKeyGuard)
 @ServiceKeyOnly()
 export class FlowsController {
-  constructor(private readonly flows: FlowsService) {}
+  constructor(
+    private readonly flows: FlowsService,
+    private readonly activity: ProjectActivityService,
+  ) {}
+
+  /** Flows are part of the project log (#27). Logging never fails the request. */
+  private log(projectId: string, userId: string | undefined, kind: (typeof ProjectActivityKind)[keyof typeof ProjectActivityKind], title: string) {
+    void this.activity.append(projectId, { userId, kind, title }).catch(() => undefined);
+  }
 
   @Get()
   list(@Param('projectId') projectId: string, @CurrentUser() user?: JwtPayload) {
@@ -36,12 +45,14 @@ export class FlowsController {
   }
 
   @Post()
-  create(
+  async create(
     @Param('projectId') projectId: string,
     @Body() dto: FlowDefinitionInput,
     @CurrentUser() user?: JwtPayload,
   ) {
-    return this.flows.create(projectId, dto, user?.sub);
+    const created = await this.flows.create(projectId, dto, user?.sub);
+    this.log(projectId, user?.sub, ProjectActivityKind.FLOW_CREATED, `Flow created: ${created.name}`);
+    return created;
   }
 
   @Get(':id')
@@ -54,50 +65,61 @@ export class FlowsController {
   }
 
   @Patch(':id')
-  update(
+  async update(
     @Param('projectId') projectId: string,
     @Param('id') id: string,
     @Body() dto: FlowDefinitionInput,
     @CurrentUser() user?: JwtPayload,
   ) {
-    return this.flows.update(projectId, id, dto, user?.sub);
+    const updated = await this.flows.update(projectId, id, dto, user?.sub);
+    this.log(projectId, user?.sub, ProjectActivityKind.FLOW_UPDATED, `Flow updated: ${updated.name}`);
+    return updated;
   }
 
   @Delete(':id')
-  remove(
+  async remove(
     @Param('projectId') projectId: string,
     @Param('id') id: string,
     @CurrentUser() user?: JwtPayload,
   ) {
-    return this.flows.remove(projectId, id, user?.sub);
+    const flow = await this.flows.get(projectId, id, user?.sub);
+    const result = await this.flows.remove(projectId, id, user?.sub);
+    this.log(projectId, user?.sub, ProjectActivityKind.FLOW_DELETED, `Flow deleted: ${flow.name}`);
+    return result;
   }
 
   @Post(':id/enable')
-  enable(
+  async enable(
     @Param('projectId') projectId: string,
     @Param('id') id: string,
     @CurrentUser() user?: JwtPayload,
   ) {
-    return this.flows.setEnabled(projectId, id, true, user?.sub);
+    const flow = await this.flows.setEnabled(projectId, id, true, user?.sub);
+    this.log(projectId, user?.sub, ProjectActivityKind.FLOW_ENABLED, `Flow enabled: ${flow.name}`);
+    return flow;
   }
 
   @Post(':id/disable')
-  disable(
+  async disable(
     @Param('projectId') projectId: string,
     @Param('id') id: string,
     @CurrentUser() user?: JwtPayload,
   ) {
-    return this.flows.setEnabled(projectId, id, false, user?.sub);
+    const flow = await this.flows.setEnabled(projectId, id, false, user?.sub);
+    this.log(projectId, user?.sub, ProjectActivityKind.FLOW_DISABLED, `Flow disabled: ${flow.name}`);
+    return flow;
   }
 
   @Post(':id/trigger')
-  trigger(
+  async trigger(
     @Param('projectId') projectId: string,
     @Param('id') id: string,
     @Body() body: { input?: unknown },
     @CurrentUser() user?: JwtPayload,
   ) {
-    return this.flows.trigger(projectId, id, body?.input, user?.sub);
+    const run = await this.flows.trigger(projectId, id, body?.input, user?.sub);
+    this.log(projectId, user?.sub, ProjectActivityKind.FLOW_TRIGGERED, `Flow run started (${run.runId})`);
+    return run;
   }
 
   /**

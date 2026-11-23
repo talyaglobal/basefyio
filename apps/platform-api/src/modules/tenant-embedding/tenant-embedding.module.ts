@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ProjectActivityModule } from '../projects/project-activity.module';
 import { BullModule } from '@nestjs/bullmq';
 import { TENANT_EMBEDDING_QUEUE } from '../queue/queue.module';
 import { TenantEmbeddingService } from './tenant-embedding.service';
@@ -13,7 +14,7 @@ import { TenantReembedProcessor } from './tenant-reembed.processor';
  * TENANT_EMBEDDING_QUEUE (in-place re-embedding after a provider switch).
  */
 @Module({
-  imports: [BullModule.registerQueue({ name: TENANT_EMBEDDING_QUEUE })],
+  imports: [BullModule.registerQueue({ name: TENANT_EMBEDDING_QUEUE }), ProjectActivityModule],
   controllers: [
     TenantEmbeddingController,
     TenantEmbeddingPublicController,

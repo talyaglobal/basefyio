@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Controller,
   Get,
   Post,
@@ -351,10 +352,30 @@ export class ProjectsController {
     @Query('limit') limitRaw: string | undefined,
     @Query('page') pageRaw: string | undefined,
     @CurrentUser() user: JwtPayload,
+    @Query('q') q?: string,
+    @Query('kind') kind?: string,
+    @Query('from') fromRaw?: string,
+    @Query('to') toRaw?: string,
   ) {
     const limit = limitRaw ? parseInt(limitRaw, 10) : undefined;
     const page = pageRaw ? parseInt(pageRaw, 10) : undefined;
-    return this.projectActivity.listForProject(id, user.sub, { limit, page });
+    const date = (v?: string) => {
+      if (!v) return undefined;
+      const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(v) ? `${v}T00:00:00Z` : v);
+      if (Number.isNaN(d.getTime())) throw new BadRequestException(`Invalid date: ${v}`);
+      return d;
+    };
+    const to = date(toRaw);
+    // A bare date for "to" means the whole day.
+    if (to && /^\d{4}-\d{2}-\d{2}$/.test(toRaw ?? '')) to.setUTCHours(23, 59, 59, 999);
+    return this.projectActivity.listForProject(id, user.sub, {
+      limit,
+      page,
+      q: q?.slice(0, 200),
+      kind: kind?.slice(0, 80),
+      from: date(fromRaw),
+      to,
+    });
   }
 
   @Scopes('projects:read')

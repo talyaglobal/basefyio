@@ -430,7 +430,8 @@ export class SqlService implements OnModuleDestroy {
       // Log every successful SQL execution. The Project logs page lives or
       // dies by this — previously only failures showed up, which made the
       // feed look misleadingly empty during normal heavy SQL usage.
-      const qPreview = query.replace(/\s+/g, ' ').trim().slice(0, 240);
+      // Quoted values are replaced, so data a statement writes is not kept in the log (#27).
+      const qPreview = query.replace(/'(?:[^']|'')*'/g, "'…'").replace(/\s+/g, ' ').trim().slice(0, 240);
       await this.activity.append(projectId, {
         userId: userId || undefined,
         // Anything but a single plain read may have changed rows or schema: say
@@ -474,7 +475,8 @@ export class SqlService implements OnModuleDestroy {
         },
       });
 
-      const qPreview = query.replace(/\s+/g, ' ').trim().slice(0, 240);
+      // Quoted values are replaced, so data a statement writes is not kept in the log (#27).
+      const qPreview = query.replace(/'(?:[^']|'')*'/g, "'…'").replace(/\s+/g, ' ').trim().slice(0, 240);
       await this.activity.append(projectId, {
         userId: userId || undefined,
         kind: ProjectActivityKind.SQL_FAILED,
