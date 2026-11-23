@@ -31,6 +31,14 @@ interface CaptureRootActionParams {
   metadataJson?: Prisma.InputJsonValue | null;
 }
 
+/** Accepts `YYYY-MM-DD` or a full ISO datetime; anything else is ignored instead of a 500. */
+function parseAuditBound(v: string | undefined, endOfDay: boolean): Date | null {
+  if (!v) return null;
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(v);
+  const d = new Date(dateOnly ? `${v}T${endOfDay ? '23:59:59.999' : '00:00:00'}Z` : v);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 @Injectable()
 export class ObservabilityService {
   private readonly logger = new Logger(ObservabilityService.name);
@@ -243,7 +251,7 @@ export class ObservabilityService {
       userIds.size
         ? this.prisma.user.findMany({
             where: { id: { in: [...userIds] } },
-            select: { id: true, email: true, firstName: true, lastName: true },
+            select: { id: true, email: true, firstName: true, lastName: true, role: true },
           })
         : [],
       teamIds.size
@@ -258,6 +266,7 @@ export class ObservabilityService {
     const projectBy = new Map(projects.map((p) => [p.id, p.name] as const));
     const userLabel = (id: string) => formatUserLabel(userBy.get(id)) + ` · id ${id}`;
     return {
+      actorRole: (id: string): string | null => userBy.get(id)?.role ?? null,
       actor: (id: string): string => {
         const k = keyActor(id);
         if (!k) return userLabel(id);
@@ -280,6 +289,8 @@ export class ObservabilityService {
     const labels = await this.entityLabels(rows);
     return rows.map((r) => ({
       ...r,
+      // Rows written before the role claim was read say UNKNOWN; the user record knows better.
+      actorRole: r.actorRole === 'UNKNOWN' ? (labels.actorRole(r.actorUserId) ?? r.actorRole) : r.actorRole,
       actorDisplayName: labels.actor(r.actorUserId),
       resourceDisplayName: labels.resource(r.resourceType, r.resourceId),
     }));
@@ -346,18 +357,29 @@ export class ObservabilityService {
     }
 
     // Date range
-    if (opts.dateFrom) {
-      andConditions.push({ createdAt: { gte: new Date(`${opts.dateFrom}T00:00:00Z`) } });
-    }
-    if (opts.dateTo) {
-      andConditions.push({ createdAt: { lte: new Date(`${opts.dateTo}T23:59:59.999Z`) } });
-    }
+    const from = parseAuditBound(opts.dateFrom, false);
+    if (from) andConditions.push({ createdAt: { gte: from } });
+    const to = parseAuditBound(opts.dateTo, true);
+    if (to) andConditions.push({ createdAt: { lte: to } });
 
     // Search (action, traceId, actorUserId, resourceType, resourceId)
     if (opts.search?.trim()) {
       const q = escapeLike(opts.search.trim());
+      // Actors are stored as ids; match them by e-mail or name through the user table.
+      const actors = await this.prisma.user.findMany({
+        where: {
+          OR: [
+            { email: { contains: q, mode: 'insensitive' } },
+            { firstName: { contains: q, mode: 'insensitive' } },
+            { lastName: { contains: q, mode: 'insensitive' } },
+          ],
+        },
+        select: { id: true },
+        take: 200,
+      });
       andConditions.push({
         OR: [
+          ...(actors && actors.length ? [{ actorUserId: { in: actors.map((u) => u.id) } }] : []),
           { action: { contains: q, mode: 'insensitive' } },
           { traceId: { contains: q, mode: 'insensitive' } },
           { actorUserId: { contains: q, mode: 'insensitive' } },
