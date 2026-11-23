@@ -23,10 +23,31 @@ export async function statusCommand(options: StatusOptions) {
 
   try {
     const project = await apiClient.getProject(config.projectId);
+
+    // The project read carries no password or service key (#14). --show-keys asks the reveal
+    // endpoint, which needs a team owner, admin or the credentials permission and is recorded
+    // in the project's activity log.
+    let secrets: Awaited<ReturnType<typeof apiClient.revealProjectSecrets>> | null = null;
+    let secretsNote: string | null = null;
+    if (options.showKeys) {
+      try {
+        secrets = await apiClient.revealProjectSecrets(config.projectId);
+      } catch (err: any) {
+        secretsNote =
+          err?.response?.status === 403
+            ? 'Your role cannot see this project\'s credentials; ask a team owner or admin.'
+            : 'Could not fetch the credentials.';
+      }
+    }
     spinner.stop();
 
-    const mask = (val: string) =>
-      options.showKeys ? val : val.slice(0, 6) + '•'.repeat(Math.max(0, val.length - 10)) + val.slice(-4);
+    const HIDDEN = '••••••';
+    const mask = (val: string | null | undefined) => {
+      if (!val) return HIDDEN;
+      return options.showKeys ? val : val.slice(0, 6) + '•'.repeat(Math.max(0, val.length - 10)) + val.slice(-4);
+    };
+    const password = secrets?.password ?? null;
+    const serviceKey = secrets?.serviceKey ?? null;
 
     printHeader(`Project: ${project.name}`);
     console.log();
@@ -46,10 +67,10 @@ export async function statusCommand(options: StatusOptions) {
     row('Port', String(project.dbPort));
     row('Database', project.dbName);
     row('User', project.dbUser);
-    row('Password', mask(project.dbPassword));
+    row('Password', password ?? HIDDEN);
     console.log();
 
-    const connStr = `postgresql://${project.dbUser}:${options.showKeys ? project.dbPassword : '••••••'}@${project.dbHost}:${project.dbPort}/${project.dbName}`;
+    const connStr = `postgresql://${project.dbUser}:${password ? encodeURIComponent(password) : HIDDEN}@${project.dbHost}:${project.dbPort}/${project.dbName}`;
     row('Connection string', chalk.cyan(connStr));
     console.log();
 
@@ -57,8 +78,20 @@ export async function statusCommand(options: StatusOptions) {
     section('Authentication (Keycloak)');
     row('Realm', project.keycloakRealm);
     row('Anon Key', mask(project.anonKey));
-    row('Service Key', mask(project.serviceKey));
+    row(
+      'Service Key',
+      serviceKey
+        ? serviceKey
+        : secrets && !secrets.serviceKeyRevealable
+          ? chalk.gray('in use, no longer shown — rotate it or create a secret key')
+          : HIDDEN,
+    );
     console.log();
+
+    if (secretsNote) {
+      console.log(chalk.yellow(`  ${secretsNote}`));
+      console.log();
+    }
 
     // ── Hint ─────────────────────────────────────────────
     if (!options.showKeys) {

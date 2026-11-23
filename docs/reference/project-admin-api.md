@@ -34,7 +34,7 @@ not apply to them. That is why the anon key can never reach them.
 | GET | `/api/projects` | session · token `projects:read` | `?teamId=` — the team's active projects |
 | GET | `/api/projects/deleted` | session · token `projects:read` | `?teamId=` — projects in the trash |
 | GET | `/api/projects/deactivated` | session · token `projects:read` | `?teamId=` — deactivated projects |
-| GET | `/api/projects/:id` | session · token `projects:read` | one project |
+| GET | `/api/projects/:id` | session · token `projects:read` | one project — no credentials, see [The project object](#the-project-object) |
 | PATCH | `/api/projects/:id` | session · token `projects:write` | `{ name?, description?, folderId?, tags? }` |
 | GET | `/api/projects/:id/activity` | session · token `logs:read` | `?page=&limit=` — the project's activity log (limit 1–500, default 50) |
 | PATCH | `/api/projects/:id/max-rows` | session · token `settings:write` | `{ maxRowsPerTable }` — page-size ceiling of the dashboard data grid |
@@ -57,7 +57,6 @@ POST /api/projects
   "databaseType": "RELATIONAL",
   "dbPassword": "…",
   "computeTier": "shared",
-  "region": "eu-central",
   "dataAccess": { "dataApi": true, "autoGrantNewTables": false, "rlsOnNewTables": true }
 }
 ```
@@ -70,7 +69,8 @@ row-level-security roles, the default extensions and the read-only companion rol
 [Connection and credentials](#connection-and-credentials); an operator can switch the last two off
 with `PROVISION_DEFAULT_EXTENSIONS` and `PROVISION_READONLY_ROLE`). A `NOSQL` project also gets its
 document-store tenant. The plan's project quota is enforced. The response is the new project
-record, including its `anonKey` and `serviceKey`.
+record, including its `anonKey` and — this once — the generated `dbPassword` and the
+`serviceKey`. No later response returns them; see [Credentials](#credentials).
 
 Every field after `databaseType` is optional; leaving them out creates the project exactly as
 before.
@@ -87,6 +87,18 @@ before.
 `dataAccess`, when sent, carries all three fields. `GET /api/projects/compute-options?teamId=`
 answers `{ region, planAllowsDedicated, dedicatedAvailable, tiers: [{ id, label, vcpu, memoryGb,
 available, reason }] }`, the same rule the create call enforces.
+
+### The project object
+
+`GET /api/projects/:id` answers the project's settings: `id`, `name`, `slug`, `description`,
+`status`, `teamId`, `databaseType`, `dbName`, `dbHost`, `dbPort` (the pooler endpoint),
+`dbUser`, `keycloakRealm`, `anonKey` (public), the data access and region settings, `folder`,
+`tags`, `previewBranch`, `github`, `vercel`, `lastImportAt`, `createdAt` and `updatedAt`.
+It never carries a credential: `dbPassword`, `serviceKey`, `dbReadonlyPassword` and the
+integration tokens are left out for every caller, the team owner included. `GET /api/projects`,
+`PATCH /api/projects/:id`, the realtime events and the MCP `get_project` tool leave them out too.
+A client that read `dbPassword` or `serviceKey` from this response reads them from
+`POST /api/projects/:id/secrets/reveal` instead.
 
 ### Data access
 
@@ -140,7 +152,8 @@ per page; it does not limit how many rows a table can hold.
 
 | Method | Path | Tier | Purpose |
 |---|---|---|---|
-| GET | `/api/projects/:projectId/connect` | service | connection strings, keys, read-only role and pooler limit |
+| GET | `/api/projects/:projectId/connect` | service | connection details with every password and the service key masked, read-only role, extra roles and pooler limit |
+| POST | `/api/projects/:id/secrets/reveal` | session | the credentials in clear: database passwords, the URIs that carry them, the service key while unused |
 | PATCH | `/api/projects/:id/db-password` | session · token `secrets:write` | `{ password? }` — rotate the owner password (random when omitted) |
 | POST | `/api/projects/:id/db-readonly-role` | session · token `secrets:write` | create the read-only companion role, or repair its grants |
 | PATCH | `/api/projects/:id/db-readonly-password` | session · token `secrets:write` | `{ password? }` — rotate the read-only role's password |
@@ -149,30 +162,63 @@ per page; it does not limit how many rows a table can hold.
 
 *Who:* the four write routes need the team permission **reset database password** (team owners
 always have it); others get 403 `Your role does not have the "canResetDbPassword" permission in
-this team`.
+this team`. The reveal route needs a team owner or admin, or a role with that permission; see
+[Credentials](#credentials).
 
 ### `GET connect`
 
 ```json
 {
-  "uri": "postgresql://<user>:<password>@<direct host>:<direct port>/<database>",
-  "poolerUri": "postgresql://<user>:<password>@<pooler host>:6432/<database>",
-  "host": "<pooler host>", "port": 5432, "database": "…", "user": "…", "password": "…",
+  "uri": "postgresql://<user>:[YOUR-PASSWORD]@<direct host>:<direct port>/<database>",
+  "poolerUri": "postgresql://<user>:[YOUR-PASSWORD]@<pooler host>:6432/<database>",
+  "host": "<pooler host>", "port": 5432, "database": "…", "user": "…", "password": null,
   "poolerHost": "<pooler host>", "poolerPort": 6432,
   "restUrl": "https://api.example.com/api/rest/v1",
   "publicBaseUrl": "https://api.example.com",
   "keycloakRealm": "…", "keycloakUrl": "https://auth.example.com",
-  "anonKey": "…", "serviceKey": "…",
-  "readonly": { "user": "kb_user_…_readonly", "password": "…", "uri": "…", "poolerUri": "…" },
+  "anonKey": "…", "serviceKey": null,
+  "readonly": { "user": "kb_user_…_readonly", "password": null, "uri": "…", "poolerUri": "…" },
+  "extraRoles": [{ "id": "…", "label": "…", "user": "…", "password": null, "memberOf": "none", "uri": "…", "poolerUri": "…", "createdAt": "…" }],
+  "secretsMasked": true,
   "canResetDbPassword": true,
+  "canRevealSecrets": true,
   "pooler": { "effective": 20, "source": "plan", "planCeiling": 100 }
 }
 ```
 
-`readonly` is `null` until the companion role exists. `pooler.source` is `project`, `plan`,
-`platform` or `none` and says where `effective` comes from. `canResetDbPassword` is only `true`
-for a dashboard session that holds the permission. The pooler endpoint is PgBouncer; connect
-with `sslmode=require`.
+The shape is the one this route always had, with every credential masked: each `password` and
+`serviceKey` is `null` and each URI carries `[YOUR-PASSWORD]`. `readonly` is `null` until the
+companion role exists. `pooler.source` is `project`, `plan`, `platform` or `none` and says where
+`effective` comes from. `canResetDbPassword` and `canRevealSecrets` are only `true` for a dashboard
+session that holds the permission. The pooler endpoint is PgBouncer; connect with
+`sslmode=require`.
+
+### Credentials
+
+`POST /api/projects/:id/secrets/reveal` (dashboard session only; an API token or a project key
+is refused) returns the values `GET connect` masks:
+
+```json
+{
+  "password": "…",
+  "uri": "postgresql://<user>:<password>@<direct host>:<direct port>/<database>",
+  "poolerUri": "postgresql://<user>:<password>@<pooler host>:6432/<database>",
+  "serviceKey": "bf_service_…",
+  "serviceKeyRevealable": true,
+  "readonly": { "user": "…", "password": "…", "uri": "…", "poolerUri": "…" },
+  "extraRoles": [{ "id": "…", "user": "…", "password": "…", "uri": "…", "poolerUri": "…" }]
+}
+```
+
+- *Who:* team owners and admins, and any role holding the **reset database password**
+  permission. Other members get 403 and work with the masked details.
+- Every call writes a `project.secrets_revealed` entry to the project's activity log
+  (`GET /api/projects/:id/activity`) naming the person and the fields revealed, never the
+  values. When the entry cannot be written the call fails and nothing is revealed.
+- The answer carries `Cache-Control: no-store`.
+- `serviceKey` follows the [API keys](#api-keys) rule: it is returned only while no application
+  has used the key (`serviceKeyRevealable: true`); afterwards it is `null`. Rotate it or create a
+  secret key instead.
 
 ### Passwords
 

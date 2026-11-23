@@ -57,6 +57,15 @@ export async function ensureFreshToken(): Promise<void> {
  * how to surface authentication failures (instead of the interceptor calling
  * process.exit(1) and giving the user no actionable diagnostics).
  */
+/** `POST /api/projects/:id/secrets/reveal`. */
+export interface ProjectSecrets {
+  password: string | null;
+  uri: string;
+  poolerUri: string;
+  serviceKey: string | null;
+  serviceKeyRevealable: boolean;
+}
+
 export class AuthError extends Error {
   readonly kind: 'NOT_LOGGED_IN' | 'SESSION_EXPIRED' | 'REFRESH_TRANSIENT';
   constructor(
@@ -254,7 +263,11 @@ export class ApiClient {
     return data;
   }
 
-  /** Pooler + direct Postgres URIs (same shape as Admin UI Raw Editor). */
+  /**
+   * Pooler + direct Postgres endpoints (same shape as the Admin UI Raw Editor). The password is
+   * masked: `password` and `serviceKey` are null and the URIs carry `[YOUR-PASSWORD]`. Use
+   * `revealProjectSecrets` for the values.
+   */
   async getProjectConnect(projectId: string) {
     const { data } = await this.client.get(`/api/projects/${projectId}/connect`);
     return data as {
@@ -264,7 +277,7 @@ export class ApiClient {
       port: number;
       database: string;
       user: string;
-      password: string;
+      password: string | null;
       poolerHost: string;
       poolerPort: number;
       restUrl: string;
@@ -272,8 +285,19 @@ export class ApiClient {
       keycloakRealm: string;
       keycloakUrl: string;
       anonKey: string;
-      serviceKey: string;
+      serviceKey: string | null;
+      canRevealSecrets?: boolean;
     };
+  }
+
+  /**
+   * The project's credentials in clear: the database password, the URIs that carry it and the
+   * service key while no application has used it. Needs a team owner, admin or the credentials
+   * permission; every call is recorded in the project's activity log.
+   */
+  async revealProjectSecrets(projectId: string) {
+    const { data } = await this.client.post(`/api/projects/${projectId}/secrets/reveal`);
+    return data as ProjectSecrets;
   }
 
   async createProject(projectData: {

@@ -138,7 +138,6 @@ export interface Project {
   dbPort: number;
   keycloakRealm: string;
   anonKey: string;
-  serviceKey: string;
   status: 'ACTIVE' | 'PAUSED' | 'DELETED';
   /** Database model chosen in the New Project wizard. */
   databaseType?: 'RELATIONAL' | 'NOSQL';
@@ -992,7 +991,8 @@ export interface ConnectionStrings {
   port: number;
   database: string;
   user: string;
-  password: string;
+  /** Always null here: the values come from `api.projects.revealSecrets` (#14). */
+  password: string | null;
   poolerHost: string;
   poolerPort: number;
   restUrl: string;
@@ -1000,16 +1000,21 @@ export interface ConnectionStrings {
   keycloakRealm: string;
   keycloakUrl: string;
   anonKey: string;
-  serviceKey: string;
+  /** Always null here; see `password`. */
+  serviceKey: string | null;
   canResetDbPassword?: boolean;
+  /** The caller may reveal the credentials (owner, admin or the credentials permission). */
+  canRevealSecrets?: boolean;
+  /** True: the URIs carry `[YOUR-PASSWORD]` and every password is null. */
+  secretsMasked?: boolean;
   /** SELECT-only companion role (<user>_readonly); null until the team creates it. */
-  readonly?: { user: string; password: string; uri: string; poolerUri: string } | null;
+  readonly?: { user: string; password: string | null; uri: string; poolerUri: string } | null;
   /** Extra named login roles created by the project owner. */
   extraRoles?: Array<{
     id: string;
     label: string;
     user: string;
-    password: string;
+    password: string | null;
     memberOf: string;
     uri: string;
     poolerUri: string;
@@ -1021,6 +1026,18 @@ export interface ConnectionStrings {
     source: 'project' | 'plan' | 'platform' | 'none';
     planCeiling: number;
   };
+}
+
+/** `POST /projects/:id/secrets/reveal`: the credentials in clear (#14). */
+export interface ConnectionSecrets {
+  password: string | null;
+  uri: string;
+  poolerUri: string;
+  /** Null once an application has used the service key: rotate it or create a secret key. */
+  serviceKey: string | null;
+  serviceKeyRevealable: boolean;
+  readonly: { user: string; password: string | null; uri: string; poolerUri: string } | null;
+  extraRoles: Array<{ id: string; user: string; password: string | null; uri: string; poolerUri: string }>;
 }
 
 export interface StorageBucket {

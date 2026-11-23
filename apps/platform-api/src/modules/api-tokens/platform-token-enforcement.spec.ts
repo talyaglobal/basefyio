@@ -15,6 +15,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
 import { confineToTokenTeam, tokenContext } from '../../common/request-context/token-context';
 import { ProjectDatabaseController } from '../projects/project-database.controller';
+import { ProjectsController } from '../projects/projects.controller';
 import { TeamsController } from '../teams/teams.controller';
 import { ApiTokensService } from './api-tokens.service';
 import { JwtOrPlatformTokenGuard } from './jwt-or-platform-token.guard';
@@ -117,6 +118,12 @@ describe('platform API token enforcement', () => {
     // A @JwtOnly() handler on a token-enabled controller refuses even a token holding every scope.
     await expect(
       run({ teamId: null, scopes: allScopes }, TeamsController, 'transferOwnership', { params: { id: 'team1' } }),
+    ).rejects.toThrow(ForbiddenException);
+  });
+
+  it('(c) the credentials reveal (#14) refuses a token, with any scope', async () => {
+    await expect(
+      run({ teamId: null, scopes: allScopes }, ProjectsController, 'revealSecrets', { params: { id: 'p-team1' } }),
     ).rejects.toThrow(ForbiddenException);
   });
 

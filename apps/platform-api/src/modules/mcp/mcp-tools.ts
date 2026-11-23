@@ -179,7 +179,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
     annotations: READ,
     run: async (args, c) => {
       const p: any = await c.deps.projects.findOne(args.projectId, c.userId);
-      // An allowlist: findOne also carries the database password and the project keys.
+      // An allowlist: findOne no longer carries credentials (#14), and new fields stay opt-in.
       return {
         id: p.id,
         name: p.name,

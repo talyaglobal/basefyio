@@ -15,6 +15,7 @@ import { ProjectDataService } from './project-data.service';
 import { ProjectAuthController } from './project-auth.controller';
 import { ProjectApiKeysController } from './project-api-keys.controller';
 import { ProjectApiKeysService } from './project-api-keys.service';
+import { ProjectSecretsService } from './project-secrets.service';
 import { ProjectAuthConfigService } from './project-auth-config.service';
 import { ProjectSdkAuthController } from './project-sdk-auth.controller';
 import { ProjectOAuthCallbackController } from './project-oauth-callback.controller';
@@ -87,6 +88,7 @@ import { ProjectBranchesController } from './branches/project-branches.controlle
   ],
   providers: [
     ProjectApiKeysService,
+    ProjectSecretsService,
     ProjectDatabaseService,
     ProjectProvisioningService,
     ProjectReadonlyRoleService,

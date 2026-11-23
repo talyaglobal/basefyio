@@ -16,6 +16,7 @@ import {
 import type { Request } from 'express';
 import { ProjectDataService } from './project-data.service';
 import { ProjectsService } from './projects.service';
+import { ProjectSecretsService } from './project-secrets.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PgBouncerService } from '../pgbouncer/pgbouncer.service';
 import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
@@ -56,6 +57,7 @@ export class ProjectDataController {
     private readonly activity: ProjectActivityService,
     private readonly prisma: PrismaService,
     private readonly pgbouncer: PgBouncerService,
+    private readonly secrets: ProjectSecretsService,
   ) {}
 
   @Get('tables')
@@ -347,29 +349,28 @@ export class ProjectDataController {
       });
     }
 
+    // findOne checks team membership and never carries credentials; the connection row is
+    // loaded separately and only ever leaves masked (#14). The values come from
+    // POST /projects/:id/secrets/reveal.
     const project = await this.projectsService.findOne(projectId, user?.sub);
-    const extraRoles = await this.prisma.projectExtraRole.findMany({
-      where: { projectId },
-      select: { id: true, label: true, roleName: true, password: true, memberOf: true, createdAt: true },
-      orderBy: { createdAt: 'asc' },
-    });
-    const connStrings = this.dataService.getConnectionStrings({ ...project, extraRoles });
+    const row = await this.secrets.loadConnectionRow(projectId);
+    const connStrings = this.secrets.masked(row);
 
     // Include permission info for the current user
     let canResetDbPassword = false;
+    let canRevealSecrets = false;
     if (user?.sub && project.teamId) {
       try {
-        const member = await this.prisma.teamMember.findUnique({
-          where: { teamId_userId: { teamId: project.teamId, userId: user.sub } },
-        });
-        if (member?.role === 'OWNER') {
+        const role = await this.secrets.memberRole(project.teamId, user.sub);
+        if (role === 'OWNER') {
           canResetDbPassword = true;
-        } else if (member) {
+        } else if (role) {
           const perms = await this.prisma.teamRolePermission.findUnique({
-            where: { teamId_role: { teamId: project.teamId, role: member.role } },
+            where: { teamId_role: { teamId: project.teamId, role } },
           });
           canResetDbPassword = perms?.canResetDbPassword ?? false;
         }
+        canRevealSecrets = role ? await this.secrets.roleMayReveal(project.teamId, role) : false;
       } catch {
         // Permission check failed — default to false
       }
@@ -390,6 +391,6 @@ export class ProjectDataController {
       planCeiling: this.pgbouncer.planCeiling(planMax),
     };
 
-    return { ...connStrings, canResetDbPassword, pooler };
+    return { ...connStrings, canResetDbPassword, canRevealSecrets, pooler };
   }
 }

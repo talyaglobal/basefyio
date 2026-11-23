@@ -20,6 +20,7 @@ export const ProjectActivityKind = {
   PROJECT_PITR_FAILED: 'project.pitr_failed',
   PROJECT_PERMANENT_DELETE: 'project.permanent_delete',
   PROJECT_MOVED_TEAM: 'project.moved_team',
+  PROJECT_SECRETS_REVEALED: 'project.secrets_revealed',
   SQL_EXECUTED: 'sql.executed',
   SQL_FAILED: 'sql.failed',
   DATA_QUERY_EXECUTED: 'data_query.executed',

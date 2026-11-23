@@ -2,7 +2,7 @@ import inquirer from 'inquirer';
 import chalk from 'chalk';
 import path from 'path';
 import { apiClient, handleApiError } from '../lib/api.js';
-import { setProjectConfig, isLoggedIn, getProjectConfig, writeEnvFile } from '../lib/config.js';
+import { setProjectConfig, isLoggedIn, getProjectConfig, writeEnvFile, missingEnvHint } from '../lib/config.js';
 import { success, error, warning, createSpinner, printHeader } from '../lib/ui.js';
 
 interface InitOptions {
@@ -88,7 +88,10 @@ export async function initCommand(options: InitOptions) {
       /* fall back */
     }
 
-    await writeEnvFile(project, connect);
+    // The creation response carries the new password and service key once; nothing else does.
+    const missing = await writeEnvFile(project, connect);
+    const hint = missingEnvHint(missing);
+    if (hint) warning(hint);
 
     console.log();
     printHeader('Project ready');

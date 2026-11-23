@@ -7,12 +7,8 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Pool, PoolClient } from 'pg';
 import { PrismaService } from '../../prisma/prisma.service';
+import { buildConnectionDetails, ConnectionProjectFields } from './project-secrets';
 import { RealtimeDataService } from '../realtime-data/realtime-data.service';
-import {
-  buildPostgresUri,
-  getPgbouncerClientEndpoints,
-  getPostgresDirectClientEndpoints,
-} from './postgres-uri.util';
 
 export interface TableInfo {
   name: string;
@@ -1250,61 +1246,13 @@ export class ProjectDataService {
     }
   }
 
-  getConnectionStrings(project: any) {
-    const internalHost = project.dbHost;
-    const internalPort = project.dbPort;
-    const db = project.dbName;
-    const user = project.dbUser;
-    const password = project.dbPassword;
-    const publicApiUrl = this.config.get<string>('publicApiUrl') || 'http://localhost:4000';
-    const publicBaseUrl = publicApiUrl.replace(/\/+$/, '');
-
-    // External PgBouncer endpoint — what users connect to from pgAdmin, DBeaver, etc.
-    const { host: extPoolerHost, port: extPoolerPort } = getPgbouncerClientEndpoints(this.config);
-
-    const { host: directHost, port: directPort } = getPostgresDirectClientEndpoints(
-      this.config,
-      extPoolerHost,
-      extPoolerPort,
-    );
-
-    return {
-      uri: buildPostgresUri(directHost, directPort, user, password, db),
-      poolerUri: buildPostgresUri(extPoolerHost, extPoolerPort, user, password, db),
-      host: extPoolerHost,
-      port: directPort,
-      database: db,
-      user,
-      password,
-      poolerHost: extPoolerHost,
-      poolerPort: extPoolerPort,
-      restUrl: `${publicApiUrl}/api/rest/v1`,
-      publicBaseUrl,
-      keycloakRealm: project.keycloakRealm,
-      keycloakUrl: this.config.get('keycloak.publicUrl') || this.config.get('keycloak.url'),
-      anonKey: project.anonKey,
-      serviceKey: project.serviceKey,
-      // SELECT-only companion role; null until the team creates it.
-      readonly:
-        project.dbReadonlyUser && project.dbReadonlyPassword
-          ? {
-              user: project.dbReadonlyUser as string,
-              password: project.dbReadonlyPassword as string,
-              uri: buildPostgresUri(directHost, directPort, project.dbReadonlyUser, project.dbReadonlyPassword, db),
-              poolerUri: buildPostgresUri(extPoolerHost, extPoolerPort, project.dbReadonlyUser, project.dbReadonlyPassword, db),
-            }
-          : null,
-      // Extra named login roles; empty array until any are created.
-      extraRoles: ((project as any).extraRoles ?? []).map((r: any) => ({
-        id: r.id as string,
-        label: r.label as string,
-        user: r.roleName as string,
-        password: r.password as string,
-        memberOf: r.memberOf as string,
-        uri: buildPostgresUri(directHost, directPort, r.roleName, r.password, db),
-        poolerUri: buildPostgresUri(extPoolerHost, extPoolerPort, r.roleName, r.password, db),
-        createdAt: r.createdAt instanceof Date ? r.createdAt.toISOString() : (r.createdAt as string),
-      })),
-    };
+  /**
+   * Connection details for the Connection page. Masked unless `reveal` is set: passwords and
+   * the service key are null and the URIs carry a placeholder (#14). Only the reveal endpoint
+   * passes `reveal: true`.
+   */
+  getConnectionStrings(project: ConnectionProjectFields, opts: { reveal?: boolean } = {}) {
+    return buildConnectionDetails(project, this.config, opts);
   }
+
 }
