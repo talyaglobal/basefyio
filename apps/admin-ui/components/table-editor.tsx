@@ -708,6 +708,8 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
   );
   // Deep-link target is consumed once; later refreshes restore normally.
   const initialOpenRef = useRef<string | null>(initialOpen);
+  /** A table this editor dropped itself: its disappearance needs no notice. */
+  const droppedHereRef = useRef<string | null>(null);
 
   // Look up schema for a given table name from the listTables result so the
   // backend resolves "public.users" vs "auth.users" unambiguously.
@@ -982,7 +984,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
 
       // The open table was dropped elsewhere (SQL editor, another tab): say so
       // instead of silently switching to another table (#149).
-      if (selectedKey && !validKey(selectedKey)) {
+      if (selectedKey && !validKey(selectedKey) && droppedHereRef.current !== selectedKey) {
         toast.message(`"${parseKey(selectedKey).name}" no longer exists; it was dropped or renamed.`);
       }
       const target =
@@ -1167,6 +1169,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
     if (!(await confirmDialog({ title: 'Drop table', description: `Drop table "${name}"? This will delete all data permanently.`, confirmText: 'Drop table', destructive: true }))) return;
     try {
       await api.projects.dropTable(projectId, name);
+      droppedHereRef.current = keyOf('sql', name);
       toast.success(`Table "${name}" dropped`);
       setOpenTabs((prev) => prev.filter((t) => t !== keyOf('sql', name)));
       if (selected === name) {
