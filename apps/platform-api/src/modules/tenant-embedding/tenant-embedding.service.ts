@@ -225,6 +225,25 @@ export class TenantEmbeddingService {
     projectId: string,
     apiKey: string | null,
   ): Promise<void> {
+    const key = typeof apiKey === 'string' ? apiKey.trim() : null;
+    if (typeof apiKey === 'string' && !key) throw new BadRequestException('apiKey must not be empty; send null to clear it');
+    if (key) {
+      // One tiny request with the key before it is stored (#24): a wrong key is
+      // refused here, not at the first embedding request.
+      const project = await this.getProject(projectId);
+      const candidate = this.providers.forProject({ ...project, embeddingApiKey: key });
+      try {
+        await this.providers.probe(candidate);
+      } catch (err) {
+        if (err instanceof EmbeddingProviderError) {
+          throw new BadRequestException(
+            `${PROVIDER_CATALOGUE[err.provider].name} did not accept this key: ${err.message}. The key was not saved.`,
+          );
+        }
+        throw err;
+      }
+      apiKey = key;
+    }
     await this.prisma.project.update({
       where: { id: projectId },
       data: { embeddingApiKey: apiKey },

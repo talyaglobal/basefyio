@@ -1,5 +1,6 @@
 import {
   Controller,
+  HttpCode,
   Post,
   Delete,
   Get,
@@ -79,6 +80,8 @@ export class TenantEmbeddingPublicController {
    * Body: { query, namespace?, threshold?, limit?, filter? }
    */
   @Post('search')
+  // A search reads, it creates nothing: 200, not Nest's default 201 for POST (#24).
+  @HttpCode(200)
   @AuthenticatedKeyOnly()
   async search(
     @Body()

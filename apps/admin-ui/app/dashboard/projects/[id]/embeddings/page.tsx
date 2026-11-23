@@ -318,7 +318,7 @@ export default function EmbeddingsPage() {
             {status.embeddingCount != null && (
               <Badge variant="secondary" className="gap-1.5">
                 <Sparkles className="h-3 w-3" />
-                {status.embeddingCount.toLocaleString('en-US')} embeddings
+                {status.embeddingCount.toLocaleString('en-US')} {status.embeddingCount === 1 ? 'embedding' : 'embeddings'}
               </Badge>
             )}
           </div>
@@ -493,6 +493,12 @@ export default function EmbeddingsPage() {
                 ? 'Per-project key for generating embeddings. If not set, the platform-level key is used.'
                 : 'Optional for a self-hosted provider — only needed when the host sits behind an authenticating proxy.'}
             </p>
+            {providerSel !== PLATFORM_DEFAULT && selectedOption && selectedOption.id !== status?.provider && (
+              <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+                You picked {selectedOption.name} above. Save the provider first: this key is checked against, and used
+                with, the saved provider ({providerName}).
+              </p>
+            )}
           </div>
           {status?.hasApiKey && (
             <Badge variant="outline" className="shrink-0 gap-1.5">
@@ -513,7 +519,7 @@ export default function EmbeddingsPage() {
               <Input
                 id="embedding-api-key"
                 type={showKey ? 'text' : 'password'}
-                placeholder={status?.provider === 'openai' ? 'sk-...' : 'API key'}
+                placeholder={status?.provider === 'openai' ? 'sk-...' : `${providerName} API key`}
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 className="pr-10"
@@ -741,7 +747,7 @@ const results = await fetch('${restUrl}/embeddings/search', {
     query: 'forgot my password',
     namespace: 'faq',
     limit: 5,
-    threshold: 0.7, // max cosine distance, default 0.5 (similarity >= 0.5)
+    threshold: 0.3, // max cosine distance (0 = same meaning); default 0.5. 0.3 keeps similarity >= 0.7
   }),
 });`}</code>
                 </pre>
@@ -776,7 +782,7 @@ const results = await fetch('${restUrl}/embeddings/search', {
     query: 'forgot my password',
     namespace: 'faq',
     limit: 5,
-    threshold: 0.7, // max cosine distance, default 0.5 (similarity >= 0.5)
+    threshold: 0.3, // max cosine distance (0 = same meaning); default 0.5. 0.3 keeps similarity >= 0.7
   }),
 });`,
                       'Code snippet',
