@@ -19,7 +19,7 @@ role permissions exactly as the `/api/teams` routes do.
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/organizations` | the caller's organizations: `id`, `organizationId`, `publicId`, `name`, `slug`, `kind`, `isPersonal`, `role`, `plan { name, displayName }`, `memberCount`, `projectCount`, `projects { awake, deactivated }`, `requireMfa` |
+| GET | `/api/organizations` | the caller's organizations: `id`, `organizationId`, `publicId`, `name`, `slug`, `kind`, `isPersonal`, `role`, `plan { name, displayName }`, `memberCount`, `projectCount`, `projects { awake, deactivated }`, `requireMfa` (always `false`: two-factor authentication is optional per user, and an organization cannot require it) |
 | GET | `/api/organizations/kinds` | the kinds an organization can be given: `COMPANY`, `STARTUP`, `AGENCY`, `EDUCATION`, `NONPROFIT`, `OPEN_SOURCE`, `OTHER` (`PERSONAL` is reserved for the one made at sign-up) |
 | POST | `/api/organizations` | `{ name, kind?, planName?, successUrl?, cancelUrl? }` — see below |
 | GET | `/api/organizations/:id` | overview: the fields above plus `description`, `websiteUrl`, `logoUrl`, `counts { members, projects, projectsAwake, projectsDeactivated, pendingInvites }` and `usage` |

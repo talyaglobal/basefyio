@@ -4,6 +4,7 @@ import {
   NotFoundException,
   ForbiddenException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
@@ -911,15 +912,13 @@ export class TeamsService {
     if (!team) throw new NotFoundException('Team not found');
 
     if (enabled) {
-      if (!(await this.mfa.isAvailable())) {
-        throw mfaUnavailable('a two-factor requirement cannot be enabled');
-      }
-      if (!(await this.mfa.hasOtp(ownerUserId))) {
-        throw new ConflictException({
-          code: 'MFA_OWNER_FIRST',
-          message: 'Set up an authenticator on your own account before requiring one for the team.',
-        });
-      }
+      // Owner decision (2026-11-23): two-factor authentication is optional and
+      // each user decides; an organization cannot require it. Turning an old
+      // requirement off still works.
+      throw new BadRequestException({
+        code: 'MFA_OPTIONAL',
+        message: 'Two-factor authentication is optional: each member can turn it on for their own account. Organizations cannot require it.',
+      });
     }
 
     const updated = await this.prisma.team.update({

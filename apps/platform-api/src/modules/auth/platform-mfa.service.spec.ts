@@ -68,16 +68,16 @@ describe('PlatformMfaService.resolveLoginMfa', () => {
     expect(prisma.user.update).toHaveBeenCalledWith({ where: { id: 'u1' }, data: { mfaEnrolledAt: null } });
   });
 
-  it('asks Keycloak when a team requires it', async () => {
-    const { svc, keycloak } = build({ hasOtp: true });
+  it('ignores a stored team requirement: two-factor is optional (owner decision 2026-11-23)', async () => {
+    const { svc, keycloak } = build({ hasOtp: false });
     const state = await svc.resolveLoginMfa(requiredUser);
-    expect(keycloak.userHasOtpCredential).toHaveBeenCalled();
-    expect(state).toMatchObject({ hasOtp: true, required: true, requiredBy: ['Acme'] });
+    expect(keycloak.userHasOtpCredential).not.toHaveBeenCalled();
+    expect(state).toMatchObject({ hasOtp: false, required: false, requiredBy: [] });
   });
 
   it('does not set the mirror on its own: a new factor is recorded after a successful sign-in', async () => {
     const { svc, prisma } = build({ hasOtp: true });
-    const state = await svc.resolveLoginMfa(requiredUser);
+    const state = await svc.resolveLoginMfa({ ...requiredUser, mfaEnrolledAt: new Date() });
     expect(state.hasOtp).toBe(true);
     expect(prisma.user.update).not.toHaveBeenCalled();
   });
@@ -196,7 +196,7 @@ describe('PlatformMfaService self-service', () => {
     await expect(svc.enrollUrlFor('u1')).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 
-  it('status reports availability, factors and the teams that require it', async () => {
+  it('status reports availability and factors, and no team ever requires it', async () => {
     const { svc, prisma } = build({ hasOtp: true });
     prisma.user.findUnique.mockResolvedValue({
       id: 'u1',
@@ -208,7 +208,7 @@ describe('PlatformMfaService self-service', () => {
     expect(s).toMatchObject({
       available: true,
       enabled: true,
-      requiredByTeams: [{ id: 't1', name: 'Acme' }],
+      requiredByTeams: [],
       selfServiceDisable: true,
     });
     expect(s.factors).toHaveLength(1);
@@ -247,10 +247,10 @@ describe('PlatformMfaService self-service', () => {
     expect((await svc.status('u1')).selfServiceDisable).toBe(false);
   });
 
-  it('disable refuses while a team requires two-factor authentication', async () => {
+  it('disable works even where an old team requirement is stored: two-factor is optional', async () => {
     const { svc, prisma } = build({ hasOtp: true });
     prisma.user.findUnique.mockResolvedValue({ email: 'a@b.c', teamMembers: [{ team: { name: 'Acme' } }] });
-    await expect(svc.disable('u1', 'pw', '123456')).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(svc.disable('u1', 'pw', '123456')).resolves.toMatchObject({ removed: 1 });
   });
 
   it('disable refuses social-only accounts (root reset instead)', async () => {
@@ -310,12 +310,11 @@ describe('PlatformMfaService.checkBrowserSignIn', () => {
     expect(keycloak.setUserRequiredAction).not.toHaveBeenCalled();
   });
 
-  it('sends a required member without an authenticator to set one up', async () => {
+  it('never sends anyone to set up two-factor: it is optional (owner decision 2026-11-23)', async () => {
     const { svc, prisma, keycloak } = build({ hasOtp: false });
     prisma.user.findUnique.mockResolvedValue({ ...requiredUser, email: 'a@b.c' });
-    const gate = await svc.checkBrowserSignIn('u1', false);
-    expect(gate?.enrollUrl).toContain('kc_action=CONFIGURE_TOTP');
-    expect(keycloak.setUserRequiredAction).toHaveBeenCalledWith('master', 'u1', CONFIGURE_TOTP, true);
+    expect(await svc.checkBrowserSignIn('u1', false)).toBeNull();
+    expect(keycloak.setUserRequiredAction).not.toHaveBeenCalled();
   });
 
   it('records the factor when the callback ends an enrolment', async () => {
@@ -326,10 +325,9 @@ describe('PlatformMfaService.checkBrowserSignIn', () => {
     expect(email.sendRawHtml).toHaveBeenCalledTimes(1);
   });
 
-  it('sends a required member back to the setup page when an enrolment was abandoned', async () => {
+  it('an abandoned enrolment just signs in', async () => {
     const { svc, prisma } = build({ hasOtp: false });
     prisma.user.findUnique.mockResolvedValue({ ...requiredUser, email: 'a@b.c' });
-    const gate = await svc.checkBrowserSignIn('u1', true);
-    expect(gate?.enrollUrl).toContain('kc_action=CONFIGURE_TOTP');
+    expect(await svc.checkBrowserSignIn('u1', true)).toBeNull();
   });
 });

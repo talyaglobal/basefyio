@@ -80,8 +80,11 @@ export class PlatformMfaService {
     teamMembers: Array<{ team: { name: string } }>;
   } | null): Promise<LoginMfaState> {
     if (!user) return { hasOtp: false, required: false, requiredBy: [] };
-    const requiredBy = user.teamMembers.map((m) => m.team.name);
-    const required = requiredBy.length > 0;
+    // Owner decision (2026-11-23): two-factor authentication is optional. Each
+    // user decides; no organization can require it, so a team policy is never
+    // read here (the stored flag is ignored).
+    const requiredBy: string[] = [];
+    const required = false;
     const mirror = user.mfaEnrolledAt != null;
     if (!required && !mirror) {
       return { userId: user.id, hasOtp: false, required: false, requiredBy };
@@ -245,7 +248,8 @@ export class PlatformMfaService {
       enabled,
       enrolledAt: enabled ? (user.mfaEnrolledAt ?? new Date()).toISOString() : null,
       factors,
-      requiredByTeams: user.teamMembers.map((m) => m.team),
+      // Two-factor authentication is optional; no organization requires it.
+      requiredByTeams: [] as Array<{ id: string; name: string }>,
       selfServiceDisable,
       enrollUrl: available && !enabled ? this.buildEnrollUrl(user.email) : null,
     };
@@ -277,12 +281,7 @@ export class PlatformMfaService {
       },
     });
     if (!user) throw new UnauthorizedException();
-    if (user.teamMembers.length > 0) {
-      throw new ForbiddenException({
-        code: 'MFA_REQUIRED_BY_TEAM',
-        message: `Two-factor authentication is required by ${user.teamMembers.map((m) => m.team.name).join(', ')}.`,
-      });
-    }
+    // Two-factor authentication is optional (owner decision 2026-11-23): a user can always turn it off.
 
     const methods = await this.keycloak.getPlatformUserSignInMethodsById(userId, user.email).catch(() => null);
     // Without a password there is nothing but the code itself to re-authenticate

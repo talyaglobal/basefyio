@@ -109,22 +109,11 @@ describe('AuthService.login with two-factor authentication (#196)', () => {
     expect(prisma.loginSecurityState.findUnique).toHaveBeenCalled();
   });
 
-  it('a member of a team that requires it, with no authenticator, gets no tokens and the setup link', async () => {
-    const { svc, keycloak, prisma } = build({ requiredBy: ['Acme'] });
-    const err: any = await svc.login('a@b.c', 'pw').catch((e) => e);
-    expect(err.getStatus()).toBe(403);
-    expect(err.getResponse()).toMatchObject({ code: 'MFA_ENROLLMENT_REQUIRED' });
-    expect(err.getResponse().details.enrollUrl).toContain('kc_action=CONFIGURE_TOTP');
-    expect(err.getResponse().message).toContain('Acme');
-    expect(keycloak.setUserRequiredAction).toHaveBeenCalledWith('master', 'u1', CONFIGURE_TOTP, true);
-    // The password was right: not a failed attempt, and no sign-in recorded either.
-    expect(prisma.loginSecurityState.findUnique).not.toHaveBeenCalled();
-    expect(prisma.user.update).not.toHaveBeenCalled();
-  });
-
-  it('a pending setup on a member who must enrol sends them to the setup page', async () => {
-    const { svc } = build({ requiredBy: ['Acme'], grant: 'not-set-up', pendingSetup: true });
-    await expect(svc.login('a@b.c', 'pw')).rejects.toMatchObject({ response: { code: 'MFA_ENROLLMENT_REQUIRED' } });
+  it('a stored team requirement is ignored: a member without an authenticator signs in (2FA is optional)', async () => {
+    const { svc, keycloak } = build({ requiredBy: ['Acme'] });
+    const r = await svc.login('a@b.c', 'pw');
+    expect(r.accessToken).toBe(TOKENS.access_token);
+    expect(keycloak.setUserRequiredAction).not.toHaveBeenCalled();
   });
 
   it('a pending setup nobody requires any more is released and the grant retried', async () => {
@@ -136,7 +125,7 @@ describe('AuthService.login with two-factor authentication (#196)', () => {
   });
 });
 
-describe('AuthService.handleOAuthCallback with a team two-factor policy (#196)', () => {
+describe('AuthService.handleOAuthCallback and a stored team two-factor flag (#196)', () => {
   const webState = Buffer.from(JSON.stringify({ redirectTo: '/login' })).toString('base64url');
 
   function oauth(requiredBy: string[], hasOtp = false) {
@@ -149,11 +138,11 @@ describe('AuthService.handleOAuthCallback with a team two-factor policy (#196)',
     return { ...b, svc };
   }
 
-  it('sends a required member without an authenticator to setup instead of handing out tokens', async () => {
+  it('a stored team requirement does not block a social sign-in (2FA is optional)', async () => {
     const { svc } = oauth(['Acme']);
     const r: any = await svc.handleOAuthCallback('code', webState);
-    expect(r.mfaEnrollUrl).toContain('kc_action=CONFIGURE_TOTP');
-    expect(r.accessToken).toBeUndefined();
+    expect(r.accessToken).toBe(TOKENS.access_token);
+    expect(r.mfaEnrollUrl).toBeUndefined();
   });
 
   it('hands out tokens as before when no team requires it', async () => {

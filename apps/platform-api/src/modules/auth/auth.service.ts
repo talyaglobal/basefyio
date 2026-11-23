@@ -560,11 +560,7 @@ export class AuthService {
     // auth.service.login-regression.spec.ts).
     const existingUser = await this.prisma.user.findUnique({
       where: { email: normalizedEmail },
-      select: {
-        id: true,
-        mfaEnrolledAt: true,
-        teamMembers: { where: { team: { requireMfa: true } }, select: { team: { select: { name: true } } } },
-      },
+      select: { id: true, mfaEnrolledAt: true },
     });
     if (existingUser) {
       try {
@@ -625,7 +621,7 @@ export class AuthService {
     const clientId = this.config.get<string>('keycloak.adminClientId');
 
     const mfaState: LoginMfaState = this.mfa
-      ? await this.mfa.resolveLoginMfa(existingUser)
+      ? await this.mfa.resolveLoginMfa(existingUser ? { ...existingUser, teamMembers: [] } : null)
       : { hasOtp: false, required: false, requiredBy: [] };
     const code = totp?.replace(/\s+/g, '') || undefined;
     if (mfaState.hasOtp && !code) {
