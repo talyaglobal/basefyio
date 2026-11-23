@@ -1,4 +1,5 @@
 import type { TechDocPage, TechDocSummary } from '@/lib/techdocs-types';
+import { isNetworkError, NETWORK_ERROR_MESSAGE } from './network-error';
 import { getAccessToken, getRefreshToken, setTokens, clearTokens } from './auth';
 import type { ConsoleOverview, ConsoleProjectDetail, ConsoleProjectList, ConsoleStorage, ConsoleDisk } from './console-types';
 import type { ConsoleAlertFeed } from './console-alert-types';
@@ -188,6 +189,11 @@ async function requestOnce<T>(
   } catch (err: any) {
     if (err?.name === 'AbortError') {
       throw new Error('Request timed out — the server may be restarting. Try again shortly.');
+    }
+    if (isNetworkError(err)) {
+      const friendly = new Error(NETWORK_ERROR_MESSAGE) as Error & { isNetworkError?: boolean };
+      friendly.isNetworkError = true;
+      throw friendly;
     }
     throw err;
   } finally {
