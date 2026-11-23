@@ -94,3 +94,8 @@ pnpm-debug.log*
 ehthumbs.db
 Desktop.ini
 *~
+
+# Cluster credentials must never reach this public repo (a kubeconfig was
+# dropped here on 2026-11-23; it now lives in ~/.kube). Never commit one.
+*.kubeconfig
+kubeconfig
