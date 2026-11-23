@@ -246,7 +246,9 @@ export default function ApiExplorerPage() {
     ])
       .then(([t, c]) => {
         // Select from the same list the dropdown shows, or the URLs name a table the dropdown cannot.
-        const pub = t.filter((tb) => tb.schema === 'public');
+        // The embeddings store (kb_embeddings*) is the platform's own table and is
+        // searched through the Embeddings API, so it is not offered here (#25).
+        const pub = t.filter((tb) => tb.schema === 'public' && !/^kb_embeddings(_store)?$/.test(tb.name));
         setTables(pub);
         setConn(c);
         if (pub.length > 0) setSelected(pub[0].name);
