@@ -97,6 +97,15 @@ function planFeatures(plan: PublicPlan): string[] {
   ];
 }
 
+/** Enterprise is not a public plan row: it is agreed per customer, so the card is static. */
+const ENTERPRISE_FEATURES = [
+  "Limits agreed for your workload",
+  "Projects, members and storage sized to your contract",
+  "Priority support",
+  "Set up for your organization by our team",
+];
+const ENTERPRISE_CONTACT_HREF = "mailto:support@talyasmart.com?subject=basefyio%20Enterprise";
+
 async function getPublicPlans(): Promise<PublicPlan[]> {
   const endpoints = getBillingPlansFetchEndpoints();
   for (const url of endpoints) {
@@ -303,7 +312,7 @@ export default async function Home() {
             </p>
           </ScrollReveal>
 
-          <div className="mt-14 grid gap-5 lg:grid-cols-3">
+          <div className={`mt-14 grid gap-5 ${plans.length > 0 ? "md:grid-cols-2 lg:grid-cols-4" : "lg:grid-cols-3"}`}>
             {plans.map((plan, i) => {
               const featured = plan.name.toLowerCase() === "pro";
               const features = planFeatures(plan);
@@ -362,6 +371,31 @@ export default async function Home() {
                 </ScrollReveal>
               );
             })}
+            {plans.length > 0 && (
+              <ScrollReveal delay={3}>
+                <div className="relative flex h-full flex-col rounded-xl border border-border bg-card p-7 shadow-subtle">
+                  <h3 className="text-sm font-semibold">Enterprise</h3>
+                  <div className="mt-4">
+                    <span className="text-4xl font-bold tracking-tight">Custom</span>
+                  </div>
+                  <p className="mt-2 text-xs text-muted-foreground">Arranged with our team</p>
+                  <ul className="mt-6 flex-1 space-y-3 text-sm">
+                    {ENTERPRISE_FEATURES.map((f) => (
+                      <li key={f} className="flex items-start gap-2">
+                        <span className="font-mono text-xs text-muted-foreground">+</span>
+                        <span className="text-muted-foreground">{f}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <a
+                    href={ENTERPRISE_CONTACT_HREF}
+                    className="mt-8 inline-flex w-full items-center justify-center rounded-lg border border-border px-6 py-3 text-sm font-medium text-foreground transition-all hover:bg-accent"
+                  >
+                    Contact us
+                  </a>
+                </div>
+              </ScrollReveal>
+            )}
             {plans.length === 0 && (
               <div className="rounded-xl border border-border bg-card p-8 text-sm text-muted-foreground lg:col-span-3">
                 Pricing plans are temporarily unavailable.

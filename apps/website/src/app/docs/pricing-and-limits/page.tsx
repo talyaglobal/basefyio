@@ -43,7 +43,8 @@ export default function PricingAndLimitsDocs() {
         <li>
           <strong>Is it unlimited?</strong> No, except on the <strong>Legacy</strong> plan (accounts that
           existed before the current plans; not offered to new customers), which has no caps. Free, Pro
-          and Business each have a limit for database size and for file storage.
+          and Business each have a limit for database size and for file storage. <strong>Enterprise</strong>{" "}
+          limits are agreed per organization (see below).
         </li>
       </ul>
       <p>
@@ -74,6 +75,13 @@ export default function PricingAndLimitsDocs() {
           ))}
         </tbody>
       </table>
+      <p>
+        <strong>Enterprise</strong> is not bought in the dashboard: it is arranged with our team (
+        <a href="mailto:support@talyasmart.com?subject=basefyio%20Enterprise">support@talyasmart.com</a>) and
+        set up for the organization. Its limits are the ones agreed for the workload; a limit left empty
+        means no cap. It is not listed in <code>GET /api/billing/plans</code>, and the Billing page does not
+        offer a self-serve change to or from it.
+      </p>
       <p>
         <strong>Limits are per organization</strong>, not per project: the database limit is compared with
         the sum of the sizes of all the organization&apos;s projects, and the file storage limit with all of

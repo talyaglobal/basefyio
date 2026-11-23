@@ -7,7 +7,8 @@ What a project gets, what it costs, and what happens at a limit. Two short answe
   covered by the plan, up to the plan's limits.
 - **Is it unlimited?** No, except on the **Legacy** plan (accounts that existed before the
   current plans; not offered to new customers), which has no caps. Free, Pro and Business each
-  have a limit for database size and for file storage.
+  have a limit for database size and for file storage. **Enterprise** limits are agreed per
+  organization (see below).
 
 The plan catalogue is live data: `GET /api/billing/plans` (public) and the Billing page show
 the values in force. The table below lists the figures of the hosted service as of
@@ -27,6 +28,11 @@ installation starts from different defaults and its operator can change them.
 | API requests per month | 50,000 | 1,000,000 | 10,000,000 | Unlimited |
 | Monthly active users | 50,000 | 100,000 | Unlimited | Unlimited |
 | Compute | Shared | Shared today (see below) | Shared today (see below) | Shared |
+
+**Enterprise** is not bought in the dashboard: it is arranged with our team
+(support@talyasmart.com) and set up for the organization. Its limits are the ones agreed for the
+workload; a limit left empty means no cap. It is not listed in `GET /api/billing/plans`, and the
+Billing page does not offer a self-serve change to or from it.
 
 **Limits are per organization**, not per project: the database limit is compared with the sum
 of the sizes of all the organization's projects, and the file storage limit with all of their

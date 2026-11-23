@@ -25,7 +25,8 @@ function positive(v: unknown): number | null {
 
 /** The limits a plan grants: explicit feature values first, then the plan's default, then free. */
 export function limitsForPlan(planName: string | null | undefined, features?: Record<string, unknown> | null): BucketLimits {
-  const base = DEFAULT_PLAN_LIMITS[(planName ?? '').toLowerCase()] ?? FALLBACK_LIMITS;
+  const key = features?.enterprise === true ? 'enterprise' : (planName ?? '').toLowerCase();
+  const base = DEFAULT_PLAN_LIMITS[key] ?? FALLBACK_LIMITS;
   const rate = positive(features?.api_rps) ?? positive(features?.apiRps) ?? base.rate;
   const burst = positive(features?.api_burst) ?? positive(features?.apiBurst) ?? Math.max(rate, base.burst);
   return { rate, burst: Math.max(burst, rate) };

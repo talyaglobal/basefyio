@@ -65,6 +65,7 @@ describe('EntitlementService — AI assistant (Pro and above)', () => {
     ['pro', { dailyBackups: true }, true],
     ['Business', null, true],
     ['enterprise', null, true],
+    ['acme-contract', { enterprise: true }, true],
   ])('plan %s → %s', async (name, features, allowed) => {
     await expect(svc(plan(name as string, features)).teamCanUseAi('t1')).resolves.toBe(allowed);
   });

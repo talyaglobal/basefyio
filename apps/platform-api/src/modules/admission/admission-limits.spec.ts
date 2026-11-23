@@ -8,6 +8,11 @@ describe('limitsForPlan', () => {
     expect(limitsForPlan(null)).toEqual({ rate: 50, burst: 100 });
   });
 
+  it('gives an Enterprise plan under another name (features.enterprise) the Enterprise limits', () => {
+    expect(limitsForPlan('enterprise')).toEqual({ rate: 2000, burst: 4000 });
+    expect(limitsForPlan('acme-contract', { enterprise: true })).toEqual({ rate: 2000, burst: 4000 });
+  });
+
   it('lets the plan editor override through features, and keeps burst at least the rate', () => {
     expect(limitsForPlan('pro', { api_rps: 1000 })).toEqual({ rate: 1000, burst: 1000 });
     expect(limitsForPlan('pro', { api_rps: '20', api_burst: '80' })).toEqual({ rate: 20, burst: 80 });

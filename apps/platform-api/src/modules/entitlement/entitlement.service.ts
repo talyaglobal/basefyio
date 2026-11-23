@@ -63,6 +63,8 @@ export class EntitlementService {
     const features = plan.features && typeof plan.features === 'object' ? (plan.features as Record<string, unknown>) : {};
     if (features.ai === false) return false;
     if (features.ai === true) return true;
+    // An Enterprise plan under another name (features.enterprise) is above Pro too.
+    if (features.enterprise === true) return true;
     return AI_PLAN_NAMES.includes(plan.name.toLowerCase());
   }
 

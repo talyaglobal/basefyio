@@ -17,7 +17,7 @@ import { EmailService } from '../email/email.service';
 import { QuickbooksService } from '../quickbooks/quickbooks.service';
 import { PayPalService } from './paypal.service';
 import { ACADEMIC_DOMAINS } from './academic-domains';
-import { DEFAULT_PLANS } from './default-plans';
+import { DEFAULT_PLANS, ENTERPRISE_CONTACT_EMAIL, ENTERPRISE_PLAN } from './default-plans';
 import { UsageService } from './usage.service';
 import {
   LimitFinding,
@@ -25,11 +25,15 @@ import {
   UsageSnapshot,
   invoiceOutstanding,
   isCardExempt,
+  isEnterprisePlan,
   planLimitFindings,
   planRequiresCard,
 } from './billing-plan-rules';
 import { grantedByRole, requireRolePermission } from '../teams/role-permissions';
 import PDFDocument = require('pdfkit');
+
+/** Set once the Enterprise plan has been created, so it is never re-created after a deliberate delete. */
+const ENTERPRISE_SEEDED_KEY = 'plans.enterprise_seeded';
 
 /** Worldwide university/college domains, built once for O(1) lookup. */
 const ACADEMIC_DOMAIN_SET = new Set(ACADEMIC_DOMAINS);
@@ -66,6 +70,7 @@ export class BillingService implements OnModuleInit {
 
   async onModuleInit() {
     await this.ensureDefaultPlans();
+    await this.ensureEnterprisePlan();
     if (this.stripe.isEnabled()) {
       try {
         await this.syncStripePlans();
@@ -91,6 +96,39 @@ export class BillingService implements OnModuleInit {
       this.logger.log(`The plans table was empty; created ${count} default plans`);
     } catch (err: any) {
       this.logger.error(`Could not create the default plans: ${err?.message ?? err}`);
+    }
+  }
+
+  /**
+   * Enterprise is added to installations that predate it: created once, only
+   * when no plan of that name exists, and never again after that (a marker in
+   * system_settings), so a root who deletes or renames it is not overruled at
+   * the next boot. An existing row is only looked up by name, never written.
+   */
+  private async ensureEnterprisePlan(): Promise<void> {
+    try {
+      const existing = await this.prisma.plan.findUnique({ where: { name: 'enterprise' }, select: { id: true } });
+      if (existing) return;
+      const marker = await this.prisma.systemSetting.findUnique({ where: { key: ENTERPRISE_SEEDED_KEY } });
+      if (marker) return;
+      const { count } = await this.prisma.plan.createMany({ data: [ENTERPRISE_PLAN], skipDuplicates: true });
+      await this.prisma.systemSetting.upsert({
+        where: { key: ENTERPRISE_SEEDED_KEY },
+        create: { key: ENTERPRISE_SEEDED_KEY, value: { at: new Date().toISOString() } },
+        update: {},
+      });
+      if (count > 0) this.logger.log('Created the Enterprise plan (not public, arranged with sales)');
+    } catch (err: any) {
+      this.logger.error(`Could not create the Enterprise plan: ${err?.message ?? err}`);
+    }
+  }
+
+  /** Enterprise is arranged with sales: no checkout, no self-serve plan change. */
+  private assertSelfServePlan(plan: { name: string; features?: unknown }): void {
+    if (isEnterprisePlan(plan)) {
+      throw new BadRequestException(
+        `The Enterprise plan is arranged with our team and cannot be bought here. Write to ${ENTERPRISE_CONTACT_EMAIL} and we will set it up for your organization.`,
+      );
     }
   }
 
@@ -334,6 +372,7 @@ export class BillingService implements OnModuleInit {
     await this.assertTeamOwner(teamId, userId);
 
     let plan = await this.getPlanByName(planName);
+    this.assertSelfServePlan(plan);
     if (!plan.stripePriceId) {
       if (!this.stripe.isEnabled() || plan.priceMonthly <= 0) {
         throw new BadRequestException(`Plan "${planName}" is not a paid plan`);
@@ -1626,6 +1665,7 @@ export class BillingService implements OnModuleInit {
     await this.assertTeamOwner(teamId, userId);
 
     let newPlan = await this.getPlanByName(newPlanName);
+    this.assertSelfServePlan(newPlan);
     // Moving to Free has its own order: pay what is owed, fit the limits, then switch.
     if (newPlan.name === 'free') return this.downgradeToFree(teamId, userId);
     if (!newPlan.stripePriceId) {
@@ -2437,6 +2477,7 @@ export class BillingService implements OnModuleInit {
     await this.assertTeamOwner(teamId, userId);
 
     let newPlan = await this.getPlanByName(newPlanName);
+    this.assertSelfServePlan(newPlan);
     if (!newPlan.stripePriceId) {
       if (!this.stripe.isEnabled() || newPlan.priceMonthly <= 0) {
         throw new BadRequestException(`Plan "${newPlanName}" has no Stripe price`);

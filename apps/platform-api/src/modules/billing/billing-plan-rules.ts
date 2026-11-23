@@ -25,6 +25,26 @@ export function isCardExempt(plan: PlanLike | null | undefined): boolean {
   return !!features && typeof features === 'object' && features.grandfathered === true;
 }
 
+/** Legacy or grandfathered: the old terms, no caps enforced on it at all. */
+export function isGrandfatheredPlan(plan: Pick<PlanLike, 'name' | 'features'> | null | undefined): boolean {
+  if (!plan) return false;
+  if (plan.name === 'legacy') return true;
+  const features = plan.features as Record<string, unknown> | null | undefined;
+  return !!features && typeof features === 'object' && features.grandfathered === true;
+}
+
+/**
+ * Enterprise is arranged with sales: by name, or any plan whose features say
+ * `enterprise: true`. It is not grandfathered: a cap set on its row (a
+ * contract's custom limit) applies like any other plan's; a null cap is no cap.
+ */
+export function isEnterprisePlan(plan: Pick<PlanLike, 'name' | 'features'> | null | undefined): boolean {
+  if (!plan) return false;
+  if (plan.name === 'enterprise') return true;
+  const features = plan.features as Record<string, unknown> | null | undefined;
+  return !!features && typeof features === 'object' && features.enterprise === true;
+}
+
 /** A paid plan (price above zero, not legacy or grandfathered) must always have a card on file. */
 export function planRequiresCard(plan: PlanLike | null | undefined): boolean {
   if (!plan) return false;

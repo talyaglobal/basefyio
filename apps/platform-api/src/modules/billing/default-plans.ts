@@ -90,3 +90,37 @@ export const DEFAULT_PLANS: Prisma.PlanCreateManyInput[] = [
     features: { dailyBackups: true, prioritySupport: true },
   },
 ];
+
+/** Where Enterprise requests go (the one public contact address the product already lists). */
+export const ENTERPRISE_CONTACT_EMAIL = 'support@talyasmart.com';
+
+/**
+ * Enterprise: arranged with sales, never self-serve. Not public, no Stripe
+ * price, no caps by default (a contract's custom limits are set on the row in
+ * the console). `features.enterprise` marks it, so a renamed copy still counts.
+ * Written once, only when missing (BillingService.ensureEnterprisePlan); a
+ * live row is never overwritten.
+ */
+export const ENTERPRISE_PLAN: Prisma.PlanCreateManyInput = {
+  name: 'enterprise',
+  displayName: 'Enterprise',
+  maxProjects: null,
+  maxStorageBytes: null,
+  maxTeamMembers: null,
+  maxDbSizeBytes: null,
+  maxApiRequests: null,
+  maxBandwidthBytes: null,
+  maxMau: null,
+  dedicatedDb: false,
+  dedicatedStorage: false,
+  dbMemoryMb: 0,
+  dbCpuMillis: 0,
+  priceMonthly: 0,
+  stripePriceId: null,
+  stripeProductId: null,
+  isPublic: false,
+  features: { enterprise: true, dailyBackups: true, prioritySupport: true },
+};
+
+/** Every plan a fresh installation gets, Enterprise included (prisma/seed.ts, create-if-missing). */
+export const ALL_DEFAULT_PLANS: Prisma.PlanCreateManyInput[] = [...DEFAULT_PLANS, ENTERPRISE_PLAN];

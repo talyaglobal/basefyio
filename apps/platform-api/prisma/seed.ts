@@ -1,22 +1,25 @@
 import { PrismaClient } from '@prisma/client';
-import { DEFAULT_PLANS } from '../src/modules/billing/default-plans';
+import { ALL_DEFAULT_PLANS } from '../src/modules/billing/default-plans';
 
 const prisma = new PrismaClient();
 
 // The plan rows live with the API, which also writes them on an empty database.
-const plans = DEFAULT_PLANS;
+const plans = ALL_DEFAULT_PLANS;
 
 async function main() {
   console.log('Seeding plans...');
 
+  // Create-if-missing only. A live row (prices, limits edited in the console)
+  // is never overwritten by these defaults.
   for (const plan of plans) {
     const data = { ...plan } as any;
-    await prisma.plan.upsert({
-      where: { name: plan.name },
-      update: data,
-      create: data,
-    });
-    console.log(`  ✓ Plan "${plan.displayName}" upserted`);
+    const existing = await prisma.plan.findUnique({ where: { name: plan.name }, select: { id: true } });
+    if (existing) {
+      console.log(`  - Plan "${plan.displayName}" exists, left as it is`);
+      continue;
+    }
+    await prisma.plan.create({ data });
+    console.log(`  ✓ Plan "${plan.displayName}" created`);
   }
 
   // Grandfather existing teams: assign Legacy plan + create subscription + usage

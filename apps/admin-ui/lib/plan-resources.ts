@@ -3,6 +3,9 @@ import { formatBytes } from '@/lib/format';
 /** Where the pricing and limits are explained in full. */
 export const PRICING_DOCS_URL = `${process.env.NEXT_PUBLIC_DOCS_URL || 'https://basefyio.com'}/docs/pricing-and-limits`;
 
+/** Enterprise is arranged with our team, never bought in the dashboard. */
+export const ENTERPRISE_CONTACT_HREF = 'mailto:support@talyasmart.com?subject=basefyio%20Enterprise';
+
 /** The one region there is today, in the words customers read. */
 export const REGION_SUMMARY = 'EU (Germany) · Nuremberg';
 

@@ -21,6 +21,7 @@ import { Button } from '@/components/ui/button';
 import { ProjectCostsPanel } from '@/components/project-costs-panel';
 import type { TeamCostReport } from '@/lib/types';
 import { formatDate, formatDateTime } from '@/lib/format';
+import { ENTERPRISE_CONTACT_HREF } from '@/lib/plan-resources';
 
 let stripeLoading: ReturnType<typeof loadStripe> | null = null;
 function getStripePromise() {
@@ -799,6 +800,9 @@ export default function BillingPage() {
 
   const currentPlan = subscription?.plan;
   const isLegacy = currentPlan?.name === 'legacy';
+  // Enterprise is arranged with sales: no self-serve plan changes from the Billing page.
+  const isEnterprise =
+    currentPlan?.name === 'enterprise' || (currentPlan as any)?.features?.enterprise === true;
   const isFree = currentPlan?.name === 'free';
   const isPaid = currentPlan && !isLegacy && !isFree;
   const canManage = subscription?.canManage !== false;
@@ -1209,7 +1213,7 @@ export default function BillingPage() {
       />
 
       {/* Plans */}
-      {!isLegacy && (
+      {!isLegacy && !isEnterprise && (
         <div>
           <h2 className="text-lg font-semibold text-foreground mb-4">
             {isFree ? 'Upgrade Your Plan' : 'Available Plans'}
@@ -1267,6 +1271,19 @@ export default function BillingPage() {
               );
             })}
           </div>
+          <p className="mt-3 text-sm text-muted-foreground">
+            Need limits beyond {plans.length ? plans[plans.length - 1].displayName : 'these plans'}?{' '}
+            <a href={ENTERPRISE_CONTACT_HREF} className="text-primary underline-offset-4 hover:underline">
+              Contact us about Enterprise
+            </a>
+            : limits agreed for your workload, set up by our team.
+          </p>
+        </div>
+      )}
+      {isEnterprise && (
+        <div className="rounded-xl border bg-card p-6 text-sm text-muted-foreground">
+          Your organization is on the Enterprise plan. Its limits were agreed with our team; to change them,{' '}
+          <a href={ENTERPRISE_CONTACT_HREF} className="text-primary underline-offset-4 hover:underline">contact us</a>.
         </div>
       )}
 

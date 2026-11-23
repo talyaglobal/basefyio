@@ -1237,7 +1237,9 @@ export class ProjectsService implements OnApplicationBootstrap {
       where: { teamId: project.teamId },
       include: { plan: true },
     });
-    const planName = (sub?.plan?.name || 'free').toLowerCase();
+    const planFeatures = (sub?.plan?.features ?? null) as Record<string, unknown> | null;
+    const planName =
+      planFeatures && planFeatures.enterprise === true ? 'enterprise' : (sub?.plan?.name || 'free').toLowerCase();
     const ceiling = ProjectsService.ROW_LIMIT_CEILINGS[planName] ?? 1000;
     if (value > ceiling) {
       throw new ForbiddenException(
