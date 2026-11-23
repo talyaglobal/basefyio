@@ -136,6 +136,19 @@ function buildPasswordPolicy(p: {
   return parts.join(' and ');
 }
 
+/**
+ * The realm policy with its minimum length set to `minLength`, every other rule
+ * kept. One minimum for the project (#17): Auth > Policies and Auth > Settings
+ * both write it to the realm and to the project's auth config.
+ */
+export function withPolicyLength(policy: string, minLength: number): string {
+  const rest = (policy || '')
+    .split(/\s+and\s+/)
+    .map((x) => x.trim())
+    .filter((x) => x && !/^length\(/.test(x));
+  return [`length(${minLength})`, ...rest].join(' and ');
+}
+
 /** Parse a Keycloak passwordPolicy string back into structured flags. */
 function parsePasswordPolicy(s: string) {
   const str = s || '';
@@ -482,8 +495,18 @@ export class ProjectAuthController {
     @CurrentUser() user?: JwtPayload,
   ) {
     const project = await this.projectsService.findOne(projectId, user?.sub);
-    const p = await this.keycloak.getRealmPolicies(project.keycloakRealm);
-    return { ...p, password: parsePasswordPolicy(p.passwordPolicy) };
+    const [p, cfg] = await Promise.all([
+      this.keycloak.getRealmPolicies(project.keycloakRealm),
+      this.authConfigService.getOrCreate(projectId),
+    ]);
+    return this.policiesView(p, cfg);
+  }
+
+  /** Policies with the one project minimum: the larger of the realm's and the config's (#17). */
+  private policiesView(p: { passwordPolicy: string } & Record<string, any>, cfg: { minPasswordLength?: number }) {
+    const password = parsePasswordPolicy(p.passwordPolicy);
+    password.minLength = Math.max(password.minLength || 0, Number(cfg?.minPasswordLength) || 0);
+    return { ...p, password };
   }
 
   @Put('policies')
@@ -511,13 +534,20 @@ export class ProjectAuthController {
     }
     if (body.password) update.passwordPolicy = buildPasswordPolicy(body.password);
     await this.keycloak.updateRealmPolicies(project.keycloakRealm, update);
+    if (body.password?.minLength !== undefined) {
+      // The same minimum for the SDK sign-up path (Settings shows this value).
+      await this.authConfigService.update(projectId, { minPasswordLength: body.password.minLength }, user?.sub);
+    }
     await this.activity.append(projectId, {
       userId: user?.sub,
       kind: ProjectActivityKind.AUTH_CONFIG_UPDATED,
       title: 'Authentication policies updated',
     });
-    const p = await this.keycloak.getRealmPolicies(project.keycloakRealm);
-    return { ...p, password: parsePasswordPolicy(p.passwordPolicy) };
+    const [p, cfg] = await Promise.all([
+      this.keycloak.getRealmPolicies(project.keycloakRealm),
+      this.authConfigService.getOrCreate(projectId),
+    ]);
+    return this.policiesView(p, cfg);
   }
 
   @Post('users')
@@ -622,6 +652,13 @@ export class ProjectAuthController {
   ) {
     const project = await this.projectsService.findOne(projectId, user?.sub);
     const updated = await this.authConfigService.update(projectId, body, user?.sub);
+    if (body?.minPasswordLength !== undefined && project.keycloakRealm) {
+      // One minimum (#17): Keycloak enforces it on every password it sets.
+      const current = await this.keycloak.getRealmPolicies(project.keycloakRealm);
+      await this.keycloak.updateRealmPolicies(project.keycloakRealm, {
+        passwordPolicy: withPolicyLength(current.passwordPolicy, updated.minPasswordLength),
+      });
+    }
     // The setting is stored here but the lifetime is Keycloak's to apply; without this
     // write every realm kept the 1800 s it was created with, whatever the setting said.
     const lifespan = Number(body?.tokenExpirySeconds);

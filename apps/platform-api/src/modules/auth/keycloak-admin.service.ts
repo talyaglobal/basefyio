@@ -631,6 +631,15 @@ export class KeycloakAdminService implements OnModuleInit {
         ssoSessionIdleTimeout: 2592000,  // 30 days
         ssoSessionMaxLifespan: 2592000,  // 30 days
         offlineSessionIdleTimeout: 2592000, // 30 days
+        // New projects start with the same minimum as their auth config (6) and
+        // a temporary lockout after repeated failures (#17). Existing realms keep
+        // their settings; both are editable under Auth > Policies.
+        passwordPolicy: 'length(6)',
+        bruteForceProtected: true,
+        permanentLockout: false,
+        failureFactor: 10,
+        waitIncrementSeconds: 60,
+        maxFailureWaitSeconds: 900,
         ...(realmSmtpServer(this.config) ? { smtpServer: realmSmtpServer(this.config)! } : {}),
       }),
     );
