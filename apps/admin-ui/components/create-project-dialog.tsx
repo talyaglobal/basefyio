@@ -55,6 +55,8 @@ import { useDashboard, useOrgNoun } from '@/app/dashboard/layout';
 import { saveProjectSupabaseImportLog } from '@/lib/import-log-storage';
 import { DatabaseAdvisor } from '@/components/database-advisor';
 import { ImportReconciliationTable } from '@/components/import-reconciliation-table';
+import { ProjectPlanSummary } from '@/components/project-plan-summary';
+import { resolvePlanLimits, type PlanLimits } from '@/lib/plan-resources';
 
 export interface ReimportTarget {
   projectId: string;
@@ -271,7 +273,9 @@ export function CreateProjectDialog({
   const [githubStatus, setGithubStatus] = useState<TeamGitHubStatus | null>(null);
   const [githubConnecting, setGithubConnecting] = useState(false);
   const [freePlanMaxProjects, setFreePlanMaxProjects] = useState<number | null>(null);
+  const [publicPlans, setPublicPlans] = useState<PlanLimits[]>([]);
   const targetTeam = teams.find((t) => t.id === targetTeamId) ?? null;
+  const planLimits = resolvePlanLimits(targetTeam?.plan?.name, publicPlans);
   const computeTierOptions: ComputeOptions['tiers'] = computeOptions?.tiers ?? [
     { id: 'shared', label: 'Shared', vcpu: null, memoryGb: null, available: true, reason: null },
   ];
@@ -299,6 +303,7 @@ export function CreateProjectDialog({
     api.billing
       .plans()
       .then((plans) => {
+        setPublicPlans(Array.isArray(plans) ? plans : []);
         const free = plans.find((p: any) => p?.name === 'free');
         if (typeof free?.maxProjects === 'number') setFreePlanMaxProjects(free.maxProjects);
       })
@@ -1301,6 +1306,14 @@ export function CreateProjectDialog({
                   memory for this project alone and can be changed later.
                 </p>
               </FormRow>
+
+              {targetTeam && (
+                <ProjectPlanSummary
+                  planDisplayName={targetTeam.plan?.displayName ?? null}
+                  limits={planLimits}
+                  compute={computeTierOptions.find((t) => t.id === computeTier) ?? null}
+                />
+              )}
 
               <FormRow label="Database password" htmlFor="project-db-password">
                 <div className="flex gap-2">

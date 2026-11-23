@@ -37,6 +37,7 @@ import {
 } from 'lucide-react';
 import { CreateProjectDialog } from '@/components/create-project-dialog';
 import { ProjectAdvisorSection } from '@/components/project-advisor-section';
+import { ProjectResourcesCard } from '@/components/project-resources-card';
 import { ProjectImportLogCard } from '@/components/project-import-log-card';
 import { useProject } from '@/contexts/project-context';
 import { confirmDialog } from '@/components/ui/confirm-dialog';
@@ -483,6 +484,8 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
         githubIntegration={gh ?? undefined}
         vercelIntegration={vc ?? undefined}
       />
+
+      <ProjectResourcesCard projectId={project.id} host={project.dbHost} port={project.dbPort} />
 
       <div className="basefyio-grid-row-hover grid gap-5 md:grid-cols-3">
         <div className="rounded-lg border bg-card p-5">

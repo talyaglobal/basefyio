@@ -79,6 +79,7 @@ import type {
   Team,
   TeamGitHubStatus,
   ComputeOptions,
+  ProjectResources,
   ComputeTierId,
   ProjectDataAccess,
   TeamInvite,
@@ -1050,6 +1051,9 @@ export const api = {
     },
     computeOptions(teamId: string) {
       return request<ComputeOptions>(`/projects/compute-options?teamId=${encodeURIComponent(teamId)}`);
+    },
+    resources(projectId: string) {
+      return request<ProjectResources>(`/projects/${projectId}/resources`);
     },
     updateDataAccess(projectId: string, data: Partial<ProjectDataAccess>) {
       return request<ProjectDataAccess>(`/projects/${projectId}/data-access`, {

@@ -34,6 +34,31 @@ export interface ProjectDataAccess {
 
 export type ComputeTierId = 'shared' | 'micro' | 'small' | 'medium' | 'large' | 'xl';
 
+/** One metered figure on a project: this project's share, the organization total, and the plan cap. */
+export interface MeteredResource {
+  projectBytes: number;
+  organizationBytes: number;
+  /** Null = the plan has no cap. */
+  limitBytes: number | null;
+  measuredAt: string | null;
+}
+
+/** `GET /projects/:id/resources` */
+export interface ProjectResources {
+  region: { id: string; label: string; location: string };
+  compute: {
+    mode: 'shared' | 'dedicated';
+    label: string;
+    vcpu: number | null;
+    memoryGb: number | null;
+    reserved: boolean;
+  };
+  plan: { name: string; displayName: string } | null;
+  uncapped: boolean;
+  database: MeteredResource;
+  storage: MeteredResource;
+}
+
 /** `GET /projects/compute-options?teamId=` */
 export interface ComputeOptions {
   region: string;

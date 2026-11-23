@@ -25,6 +25,7 @@ export const DOCS_NAV_ITEMS: DocsNavItem[] = [
   { href: "/docs/integrations", label: "Integrations", icon: "link", keywords: ["github", "vercel", "deployments", "commits", "environment variables", "sync env", "repository"] },
   { href: "/docs/branches", label: "Branches", icon: "database", keywords: ["preview branch", "staging", "copy", "schema", "migration", "pull request", "environment"] },
   { href: "/docs/backups", label: "Backups & PITR", icon: "harddrive", keywords: ["backup", "restore", "point in time", "pitr", "recovery", "wal", "snapshot", "undo"] },
+  { href: "/docs/pricing-and-limits", label: "Pricing & Limits", icon: "book", keywords: ["pricing", "price", "plan", "plans", "limits", "disk", "storage", "gb", "mb", "unlimited", "ram", "cpu", "compute", "region", "location", "ip", "host", "billing", "free", "pro", "business", "legacy", "quota"] },
   { href: "/docs/api", label: "API Reference", icon: "server", keywords: ["rest", "endpoints", "http", "rpc", "query"] },
   { href: "/docs/sdk", label: "SDK", icon: "code", keywords: ["javascript", "typescript", "client", "bf.from", "auth", "storage"] },
   { href: "/docs/cli", label: "CLI", icon: "terminal", keywords: ["command line", "bf", "basefyio init", "link", "migrate", "login"] },

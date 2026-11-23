@@ -19,6 +19,7 @@ import { KeycloakAdminService } from '../auth/keycloak-admin.service';
 import { PgBouncerService } from '../pgbouncer/pgbouncer.service';
 import { QuotaService, QuotaExceededException } from '../billing/quota.service';
 import { UsageService } from '../billing/usage.service';
+import { buildProjectResources, type ProjectResources } from './project-resources';
 import { InfrastructureService } from '../infrastructure/infrastructure.service';
 import { DataEngineService } from '../data-engine/data-engine.service';
 import { CreateProjectDto, UpdateDataAccessDto } from './dto/create-project.dto';
@@ -1259,6 +1260,58 @@ export class ProjectsService implements OnApplicationBootstrap {
       planDedicated: plan?.dedicatedDb === true,
       planDisplayName: plan?.displayName ?? 'Free',
       regionHasCapacity: this.infra.isDedicatedDbEnabled(),
+    });
+  }
+
+  /**
+   * What the project gets: region, compute, and how much of the plan's database and file
+   * storage limits is used. Any member of the organization may read it. The database size
+   * is re-measured when the stored figure is older than an hour, so the card is not
+   * hours behind a freshly imported database.
+   */
+  async resources(projectId: string, userId: string): Promise<ProjectResources> {
+    const project = await this.prisma.project.findFirst({
+      where: { id: projectId, status: { not: 'DELETED' } },
+      select: {
+        id: true,
+        teamId: true,
+        infrastructure: { select: { status: true, pgMemoryMb: true, pgCpuMillis: true } },
+      },
+    });
+    if (!project) throw new NotFoundException('Project not found');
+    await this.assertTeamMember(project.teamId, userId);
+
+    let usage = await this.prisma.projectUsage.findUnique({ where: { projectId } });
+    const stale = !usage?.dbSizeCalculatedAt || Date.now() - usage.dbSizeCalculatedAt.getTime() > 60 * 60 * 1000;
+    if (stale) {
+      try {
+        await this.usageService.refreshProjectDbSizes({ projectIds: [projectId] });
+        usage = await this.prisma.projectUsage.findUnique({ where: { projectId } });
+      } catch (err: any) {
+        this.logger.debug(`Database size refresh for ${projectId} failed: ${err.message}`);
+      }
+    }
+    const [plan, teamUsage] = await Promise.all([
+      this.quota.getTeamPlan(project.teamId),
+      this.prisma.teamUsage.findUnique({ where: { teamId: project.teamId } }),
+    ]);
+
+    return buildProjectResources({
+      plan: plan
+        ? {
+            name: plan.name,
+            displayName: plan.displayName,
+            maxDbSizeBytes: plan.maxDbSizeBytes,
+            maxStorageBytes: plan.maxStorageBytes,
+          }
+        : null,
+      projectDbSizeBytes: usage?.dbSizeBytes ?? BigInt(0),
+      projectStorageBytes: usage?.storageBytes ?? BigInt(0),
+      dbSizeMeasuredAt: usage?.dbSizeCalculatedAt ?? null,
+      storageMeasuredAt: usage?.storageCalculatedAt ?? null,
+      orgDbSizeBytes: teamUsage?.dbSizeBytes ?? BigInt(0),
+      orgStorageBytes: teamUsage?.storageBytes ?? BigInt(0),
+      infrastructure: project.infrastructure,
     });
   }
 

@@ -30,6 +30,7 @@ not apply to them. That is why the anon key can never reach them.
 |---|---|---|---|
 | POST | `/api/projects` | session · token `projects:write` | create a project — `{ name, teamId, description?, databaseType?, dbPassword?, computeTier?, region?, dataAccess? }` |
 | GET | `/api/projects/compute-options` | session · token `projects:read` | `?teamId=` — the compute sizes the team may choose, each with `available` and the `reason` it is not |
+| GET | `/api/projects/:id/resources` | session only | region, compute, and database and file storage against the plan's limits; see [Pricing and limits](pricing-and-limits.md) |
 | GET | `/api/projects` | session · token `projects:read` | `?teamId=` — the team's active projects |
 | GET | `/api/projects/deleted` | session · token `projects:read` | `?teamId=` — projects in the trash |
 | GET | `/api/projects/deactivated` | session · token `projects:read` | `?teamId=` — deactivated projects |

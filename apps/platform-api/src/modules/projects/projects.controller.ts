@@ -276,6 +276,16 @@ export class ProjectsController {
     return this.projectsService.computeOptions(teamId, user.sub);
   }
 
+  /**
+   * The Overview's resources card: region, compute, database and file storage against the
+   * plan. Dashboard session only; no token scope covers it.
+   */
+  @JwtOnly()
+  @Get(':id/resources')
+  async resources(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    return this.projectsService.resources(id, user.sub);
+  }
+
   // Declared before the ':id/...' routes so "pitr" is not read as a project id.
   @JwtOnly()
   @Post('pitr/run-base-backup')
