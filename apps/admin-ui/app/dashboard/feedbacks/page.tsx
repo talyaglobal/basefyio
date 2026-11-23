@@ -317,6 +317,7 @@ export default function FeedbacksPage() {
       <div className="flex flex-wrap gap-2">
         <button
           onClick={() => setFilterStatus(null)}
+          aria-pressed={!filterStatus}
           className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
             !filterStatus ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-accent'
           }`}
@@ -329,6 +330,7 @@ export default function FeedbacksPage() {
             <button
               key={s}
               onClick={() => setFilterStatus(filterStatus === s ? null : s)}
+              aria-pressed={filterStatus === s}
               className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
                 filterStatus === s ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-accent'
               }`}
@@ -344,6 +346,7 @@ export default function FeedbacksPage() {
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() => setFilterType(null)}
+            aria-pressed={!filterType}
             className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
               !filterType ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-accent'
             }`}
@@ -352,6 +355,7 @@ export default function FeedbacksPage() {
           </button>
           <button
             onClick={() => setFilterType(filterType === 'ISSUE' ? null : 'ISSUE')}
+            aria-pressed={filterType === 'ISSUE'}
             className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
               filterType === 'ISSUE' ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-accent'
             }`}
@@ -361,6 +365,7 @@ export default function FeedbacksPage() {
           </button>
           <button
             onClick={() => setFilterType(filterType === 'IDEA' ? null : 'IDEA')}
+            aria-pressed={filterType === 'IDEA'}
             className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
               filterType === 'IDEA' ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-accent'
             }`}
@@ -371,6 +376,7 @@ export default function FeedbacksPage() {
           {deletedCount > 0 && (
             <button
               onClick={() => setShowDeleted(!showDeleted)}
+              aria-pressed={showDeleted}
               className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
                 showDeleted ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-accent'
               }`}
@@ -441,6 +447,7 @@ export default function FeedbacksPage() {
                             size="sm"
                             variant="ghost"
                             className="h-6 px-2 text-[11px]"
+                            aria-label={`Reply to comment by ${node.user?.email ?? node.userId}`}
                             onClick={() => {
                               setReplyToByFeedback((prev) => ({
                                 ...prev,
@@ -461,6 +468,7 @@ export default function FeedbacksPage() {
                             size="sm"
                             variant="ghost"
                             className="h-6 px-2 text-[11px]"
+                            aria-label={`Edit comment by ${node.user?.email ?? node.userId}`}
                             onClick={() => setEditingComment({ id: node.id, text: node.comment })}
                           >
                             Edit
@@ -471,6 +479,7 @@ export default function FeedbacksPage() {
                             size="sm"
                             variant="ghost"
                             className="h-6 px-2 text-[11px] text-destructive hover:text-destructive"
+                            aria-label={`Delete comment by ${node.user?.email ?? node.userId}`}
                             onClick={async () => {
                               if (!(await confirmDialog({ title: 'Delete comment', description: 'Are you sure you want to delete this comment? Replies to it will be kept.', destructive: true }))) {
                                 return;
@@ -547,6 +556,7 @@ export default function FeedbacksPage() {
                             <button
                               key={`${node.id}-i-${i}`}
                               type="button"
+                              aria-label="Open image attachment preview"
                               onClick={() => openPreview(a.url, false)}
                             >
                               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -657,6 +667,7 @@ export default function FeedbacksPage() {
                             <button
                               type="button"
                               key={`${fb.id}-i-${i}`}
+                              aria-label="Open image attachment preview"
                               onClick={() => openPreview(a.url, false)}
                               className="block"
                             >
@@ -698,6 +709,7 @@ export default function FeedbacksPage() {
                     <button
                       type="button"
                       onClick={() => openHistory(fb.id)}
+                      aria-label={`Open activity history: ${fb.title}`}
                       className="w-full rounded-md border bg-muted/30 px-3 py-2 text-left text-xs hover:bg-muted/50"
                     >
                       <span className="font-medium text-foreground">Developer action:</span>{' '}
@@ -827,6 +839,7 @@ export default function FeedbacksPage() {
                             <button
                               type="button"
                               className="text-xs text-primary underline-offset-2 hover:underline"
+                              aria-expanded={!!selectedFilesOpenByFeedback[fb.id]}
                               onClick={() =>
                                 setSelectedFilesOpenByFeedback((prev) => ({
                                   ...prev,
@@ -850,6 +863,7 @@ export default function FeedbacksPage() {
                                   className="h-8 w-8 shrink-0 overflow-hidden rounded border bg-muted/30"
                                   onClick={() => openLocalFilePreview(file)}
                                   title="Preview file"
+                                  aria-label={`Preview file ${file.name}`}
                                 >
                                   {file.type.startsWith('video/') ? (
                                     <div className="flex h-full w-full items-center justify-center">
@@ -875,6 +889,7 @@ export default function FeedbacksPage() {
                                   size="sm"
                                   variant="ghost"
                                   className="h-6 px-2 text-[11px] text-destructive hover:text-destructive"
+                                  aria-label={`Remove file ${file.name}`}
                                   onClick={() => removeCommentFile(fb.id, index)}
                                 >
                                   Remove

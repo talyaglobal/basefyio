@@ -982,6 +982,9 @@ function UserMenu({
     <div className="relative" data-nav-dropdown-root="true">
       <button
         onClick={() => onOpenChange(!open)}
+        aria-label={`Account menu: ${displayName}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
         className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-accent"
       >
         {/* Avatar */}

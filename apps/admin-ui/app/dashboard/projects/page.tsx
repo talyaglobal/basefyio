@@ -1102,6 +1102,8 @@ export default function ProjectsPage() {
             type="button"
             onClick={() => setCreatedByMe((v) => !v)}
             title="Show only projects I created"
+            aria-label="Created by me"
+            aria-pressed={createdByMe}
             className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm transition-colors ${
               createdByMe
                 ? 'border-primary bg-primary/10 text-primary'
@@ -1116,6 +1118,9 @@ export default function ProjectsPage() {
           <div ref={sortRef} className="relative">
             <button
               onClick={() => setSortOpen((o) => !o)}
+              aria-label={`Sort projects: ${SORT_OPTIONS.find((o) => o.value === sortBy)?.label ?? 'Sort'}`}
+              aria-haspopup="menu"
+              aria-expanded={sortOpen}
               className="flex items-center gap-1.5 rounded-lg border bg-background px-3 py-1.5 text-sm hover:bg-accent transition-colors"
             >
               <SortAsc className="h-3.5 w-3.5 text-muted-foreground" />
