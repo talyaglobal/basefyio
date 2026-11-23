@@ -23,6 +23,7 @@ import { FeaturesModule } from './modules/features/features.module';
 import { PlatformStatusModule } from './modules/platform-status/platform-status.module';
 import { CapacityModule } from './modules/capacity/capacity.module';
 import { AdmissionModule } from './modules/admission/admission.module';
+import { UsageMeteringModule } from './modules/billing/usage-metering.module';
 import { MessageBusModule } from './modules/message-bus/message-bus.module';
 import { ProjectsModule } from './modules/projects/projects.module';
 import { SqlModule } from './modules/sql/sql.module';
@@ -119,6 +120,8 @@ import { TokenContextMiddleware } from './common/request-context/token-context';
     PlatformStatusModule,
     CapacityModule,
     AdmissionModule,
+    // Global: monthly active users are counted by the API-key guard and the sign-in path.
+    UsageMeteringModule,
     MessageBusModule,
     ProjectsModule,
     SqlModule,

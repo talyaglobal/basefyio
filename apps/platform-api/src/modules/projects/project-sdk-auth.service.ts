@@ -1,4 +1,5 @@
 import {
+  Optional,
   Injectable,
   Logger,
   BadRequestException,
@@ -22,6 +23,7 @@ import { describeAllowedRedirects, resolveOAuthRedirect } from './oauth-redirect
 import { ProjectMfaService } from './project-mfa.service';
 import { ImportedPasswordService } from './imported-password.service';
 import { decodeJwtPayload } from './gotrue-shapes';
+import { MauTracker } from '../billing/mau-tracker.service';
 
 export type EmailType = 'verify' | 'reset' | 'welcome' | 'invite' | 'magic_link' | 'change_email' | 'reauth';
 
@@ -77,6 +79,8 @@ export class ProjectSdkAuthService {
     private readonly authConfig: ProjectAuthConfigService,
     private readonly mfa: ProjectMfaService,
     private readonly importedPasswords: ImportedPasswordService,
+    // Monthly active users: every session the realm issues or refreshes counts (fire-and-forget).
+    @Optional() private readonly mau?: MauTracker,
   ) {}
 
   private getRealmAnonClientId(realmName: string): string {
@@ -646,6 +650,7 @@ export class ProjectSdkAuthService {
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         }),
       );
+      this.mau?.recordFromAccessToken(project.keycloakRealm, data?.access_token);
 
       return {
         accessToken: data.access_token,
@@ -762,6 +767,7 @@ export class ProjectSdkAuthService {
           headers: this.tokenHeaders(clientIp),
         }),
       );
+      this.mau?.recordFromAccessToken(realmName, data?.access_token);
       return {
         accessToken: data.access_token,
         refreshToken: data.refresh_token,
@@ -856,6 +862,7 @@ export class ProjectSdkAuthService {
                 ),
               );
               const d = retry.data;
+              this.mau?.recordFromAccessToken(realmName, d?.access_token);
               return {
                 accessToken: d.access_token,
                 refreshToken: d.refresh_token,
@@ -909,6 +916,7 @@ export class ProjectSdkAuthService {
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         }),
       );
+      this.mau?.recordFromAccessToken(realmName, data?.access_token);
       return { accessToken: data.access_token, refreshToken: data.refresh_token, expiresIn: data.expires_in };
     } catch {
       throw new UnauthorizedException('Invalid or expired refresh token');

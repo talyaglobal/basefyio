@@ -4,6 +4,23 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { UsageService } from '../../modules/billing/usage.service';
 import { hashSecretKey, isSecretKey } from '../utils/secret-keys';
 
+/**
+ * The request path as the API routes it: a Supabase client with the bare host
+ * as its base URL sends `/storage/v1/...`, `/auth/v1/...` or `/p/<id>/...`,
+ * which main.ts maps onto `/api/...` (rewriteSupabasePaths) while
+ * `originalUrl` keeps the bare form. Counting only `/api/` and `/rest/` missed
+ * those requests, file downloads among them; the same mapping here counts them.
+ */
+export function normalizeApiPath(raw: string): string {
+  let path = (raw || '').split('?')[0];
+  if (/^\/(auth|rest|storage|realtime)\/v1(\/|$)/.test(path) || /^\/p\/[^/]+(\/|$)/.test(path)) {
+    path = `/api${path}`;
+  }
+  const scoped = /^\/api\/p\/[^/]+(\/.*)?$/.exec(path);
+  if (scoped) path = `/api${scoped[1] || '/'}`;
+  return path;
+}
+
 interface ResolvedOwner {
   teamId: string;
   /** Known whenever the request named a project (header or API key). */
@@ -56,8 +73,8 @@ export class UsageTrackingMiddleware implements NestMiddleware {
 
   async use(req: Request, res: Response, next: NextFunction) {
     // Skip non-API routes — only track public REST/data API calls
-    const path = req.originalUrl || req.url;
-    if (!path.startsWith('/rest/') && !path.startsWith('/api/')) {
+    const path = normalizeApiPath(req.originalUrl || req.url);
+    if (!path.startsWith('/api/')) {
       return next();
     }
 

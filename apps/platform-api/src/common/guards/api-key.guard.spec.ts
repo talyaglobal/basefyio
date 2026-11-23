@@ -440,3 +440,25 @@ describe('ApiKeyGuard — a sleeping project wakes on the first request', () => 
     expect(h.activity).toEqual([]);
   });
 });
+
+describe('ApiKeyGuard counts monthly active users', () => {
+  it('records the subject of a verified user token in the project realm', async () => {
+    const mau = { record: jest.fn() };
+    const g = new ApiKeyGuard(prismaWith(PROJECT), config, reflectorFor(), undefined, undefined, mau as any);
+    jest.spyOn(g as any, 'verifyProjectJwt').mockResolvedValue({ sub: 'user-1' });
+    await g.canActivate(makeCtx({ apikey: 'anon-key', authorization: 'Bearer good.jwt.token' }).context);
+    expect(mau.record).toHaveBeenCalledWith('realm1', 'user-1');
+  });
+
+  it('records nothing for a bare anon key, a mirrored key or a forged token', async () => {
+    const mau = { record: jest.fn() };
+    const g = new ApiKeyGuard(prismaWith(PROJECT), config, reflectorFor(), undefined, undefined, mau as any);
+    await g.canActivate(makeCtx({ apikey: 'anon-key' }).context);
+    await g.canActivate(makeCtx({ apikey: 'anon-key', authorization: 'Bearer anon-key' }).context);
+    jest.spyOn(g as any, 'verifyProjectJwt').mockResolvedValue(null);
+    await expect(
+      g.canActivate(makeCtx({ apikey: 'anon-key', authorization: 'Bearer forged.jwt' }).context),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(mau.record).not.toHaveBeenCalled();
+  });
+});

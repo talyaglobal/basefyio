@@ -1,15 +1,21 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { Pool } from 'pg';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
+import { MauTracker, mauMonth, previousMauMonth } from './mau-tracker.service';
 
 /** Counters outlive a month so a late reset never loses the tail of a period. */
 const COUNTER_TTL_SECONDS = 35 * 24 * 60 * 60;
 
 /** Projects that still occupy infrastructure and therefore get metered. */
 const BILLABLE_STATUSES = ['ACTIVE', 'PAUSED'] as const;
+
+/** First instant of the calendar month of `at`, in UTC: where a monthly counter period starts. */
+export function monthStartUtc(at: Date = new Date()): Date {
+  return new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), 1));
+}
 
 @Injectable()
 export class UsageService {
@@ -19,6 +25,7 @@ export class UsageService {
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly config: ConfigService,
+    @Optional() private readonly mau?: MauTracker,
   ) {}
 
   /**
@@ -244,31 +251,40 @@ export class UsageService {
 
     const apiReqs = await this.counters.getdel(this.apiRequestsKey(teamId));
     const bw = await this.counters.getdel(this.bandwidthKey(teamId));
+    const apiCount = parseInt(apiReqs || '0', 10);
+    const bwBytes = BigInt(bw || '0');
 
-    await this.prisma.teamUsage.upsert({
-      where: { teamId },
-      update: {
-        projectCount,
-        memberCount,
-        apiRequestsMonth: {
-          increment: parseInt(apiReqs || '0', 10),
+    try {
+      await this.prisma.teamUsage.upsert({
+        where: { teamId },
+        update: {
+          projectCount,
+          memberCount,
+          apiRequestsMonth: {
+            increment: apiCount,
+          },
+          bandwidthMonth: {
+            increment: bwBytes,
+          },
+          lastCalculatedAt: new Date(),
         },
-        bandwidthMonth: {
-          increment: BigInt(bw || '0'),
+        create: {
+          teamId,
+          projectCount,
+          memberCount,
+          storageBytes: BigInt(0),
+          dbSizeBytes: BigInt(0),
+          apiRequestsMonth: apiCount,
+          bandwidthMonth: bwBytes,
+          mauCount: 0,
         },
-        lastCalculatedAt: new Date(),
-      },
-      create: {
-        teamId,
-        projectCount,
-        memberCount,
-        storageBytes: BigInt(0),
-        dbSizeBytes: BigInt(0),
-        apiRequestsMonth: parseInt(apiReqs || '0', 10),
-        bandwidthMonth: BigInt(bw || '0'),
-        mauCount: 0,
-      },
-    });
+      });
+    } catch (err) {
+      // The counters were taken out of Redis for this write; put them back so
+      // a failed flush never loses requests (they are flushed again next run).
+      await this.restoreTeamCounters(teamId, apiCount, bwBytes);
+      throw err;
+    }
 
     // Per-project bookkeeping for the Billing cost breakdown. Best effort:
     // a failure here must not undo the team-level accounting above.
@@ -278,6 +294,89 @@ export class UsageService {
     } catch (err: any) {
       this.logger.warn(`Project usage refresh failed for team ${teamId}: ${err.message}`);
     }
+  }
+
+  private async restoreTeamCounters(teamId: string, apiCount: number, bwBytes: bigint): Promise<void> {
+    try {
+      if (apiCount > 0) {
+        await this.counters.incrby(this.apiRequestsKey(teamId), apiCount);
+        await this.counters.expire(this.apiRequestsKey(teamId), COUNTER_TTL_SECONDS);
+      }
+      if (bwBytes > BigInt(0)) {
+        await this.counters.incrby(this.bandwidthKey(teamId), Number(bwBytes));
+        await this.counters.expire(this.bandwidthKey(teamId), COUNTER_TTL_SECONDS);
+      }
+    } catch (err: any) {
+      this.logger.error(`Could not restore usage counters for team ${teamId}: ${err?.message ?? err}`);
+    }
+  }
+
+  /**
+   * Monthly active users per organization: the distinct end users of all its
+   * projects' realms in `month` (UTC), from the MAU sets the sign-in path and
+   * the API-key guard fill. Written to TeamUsage.mauCount. One PFCOUNT per
+   * team; teams without a usage row are left alone.
+   *
+   * @returns the number of teams written
+   */
+  async measureMau(month: string = mauMonth()): Promise<number> {
+    if (!this.mau) return 0;
+    const projects = await this.prisma.project.findMany({
+      where: { status: { not: 'DELETED' } },
+      select: { teamId: true, keycloakRealm: true },
+    });
+    const realmsByTeam = new Map<string, string[]>();
+    for (const p of projects) {
+      if (!p.keycloakRealm) continue;
+      const list = realmsByTeam.get(p.teamId) ?? [];
+      list.push(p.keycloakRealm);
+      realmsByTeam.set(p.teamId, list);
+    }
+    let written = 0;
+    for (const [teamId, realms] of realmsByTeam) {
+      try {
+        const count = await this.mau.count(realms, month);
+        const { count: n } = await this.prisma.teamUsage.updateMany({ where: { teamId }, data: { mauCount: count } });
+        written += n;
+      } catch (err: any) {
+        this.logger.warn(`MAU measurement failed for team ${teamId}: ${err?.message ?? err}`);
+      }
+    }
+    return written;
+  }
+
+  /**
+   * Hourly: database sizes (so the stored figure is never more than an hour
+   * old), monthly active users, and the monthly reset if the 1st-of-month run
+   * was missed. Each step is independent and failure-tolerant.
+   */
+  @Cron(CronExpression.EVERY_HOUR)
+  async hourlyMeasurements(): Promise<void> {
+    try {
+      await this.catchUpMonthlyReset();
+    } catch (err: any) {
+      this.logger.error(`Monthly reset catch-up failed: ${err?.message ?? err}`);
+    }
+    try {
+      const n = await this.refreshProjectDbSizes();
+      this.logger.debug(`Hourly database sizes measured for ${n} project(s)`);
+    } catch (err: any) {
+      this.logger.warn(`Hourly database size measurement failed: ${err?.message ?? err}`);
+    }
+    try {
+      await this.measureMau();
+    } catch (err: any) {
+      this.logger.warn(`Hourly MAU measurement failed: ${err?.message ?? err}`);
+    }
+  }
+
+  /** Runs the monthly reset when a usage row still belongs to an earlier month. */
+  async catchUpMonthlyReset(now: Date = new Date()): Promise<boolean> {
+    const stale = await this.prisma.teamUsage.count({ where: { periodStart: { lt: monthStartUtc(now) } } });
+    if (stale === 0) return false;
+    this.logger.warn(`${stale} usage row(s) still in an earlier month: running the monthly reset now`);
+    await this.resetMonthlyCounters(now);
+    return true;
   }
 
   async incrementProjectCount(teamId: string): Promise<void> {
@@ -308,14 +407,27 @@ export class UsageService {
     });
   }
 
-  @Cron('0 0 1 * *')
-  async resetMonthlyCounters(): Promise<void> {
+  /**
+   * Close the month: write each row's totals to usage_records and zero the
+   * monthly counters. Idempotent: only rows whose period started before this
+   * calendar month (UTC) are closed, each one guarded on that condition, so a
+   * second run (or the hourly catch-up after a missed 1st) closes nothing twice.
+   */
+  @Cron('0 0 1 * *', { timeZone: 'UTC' })
+  async resetMonthlyCounters(now: Date = new Date()): Promise<void> {
     this.logger.log('Resetting monthly usage counters...');
 
-    const allUsage = await this.prisma.teamUsage.findMany();
-    const now = new Date();
-    const periodEnd = new Date(now.getFullYear(), now.getMonth(), 1);
-    const periodStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const periodEnd = monthStartUtc(now);
+    const periodStart = new Date(Date.UTC(periodEnd.getUTCFullYear(), periodEnd.getUTCMonth() - 1, 1));
+
+    // The closing month's MAU, measured once more so the record is not an hour stale.
+    try {
+      await this.measureMau(previousMauMonth(now));
+    } catch (err: any) {
+      this.logger.warn(`MAU measurement before the reset failed: ${err?.message ?? err}`);
+    }
+
+    const allUsage = await this.prisma.teamUsage.findMany({ where: { periodStart: { lt: periodEnd } } });
 
     for (const usage of allUsage) {
       const apiReqs = await this.counters.getdel(this.apiRequestsKey(usage.teamId));
@@ -342,21 +454,22 @@ export class UsageService {
           },
         });
       }
-    }
 
-    await this.prisma.teamUsage.updateMany({
-      data: {
-        apiRequestsMonth: 0,
-        bandwidthMonth: BigInt(0),
-        mauCount: 0,
-        periodStart: periodEnd,
-        lastCalculatedAt: now,
-      },
-    });
+      await this.prisma.teamUsage.updateMany({
+        where: { teamId: usage.teamId, periodStart: { lt: periodEnd } },
+        data: {
+          apiRequestsMonth: 0,
+          bandwidthMonth: BigInt(0),
+          mauCount: 0,
+          periodStart: periodEnd,
+          lastCalculatedAt: now,
+        },
+      });
+    }
 
     // Close the month per project as well, so the cost history can be
     // reconstructed project by project.
-    const projectUsages = await this.prisma.projectUsage.findMany();
+    const projectUsages = await this.prisma.projectUsage.findMany({ where: { periodStart: { lt: periodEnd } } });
     for (const pu of projectUsages) {
       const api = await this.counters.getdel(this.projectApiRequestsKey(pu.projectId));
       const bw = await this.counters.getdel(this.projectBandwidthKey(pu.projectId));
@@ -379,6 +492,7 @@ export class UsageService {
       });
     }
     await this.prisma.projectUsage.updateMany({
+      where: { periodStart: { lt: periodEnd } },
       data: {
         apiRequestsMonth: 0,
         bandwidthMonth: BigInt(0),

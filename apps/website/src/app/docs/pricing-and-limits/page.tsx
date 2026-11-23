@@ -164,8 +164,8 @@ export default function PricingAndLimitsDocs() {
           <tr>
             <td>Database size</td>
             <td>
-              From PostgreSQL&apos;s own size of the database. The Overview re-measures when the stored value
-              is older than one hour; Billing when it is older than six hours.
+              From PostgreSQL&apos;s own size of the database, every hour for every project. The Overview also
+              re-measures when the stored value is older than one hour.
             </td>
           </tr>
           <tr>
@@ -177,7 +177,20 @@ export default function PricingAndLimitsDocs() {
           </tr>
           <tr>
             <td>API requests and egress</td>
-            <td>Counted continuously and written to the database every few hours; reset on the first of each month.</td>
+            <td>
+              Every request that names a project (its API key or <code>x-project-id</code>) through the API, on
+              every path the SDKs use (<code>/rest/v1</code>, <code>/auth/v1</code>, <code>/storage/v1</code>,{" "}
+              <code>/realtime/v1</code>); egress is the request and response bytes. Counted continuously,
+              written to the database every few hours; reset on the first of each month (UTC).
+            </td>
+          </tr>
+          <tr>
+            <td>Monthly active users</td>
+            <td>
+              Distinct end users of the organization&apos;s projects who signed in, refreshed a session or called
+              the API with their user token during the calendar month (UTC); anonymous sign-ins count too.
+              Updated every hour; reset on the first of each month.
+            </td>
           </tr>
         </tbody>
       </table>

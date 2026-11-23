@@ -20,6 +20,7 @@ import {
 } from '../decorators/api-key-scope.decorator';
 import { isSupabaseCompat } from '../../modules/projects/postgrest/compat';
 import { hashSecretKey, isSecretKey } from '../utils/secret-keys';
+import { MauTracker } from '../../modules/billing/mau-tracker.service';
 
 /** How stale a key's "last used" may get before a request refreshes it. */
 const KEY_USE_RESOLUTION_MS = 5 * 60_000;
@@ -49,6 +50,8 @@ export class ApiKeyGuard implements CanActivate {
     // interest in the pooler or the realm.
     @Optional() private readonly pgbouncer?: PgBouncerService,
     @Optional() private readonly keycloak?: KeycloakAdminService,
+    // Monthly active users: a verified user token is an active user (fire-and-forget).
+    @Optional() private readonly mau?: MauTracker,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -152,6 +155,7 @@ export class ApiKeyGuard implements CanActivate {
           // token is exactly that role; a claim the realm did set is kept.
           jwtClaims = claims.role === undefined ? { ...claims, role: 'authenticated' } : claims;
           dbRole = 'authenticated';
+          this.mau?.record(project.keycloakRealm, typeof claims.sub === 'string' ? claims.sub : null);
         } else {
           // Unknown or unsigned JWT → caller is trying to assume an identity
           // they cannot prove. Reject instead of silently demoting to anon,
