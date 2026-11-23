@@ -125,7 +125,7 @@ export function ConfirmDialogHost() {
         if (!next) settle(isPrompt ? null : false);
       }}
     >
-      <DialogContent className="max-w-md" hideClose>
+      <DialogContent className="z-[10000] max-w-md" overlayClassName="z-[10000]" hideClose>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           {options.description != null && (

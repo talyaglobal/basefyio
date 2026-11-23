@@ -582,7 +582,31 @@ function UserDetailDrawer({
 
   const sessions = detail?.sessions || [];
 
-  useEscape(onClose);
+  const [confirming, setConfirming] = useState(false);
+  // While the delete confirmation is open, Escape belongs to it, not to this panel.
+  useEscape(onClose, !confirming);
+
+  async function handleDeleteUser() {
+    setConfirming(true);
+    let ok = false;
+    try {
+      ok = await confirmDialog({ title: 'Delete user', description: `Delete user "${user.email}"?`, destructive: true });
+    } finally {
+      setConfirming(false);
+    }
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await api.projects.deleteRealmUser(projectId, user.id);
+      toast.success('User deleted');
+      // Close without refetching: the user no longer exists.
+      onDeleted();
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return createPortal(
     <div className="fixed inset-0 z-[9999] flex justify-end" role="dialog" aria-modal="true">
@@ -705,11 +729,7 @@ function UserDetailDrawer({
             {/* Danger */}
             <section className="border-t pt-4">
               <Button variant="destructive" size="sm" className="w-full" disabled={busy}
-                onClick={async () => {
-                  if (!(await confirmDialog({ title: 'Delete user', description: `Delete user "${user.email}"?`, destructive: true }))) return;
-                  await act(() => api.projects.deleteRealmUser(projectId, user.id), 'User deleted');
-                  onDeleted();
-                }}>
+                onClick={handleDeleteUser}>
                 <Trash2 className="mr-2 h-3.5 w-3.5" />Delete user
               </Button>
             </section>
