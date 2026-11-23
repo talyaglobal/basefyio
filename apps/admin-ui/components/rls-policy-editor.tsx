@@ -15,6 +15,7 @@ import { api } from '@/lib/api';
 import type { ColumnInfo } from '@/lib/types';
 import {
   applyTemplate,
+  exposureWarning,
   commandTakesUsing,
   commandTakesWithCheck,
   EMAIL_COLUMN_CANDIDATES,
@@ -236,6 +237,23 @@ export function RlsPolicyEditor({ projectId }: { projectId: string }) {
         </div>
       )}
 
+      {(() => {
+        const exposed = overview.tables.filter((t) => exposureWarning(t));
+        if (!exposed.length) return null;
+        return (
+          <div role="alert" className="rounded-md border border-red-300 bg-red-50 p-3 text-xs text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200">
+            <p className="font-medium">
+              {exposed.length} {exposed.length === 1 ? 'table is' : 'tables are'} open to your public key or to every signed-in user:{' '}
+              {exposed.map((t) => t.name).join(', ')}.
+            </p>
+            <p className="mt-1">
+              With row-level security off, the table&apos;s grants apply to every row. Switch row-level security on and add
+              policies, or revoke the grants, unless the data is meant to be public.
+            </p>
+          </div>
+        );
+      })()}
+
       {overview.tables.length === 0 ? (
         <div className="rounded-md border bg-muted/30 p-6 text-center text-sm text-muted-foreground">
           No tables in the public schema yet.
@@ -278,6 +296,11 @@ export function RlsPolicyEditor({ projectId }: { projectId: string }) {
                 </div>
               </div>
 
+              {exposureWarning(t) && (
+                <p className="border-b bg-red-50 px-3 py-2 text-xs font-medium text-red-800 dark:bg-red-950/40 dark:text-red-200">
+                  {exposureWarning(t)}
+                </p>
+              )}
               {t.policies.length === 0 ? (
                 <p className="px-3 py-3 text-xs text-muted-foreground">
                   {t.rlsEnabled

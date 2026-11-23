@@ -49,6 +49,8 @@ export interface PolicyTable {
   name: string;
   rlsEnabled: boolean;
   rlsForced: boolean;
+  /** Table privileges of the public key and of signed-in users; with RLS off they apply to every row. */
+  access: { anonRead: boolean; anonWrite: boolean; authenticatedRead: boolean; authenticatedWrite: boolean };
   policies: PolicyRow[];
 }
 
@@ -83,10 +85,28 @@ export interface PolicyMutationResult {
 /** DDL takes an exclusive lock on the table; never queue behind a long transaction. */
 const LOCK_TIMEOUT_SQL = `SET LOCAL lock_timeout = '5s'`;
 
+/**
+ * Tables with what the public (anon) key and signed-in users may do on them by
+ * table privilege. With RLS off those privileges are the whole story, which is
+ * what the Policies page warns about (#251). A role that does not exist has no
+ * privileges (has_table_privilege would raise for it).
+ */
 const TABLES_SQL = `
   SELECT n.nspname AS schema, c.relname AS name,
-         c.relrowsecurity AS "rlsEnabled", c.relforcerowsecurity AS "rlsForced"
+         c.relrowsecurity AS "rlsEnabled", c.relforcerowsecurity AS "rlsForced",
+         CASE WHEN r.anon THEN has_table_privilege('anon', c.oid, 'SELECT') ELSE false END AS "anonRead",
+         CASE WHEN r.anon THEN has_table_privilege('anon', c.oid, 'INSERT')
+                            OR has_table_privilege('anon', c.oid, 'UPDATE')
+                            OR has_table_privilege('anon', c.oid, 'DELETE') ELSE false END AS "anonWrite",
+         CASE WHEN r.auth THEN has_table_privilege('authenticated', c.oid, 'SELECT') ELSE false END AS "authenticatedRead",
+         CASE WHEN r.auth THEN has_table_privilege('authenticated', c.oid, 'INSERT')
+                            OR has_table_privilege('authenticated', c.oid, 'UPDATE')
+                            OR has_table_privilege('authenticated', c.oid, 'DELETE') ELSE false END AS "authenticatedWrite"
   FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+  CROSS JOIN (
+    SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') AS anon,
+           EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') AS auth
+  ) r
   WHERE n.nspname = $1 AND c.relkind IN ('r', 'p')
   ORDER BY c.relname`;
 
@@ -224,6 +244,12 @@ export class ProjectPoliciesService {
           name: t.name,
           rlsEnabled: Boolean(t.rlsEnabled),
           rlsForced: Boolean(t.rlsForced),
+          access: {
+            anonRead: Boolean(t.anonRead),
+            anonWrite: Boolean(t.anonWrite),
+            authenticatedRead: Boolean(t.authenticatedRead),
+            authenticatedWrite: Boolean(t.authenticatedWrite),
+          },
           policies: byTable.get(t.name) ?? [],
         })),
         helpers: helperInfo,

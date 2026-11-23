@@ -25,7 +25,31 @@ export interface RlsPolicyTable {
   name: string;
   rlsEnabled: boolean;
   rlsForced: boolean;
+  /** Table privileges of the public key (anon) and signed-in users; absent on older servers. */
+  access?: { anonRead: boolean; anonWrite: boolean; authenticatedRead: boolean; authenticatedWrite: boolean };
   policies: RlsPolicy[];
+}
+
+/**
+ * What anyone can do on a table whose row-level security is off, in words, or
+ * null when nothing is exposed (#251). With RLS off a privilege covers every row.
+ */
+export function exposureWarning(t: RlsPolicyTable): string | null {
+  if (t.rlsEnabled || !t.access) return null;
+  const { anonRead, anonWrite, authenticatedRead, authenticatedWrite } = t.access;
+  const parts: string[] = [];
+  if (anonRead || anonWrite) {
+    parts.push(`anyone with your public (anon) key can ${anonRead && anonWrite ? 'read and change' : anonRead ? 'read' : 'change'} every row`);
+  }
+  // Signed-in users: only what the public key cannot already do.
+  const userRead = authenticatedRead && !anonRead;
+  const userWrite = authenticatedWrite && !anonWrite;
+  if (userRead || userWrite) {
+    const can = userRead && userWrite ? 'read and change' : userWrite ? 'change' : 'read';
+    parts.push(`any signed-in user can ${can} every row`);
+  }
+  if (!parts.length) return null;
+  return `Row-level security is off: ${parts.join(', and ')}.`;
 }
 
 /** Which auth.* helpers the project database carries. */
