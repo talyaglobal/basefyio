@@ -260,6 +260,23 @@ export function ProjectCostsPanel({
                       onToggle={() => toggle(p.projectId)}
                     />
                   ))}
+                  {(otherRequests > 0 || otherBytes > 0) && (
+                    <tr className="border-b align-top">
+                      <td className="py-3 pr-3">
+                        <div className="font-medium text-foreground">Other usage</div>
+                        <div className="mt-0.5 text-xs text-muted-foreground">
+                          {[
+                            otherRequests > 0 ? `${otherRequests.toLocaleString('en-US')} requests` : null,
+                            otherBytes > 0 ? `${formatBytes(otherBytes)} of traffic` : null,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </div>
+                      </td>
+                      <td className="py-3 pr-3 text-right tabular-nums text-muted-foreground">—</td>
+                      <td className="py-3 text-right tabular-nums text-muted-foreground">—</td>
+                    </tr>
+                  )}
                 </tbody>
                 <tfoot>
                   <tr className="border-b">
@@ -280,15 +297,10 @@ export function ProjectCostsPanel({
               </table>
               {(otherRequests > 0 || otherBytes > 0) && (
                 <p className="mt-3 text-xs text-muted-foreground">
-                  The Usage card counts every call made for your team in this period. This table prices only
-                  what is tied to your current projects, so{' '}
-                  {[
-                    otherRequests > 0 ? `${otherRequests.toLocaleString('en-US')} requests` : null,
-                    otherBytes > 0 ? `${formatBytes(otherBytes)} of traffic` : null,
-                  ]
-                    .filter(Boolean)
-                    .join(' and ')}{' '}
-                  are not listed here (account-level calls and projects that have been deactivated or deleted).
+                  Other usage is the difference between the organization&apos;s Usage card and the project rows:
+                  usage this period of projects that have since been permanently deleted or moved to another
+                  organization. It counts toward your plan limits like any other usage but is not priced in this
+                  table.
                 </p>
               )}
             </div>
