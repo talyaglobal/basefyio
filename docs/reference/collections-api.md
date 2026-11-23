@@ -45,6 +45,9 @@ Filter operators (`apps/platform-api/src/modules/projects/nosql-filter.util.ts`)
 | `{ field: { $contains: v } }` | array containment |
 | `{ field: { $exists: true|false } }` | key present |
 | `{ field: { $regex, $iregex } }` | regular expression, case-sensitive / insensitive |
+| `{ field: { $like, $ilike } }` | SQL pattern with `%` and `_`, case-sensitive / insensitive |
+| `{ field: { $all: [...] } }` | the array holds every listed value |
+| `{ field: { $elemMatch: {...} } }` | an element of the array matches: `{ qty: { $gt: 5 } }` tests its fields, `{ $gte: 8 }` the element itself; a value that is not an array never matches |
 | `{ $and: [...] }`, `{ $or: [...] }` | boolean combinations |
 | `"a.b.c"` | nested path |
 
