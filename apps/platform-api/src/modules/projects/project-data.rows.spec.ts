@@ -11,7 +11,7 @@ interface Sent {
   params?: unknown[];
 }
 
-function service(opts: { columns?: { column_name: string; data_type: string }[]; pk?: string[] }) {
+function service(opts: { columns?: { column_name: string; data_type: string }[]; pk?: string[]; dataFields?: { name: string; dataTypeID: number }[] }) {
   const sent: Sent[] = [];
   const client = {
     query: async (text: string, params?: unknown[]) => {
@@ -23,6 +23,8 @@ function service(opts: { columns?: { column_name: string; data_type: string }[];
       if (sql.includes('column_name = $3')) return { rows: [{ column_name: params?.[2] }], rowCount: 1 };
       if (sql.includes('pg_index')) return { rows: (opts.pk ?? []).map((column_name) => ({ column_name })) };
       if (sql.startsWith('SELECT COUNT(*)')) return { rows: [{ total: 2 }] };
+      if (sql.startsWith('SELECT t.*') && opts.dataFields) return { rows: [{ id: 1, _bf_ctid: '(0,1)' }], rowCount: 1, fields: opts.dataFields };
+      if (sql.startsWith('INSERT') || sql.startsWith('UPDATE')) return { rows: [{ id: 1 }], rowCount: 1 };
       return { rows: [], rowCount: 0, fields: [] };
     },
     release: () => {},
@@ -31,6 +33,7 @@ function service(opts: { columns?: { column_name: string; data_type: string }[];
   svc.getProjectPool = async () => ({ pool: { connect: async () => client, end: async () => {} }, project: {} });
   svc.resolveSchema = async () => 'public';
   svc.elevateForRead = async () => false;
+  svc.realtimeData = { publishChange: () => {} };
   const dataQuery = () => sent.filter((s) => s.sql.startsWith('SELECT t.*')).pop()!;
   return { svc: svc as ProjectDataService, sent, dataQuery };
 }
@@ -102,5 +105,35 @@ describe('buildStableOrderClause', () => {
     expect(buildStableOrderClause('ORDER BY t."a" ASC NULLS LAST', ['id'])).toBe(
       'ORDER BY t."a" ASC NULLS LAST, t."id" ASC',
     );
+  });
+});
+
+describe('the internal _bf_ctid row address (#36)', () => {
+  it('stays in each row for the grid\'s edit/delete but is not listed as a column', async () => {
+    const { svc } = service({ pk: [], dataFields: [{ name: 'id', dataTypeID: 23 }, { name: '_bf_ctid', dataTypeID: 25 }] });
+    const out: any = await svc.getRows('p1', 'u1', 'legacy');
+    expect(out.fields.map((f: any) => f.name)).toEqual(['id']);
+    expect(out.rows[0]._bf_ctid).toBe('(0,1)');
+  });
+
+  it('is never written by an insert', async () => {
+    const { svc, sent } = service({});
+    await svc.insertRow('p1', 'u1', 'legacy', { id: 1, _bf_ctid: '(9,9)' });
+    const insert = sent.find((s) => s.sql.startsWith('INSERT'))!;
+    expect(insert.sql).not.toContain('_bf_ctid');
+    expect(insert.params).toEqual([1]);
+  });
+
+  it('is never written by an update, but still addresses the row', async () => {
+    const { svc, sent } = service({});
+    await svc.updateRow('p1', 'u1', 'legacy', { _bf_ctid: '(0,1)' }, { name: 'x', _bf_ctid: '(9,9)' });
+    const update = sent.find((s) => s.sql.startsWith('UPDATE'))!;
+    expect(update.sql).toBe('UPDATE "public"."legacy" SET "name" = $1 WHERE ctid = $2::tid RETURNING *');
+    expect(update.params).toEqual(['x', '(0,1)']);
+  });
+
+  it('refuses an update that only tries to set it', async () => {
+    const { svc } = service({});
+    await expect(svc.updateRow('p1', 'u1', 'legacy', { _bf_ctid: '(0,1)' }, { _bf_ctid: '(9,9)' })).rejects.toThrow(/No data to update/);
   });
 });

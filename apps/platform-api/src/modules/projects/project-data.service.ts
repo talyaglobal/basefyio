@@ -47,6 +47,9 @@ export function buildStableOrderClause(userOrder: string, pkColumns: string[]): 
   return userOrder ? `${userOrder}, ${tie}` : `ORDER BY ${tie}`;
 }
 
+/** Internal name of the physical row address (ctid) the data grid carries per row. */
+export const ROW_ADDRESS_COLUMN = '_bf_ctid';
+
 @Injectable()
 export class ProjectDataService {
   private readonly logger = new Logger(ProjectDataService.name);
@@ -496,10 +499,14 @@ export class ProjectDataService {
 
       return {
         rows: dataResult.rows,
-        fields: dataResult.fields?.map((f) => ({
-          name: f.name,
-          dataTypeId: f.dataTypeID,
-        })),
+        // The row-address column rides in `rows` for the UI's edit/delete, but it is
+        // not a column of the table, so it is never listed as one.
+        fields: dataResult.fields
+          ?.filter((f) => f.name !== ROW_ADDRESS_COLUMN)
+          .map((f) => ({
+            name: f.name,
+            dataTypeId: f.dataTypeID,
+          })),
         total,
         totalIsApprox,
         page,
@@ -649,7 +656,7 @@ export class ProjectDataService {
     try {
       const schema = await this.resolveSchema(client, tableName, schemaName);
       const qualified = `"${schema}"."${tableName}"`;
-      const keys = Object.keys(data).filter((k) => data[k] !== undefined && data[k] !== '');
+      const keys = Object.keys(data).filter((k) => k !== ROW_ADDRESS_COLUMN && data[k] !== undefined && data[k] !== '');
       if (!keys.length) throw new BadRequestException('No data provided');
       for (const k of keys) this.validateColumnName(k);
 
@@ -688,7 +695,8 @@ export class ProjectDataService {
     try {
       const schema = await this.resolveSchema(client, tableName, schemaName);
       const qualified = `"${schema}"."${tableName}"`;
-      const setCols = Object.keys(data);
+      // The row address only identifies a row (in pkWhere); it is never a value to write.
+      const setCols = Object.keys(data).filter((k) => k !== ROW_ADDRESS_COLUMN);
       if (!setCols.length) throw new BadRequestException('No data to update');
       for (const k of setCols) this.validateColumnName(k);
 

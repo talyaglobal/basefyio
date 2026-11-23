@@ -376,13 +376,26 @@ describe('deleteBucket', () => {
     expect(client.removeBucket).not.toHaveBeenCalled();
   });
 
+  it('refuses a bucket that still holds files with 409 and changes nothing', async () => {
+    const { svc, client, prisma } = build();
+    const listener = { beforeDelete: jest.fn(), afterCreate: jest.fn() };
+    svc.addBucketListener(listener);
+    client.listObjectsV2.mockImplementation(() => listing([{ name: 'a.txt', size: 1 }]));
+    await expect(svc.deleteBucket('p1', undefined, 'docs')).rejects.toBeInstanceOf(ConflictException);
+    await expect(svc.deleteBucket('p1', undefined, 'docs')).rejects.toThrow(/not empty/);
+    expect(listener.beforeDelete).not.toHaveBeenCalled();
+    expect(client.removeObjects).not.toHaveBeenCalled();
+    expect(client.removeBucket).not.toHaveBeenCalled();
+    expect(prisma.storageBucketOwner.deleteMany).not.toHaveBeenCalled();
+  });
+
   it('empties the bucket before removing it', async () => {
     const { svc, client } = build();
     client.listObjectsV2.mockImplementation(() => listing([{ name: 'a.txt', size: 1 }, { name: 'dir/b.txt', size: 2 }]));
     const order: string[] = [];
     client.removeObjects.mockImplementation(async () => void order.push('removeObjects'));
     client.removeBucket.mockImplementation(async () => void order.push('removeBucket'));
-    await expect(svc.deleteBucket('p1', undefined, 'docs')).resolves.toEqual({ message: 'Bucket "docs" deleted' });
+    await expect(svc.deleteBucket('p1', undefined, 'docs', { force: true })).resolves.toEqual({ message: 'Bucket "docs" deleted' });
     expect(client.removeObjects).toHaveBeenCalledWith(BUCKET, ['a.txt', 'dir/b.txt']);
     expect(order).toEqual(['removeObjects', 'removeBucket']);
   });
@@ -790,11 +803,17 @@ describe('getObject', () => {
     }
   });
 
-  it('maps any other failure to a 500 that names the cause', async () => {
+  it('maps a bucket that is gone to NotFound, without the S3 wording', async () => {
+    const { svc, client } = build();
+    client.statObject.mockRejectedValue(Object.assign(new Error('The specified bucket does not exist'), { code: 'NoSuchBucket' }));
+    await expect(svc.getObject('p1', undefined, 'docs', 'a.txt')).rejects.toThrow(new NotFoundException('Bucket not found'));
+  });
+
+  it('maps any other failure to a 500 without the internal cause', async () => {
     const { svc, client } = build();
     client.statObject.mockRejectedValue(Object.assign(new Error('connection reset'), { code: 'ECONNRESET' }));
     await expect(svc.getObject('p1', undefined, 'docs', 'a.txt')).rejects.toThrow(
-      new InternalServerErrorException('Failed to get object: connection reset'),
+      new InternalServerErrorException('Failed to get object'),
     );
   });
 

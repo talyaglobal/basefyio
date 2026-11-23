@@ -240,6 +240,9 @@ export default function ProjectsPage() {
   const [shownCount, setShownCount] = useState(60);
   const [folderModal, setFolderModal] = useState<{ open: boolean; editing?: ProjectFolder }>({ open: false });
   const [folderName, setFolderName]   = useState('');
+  // A ref, not state: a double click fires twice before React re-renders, so state alone lets both through.
+  const folderSaving = useRef(false);
+  const [folderSavingUi, setFolderSavingUi] = useState(false);
   const [folderColor, setFolderColor] = useState(COLORS[0]);
 
   // Tag modal (create or edit)
@@ -490,6 +493,9 @@ export default function ProjectsPage() {
   async function saveFolder() {
     if (!folderName.trim()) { toast.error('Enter a folder name.'); return; }
     if (!activeTeamId) return;
+    if (folderSaving.current) return;
+    folderSaving.current = true;
+    setFolderSavingUi(true);
     try {
       if (folderModal.editing) {
         const updated = await api.folders.update(folderModal.editing.id, { name: folderName, color: folderColor });
@@ -504,6 +510,9 @@ export default function ProjectsPage() {
       setFolderName('');
     } catch (err: any) {
       toast.error(err.message);
+    } finally {
+      folderSaving.current = false;
+      setFolderSavingUi(false);
     }
   }
 
@@ -569,6 +578,8 @@ export default function ProjectsPage() {
     if (!activeTeamId) return null;
     const name = await promptDialog({ title: 'New folder', placeholder: 'Folder name', confirmText: 'Create' });
     if (!name || !name.trim()) return null;
+    if (folderSaving.current) return null;
+    folderSaving.current = true;
     try {
       const created = await api.folders.create(activeTeamId, name.trim(), COLORS[0]);
       setFolders((prev) => [...prev, created]);
@@ -577,6 +588,8 @@ export default function ProjectsPage() {
     } catch (err: any) {
       toast.error(err.message || 'Failed to create folder');
       return null;
+    } finally {
+      folderSaving.current = false;
     }
   }
 
@@ -1804,7 +1817,7 @@ export default function ProjectsPage() {
           <ColorPicker value={folderColor} onChange={setFolderColor} />
           <div className="flex gap-2 mt-4">
             <Button variant="outline" className="flex-1" onClick={() => setFolderModal({ open: false })}>Cancel</Button>
-            <Button className="flex-1 bg-brand-gradient text-white border-0 hover:opacity-90" onClick={saveFolder}>
+            <Button className="flex-1 bg-brand-gradient text-white border-0 hover:opacity-90" onClick={saveFolder} disabled={folderSavingUi}>
               {folderModal.editing ? 'Save' : 'Create'}
             </Button>
           </div>

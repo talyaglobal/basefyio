@@ -1475,7 +1475,12 @@ export const api = {
         : '';
       return request<TableRows>(
         `/projects/${projectId}/tables/${tableName}/rows?page=${page}&limit=${limit}${schemaQs}${searchQs}${sortQs}`,
-      );
+      ).then((res) => ({
+        ...res,
+        // `_bf_ctid` is the internal row address: each row carries it so edit and delete can find
+        // the row, but it is not a column, so it is never listed (or editable) in the grid.
+        fields: res.fields?.filter((f) => f.name !== '_bf_ctid'),
+      }));
     },
     createTable(projectId: string, data: {
       name: string;
@@ -2575,7 +2580,7 @@ export const api = {
       });
     },
     deleteBucket(projectId: string, bucketName: string) {
-      return request<{ message: string }>(`/projects/${projectId}/storage/buckets/${bucketName}`, {
+      return request<{ message: string }>(`/projects/${projectId}/storage/buckets/${bucketName}?force=true`, {
         method: 'DELETE',
       });
     },

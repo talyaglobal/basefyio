@@ -19,7 +19,7 @@ download and render behind it — accept the **anon key**, which may also travel
 | GET | `/api/projects/:projectId/storage/buckets` | anon + user | list buckets |
 | POST | `/api/projects/:projectId/storage/buckets` | service | `{ name, public? }` — create |
 | PATCH | `/api/projects/:projectId/storage/buckets/:bucketName` | service | `{ public }` — toggle visibility |
-| DELETE | `/api/projects/:projectId/storage/buckets/:bucketName` | service | delete (must be empty) |
+| DELETE | `/api/projects/:projectId/storage/buckets/:bucketName` | service | delete; a bucket that still holds files answers `409` ("not empty") unless `?force=true`, which deletes the bucket and every file in it |
 | GET | `/api/projects/:projectId/storage/buckets/:bucketName/public-url` | anon | `?path=` → `{ public, url }` (`url` is `null` for a private bucket) |
 
 A bucket: `{ id, name, public, createdAt, objectCount, totalSize }`. Names are 3–63

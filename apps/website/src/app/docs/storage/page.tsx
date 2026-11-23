@@ -63,8 +63,11 @@ const { data: buckets } = await bf.storage.listBuckets()
 // Change visibility (public ↔ private)
 await bf.storage.updateBucket('avatars', { public: true })
 
-// Delete a bucket (must be empty)
-await bf.storage.deleteBucket('avatars')`}</code></pre>
+// Delete a bucket (must be empty; a bucket with files answers 409)
+await bf.storage.deleteBucket('avatars')
+
+// Delete a bucket and every file in it
+await bf.storage.deleteBucket('avatars', { force: true })`}</code></pre>
       <p className="text-sm">
         Bucket names are 3–63 characters, lowercase letters, numbers and hyphens, and can&apos;t
         start or end with a hyphen.

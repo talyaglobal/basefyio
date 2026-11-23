@@ -419,7 +419,7 @@ export class ApiClient {
   }
 
   async deleteBucket(projectId: string, name: string) {
-    const { data } = await this.client.delete(`/api/projects/${projectId}/storage/buckets/${encodeURIComponent(name)}`);
+    const { data } = await this.client.delete(`/api/projects/${projectId}/storage/buckets/${encodeURIComponent(name)}?force=true`);
     return data as { message: string };
   }
 

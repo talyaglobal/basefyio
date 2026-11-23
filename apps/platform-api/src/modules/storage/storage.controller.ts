@@ -132,6 +132,13 @@ export function assertBucketBody(body: { name?: unknown; public?: unknown } | un
   }
 }
 
+/** An object path a caller may name: not empty, no NUL, no ".." segment. */
+export function isSafeObjectPath(p: unknown): boolean {
+  if (typeof p !== 'string') return false;
+  const clean = p.replace(/^\/+/, '');
+  return clean.trim() !== '' && !clean.includes('\0') && !clean.split('/').some((s) => s === '..');
+}
+
 /** A non-empty list of non-empty strings. */
 const isPathList = (v: unknown): v is string[] =>
   Array.isArray(v) && v.length > 0 && v.every((p) => typeof p === 'string' && p.trim() !== '');
@@ -203,9 +210,12 @@ export class StorageController {
   async deleteBucket(
     @Param('projectId') projectId: string,
     @Param('bucketName') bucketName: string,
+    @Query('force') force?: string,
     @CurrentUser() user?: JwtPayload,
   ) {
-    const result = await this.storage.deleteBucket(projectId, user?.sub, bucketName);
+    const result = await this.storage.deleteBucket(projectId, user?.sub, bucketName, {
+      force: force === 'true' || force === '1',
+    });
     await this.activity.append(projectId, {
       userId: user?.sub,
       kind: ProjectActivityKind.STORAGE_BUCKET_DELETED,
@@ -440,6 +450,10 @@ export class StorageController {
     @CurrentUser() user?: JwtPayload,
   ) {
     const objectPath = filePath || file.originalname;
+    if (!isSafeObjectPath(objectPath)) {
+      await removeSpooled(file.path);
+      throw new BadRequestException('Invalid object path: it must not be empty or contain ".." segments');
+    }
     const caller = storageCaller(req);
 
     const release = uploadSlots.tryAcquire();
@@ -692,6 +706,10 @@ export class StorageController {
     @Req() req: Request,
     @CurrentUser() user?: JwtPayload,
   ) {
+    const paths = body?.paths;
+    if (!Array.isArray(paths) || paths.length === 0 || !paths.every((p) => typeof p === 'string' && isSafeObjectPath(p))) {
+      throw new BadRequestException('Send {"paths": [...]}: a non-empty list of object paths without ".." segments');
+    }
     await this.access.assertCanModifyAll(
       storageCaller(req),
       projectId,

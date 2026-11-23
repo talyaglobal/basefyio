@@ -1,6 +1,7 @@
 import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { AllExceptionsFilter } from '../../../common/filters/all-exceptions.filter';
+import { mapRestError } from '../pg-error.util';
 import { isSupabaseCompat } from './compat';
 import {
   isPgError,
@@ -35,7 +36,13 @@ export class PostgrestCompatFilter implements ExceptionFilter {
       typeof (req as any).supabaseCompat === 'boolean'
         ? (req as any).supabaseCompat
         : isSupabaseCompat(req.headers);
-    if (!compat) return this.fallback.catch(exception, host);
+    if (!compat) {
+      // A parse or Postgres error that no handler classified is still the caller's input, not a 500.
+      return this.fallback.catch(
+        exception instanceof PostgrestParseError || isPgError(exception) ? mapRestError(exception) : exception,
+        host,
+      );
+    }
 
     const res = http.getResponse<Response>();
     const role = (req as any).apiKeyPayload?.dbRole as string | undefined;

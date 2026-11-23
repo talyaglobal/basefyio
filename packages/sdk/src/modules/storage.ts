@@ -403,10 +403,11 @@ export class StorageClient {
     }
   }
 
-  async deleteBucket(name: string): Promise<BasefyioResponse<{ message: string }>> {
+  /** Delete a bucket. A bucket that still holds files answers 409 unless `options.force` is true. */
+  async deleteBucket(name: string, options: { force?: boolean } = {}): Promise<BasefyioResponse<{ message: string }>> {
     try {
       const data = await this.http.json<{ message: string }>(
-        `${this.basePath()}/buckets/${encodeURIComponent(name)}`,
+        `${this.basePath()}/buckets/${encodeURIComponent(name)}${options.force ? '?force=true' : ''}`,
         { method: 'DELETE' },
       );
       return { data, error: null };

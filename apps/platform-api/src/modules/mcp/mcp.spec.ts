@@ -323,7 +323,7 @@ describe('MCP: buckets and S3 access keys (feedback #225)', () => {
     expect((await svc.invoke(tool('create_bucket'), { projectId: PROJECT, name: 'docs' }, t)).isError).toBeFalsy();
     expect(storage.createBucket).toHaveBeenCalledWith(PROJECT, 'u1', 'docs', false);
     expect((await svc.invoke(tool('delete_bucket'), { projectId: PROJECT, bucket: 'docs' }, t)).isError).toBeFalsy();
-    expect(storage.deleteBucket).toHaveBeenCalledWith(PROJECT, 'u1', 'docs');
+    expect(storage.deleteBucket).toHaveBeenCalledWith(PROJECT, 'u1', 'docs', { force: false });
     expect(activity.append).toHaveBeenCalledTimes(2);
   });
 

@@ -6,6 +6,7 @@ import {
   HttpStatus,
   NotFoundException,
 } from '@nestjs/common';
+import { PostgrestParseError } from './postgrest/types';
 
 /**
  * Map a raw PostgreSQL driver error to the appropriate HTTP exception for the
@@ -58,4 +59,35 @@ export function mapPgError(e: any): unknown {
     default:
       return e; // unknown → NestJS renders a 500
   }
+}
+
+/**
+ * {@link mapPgError} for the REST data API, where a caller's bad input must
+ * never surface as a 500 or carry an internal message.
+ *
+ * - a request-parse failure that escaped to here is a 400 with its PostgREST code;
+ * - a Postgres "data exception" (class 22: numeric overflow, value too long,
+ *   division by zero, bad datetime, ...) is about the value the caller sent, so
+ *   it is a 400 that keeps Postgres's short description;
+ * - any other statement Postgres rejects as malformed (class 42, 2x, 0A, 44) is
+ *   a 400, and an integrity failure that has no dedicated mapping a 409, both with
+ *   a fixed message that names no table, column, constraint or value;
+ * - everything else (connection loss, internal errors) is left as is and renders
+ *   as a generic 500.
+ */
+export function mapRestError(e: any): unknown {
+  if (e instanceof PostgrestParseError) {
+    return new BadRequestException({ message: e.message, details: e.details, code: e.code });
+  }
+  const mapped = mapPgError(e);
+  if (mapped !== e) return mapped;
+  const code: unknown = e?.code;
+  if (typeof code !== 'string' || !/^[0-9A-Z]{5}$/.test(code)) return e;
+  if (code.startsWith('22')) {
+    const msg = typeof e.message === 'string' ? e.message.split('\n')[0].slice(0, 200) : '';
+    return new BadRequestException(msg ? `Invalid input value: ${msg}` : 'Invalid input value');
+  }
+  if (code.startsWith('23')) return new ConflictException('The change violates a database constraint');
+  if (/^(42|2B|0A|44)/.test(code)) return new BadRequestException('The request is not valid for this resource');
+  return e;
 }

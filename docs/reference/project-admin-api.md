@@ -238,7 +238,7 @@ Secret keys (`bf_secret_…`) have the service key's rights and, like it, are ac
 ```
 
 `limit` defaults to 50 and is capped at the project's row limit (`max-rows` above). Each row also
-carries `_bf_ctid`, the physical row address the dashboard grid uses. `rlsBypassed` tells you the
+carries `_bf_ctid`, the physical row address the dashboard grid uses to find the row. It is not a column: it is left out of `fields`, and an insert or update never writes it (it only addresses a row, as `match`/`pkWhere`). `rlsBypassed` tells you the
 rows were read as the owner — a policy-bound caller may see fewer.
 
 `deduplicate-rows` takes 1–24 distinct key columns. With `preview: true` it only counts

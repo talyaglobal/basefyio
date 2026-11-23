@@ -325,15 +325,28 @@ export class StorageService {
     };
   }
 
-  async deleteBucket(projectId: string, userId: string | undefined, bucketName: string) {
+  async deleteBucket(
+    projectId: string,
+    userId: string | undefined,
+    bucketName: string,
+    opts: { force?: boolean } = {},
+  ) {
     const project = await this.assertProjectAccess(projectId, userId);
     const minioBucket = await this.ownedBucket(project, bucketName);
+
+    // A bucket that still holds files is only deleted on an explicit `force`; checked before any
+    // listener runs so a refused delete changes nothing.
+    const objects = await this.listAllObjects(minioBucket);
+    if (objects.length > 0 && !opts.force) {
+      throw new ConflictException(
+        `Bucket "${bucketName}" is not empty (${objects.length} object${objects.length === 1 ? '' : 's'}). Empty it first, or pass force=true to delete the bucket and every file in it.`,
+      );
+    }
 
     // S3 key policies drop the bucket first; a failure refuses the delete (see BucketChangeListener).
     for (const l of this.bucketListeners) await l.beforeDelete(projectId, minioBucket);
 
-    // Remove all objects first
-    const objects = await this.listAllObjects(minioBucket);
+    // Remove all objects first (force only)
     if (objects.length > 0) {
       await this.client.removeObjects(minioBucket, objects.map((o) => o.name));
     }
@@ -486,7 +499,7 @@ export class StorageService {
       if (!logical || keep.has(logical)) continue;
 
       try {
-        await this.deleteBucket(projectId, undefined, logical);
+        await this.deleteBucket(projectId, undefined, logical, { force: true });
         this.logger.log(
           `Pruned storage bucket "${logical}" (not in remote source list) for project ${projectId}`,
         );
@@ -1000,7 +1013,9 @@ export class StorageService {
       if (err.code === 'NotFound' || err.code === 'NoSuchKey') {
         throw new NotFoundException(`Object "${objectName}" not found`);
       }
-      throw new InternalServerErrorException(`Failed to get object: ${err.message}`);
+      if (err.code === 'NoSuchBucket') throw new NotFoundException('Bucket not found');
+      this.logger.error(`getObject failed on ${minioBucket}: ${err.message}`);
+      throw new InternalServerErrorException('Failed to get object');
     }
   }
 
@@ -1041,7 +1056,9 @@ export class StorageService {
       if (err.code === 'NotFound' || err.code === 'NoSuchKey') {
         throw new NotFoundException(`Object "${objectName}" not found`);
       }
-      throw new InternalServerErrorException(`Failed to get object: ${err.message}`);
+      if (err.code === 'NoSuchBucket') throw new NotFoundException('Bucket not found');
+      this.logger.error(`getObject failed on ${minioBucket}: ${err.message}`);
+      throw new InternalServerErrorException('Failed to get object');
     }
   }
 

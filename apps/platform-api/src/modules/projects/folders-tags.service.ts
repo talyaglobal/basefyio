@@ -1,6 +1,8 @@
 import {
   Injectable,
   NotFoundException,
+  ConflictException,
+  BadRequestException,
   ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -46,8 +48,17 @@ export class FoldersTagsService {
     color = '#6366f1',
   ) {
     await this.assertTeamMember(teamId, userId);
+    const clean = typeof name === 'string' ? name.trim() : '';
+    if (!clean) throw new BadRequestException('Folder name is required');
+    // A second request with the same name (a double click) is refused rather than
+    // creating a twin. Older twins stay, so this is a check and not a unique index.
+    const twin = await this.prisma.projectFolder.findFirst({
+      where: { teamId, name: { equals: clean, mode: 'insensitive' } },
+      select: { id: true },
+    });
+    if (twin) throw new ConflictException(`A folder named "${clean}" already exists`);
     const folder = await this.prisma.projectFolder.create({
-      data: { name, color, teamId },
+      data: { name: clean, color, teamId },
     });
     const memberIds = await this.teamMemberUserIds(teamId);
     await this.realtime.publish({

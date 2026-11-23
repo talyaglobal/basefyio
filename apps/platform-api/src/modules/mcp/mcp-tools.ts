@@ -404,11 +404,15 @@ export const MCP_TOOLS: McpToolDefinition[] = [
     name: 'delete_bucket',
     title: 'Delete a storage bucket',
     scope: 'storage:write',
-    description: 'Permanently delete a bucket and every file in it. There is no undo.',
-    input: { projectId, bucket: z.string().min(1).max(63).describe('Bucket name from list_buckets.') },
+    description: 'Delete a bucket. A bucket that still holds files is refused (409) unless `force` is true, which permanently deletes the bucket and every file in it. There is no undo.',
+    input: {
+      projectId,
+      bucket: z.string().min(1).max(63).describe('Bucket name from list_buckets.'),
+      force: z.boolean().optional().describe('Delete the bucket even when it holds files.'),
+    },
     annotations: WRITE,
     run: async (args, c) => {
-      const out = await c.deps.storage.deleteBucket(args.projectId, c.userId, args.bucket);
+      const out = await c.deps.storage.deleteBucket(args.projectId, c.userId, args.bucket, { force: args.force === true });
       await c.deps.activity.append(args.projectId, {
         userId: c.userId,
         kind: ProjectActivityKind.STORAGE_BUCKET_DELETED,

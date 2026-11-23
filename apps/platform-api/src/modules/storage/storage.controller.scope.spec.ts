@@ -274,8 +274,8 @@ describe('StorageController — handler behaviour', () => {
 
   it('deleteBucket records the deletion', async () => {
     const { storage, activity, controller } = deps();
-    await expect(controller.deleteBucket('p1', 'docs', user)).resolves.toEqual({ message: 'deleted' });
-    expect(storage.deleteBucket).toHaveBeenCalledWith('p1', 'u1', 'docs');
+    await expect(controller.deleteBucket('p1', 'docs', undefined, user)).resolves.toEqual({ message: 'deleted' });
+    expect(storage.deleteBucket).toHaveBeenCalledWith('p1', 'u1', 'docs', { force: false });
     expect(activity.append).toHaveBeenCalledWith('p1', {
       userId: 'u1',
       kind: 'storage.bucket_deleted',

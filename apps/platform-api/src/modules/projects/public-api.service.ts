@@ -13,7 +13,7 @@ import { Pool, PoolClient, types as pgTypes } from 'pg';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProjectsService } from './projects.service';
 import { RealtimeDataService } from '../realtime-data/realtime-data.service';
-import { mapPgError } from './pg-error.util';
+import { mapRestError } from './pg-error.util';
 import { jwtClaimSettings } from './jwt-claim-settings';
 import { parseQuery } from './postgrest/parser';
 import { describeRpcMismatch } from './postgrest/rpc-mismatch';
@@ -1004,7 +1004,7 @@ export class PublicApiService {
 
   /** The HTTP error for a failed statement, in the dialect the caller speaks. */
   private classify(e: unknown, ctx: RlsContext): unknown {
-    return ctx.compat ? pgToPostgrest(e, ctx.role) : mapPgError(e);
+    return ctx.compat ? pgToPostgrest(e, ctx.role) : mapRestError(e);
   }
 
 

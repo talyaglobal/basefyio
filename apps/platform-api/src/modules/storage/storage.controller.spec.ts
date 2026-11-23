@@ -130,6 +130,14 @@ describe('uploadObject (disk spool → stream)', () => {
     originalname: 'orig.txt',
   } as any;
 
+  it('refuses a path with ".." with 400 and still removes the spool file', async () => {
+    const { storage, controller } = deps();
+    removeSpooled.mockClear();
+    await expect(controller.uploadObject('p1', 'docs', '../x.txt', file, dashboardReq, user)).rejects.toThrow(BadRequestException);
+    expect(storage.uploadObjectStream).not.toHaveBeenCalled();
+    expect(removeSpooled).toHaveBeenCalledWith('/spool/abc.part');
+  });
+
   it('streams the spooled file to the store, records the uploader, logs the activity and removes the spool file', async () => {
     const { storage, activity, controller } = deps();
     createReadStream.mockReturnValue('READ-STREAM');
@@ -632,5 +640,26 @@ describe("move, copy, rename and the signed URL: input and existence", () => {
     await expect(controller.getPresignedUrl("p1", "b", "nope", "600", serviceReq, undefined)).rejects.toThrow(NotFoundException);
     await expect(controller.getPresignedUrl("p1", "b", "", "600", serviceReq, undefined)).rejects.toThrow(BadRequestException);
     expect(storage.getPresignedUrl).not.toHaveBeenCalled();
+  });
+
+  it("deleting a bucket forwards force only for force=true", async () => {
+    const { controller, ...d } = deps();
+    const storage = d.storage as any;
+    storage.deleteBucket = jest.fn().mockResolvedValue({ message: "ok" });
+    await controller.deleteBucket("p1", "b", undefined, undefined);
+    expect(storage.deleteBucket).toHaveBeenLastCalledWith("p1", undefined, "b", { force: false });
+    await controller.deleteBucket("p1", "b", "true", undefined);
+    expect(storage.deleteBucket).toHaveBeenLastCalledWith("p1", undefined, "b", { force: true });
+    await controller.deleteBucket("p1", "b", "no", undefined);
+    expect(storage.deleteBucket).toHaveBeenLastCalledWith("p1", undefined, "b", { force: false });
+  });
+
+  it("deleting objects answers 400 for a missing, empty or traversing path list", async () => {
+    const { storage, controller } = deps();
+    storage.deleteObjects = jest.fn();
+    for (const body of [undefined, {}, { paths: [] }, { paths: ["../x"] }, { paths: [5] }, { paths: [""] }] as any[]) {
+      await expect(controller.deleteObjects("p1", "b", body, serviceReq, undefined)).rejects.toThrow(BadRequestException);
+    }
+    expect(storage.deleteObjects).not.toHaveBeenCalled();
   });
 });
