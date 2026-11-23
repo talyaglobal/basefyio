@@ -137,6 +137,16 @@ export default function EmbeddingsPage() {
 
   const handleToggle = async (enabled: boolean) => {
     if (!project) return;
+    if (!enabled) {
+      const ok = await confirmDialog({
+        title: 'Disable pgvector?',
+        description:
+          'Embedding and search requests for this project will be rejected while pgvector is off. Your stored embeddings are kept: the kb_embeddings and kb_embeddings_store tables stay in your database and come back when you enable pgvector again.',
+        confirmText: 'Disable pgvector',
+        destructive: true,
+      });
+      if (!ok) return;
+    }
     setToggling(true);
     try {
       if (enabled) {
