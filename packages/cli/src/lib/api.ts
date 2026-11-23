@@ -423,6 +423,30 @@ export class ApiClient {
     return data as { message: string };
   }
 
+  /** pgvector / embeddings status for a project. */
+  async getEmbeddingStatus(projectId: string) {
+    const { data } = await this.client.get(`/api/projects/${projectId}/embeddings/status`);
+    return data as { pgvectorEnabled: boolean; embeddingCount?: number | null; [key: string]: unknown };
+  }
+
+  /** Install the pgvector extension and the embedding tables in the project database. */
+  async enableEmbeddings(projectId: string) {
+    const { data } = await this.client.post(`/api/projects/${projectId}/embeddings/enable`);
+    return data as { message: string; projectId: string };
+  }
+
+  /** Turn pgvector off for the project; the embedding tables are kept. */
+  async disableEmbeddings(projectId: string) {
+    const { data } = await this.client.delete(`/api/projects/${projectId}/embeddings/enable`);
+    return data as { message: string; projectId: string };
+  }
+
+  /** Rotate the owner database password. Without `password` the server generates one. */
+  async rotateDbPassword(projectId: string, password?: string) {
+    const { data } = await this.client.patch(`/api/projects/${projectId}/db-password`, password ? { password } : {});
+    return data as { password: string };
+  }
+
   async getS3Info(projectId: string) {
     const { data } = await this.client.get(`/api/projects/${projectId}/storage/s3-keys/info`);
     return data as S3ConnectionInfo;

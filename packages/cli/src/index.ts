@@ -176,6 +176,48 @@ db.command('execute')
     await dbExecute(options);
   });
 
+const dbVector = db
+  .command('vector')
+  .description('Turn pgvector (embeddings) on or off for the project database');
+
+dbVector
+  .command('status')
+  .description('Show whether pgvector is enabled')
+  .option('-p, --project <id>', 'Project id (default: the linked project)')
+  .action(async (options) => {
+    const { dbVectorCommand } = await import('./commands/db-admin.js');
+    await dbVectorCommand('status', options);
+  });
+
+dbVector
+  .command('enable')
+  .description('Install the pgvector extension and the embedding tables')
+  .option('-p, --project <id>', 'Project id (default: the linked project)')
+  .action(async (options) => {
+    const { dbVectorCommand } = await import('./commands/db-admin.js');
+    await dbVectorCommand('enable', options);
+  });
+
+dbVector
+  .command('disable')
+  .description('Turn pgvector off (the embedding tables are kept)')
+  .option('-p, --project <id>', 'Project id (default: the linked project)')
+  .option('-f, --force', 'Skip confirmation prompt')
+  .action(async (options) => {
+    const { dbVectorCommand } = await import('./commands/db-admin.js');
+    await dbVectorCommand('disable', options);
+  });
+
+db.command('rotate-password')
+  .description('Rotate the project database password (generated unless --password is given)')
+  .option('-p, --project <id>', 'Project id (default: the linked project)')
+  .option('--password <value>', 'Use this password instead of a generated one')
+  .option('-f, --force', 'Skip confirmation prompt')
+  .action(async (options) => {
+    const { dbRotatePassword } = await import('./commands/db-admin.js');
+    await dbRotatePassword(options);
+  });
+
 // ── Inspect ─────────────────────────────────────────────────
 
 program
