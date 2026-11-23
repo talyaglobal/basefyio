@@ -374,3 +374,25 @@ describe('SqlService.execute — notices and error position', () => {
     });
   });
 });
+
+describe('SqlService.execute — read-only path (AI Agent mode, #157)', () => {
+  it('runs a read inside BEGIN READ ONLY and always rolls back', async () => {
+    const { svc, client } = harness({ rows: [{ n: 1 }], fields: [{ name: 'n', dataTypeID: 23 }], rowCount: 1 });
+    await svc.execute('p1', 'SELECT 1 AS n', 'u1', { readOnly: true });
+    const texts = client.query.mock.calls.map((c) => (typeof c[0] === 'string' ? c[0] : c[0].text));
+    expect(texts[0]).toBe('BEGIN READ ONLY');
+    expect(texts[texts.length - 1]).toBe('ROLLBACK');
+  });
+
+  it.each([
+    ['CREATE TABLE posts (id int)', 'CREATE'],
+    ['INSERT INTO posts VALUES (1)', 'INSERT'],
+    ['ALTER TABLE posts ENABLE ROW LEVEL SECURITY', 'ALTER'],
+    ['SELECT 1; DELETE FROM posts', 'more than one statement'],
+  ])('refuses %s before it reaches the database', async (sql, found) => {
+    const { svc, client } = harness();
+    await expect(svc.execute('p1', sql, 'u1', { readOnly: true })).rejects.toThrow(BadRequestException);
+    await expect(svc.execute('p1', sql, 'u1', { readOnly: true })).rejects.toThrow(found);
+    expect(client.query).not.toHaveBeenCalled();
+  });
+});

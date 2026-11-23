@@ -43,6 +43,7 @@ export class SqlController {
       countTotal: dto.countTotal,
       params: dto.params,
       rls,
+      readOnly: dto.readOnly === true,
     });
   }
 }

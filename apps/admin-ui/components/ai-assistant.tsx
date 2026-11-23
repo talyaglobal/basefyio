@@ -15,6 +15,13 @@ import { useActiveTeam } from '@/app/dashboard/layout';
 import { cn } from '@/lib/utils';
 import { confirmDialog } from '@/components/ui/confirm-dialog';
 import {
+  grantsPublicWrite,
+  isReadStatement,
+  outcomeSentence,
+  stepCounts,
+  type AgentStepStatus,
+} from '@/lib/agent-sql';
+import {
   Bot,
   CheckCircle2,
   ChevronDown,
@@ -44,6 +51,12 @@ interface AgentStep {
   rows: number;
   preview?: string;
   error?: string;
+  /** Absent on steps saved before approvals existed (they ran, or failed when `error` is set). */
+  status?: AgentStepStatus;
+  /** True when the statement changes data or schema (it ran, or will run, only after approval). */
+  write?: boolean;
+  /** A policy that lets anyone write. */
+  publicWrite?: boolean;
 }
 
 interface Message {
@@ -52,6 +65,9 @@ interface Message {
   content: string;
   mode?: AiMode;
   agentSteps?: AgentStep[];
+  /** Agent mode: the request and the model's plan, kept so an approval can finish the answer. */
+  agentRequest?: string;
+  agentPlan?: string;
 }
 
 interface ChatSession {
@@ -509,40 +525,139 @@ export function AiAssistant() {
     finally { setContextLoading(false); }
   }, [context]);
 
-  // Agent loop
+  // Agent loop. Reads run on their own over the read-only path; from the first
+  // statement that changes data or schema onwards, everything waits for approval.
+  const summarizeAgentRun = useCallback(async (
+    userMessage: string,
+    planReply: string,
+    steps: AgentStep[],
+    ctx: AiContext,
+    history: { role: 'user' | 'assistant'; content: string }[],
+  ): Promise<string> => {
+    const summaries = steps.map((st, i) => {
+      const head = `--- Statement ${i + 1} (${st.status ?? 'ran'}) ---\n${st.sql}`;
+      if (st.status === 'failed') return `${head}\n\nFAILED, nothing was changed: ${st.error}`;
+      if (st.status === 'pending') return `${head}\n\nNOT RUN: waiting for the user's approval.`;
+      if (st.status === 'skipped') return `${head}\n\nNOT RUN: an earlier statement failed.`;
+      if (st.status === 'cancelled') return `${head}\n\nNOT RUN: the user cancelled it.`;
+      return st.write
+        ? `${head}\n\nSucceeded, ${st.rows} row${st.rows === 1 ? '' : 's'} affected. Returned: ${st.preview ?? '[]'}`
+        : `${head}\n\nResult (${st.rows} rows):\n${st.preview ?? '[]'}`;
+    });
+    const feedbackMsg =
+      `These are the real outcomes of the statements. ${outcomeSentence(steps)}\n` +
+      `Answer the user's request ("${userMessage}") strictly from them. Start with what failed or did not run, if anything. ` +
+      `Never say a failed, skipped, cancelled or pending statement took effect, never invent row counts, and do not generate new SQL.\n\n` +
+      summaries.join('\n\n');
+    const { reply } = await api.ai.chat(feedbackMsg,
+      [...history.slice(-6), { role: 'user', content: userMessage }, { role: 'assistant', content: planReply }],
+      { ...ctx, mode: 'agent' });
+    return reply;
+  }, []);
+
   const runAgentLoop = useCallback(async (
     userMessage: string,
     ctx: AiContext,
     history: { role: 'user' | 'assistant'; content: string }[],
-  ): Promise<{ content: string; agentSteps?: AgentStep[] }> => {
+  ): Promise<{ content: string; agentSteps?: AgentStep[]; awaiting: boolean; planReply: string }> => {
     setAgentStatus('🔍 Generating queries…');
     const { reply: planReply } = await api.ai.chat(userMessage, history, { ...ctx, mode: 'agent' });
     const sqlBlocks = extractSQLBlocks(planReply).slice(0, 5);
-    if (sqlBlocks.length === 0 || !ctx.projectId) return { content: planReply };
+    if (sqlBlocks.length === 0 || !ctx.projectId) return { content: planReply, awaiting: false, planReply };
 
     const agentSteps: AgentStep[] = [];
-    const summaries: string[] = [];
+    let blocked = false;
     for (let i = 0; i < sqlBlocks.length; i++) {
       const sql = sqlBlocks[i];
-      setAgentStatus(`⚡ Running SQL… (${i + 1}/${sqlBlocks.length})`);
+      const write = !isReadStatement(sql);
+      if (blocked || write) {
+        blocked = true;
+        agentSteps.push({ sql, rows: 0, status: 'pending', write, publicWrite: grantsPublicWrite(sql) });
+        continue;
+      }
+      setAgentStatus(`⚡ Running read-only query… (${i + 1}/${sqlBlocks.length})`);
       try {
-        const result = await api.sql.execute(ctx.projectId, sql);
+        // The server runs it in a READ ONLY transaction and rolls it back.
+        const result = await api.sql.execute(ctx.projectId, sql, { readOnly: true });
         const rows = result.rowCount ?? result.rows?.length ?? 0;
-        const preview = JSON.stringify(result.rows?.slice(0, 20) ?? []);
-        agentSteps.push({ sql, rows, preview });
-        summaries.push(`--- Query ${i + 1} ---\n${sql}\n\nResult (${rows} rows):\n${preview}`);
+        agentSteps.push({ sql, rows, preview: JSON.stringify(result.rows?.slice(0, 20) ?? []), status: 'ran', write: false });
       } catch (err: any) {
-        agentSteps.push({ sql, rows: 0, error: err.message });
-        summaries.push(`--- Query ${i + 1} ---\n${sql}\n\nError: ${err.message}`);
+        const msg = String(err?.message ?? err);
+        if (/read-only sql accepts|read-only transaction/i.test(msg)) {
+          // Not a read after all: it needs approval like any other change.
+          blocked = true;
+          agentSteps.push({ sql, rows: 0, status: 'pending', write: true, publicWrite: grantsPublicWrite(sql) });
+        } else {
+          agentSteps.push({ sql, rows: 0, error: msg, status: 'failed', write: false });
+        }
       }
     }
+
+    if (agentSteps.some((st) => st.status === 'pending')) {
+      // Nothing that changes the database has run. Show the plan and wait.
+      return { content: planReply, agentSteps, awaiting: true, planReply };
+    }
     setAgentStatus('📊 Analyzing results…');
-    const feedbackMsg = `I executed the SQL below. Answer the user's question ("${userMessage}") directly from these results, with numbers and analysis where helpful. Do not generate new SQL.\n\n${summaries.join('\n\n')}`;
-    const { reply: final } = await api.ai.chat(feedbackMsg,
-      [...history.slice(-6), { role: 'user', content: userMessage }, { role: 'assistant', content: planReply }],
-      { ...ctx, mode: 'agent' });
-    return { content: final, agentSteps };
-  }, []);
+    const final = await summarizeAgentRun(userMessage, planReply, agentSteps, ctx, history);
+    return { content: final, agentSteps, awaiting: false, planReply };
+  }, [summarizeAgentRun]);
+
+  /** Runs the approved statements in order; the first failure stops the rest. */
+  const approveAgentSteps = useCallback(async (messageId: string) => {
+    const msg = messagesRef.current.find((m) => m.id === messageId);
+    const ctx = context;
+    if (!msg?.agentSteps || !ctx.projectId || loading) return;
+    const steps = msg.agentSteps.map((st) => ({ ...st }));
+    const pending = steps.filter((st) => st.status === 'pending');
+    if (pending.length === 0) return;
+    if (pending.some((st) => st.publicWrite)) {
+      const ok = await confirmDialog({
+        title: 'This lets anyone write',
+        description:
+          'One of these policies uses USING (true) or WITH CHECK (true) for writes, so any visitor with your public key could change these rows. Run it anyway?',
+        confirmText: 'Run anyway',
+        destructive: true,
+      });
+      if (!ok) return;
+    }
+    setLoading(true);
+    try {
+      let failed = false;
+      for (let i = 0; i < steps.length; i++) {
+        const st = steps[i];
+        if (st.status !== 'pending') continue;
+        if (failed) { st.status = 'skipped'; continue; }
+        setAgentStatus(`⚡ Running approved SQL… (${i + 1}/${steps.length})`);
+        try {
+          const result = await api.sql.execute(ctx.projectId, st.sql);
+          st.rows = result.rowCount ?? result.rows?.length ?? 0;
+          st.preview = JSON.stringify(result.rows?.slice(0, 20) ?? []);
+          st.status = 'ran';
+        } catch (err: any) {
+          st.error = String(err?.message ?? err);
+          st.status = 'failed';
+          failed = true;
+        }
+      }
+      // The approval card keeps the outcome; the answer below is written from it.
+      setMessages((p) => p.map((m) => (m.id === messageId ? { ...m, agentSteps: steps } : m)));
+      setAgentStatus('📊 Analyzing results…');
+      const history = messagesRef.current.slice(-12).map((m) => ({ role: m.role, content: m.content }));
+      const final = await summarizeAgentRun(msg.agentRequest ?? '', msg.agentPlan ?? msg.content, steps, ctx, history);
+      setMessages((p) => [...p, { id: genId(), role: 'assistant', content: final, mode: 'agent' }]);
+    } catch (err: any) {
+      toast.error('AI error: ' + (err?.message ?? err));
+    } finally {
+      setLoading(false);
+      setAgentStatus(null);
+    }
+  }, [context, loading, setMessages, summarizeAgentRun]);
+
+  const cancelAgentSteps = useCallback((messageId: string) => {
+    setMessages((p) => p.map((m) => (m.id === messageId && m.agentSteps
+      ? { ...m, agentSteps: m.agentSteps.map((st) => (st.status === 'pending' ? { ...st, status: 'cancelled' as const } : st)) }
+      : m)));
+  }, [setMessages]);
 
   // Send
   const sendMessage = useCallback(async (text: string) => {
@@ -556,8 +671,11 @@ export function AiAssistant() {
       const ctx = await loadProjectContext(trimmed);
       const history = historyBefore;
       if (mode === 'agent') {
-        const { content, agentSteps } = await runAgentLoop(trimmed, ctx, history);
-        setMessages((p) => [...p, { id: genId(), role: 'assistant', content, mode, agentSteps }]);
+        const { content, agentSteps, awaiting, planReply } = await runAgentLoop(trimmed, ctx, history);
+        setMessages((p) => [...p, {
+          id: genId(), role: 'assistant', content, mode, agentSteps,
+          ...(awaiting ? { agentRequest: trimmed, agentPlan: planReply } : {}),
+        }]);
         if (!openRef.current) {
           dispatchbasefyioNotification({
             type: 'ai',
@@ -796,6 +914,9 @@ export function AiAssistant() {
                 runningSQL={runningSQL}
                 onRunSQL={runSQL}
                 onResend={sendMessage}
+                agentBusy={loading}
+                onApproveAgent={() => void approveAgentSteps(msg.id)}
+                onCancelAgent={() => cancelAgentSteps(msg.id)}
               />
             ))
           )}
@@ -897,7 +1018,7 @@ export function AiAssistant() {
           {/* Agent hint */}
           {mode === 'agent' && hasProject && (
             <p className="text-[10px] text-center text-amber-600/70 dark:text-amber-400/60">
-              ⚡ Agent mode runs generated SQL automatically against this project
+              ⚡ Agent mode runs read-only queries on its own; changes to data or schema wait for your approval
             </p>
           )}
         </div>
@@ -907,44 +1028,109 @@ export function AiAssistant() {
 }
 
 // ── Agent trace ────────────────────────────────────────────────────────────────
-function AgentTrace({ steps }: { steps: AgentStep[] }) {
-  const [expanded, setExpanded] = useState(false);
+const STEP_LABEL: Record<AgentStepStatus, string> = {
+  ran: 'Succeeded',
+  failed: 'Failed, nothing changed',
+  pending: 'Waiting for your approval',
+  skipped: 'Not run (an earlier statement failed)',
+  cancelled: 'Cancelled',
+};
+
+function AgentTrace({
+  steps,
+  busy = false,
+  onApprove,
+  onCancel,
+}: {
+  steps: AgentStep[];
+  busy?: boolean;
+  onApprove?: () => void;
+  onCancel?: () => void;
+}) {
+  const counts = stepCounts(steps);
+  const awaiting = counts.pending > 0;
+  // Pending changes are shown open: the user must see the SQL before approving it.
+  const [expanded, setExpanded] = useState(awaiting);
+  const statusOf = (st: AgentStep): AgentStepStatus => st.status ?? (st.error ? 'failed' : 'ran');
   return (
-    <div className="rounded-lg border bg-background/60 text-xs overflow-hidden w-full">
+    <div className={`rounded-lg border text-xs overflow-hidden w-full ${awaiting ? 'border-amber-400/60 bg-amber-50/40 dark:bg-amber-950/20' : 'bg-background/60'}`}>
       <button onClick={() => setExpanded((e) => !e)}
         className="flex w-full items-center gap-2 px-3 py-2 hover:bg-accent transition-colors">
         <Zap className="h-3 w-3 text-amber-500 shrink-0" />
         <span className="font-medium flex-1 text-left text-[11px]">
-          Agent ran — {steps.length} {steps.length === 1 ? 'query' : 'queries'}
-          {steps.some((s) => s.error) && <span className="ml-1 text-red-500">(errors)</span>}
+          {awaiting ? 'Agent wants to change your database — ' : 'Agent — '}
+          {outcomeSentence(steps)}
         </span>
         {expanded
           ? <ChevronUp className="h-3 w-3 text-muted-foreground" />
           : <ChevronDown className="h-3 w-3 text-muted-foreground" />}
       </button>
+      {counts.failed > 0 && (
+        <p className="border-t px-3 py-1.5 text-[11px] font-medium text-red-600 dark:text-red-400">
+          {counts.failed} {counts.failed === 1 ? 'statement' : 'statements'} failed. A failed statement changes nothing,
+          whatever the summary below says.
+        </p>
+      )}
       {expanded && (
         <div className="border-t divide-y">
-          {steps.map((step, i) => (
-            <div key={i} className="px-3 py-2 space-y-1.5">
-              <div className="flex items-center gap-1.5">
-                {step.error
-                  ? <XCircle className="h-3 w-3 text-red-500 shrink-0" />
-                  : <CheckCircle2 className="h-3 w-3 text-green-500 shrink-0" />}
-                <span className={`text-[11px] font-medium ${step.error ? 'text-red-600' : 'text-green-700 dark:text-green-400'}`}>
-                  {step.error ? 'Error' : `${step.rows} row${step.rows === 1 ? '' : 's'} returned`}
-                </span>
-              </div>
-              <pre className="text-[10px] text-muted-foreground font-mono whitespace-pre-wrap break-words bg-muted rounded p-1.5 leading-relaxed">
-                {step.sql.length > 140 ? step.sql.slice(0, 140) + '…' : step.sql}
-              </pre>
-              {step.error && <p className="text-[10px] text-red-500">{step.error}</p>}
-              {!step.error && step.preview && step.preview !== '[]' && (
-                <pre className="text-[10px] text-muted-foreground font-mono whitespace-pre-wrap break-words max-h-20 overflow-y-auto bg-muted/50 rounded p-1">
-                  {step.preview.length > 400 ? step.preview.slice(0, 400) + '…' : step.preview}
+          {steps.map((step, i) => {
+            const st = statusOf(step);
+            const tone = st === 'failed' ? 'text-red-600' : st === 'ran' ? 'text-green-700 dark:text-green-400' : 'text-amber-700 dark:text-amber-400';
+            return (
+              <div key={i} className="px-3 py-2 space-y-1.5">
+                <div className="flex items-center gap-1.5">
+                  {st === 'failed'
+                    ? <XCircle className="h-3 w-3 text-red-500 shrink-0" />
+                    : st === 'ran'
+                      ? <CheckCircle2 className="h-3 w-3 text-green-500 shrink-0" />
+                      : <Zap className="h-3 w-3 text-amber-500 shrink-0" />}
+                  <span className={`text-[11px] font-medium ${tone}`}>
+                    {st === 'ran'
+                      ? step.write
+                        ? `Succeeded · ${step.rows} row${step.rows === 1 ? '' : 's'} affected`
+                        : `${step.rows} row${step.rows === 1 ? '' : 's'} returned`
+                      : STEP_LABEL[st]}
+                  </span>
+                </div>
+                {step.publicWrite && st === 'pending' && (
+                  <p className="text-[10px] font-medium text-red-600">
+                    Warning: this policy lets anyone with your public key write these rows.
+                  </p>
+                )}
+                <pre className="text-[10px] text-muted-foreground font-mono whitespace-pre-wrap break-words bg-muted rounded p-1.5 leading-relaxed">
+                  {/* A change waiting for approval is shown in full. */}
+                  {st !== 'pending' && step.sql.length > 140 ? step.sql.slice(0, 140) + '…' : step.sql}
                 </pre>
-              )}
-            </div>
-          ))}
+                {step.error && <p className="text-[10px] text-red-500">{step.error}</p>}
+                {st === 'ran' && step.preview && step.preview !== '[]' && (
+                  <pre className="text-[10px] text-muted-foreground font-mono whitespace-pre-wrap break-words max-h-20 overflow-y-auto bg-muted/50 rounded p-1">
+                    {step.preview.length > 400 ? step.preview.slice(0, 400) + '…' : step.preview}
+                  </pre>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {awaiting && onApprove && onCancel && (
+        <div className="flex flex-wrap items-center gap-2 border-t px-3 py-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onApprove}
+            className="inline-flex items-center gap-1 rounded bg-amber-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+          >
+            Run {counts.pending} {counts.pending === 1 ? 'statement' : 'statements'}
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onCancel}
+            className="rounded border px-2.5 py-1 text-[11px] hover:bg-accent disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <span className="text-[10px] text-muted-foreground">Nothing has changed yet. They run in order and stop at the first error.</span>
         </div>
       )}
     </div>
@@ -964,12 +1150,18 @@ function MessageBubble({
   runningSQL,
   onRunSQL,
   onResend,
+  agentBusy = false,
+  onApproveAgent,
+  onCancelAgent,
 }: {
   message: Message;
   canRunSQL: boolean;
   runningSQL: string | null;
   onRunSQL: (sql: string) => void;
   onResend: (text: string) => Promise<void>;
+  agentBusy?: boolean;
+  onApproveAgent?: () => void;
+  onCancelAgent?: () => void;
 }) {
   const isUser = message.role === 'user';
   const parts = parseContent(message.content);
@@ -1070,7 +1262,12 @@ function MessageBubble({
           </span>
         )}
         {message.agentSteps && message.agentSteps.length > 0 && (
-          <AgentTrace steps={message.agentSteps} />
+          <AgentTrace
+            steps={message.agentSteps}
+            busy={agentBusy}
+            onApprove={onApproveAgent}
+            onCancel={onCancelAgent}
+          />
         )}
         {parts.map((part, i) => {
           if (part.type === 'text') {

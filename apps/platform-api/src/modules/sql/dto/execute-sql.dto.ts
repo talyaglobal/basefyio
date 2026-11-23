@@ -59,4 +59,14 @@ export class ExecuteSqlDto {
   @IsOptional()
   @IsBoolean()
   countTotal?: boolean;
+
+  /**
+   * Run as one read statement inside a READ ONLY transaction that is rolled
+   * back (the same path as the MCP `sql:read` scope). The AI assistant's Agent
+   * mode runs its queries this way, so nothing it generates can change data or
+   * schema without the user approving it first. Owner (dashboard) access only.
+   */
+  @IsOptional()
+  @IsBoolean()
+  readOnly?: boolean;
 }

@@ -32,6 +32,7 @@ apikey: <key>            (or Authorization: Bearer <dashboard JWT>)
 | `page` | integer ≥ 1 | no | page of a paginated `SELECT`; default 1 |
 | `limit` | integer 1–1000 | no | page size; default 100 |
 | `countTotal` | boolean | no | also count the full result (capped at 10 001 rows) |
+| `readOnly` | boolean | no | dashboard (owner) access only: run one read statement (`SELECT`, `WITH`, `VALUES`, `TABLE`, `EXPLAIN`) inside a `READ ONLY` transaction that is always rolled back; anything else answers `400`. The AI assistant's Agent mode uses it |
 
 **Always pass values as `params`, never inline.** The guard scans the whole statement —
 string literals included, because a literal is where a smuggled `COPY` would hide — so an

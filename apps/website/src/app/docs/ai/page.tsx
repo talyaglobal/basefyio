@@ -43,7 +43,10 @@ export default function AiDocs() {
 
       <h3>The basefyio AI assistant</h3>
       <p>
-        The assistant panel in the dashboard (ask, plan and agent modes) is included in the <strong>Pro plan and above</strong>.
+        The assistant panel in the dashboard (ask, plan and agent modes) is included in the <strong>Pro plan and above</strong>.{" "}
+        In agent mode, read-only queries run on their own inside a read-only transaction; every statement that changes
+        data or schema is shown to you first and runs only when you approve it, in order, stopping at the first error.
+        The answer is written from the real results, and failed statements are reported as failed.
         On the Free plan, requests answer <code>403</code> with an upgrade message. The plan that counts is the team of the project you
         have open, otherwise your active team. Embeddings and retrieval over your own documents are not part of this limit.
       </p>

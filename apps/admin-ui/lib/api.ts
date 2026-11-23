@@ -2381,7 +2381,7 @@ export const api = {
     execute(
       projectId: string,
       query: string,
-      opts?: { page?: number; limit?: number; countTotal?: boolean },
+      opts?: { page?: number; limit?: number; countTotal?: boolean; readOnly?: boolean },
     ) {
       return request<SqlResult>('/sql/execute', {
         method: 'POST',
@@ -2391,6 +2391,8 @@ export const api = {
           page: opts?.page,
           limit: opts?.limit,
           countTotal: opts?.countTotal,
+          // Only sent when set, so older servers never see an unknown field.
+          ...(opts?.readOnly ? { readOnly: true } : {}),
         }),
       });
     },
