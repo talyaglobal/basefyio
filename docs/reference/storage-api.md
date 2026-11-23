@@ -121,6 +121,7 @@ signed-in user (or the service key).
 | Method | Path | Purpose |
 |---|---|---|
 | POST | `/api/projects/:projectId/storage/buckets/:bucketName/upload-sessions` | `{ path, size, contentType?, chunkSize? }` → session |
+| GET | `/api/projects/:projectId/storage/buckets/:bucketName/upload-sessions` | open sessions you may resume, newest first (all for the service key and the dashboard, only your own for a signed-in user) |
 | GET | `/api/projects/:projectId/storage/buckets/:bucketName/upload-sessions/:sessionId` | the session (also `Upload-Offset` / `Upload-Length` headers) |
 | HEAD | `/api/projects/:projectId/storage/buckets/:bucketName/upload-sessions/:sessionId` | headers only |
 | PATCH | `/api/projects/:projectId/storage/buckets/:bucketName/upload-sessions/:sessionId` | `Upload-Offset: <bytes so far>` header + the raw chunk body → session with the new offset |
@@ -128,6 +129,7 @@ signed-in user (or the service key).
 | DELETE | `/api/projects/:projectId/storage/buckets/:bucketName/upload-sessions/:sessionId` | → `{ id, status: "aborted" }` |
 
 A session: `{ id, bucket, path, offset, size, chunkSize, contentType, status, expiresAt }`.
+A `PATCH` whose `Upload-Offset` does not match the stored offset answers `409` with the right offset in the `Upload-Offset` header and the body; resume from there.
 Chunks are `STORAGE_RESUMABLE_CHUNK_MB` (8 MB, clamped to 5–64), the whole upload at most
 `STORAGE_MAX_RESUMABLE_MB` (5120), and an unfinished session is swept after
 `STORAGE_RESUMABLE_TTL_HOURS` (24). The header names follow the tus vocabulary so existing
