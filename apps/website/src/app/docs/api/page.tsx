@@ -75,9 +75,20 @@ Headers:
 Query params:
   select    — columns to return (default: *)
   <column>  — filter value: eq.<v>, neq.<v>, gt.<v>, gte.<v>, lt.<v>, lte.<v>, like.<pattern>, ilike.<pattern>, is.null|true|false, in.(a,b,c)
-  order     — column.asc or column.desc (comma-separated)
+  order     — column.asc or column.desc, optionally .nullsfirst / .nullslast (comma-separated)
   limit     — max rows
   offset    — skip rows`}</code></pre>
+      <p>
+        <strong>Where NULLs sort.</strong> Without <code>.nullsfirst</code> or{' '}
+        <code>.nullslast</code>, a basefyio-js or basefyio-python request puts
+        NULLs first in ascending order and last in descending order. A
+        PostgREST-style request (supabase-js, postgrest-js) follows PostgreSQL:
+        NULLs last when ascending, first when descending. Add{' '}
+        <code>.nullsfirst</code> or <code>.nullslast</code> to get the same
+        order from both, for example <code>order=price.desc.nullslast</code>.
+        In basefyio-js, pass <code>{'{ nullsFirst: true }'}</code> or{' '}
+        <code>{'{ nullsFirst: false }'}</code> to <code>order()</code>.
+      </p>
 
       <h3>Insert rows</h3>
       <pre><code>{`POST /api/rest/v1/:table
