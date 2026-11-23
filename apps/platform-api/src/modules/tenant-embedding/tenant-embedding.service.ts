@@ -996,7 +996,7 @@ export class TenantEmbeddingService {
     }
     if (!allowPrivate && (url.protocol !== 'https:' || isPrivateHost(baseUrl))) {
       throw new BadRequestException(
-        'Project endpoints must be public https URLs. Set EMBEDDING_ALLOW_PRIVATE_BASE_URL=true on the server to allow private or plain-http hosts.',
+        'Private and plain-http endpoints are not allowed. Use a public https URL.',
       );
     }
   }
