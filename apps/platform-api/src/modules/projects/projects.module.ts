@@ -45,6 +45,7 @@ import { ProjectExportService } from './project-export.service';
 import { ProjectPitrService } from './project-pitr.service';
 import { PitrRestoreJobsService } from './pitr-restore-jobs.service';
 import { ProjectSleepService } from './project-sleep.service';
+import { ProjectTrashNoticeService } from './project-trash-notice.service';
 import { PlatformAlertsModule } from '../platform-alerts/platform-alerts.module';
 import { ProjectArchiveImportService } from './project-archive-import.service';
 import { CollectionController } from './collection.controller';
@@ -112,6 +113,7 @@ import { ProjectBranchesController } from './branches/project-branches.controlle
     ProjectPitrService,
     PitrRestoreJobsService,
     ProjectSleepService,
+    ProjectTrashNoticeService,
     ProjectArchiveImportService,
     ImportProcessor,
     ExportProcessor,

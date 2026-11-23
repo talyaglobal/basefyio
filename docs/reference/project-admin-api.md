@@ -128,6 +128,8 @@ reach needs a dashboard session.
 
 - `DELETE /api/projects/:id` renames the database and its user and disables the realm; nothing is
   erased. The project stays in the trash for 24 hours, then an hourly job removes it for good.
+  About six hours before that, whoever created the project and the organization's owners get one
+  bell notification and one e-mail with a link to the trash.
   Its preview branches go to the trash with it. Answer: `{ "message": "Project deleted" }`.
 - `POST /api/projects/:id/restore` undoes that while the project is still in the trash. 403 when a
   live project in the team already uses the original name.

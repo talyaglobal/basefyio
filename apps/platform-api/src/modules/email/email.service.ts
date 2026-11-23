@@ -23,6 +23,7 @@ import { projectChangeEmailTemplate } from './templates/project-change-email.tem
 import { projectReauthTemplate } from './templates/project-reauth.template';
 import { signupVerifyEmailTemplate } from './templates/signup-verify-email.template';
 import { planUsageTemplate } from './templates/plan-usage.template';
+import { hoursText, projectPurgeWarningTemplate } from './templates/project-trash.template';
 
 @Injectable()
 export class EmailService implements OnModuleInit {
@@ -371,6 +372,17 @@ export class EmailService implements OnModuleInit {
     return this.send({
       to,
       subject: `${projectName} will be deactivated in ${daysLeft} day${daysLeft === 1 ? '' : 's'}`,
+      html,
+    });
+  }
+
+  /** The last notice before a project in the trash is deleted permanently (#262). */
+  async sendProjectPurgeWarning(to: string, projectName: string, hoursLeft: number) {
+    const trashUrl = `${this.appUrl}/dashboard/projects?view=trash`;
+    const html = projectPurgeWarningTemplate({ projectName, hoursLeft, trashUrl });
+    return this.send({
+      to,
+      subject: `${projectName} will be deleted permanently in about ${hoursText(hoursLeft)}`,
       html,
     });
   }

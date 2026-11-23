@@ -58,6 +58,7 @@ import {
   roleAllows,
   type PermissionKey,
 } from '../teams/role-permissions';
+import { TRASH_RETENTION_MS } from './project-trash-notice.service';
 
 
 export interface RlsBootstrapResult {
@@ -2295,7 +2296,7 @@ export class ProjectsService implements OnApplicationBootstrap {
 
   /** Permanently remove soft-deleted projects past the 24-hour retention window. */
   private async purgeDeletedProjectsPastRetention(): Promise<number> {
-    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const cutoff = new Date(Date.now() - TRASH_RETENTION_MS);
 
     const expired = await this.prisma.project.findMany({
       where: {
