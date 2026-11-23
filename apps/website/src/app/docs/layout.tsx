@@ -6,6 +6,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { AuthNav } from "@/components/auth-nav";
 import { DocsNav } from "./docs-nav";
 import { DocsSearch } from "./docs-search";
+import { DocsMobileNav } from "./docs-mobile-nav";
 import { DocsCopyButtons } from "./docs-copy-buttons";
 import { getAppPortalUrl, getAppSignupUrl } from "@/lib/site-url";
 import { docsPath, getSiteUrl } from "@/lib/public-hosts";
@@ -32,28 +33,31 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
   return (
     <div className="min-h-screen pt-16">
       <header className="fixed left-0 right-0 top-0 z-50 border-b border-border bg-card/80 shadow-sm backdrop-blur-lg">
-        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
-          <div className="flex min-w-0 items-center gap-6">
+        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
+          <div className="flex min-w-0 items-center gap-3 sm:gap-6">
+            <DocsMobileNav />
             <BasefyioLogo href={getSiteUrl()} />
-            <span className="text-sm text-muted-foreground">/</span>
+            <span className="hidden text-sm text-muted-foreground sm:inline">/</span>
             <Link
               href={docsPath("/docs")}
-              className="text-sm font-medium text-foreground transition-colors hover:text-primary"
+              className="hidden text-sm font-medium text-foreground transition-colors hover:text-primary sm:inline"
             >
               Docs
             </Link>
           </div>
-          <nav className="flex items-center gap-4">
-            <Suspense fallback={null}>
-              <AuthNav appUrl={appRoot} />
-            </Suspense>
+          <nav className="flex shrink-0 items-center gap-2 sm:gap-4">
+            <div className="hidden sm:block">
+              <Suspense fallback={null}>
+                <AuthNav appUrl={appRoot} />
+              </Suspense>
+            </div>
             <ThemeToggle />
             <DocsHeaderCta appRoot={appRoot} signupUrl={appSignup} />
           </nav>
         </div>
       </header>
 
-      <div className="mx-auto flex max-w-6xl px-6">
+      <div className="mx-auto flex max-w-6xl px-4 sm:px-6">
         <aside className="sticky top-16 hidden h-[calc(100vh-4rem)] w-56 shrink-0 overflow-y-auto border-r border-border py-8 pr-6 md:block">
           <DocsSearch />
           <DocsNav />
@@ -69,7 +73,7 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
             [&_code]:rounded [&_code]:bg-secondary [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-sm [&_code]:text-primary
             [&_pre]:mb-6 [&_pre]:overflow-x-auto [&_pre]:rounded-xl [&_pre]:bg-secondary [&_pre]:p-4
             [&_pre_code]:bg-transparent [&_pre_code]:p-0
-            [&_table]:mb-6 [&_table]:w-full [&_table]:text-sm
+            [&_table]:mb-6 [&_table]:block [&_table]:w-full [&_table]:max-w-full [&_table]:overflow-x-auto [&_table]:text-sm
             [&_th]:border-b [&_th]:border-border [&_th]:p-3 [&_th]:text-left [&_th]:font-medium [&_th]:text-muted-foreground
             [&_td]:border-b [&_td]:border-border [&_td]:p-3 [&_td]:text-muted-foreground
             [&_ul]:mb-4 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:text-muted-foreground
@@ -96,7 +100,7 @@ async function DocsHeaderCta({ appRoot, signupUrl }: { appRoot: string; signupUr
     return (
       <Link
         href={`${appRoot}/dashboard`}
-        className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-subtle transition-opacity hover:opacity-90"
+        className="whitespace-nowrap rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground sm:px-4 shadow-subtle transition-opacity hover:opacity-90"
       >
         Dashboard
       </Link>
@@ -106,7 +110,7 @@ async function DocsHeaderCta({ appRoot, signupUrl }: { appRoot: string; signupUr
   return (
     <Link
       href={signupUrl}
-      className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-subtle transition-opacity hover:opacity-90"
+      className="whitespace-nowrap rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground sm:px-4 shadow-subtle transition-opacity hover:opacity-90"
     >
       Get Started
     </Link>
