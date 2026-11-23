@@ -191,27 +191,38 @@ function buildRecommendation(answers: Record<string, Option>): AdvisorRecommenda
   const entities = model === 'NOSQL' ? tpl.document : tpl.relational;
 
   const reasoning: string[] = [];
+  const picked = (id: string) => answers[id]?.label ?? '';
   if (model === 'RELATIONAL') {
-    reasoning.push('Your data has a clear, repeating shape that fits well-defined tables.');
+    reasoning.push(
+      answers.structure?.lean.relational
+        ? `You described your data as "${picked('structure')}", which fits well-defined tables.`
+        : 'Your answers point to records with a stable shape, which fit well-defined tables.',
+    );
     if (signals.has('transactions'))
-      reasoning.push('You need reliable records and consistency — a strength of this model.');
+      reasoning.push('You need reliable records and consistency, a strength of this model.');
     if (signals.has('graph'))
       reasoning.push('Your records are highly connected; related tables capture those links cleanly.');
-    if (signals.has('analytics'))
-      reasoning.push('Reporting and aggregation run efficiently over structured tables.');
+    if (answers.priority?.signal === 'analytics' || answers.structure?.signal === 'analytics')
+      reasoning.push('You care about reporting or time-series data, which runs efficiently over structured tables.');
   } else {
-    reasoning.push('Your records can vary and your fields will change over time.');
+    reasoning.push(
+      answers.structure?.lean.document
+        ? `You described your data as "${picked('structure')}", so the fields will change over time.`
+        : 'Your answers point to records that can vary and fields that will change over time.',
+    );
     reasoning.push('A flexible document model lets you evolve the shape without migrations.');
-    if (signals.has('search'))
-      reasoning.push('Document-centric content is a natural fit for your search-heavy use case.');
   }
+  if (signals.has('search'))
+    reasoning.push(
+      'You want search across content: enable AI embeddings (pgvector) on the project for semantic search once it is created.',
+    );
 
   const scaleAnswer = answers.scale?.label ?? '';
   const scalability = /100 million/i.test(scaleAnswer)
-    ? 'At this volume your project runs on a dedicated database; consider archiving or partitioning strategies as you grow.'
+    ? 'Every project has its own database. At this volume plan indexes, partitioning or archiving, and check your plan\'s storage limits.'
     : /1 . 100 million|1 – 100 million/i.test(scaleAnswer)
-      ? 'This volume is comfortably handled by a dedicated database with proper indexes.'
-      : 'This volume is well within a single project — no special scaling needed to start.';
+      ? 'This volume is comfortably handled by your project\'s own database with proper indexes.'
+      : 'This volume is well within a single project, no special scaling needed to start.';
 
   const note = signals.has('files')
     ? 'Heads up: large files (PDFs, images, video) should go in your project Storage, with the database holding the file metadata and links.'

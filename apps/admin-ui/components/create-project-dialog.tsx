@@ -261,6 +261,8 @@ export function CreateProjectDialog({
   ) : null;
 
   const [databaseType, setDatabaseType] = useState<ProjectDatabaseType | null>(null);
+  // Set only when the user came through the advisor; cleared when they pick a model by hand.
+  const [advisorTemplate, setAdvisorTemplate] = useState<{ templateName: string; entities: string[] } | null>(null);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [loading, setLoading] = useState(false);
@@ -589,6 +591,7 @@ export function CreateProjectDialog({
   function resetState() {
     setView('db-type');
     setDatabaseType(null);
+    setAdvisorTemplate(null);
     setName('');
     setDescription('');
     setDbPassword('');
@@ -1051,7 +1054,7 @@ export function CreateProjectDialog({
                 type="button"
                 role="radio"
                 aria-checked={databaseType === 'RELATIONAL'}
-                onClick={() => setDatabaseType('RELATIONAL')}
+                onClick={() => { setDatabaseType('RELATIONAL'); setAdvisorTemplate(null); }}
                 className={`w-full rounded-lg border-2 p-3.5 text-left transition-all ${
                   databaseType === 'RELATIONAL'
                     ? 'border-primary bg-primary/5'
@@ -1098,7 +1101,7 @@ export function CreateProjectDialog({
                 type="button"
                 role="radio"
                 aria-checked={databaseType === 'NOSQL'}
-                onClick={() => setDatabaseType('NOSQL')}
+                onClick={() => { setDatabaseType('NOSQL'); setAdvisorTemplate(null); }}
                 className={`w-full rounded-lg border-2 p-3.5 text-left transition-all ${
                   databaseType === 'NOSQL'
                     ? 'border-primary bg-primary/5'
@@ -1197,8 +1200,9 @@ export function CreateProjectDialog({
             </DialogHeader>
             <DatabaseAdvisor
               onBack={() => setView('db-type')}
-              onPick={(model) => {
+              onPick={(model, meta) => {
                 setDatabaseType(model);
+                setAdvisorTemplate(meta);
                 setView('create');
               }}
             />
@@ -1225,6 +1229,15 @@ export function CreateProjectDialog({
             </DialogHeader>
 
             <form onSubmit={handleCreate} className="space-y-5" data-testid="create-project-form">
+              {advisorTemplate && (
+                <div className="rounded-lg border bg-muted/40 p-3 text-xs" data-testid="advisor-template-note">
+                  <p className="font-medium">Suggested starter: {advisorTemplate.templateName}</p>
+                  <p className="mt-1 text-muted-foreground">
+                    {advisorTemplate.entities.join(', ')}. The project is created empty; add these
+                    from the SQL editor or the AI assistant once it is ready.
+                  </p>
+                </div>
+              )}
               {!reimportTarget && (
                 <FormRow label={orgNoun.noun} htmlFor="project-org">
                   <Select value={targetTeamId} onValueChange={(v) => setTargetTeamId(v)}>
