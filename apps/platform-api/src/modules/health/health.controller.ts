@@ -1,4 +1,4 @@
-import { Controller, Get, Header, Res } from '@nestjs/common';
+import { Controller, Get, Header, Logger, Res } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
 import { Response } from 'express';
 import { CronLeaderService } from '../cluster/cron-leader.service';
@@ -11,7 +11,35 @@ import { HealthService } from './health.service';
 
 type ReadinessBody =
   | { ready: true }
-  | { ready: false; reason: 'draining' | 'database'; detail?: string };
+  | { ready: false; reason: 'draining' | 'database' };
+
+/** The whole picture: error details, latency, which replica answered and the image it runs. */
+export async function buildHealthReport(email: EmailService, health: HealthService, leader: CronLeaderService) {
+  const mail = email.getDeliverability();
+  const deps = await health.all();
+  const dependencyFailing = Object.values(deps).some((c) => c.state === 'failing');
+  const degraded = mail.state === 'failing' || mail.state === 'not-configured' || dependencyFailing;
+
+  return {
+    status: degraded ? 'degraded' : 'ok',
+    // The stage the product is in, so the CLI and the dashboard say the
+    // same word as the API's own e-mails and invoices.
+    release: { stage: releaseStage(), version: PLATFORM_VERSION },
+    checks: {
+      email: mail,
+      ...deps,
+    },
+    ...(drainState.isDraining() ? { draining: true as const } : {}),
+    // Which replica answered, and whether it is the one running the scheduled
+    // jobs. Behind the proxy several replicas share one hostname, so this is
+    // how an operator tells them apart; with one replica it names the build.
+    instance: {
+      id: leader.getInstanceId(),
+      role: leader.getRole(),
+      imageTag: process.env.IMAGE_TAG || 'unknown',
+    },
+  };
+}
 
 /**
  * Liveness, readiness, and the few things that fail quietly.
@@ -35,39 +63,31 @@ type ReadinessBody =
 @SkipThrottle()
 @Controller('health')
 export class HealthController {
+  private readonly logger = new Logger(HealthController.name);
+
   constructor(
     private readonly email: EmailService,
     private readonly leader: CronLeaderService,
     private readonly health: HealthService,
   ) {}
 
+  /**
+   * Public: whether the platform is up, which version runs, and one word per
+   * check (#136). Error texts, which replica answered and the image tag are
+   * internal and stay on `GET /health/details`.
+   */
   @Get()
   @Header('Cache-Control', 'no-store')
   async check() {
-    const mail = this.email.getDeliverability();
-    const deps = await this.health.all();
-    const dependencyFailing = Object.values(deps).some((c) => c.state === 'failing');
-    const degraded =
-      mail.state === 'failing' || mail.state === 'not-configured' || dependencyFailing;
-
+    const full = await buildHealthReport(this.email, this.health, this.leader);
+    const checks = Object.fromEntries(
+      Object.entries(full.checks).map(([name, c]) => [name, { state: (c as { state: string }).state }]),
+    );
     return {
-      status: degraded ? 'degraded' : 'ok',
-      // The stage the product is in, so the CLI and the dashboard say the
-      // same word as the API's own e-mails and invoices.
-      release: { stage: releaseStage(), version: PLATFORM_VERSION },
-      checks: {
-        email: mail,
-        ...deps,
-      },
-      ...(drainState.isDraining() ? { draining: true } : {}),
-      // Which replica answered, and whether it is the one running the scheduled
-      // jobs. Behind the proxy several replicas share one hostname, so this is
-      // how an operator tells them apart; with one replica it names the build.
-      instance: {
-        id: this.leader.getInstanceId(),
-        role: this.leader.getRole(),
-        imageTag: process.env.IMAGE_TAG || 'unknown',
-      },
+      status: full.status,
+      release: full.release,
+      checks,
+      ...(full.draining ? { draining: true } : {}),
     };
   }
 
@@ -85,7 +105,9 @@ export class HealthController {
     const database = await this.health.database();
     if (database.state !== 'ok') {
       res.status(503);
-      return { ready: false, reason: 'database', detail: database.detail };
+      // The error text stays in the log; the route is public (#136).
+      this.logger.warn(`Not ready: platform database ${database.detail ?? 'did not answer'}`);
+      return { ready: false, reason: 'database' };
     }
     res.status(200);
     return { ready: true };

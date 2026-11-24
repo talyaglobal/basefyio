@@ -46,6 +46,7 @@ import { QuickbooksModule } from './modules/quickbooks/quickbooks.module';
 import { ManagementModule } from './modules/management/management.module';
 import { RootConsoleModule } from './modules/root-console/root-console.module';
 import { HealthController } from './modules/health/health.controller';
+import { HealthDetailsController } from './modules/health/health-details.controller';
 import { HealthService } from './modules/health/health.service';
 import { MetricsCollectorService } from './modules/health/metrics-collector.service';
 import {
@@ -167,7 +168,7 @@ import { TokenContextMiddleware } from './common/request-context/token-context';
     // Global: one replica owns the scheduled jobs; health and metrics report which.
     ClusterModule,
   ],
-  controllers: [HealthController, MetricsController],
+  controllers: [HealthController, HealthDetailsController, MetricsController],
   providers: [
     HealthService,
     MetricsCollectorService,

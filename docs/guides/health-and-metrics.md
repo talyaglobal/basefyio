@@ -1,6 +1,6 @@
 # Health and metrics
 
-Three routes tell you whether a basefyio install is up and how it is doing. None of them takes
+Four routes tell you whether a basefyio install is up and how it is doing. None of them takes
 a project key.
 
 ## `GET /api/health` — liveness plus the things that fail quietly
@@ -15,33 +15,57 @@ curl -s https://api.<your-domain>/api/health
 ```json
 {
   "status": "ok",
+  "release": { "stage": "beta", "version": "4.1.9" },
   "checks": {
-    "email": { "state": "ok", "checkedAt": "2026-10-20T11:58:00.000Z" },
+    "email": { "state": "ok" },
+    "database": { "state": "ok" },
+    "redis": { "state": "ok" },
+    "keycloak": { "state": "ok" },
+    "storage": { "state": "ok" },
+    "documentStore": { "state": "skipped" }
+  }
+}
+```
+
+- `status` is `ok` or `degraded`. **The HTTP code stays 200 in both cases** on purpose: an
+  undeliverable e-mail or an unreachable Keycloak is no reason to restart the API container,
+  so a monitor must read `status`, not the status code.
+- `release.version` is the platform version the API runs.
+- `checks.email.state` is one of `unchecked` (not probed yet), `ok`, `failing` (the provider
+  rejected a send) or `not-configured` (no mail key at all). Password resets, verification
+  codes and team invitations depend on it.
+- `checks.database`, `redis`, `keycloak`, `storage` and `documentStore` are probed on every
+  call with a one-second limit each (`SELECT 1`, `PING`, Keycloak's `/health/ready`, MinIO's
+  `/minio/health/live`, the document engine's own ping). Each is `ok`, `failing` or `skipped`
+  (not configured on this install). Any `failing` check makes `status` `degraded`.
+- `draining: true` appears while the process is shutting down (see the next route).
+
+The public route says *whether* something is wrong, never *why* or *where*: error texts,
+latency, the replica id and the image tag are not in it.
+
+## `GET /api/health/details` — the full report, root only
+
+The same report with the internals, for the platform operator (a dashboard session of a root
+user; anyone else gets 401 or 403):
+
+```json
+{
+  "status": "degraded",
+  "release": { "stage": "beta", "version": "4.1.9" },
+  "checks": {
+    "email": { "state": "failing", "detail": "invalid_from_address", "checkedAt": "2026-10-20T11:58:00.000Z" },
     "database": { "state": "ok", "latencyMs": 2 },
-    "redis": { "state": "ok", "latencyMs": 1 },
-    "keycloak": { "state": "ok", "latencyMs": 14 },
-    "storage": { "state": "ok", "latencyMs": 3 },
     "documentStore": { "state": "skipped", "detail": "no engine" }
   },
   "instance": { "id": "a1b2c3d4", "role": "leader", "imageTag": "3f9c1e2a7b4d" }
 }
 ```
 
+- `detail` is the one-line reason a check failed or was skipped; `latencyMs` is how long the
+  probe took.
 - `instance` names the API replica that answered: its id, whether it is the `leader` that runs
   the scheduled jobs (or a `follower`), and the image tag it was started from (`IMAGE_TAG`,
   `unknown` when unset). With one replica it simply identifies the build.
-- `status` is `ok` or `degraded`. **The HTTP code stays 200 in both cases** on purpose: an
-  undeliverable e-mail or an unreachable Keycloak is no reason to restart the API container,
-  so a monitor must read `status`, not the status code.
-- `checks.email.state` is one of `unchecked` (not probed yet), `ok`, `failing` (the provider
-  rejected a send; `detail` says why) or `not-configured` (no mail key at all). Password
-  resets, verification codes and team invitations depend on it.
-- `checks.database`, `redis`, `keycloak`, `storage` and `documentStore` are probed on every
-  call with a one-second limit each (`SELECT 1`, `PING`, Keycloak's `/health/ready`, MinIO's
-  `/minio/health/live`, the document engine's own ping). Each is `ok`, `failing` (with a
-  one-line `detail` and the `latencyMs` it took to find out) or `skipped` (not configured on
-  this install). Any `failing` check makes `status` `degraded`.
-- `draining: true` appears while the process is shutting down (see the next route).
 
 ## `GET /api/health/ready` — whether to send traffic here
 

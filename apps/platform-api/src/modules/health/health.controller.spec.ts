@@ -90,7 +90,7 @@ describe('HealthController', () => {
     expect(body.checks.keycloak.state).toBe('skipped');
     expect(body.checks.storage.state).toBe('skipped');
     expect(body.checks.documentStore.state).toBe('skipped');
-    expect(body.instance.id).toBe('i-1');
+    expect((body as any).instance).toBeUndefined();
   });
 
   it('says it is draining on the liveness route too', async () => {

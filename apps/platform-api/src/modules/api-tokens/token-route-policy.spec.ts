@@ -49,6 +49,7 @@ export const CONTROLLER_POLICY: Record<string, [Policy, string]> = {
   'modules/auth/auth.controller.ts': ['jwt-only', 'identity: profile, MFA, sessions, password, account deletion'],
   'modules/organizations/organizations.controller.ts': ['jwt-only', 'organization structure, switching and ownership'],
   'modules/root-console/root-console.controller.ts': ['jwt-only', 'platform operator console'],
+  'modules/health/health-details.controller.ts': ['jwt-only', 'full health report for the operator console'],
   'modules/capacity/capacity.controller.ts': ['jwt-only', 'platform operator console'],
   'modules/management/management.controller.ts': ['jwt-only', 'platform operator console'],
   'modules/quickbooks/quickbooks.controller.ts': ['jwt-only', 'platform operator accounting'],

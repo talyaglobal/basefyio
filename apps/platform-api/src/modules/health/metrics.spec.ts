@@ -99,7 +99,9 @@ describe('HealthController', () => {
       all: async () => ({ database: ok, redis: ok, keycloak: ok, storage: ok, documentStore: ok }),
       database: async () => ok,
     } as any;
-    return new HealthController(email, leader, health);
+    const { buildHealthReport } = await import('./health.controller');
+    const controller = new HealthController(email, leader, health);
+    return { check: () => controller.check(), details: () => buildHealthReport(email, health, leader) };
   };
 
   afterEach(() => {
@@ -113,13 +115,13 @@ describe('HealthController', () => {
    */
   it('names the replica that answered, its role and the build it runs', async () => {
     process.env.IMAGE_TAG = 'abc123def456';
-    const body = await (await build('ok')).check();
+    const body = await (await build('ok')).details();
     expect(body.status).toBe('ok');
     expect(body.instance).toEqual({ id: 'api-1-c0ffee', role: 'leader', imageTag: 'abc123def456' });
   });
 
   it('reports an unknown build when no tag was passed to the container', async () => {
-    const body = await (await build('ok', 'follower')).check();
+    const body = await (await build('ok', 'follower')).details();
     expect(body.instance).toMatchObject({ role: 'follower', imageTag: 'unknown' });
   });
 
@@ -128,6 +130,17 @@ describe('HealthController', () => {
     const body = await (await build('failing')).check();
     expect(body.status).toBe('degraded');
     expect(body.checks.email).toEqual({ state: 'failing' });
+  });
+
+  /** #136: the public probe says how things are, not why or where. */
+  it('publishes no error text, latency, replica or image on the public route', async () => {
+    process.env.IMAGE_TAG = 'abc123def456';
+    const b = await build('failing');
+    const body: any = await b.check();
+    expect(body.instance).toBeUndefined();
+    expect(JSON.stringify(body)).not.toMatch(/abc123|c0ffee|latencyMs|detail/);
+    expect(Object.keys(body.checks).sort()).toEqual(['database', 'documentStore', 'email', 'keycloak', 'redis', 'storage']);
+    expect(body.release.version).toMatch(/^\d+\.\d+\.\d+$/);
   });
 });
 
