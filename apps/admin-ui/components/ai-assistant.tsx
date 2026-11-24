@@ -777,7 +777,7 @@ export function AiAssistant() {
   // ── Closed state ──────────────────────────────────────────────────────────
   if (!open) {
     return (
-      <div className="w-10 shrink-0 border-l bg-card flex flex-col items-center py-5 max-md:fixed max-md:bottom-4 max-md:right-3 max-md:z-30 max-md:h-11 max-md:w-11 max-md:justify-center max-md:rounded-full max-md:border max-md:py-0 max-md:shadow-md">
+      <div data-tour="shell-ai" className="w-10 shrink-0 border-l bg-card flex flex-col items-center py-5 max-md:fixed max-md:bottom-4 max-md:right-3 max-md:z-30 max-md:h-11 max-md:w-11 max-md:justify-center max-md:rounded-full max-md:border max-md:py-0 max-md:shadow-md">
         <button onClick={toggle} title="Open AI assistant"
           className="flex flex-col items-center gap-2 rounded-lg p-2 hover:bg-accent transition-colors group">
           <Sparkles className="h-4 w-4 text-primary group-hover:scale-110 transition-transform" />
@@ -791,6 +791,7 @@ export function AiAssistant() {
   // ── Open state ────────────────────────────────────────────────────────────
   return (
     <div
+      data-tour="shell-ai"
       className="flex shrink-0 md:w-[var(--ai-w)] max-md:fixed max-md:bottom-0 max-md:right-0 max-md:top-[var(--header-h,3.5rem)] max-md:z-40 max-md:w-[min(100vw,380px)] max-md:shadow-xl"
       style={{ '--ai-w': `${sidebarWidth}px` } as React.CSSProperties}
     >

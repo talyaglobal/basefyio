@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "next dev --port 3000",
     "check:english-ui": "node ./scripts/check-english-ui.js",
-    "prebuild": "npm run check:english-ui",
+    "check:tours": "node ./scripts/check-tours.js",
+    "prebuild": "npm run check:english-ui && npm run check:tours",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
@@ -29,6 +30,7 @@
     "clsx": "^2.1.0",
     "cmdk": "^1.1.1",
     "date-fns": "^4.1.0",
+    "driver.js": "1.14.0",
     "html2canvas": "^1.4.1",
     "js-cookie": "^3.0.5",
     "lucide-react": "^0.400.0",

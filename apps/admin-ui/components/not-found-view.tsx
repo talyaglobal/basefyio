@@ -41,7 +41,7 @@ export function NotFoundView({
   const router = useRouter();
 
   const body = (
-    <div className="mx-auto flex w-full max-w-md flex-col items-center px-4 py-16 text-center">
+    <div data-tour-block className="mx-auto flex w-full max-w-md flex-col items-center px-4 py-16 text-center">
       <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-muted">
         <SearchX className="h-7 w-7 text-muted-foreground" aria-hidden />
       </div>

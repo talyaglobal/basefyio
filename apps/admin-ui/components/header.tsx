@@ -47,6 +47,7 @@ import { FeedbackModal } from '@/components/feedback-modal';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { NotificationsBell } from '@/components/notifications-bell';
 import { ChangelogWidget } from '@/components/changelog-widget';
+import { TourButton, TourMenuItem } from '@/components/tour/tour-button';
 import type { UserProfile } from '@/lib/types';
 import { useDashboard, useOrgNoun, orgPath } from '@/app/dashboard/layout';
 import { OrganizationKindIcon } from '@/components/organization-kind';
@@ -357,6 +358,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
           variant="ghost"
           size="sm"
           className="hidden h-8 gap-1.5 text-muted-foreground hover:text-foreground xl:inline-flex"
+          data-tour="shell-feedback"
           onClick={() => { setFeedbackOpen(true); }}
         >
           <MessageSquarePlus className="h-3.5 w-3.5" />
@@ -386,12 +388,14 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
           onClick={() => { setMobileMenuOpen(!mobileMenuOpen); }}
           className="inline-flex h-9 w-9 items-center justify-center rounded-md border bg-background text-foreground xl:hidden"
           aria-label="Open menu"
+          data-tour="shell-menu"
         >
           <Menu className="h-4 w-4" />
         </button>
         {/* Team Switcher */}
         <div className="relative hidden md:block" data-nav-dropdown-root="true">
           <button
+            data-tour="shell-team-switcher"
             onClick={() => {
                             setProjectsMenuOpen(false);
               setDocsMenuOpen(false);
@@ -418,7 +422,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
           {dropdownOpen && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setDropdownOpen(false)} />
-              <div onKeyDown={menuArrowKeys} className="absolute right-0 top-full z-50 mt-1 w-64 rounded-lg border bg-card shadow-lg animate-fade-in">
+              <div data-tour-block onKeyDown={menuArrowKeys} className="absolute right-0 top-full z-50 mt-1 w-64 rounded-lg border bg-card shadow-lg animate-fade-in">
                 <div className="border-b p-2">
                   <div className="relative">
                     <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -576,6 +580,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
         <div className="relative hidden md:block" data-nav-dropdown-root="true">
           <button
             type="button"
+            data-tour="shell-projects-switcher"
             onClick={() => {
                             setDropdownOpen(false);
               setDocsMenuOpen(false);
@@ -601,7 +606,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
                 className="fixed inset-0 z-40"
                 onClick={() => setProjectsMenuOpen(false)}
               />
-              <div onKeyDown={menuArrowKeys} className="absolute right-0 top-full z-50 mt-1 w-72 max-h-[min(24rem,calc(100vh-5rem))] overflow-hidden rounded-lg border bg-card shadow-lg animate-fade-in flex flex-col">
+              <div data-tour-block onKeyDown={menuArrowKeys} className="absolute right-0 top-full z-50 mt-1 w-72 max-h-[min(24rem,calc(100vh-5rem))] overflow-hidden rounded-lg border bg-card shadow-lg animate-fade-in flex flex-col">
                 <div className="border-b px-3 py-2">
                   <p className="text-xs font-medium text-muted-foreground">
                     {viewTeamId === 'all'
@@ -692,6 +697,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
         <div className="hidden xl:block">
           <ChangelogWidget />
         </div>
+        <TourButton />
         <ThemeToggle />
         <NotificationsBell />
 
@@ -717,7 +723,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
       {mobileMenuOpen && (
         <>
           <div className="fixed inset-0 z-40 xl:hidden" onClick={() => setMobileMenuOpen(false)} />
-          <div className="absolute right-3 z-50 w-64 max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-lg border bg-card p-2 shadow-lg xl:hidden" style={{ top: 'var(--header-h, 3.5rem)', maxHeight: 'calc(100dvh - var(--header-h, 3.5rem) - 0.75rem)' }}>
+          <div data-tour-block className="absolute right-3 z-50 w-64 max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-lg border bg-card p-2 shadow-lg xl:hidden" style={{ top: 'var(--header-h, 3.5rem)', maxHeight: 'calc(100dvh - var(--header-h, 3.5rem) - 0.75rem)' }}>
             <button
               onClick={() => { setMobileMenuOpen(false); router.push('/dashboard'); }}
               className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
@@ -784,6 +790,10 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
               Docs
               <ExternalLink className="ml-auto h-3 w-3 text-muted-foreground/50" />
             </a>
+            <TourMenuItem
+              onSelect={() => setMobileMenuOpen(false)}
+              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
+            />
             <button
               onClick={() => { setMobileMenuOpen(false); setFeedbackOpen(true); }}
               className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
@@ -914,7 +924,7 @@ function DocsMenu({ open, onOpenChange }: { open: boolean; onOpenChange: (open: 
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => onOpenChange(false)} />
-          <div onKeyDown={menuArrowKeys} className="absolute left-0 top-full z-50 mt-1 w-48 rounded-lg border bg-card shadow-lg animate-fade-in">
+          <div data-tour-block onKeyDown={menuArrowKeys} className="absolute left-0 top-full z-50 mt-1 w-48 rounded-lg border bg-card shadow-lg animate-fade-in">
             <div className="p-1">
               {docsLinks.map((item) => {
                 const Icon = DOC_ICONS[item.icon] ?? Book;
@@ -981,6 +991,7 @@ function UserMenu({
   return (
     <div className="relative" data-nav-dropdown-root="true">
       <button
+        data-tour="shell-user-menu"
         onClick={() => onOpenChange(!open)}
         aria-label={`Account menu: ${displayName}`}
         aria-haspopup="menu"
@@ -1010,7 +1021,7 @@ function UserMenu({
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => onOpenChange(false)} />
-          <div onKeyDown={menuArrowKeys} className="absolute right-0 top-full z-50 mt-1 w-56 rounded-lg border bg-card shadow-lg animate-fade-in">
+          <div data-tour-block onKeyDown={menuArrowKeys} className="absolute right-0 top-full z-50 mt-1 w-56 rounded-lg border bg-card shadow-lg animate-fade-in">
             <div className="border-b px-3 py-2.5 flex items-center gap-2.5">
               <div className="h-9 w-9 rounded-full overflow-hidden ring-1 ring-border shrink-0">
                 {avatarUrl ? (

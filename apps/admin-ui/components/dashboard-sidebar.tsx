@@ -22,6 +22,7 @@ import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import type { Team } from '@/lib/types';
 import { useDashboard, useOrgNoun, orgPath } from '@/app/dashboard/layout';
+import { useTourActive } from '@/components/tour/tour-provider';
 
 const COLLAPSED_KEY = 'basefyio_dashboard_nav_collapsed';
 const SIDEBAR_MODE_KEY = 'basefyio_dashboard_sidebar_mode';
@@ -168,6 +169,8 @@ export function DashboardSidebar({
   const [hydrated, setHydrated] = useState(false);
   const [host, setHost] = useState('');
   const [appVersion, setAppVersion] = useState('');
+  // Keep the sidebar expanded while the workspace tour points at it.
+  const tourHold = useTourActive('shell');
 
   useEffect(() => {
     fetch('/api/changelog/latest')
@@ -221,7 +224,7 @@ export function DashboardSidebar({
     return null;
   }
 
-  const collapsed = sidebarMode === 'auto' && !autoExpanded;
+  const collapsed = sidebarMode === 'auto' && !autoExpanded && !tourHold;
   const w = collapsed ? COLLAPSED_W : EXPANDED_W;
   // With the organization pages on, the "Team" entry becomes the active
   // organization's address; the old route keeps working and forwards there.
@@ -277,7 +280,7 @@ export function DashboardSidebar({
       }}
     >
 
-      <nav aria-label="Dashboard sections" className="flex flex-1 flex-col gap-0.5 p-2 overflow-y-auto">
+      <nav aria-label="Dashboard sections" data-tour="shell-sidebar" className="flex flex-1 flex-col gap-0.5 p-2 overflow-y-auto">
         {items.map((item) => renderNavLink(item, pathname, collapsed, host, router))}
 
         {rootItems.length > 0 && (

@@ -14,6 +14,8 @@ import { Header } from '@/components/header';
 import { AiAssistant } from '@/components/ai-assistant';
 import { ChangelogPopup } from '@/components/changelog-popup';
 import { DashboardSidebar } from '@/components/dashboard-sidebar';
+import { TourProvider } from '@/components/tour/tour-provider';
+import { TourPrefsProvider } from '@/lib/tour-prefs';
 import { subscribebasefyioRealtime, isRealtimePhase1Enabled } from '@/lib/basefyio-realtime';
 import type { RealtimeEventEnvelope } from '@/lib/realtime-types';
 
@@ -36,7 +38,7 @@ interface DashboardContextValue {
   featuresLoaded: boolean;
 }
 
-export const DEFAULT_FEATURES: FeatureFlags = { organizations_ui: false, nav_v2: false };
+export const DEFAULT_FEATURES: FeatureFlags = { organizations_ui: false, nav_v2: false, guided_tours: false };
 
 /** Whether the simplified navigation (Phase 1) is on for this user. */
 export function useNavV2() {
@@ -133,7 +135,17 @@ export default function DashboardLayout({
     sessionStorage.setItem('basefyio_view_team', id);
   }, []);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [profile, setProfileState] = useState<UserProfile | null>(null);
+  // When the GET behind `profile` was sent; guided-tour prefs ignore a response older than a reset.
+  const [profileStartedAt, setProfileStartedAt] = useState(0);
+  const fetchProfile = useCallback(() => {
+    const startedAt = Date.now();
+    return api.auth.getProfile().then((p) => {
+      setProfileState(p);
+      setProfileStartedAt(startedAt);
+      return p;
+    });
+  }, []);
   const [teams, setTeams] = useState<Team[]>([]);
   const [inviteCount, setInviteCount] = useState(0);
   const [features, setFeatures] = useState<FeatureFlags>(DEFAULT_FEATURES);
@@ -193,11 +205,13 @@ export default function DashboardLayout({
 
       if (cancelled) return;
 
+      const startedAt = Date.now();
       api.auth
         .getProfile()
         .then((p) => {
           if (cancelled) return;
-          setProfile(p);
+          setProfileState(p);
+          setProfileStartedAt(startedAt);
           if (p.forcePasswordChange) {
             Cookies.set('basefyio_force_password_change', '1', { expires: 7, path: '/' });
             router.replace('/set-new-password');
@@ -342,8 +356,7 @@ export default function DashboardLayout({
   );
 
   const refreshUser = useCallback(() => {
-    api.auth.getProfile().then((p) => {
-      setProfile(p);
+    fetchProfile().then((p) => {
       if (p.forcePasswordChange) {
         Cookies.set('basefyio_force_password_change', '1', { expires: 7, path: '/' });
         router.replace('/set-new-password');
@@ -354,11 +367,11 @@ export default function DashboardLayout({
         prev ? { ...prev, email: p.email } : prev,
       );
     }).catch(() => {});
-  }, [router]);
+  }, [router, fetchProfile]);
 
   const refreshProfile = useCallback(() => {
-    api.auth.getProfile().then(setProfile).catch(() => {});
-  }, []);
+    fetchProfile().catch(() => {});
+  }, [fetchProfile]);
 
   // Mirror ROOT status into a root-domain cookie so basefyio.com can show the
   // Admin link in its footer. Purely a UI hint; the routes stay API-gated.
@@ -402,8 +415,18 @@ export default function DashboardLayout({
       .me()
       .catch(() => api.features.all())
       .then((f) => {
-        const next: FeatureFlags = { organizations_ui: !!f?.organizations_ui, nav_v2: !!f?.nav_v2 };
-        setFeatures((prev) => (prev.organizations_ui === next.organizations_ui && prev.nav_v2 === next.nav_v2 ? prev : next));
+        const next: FeatureFlags = {
+          organizations_ui: !!f?.organizations_ui,
+          nav_v2: !!f?.nav_v2,
+          guided_tours: !!f?.guided_tours,
+        };
+        setFeatures((prev) =>
+          prev.organizations_ui === next.organizations_ui &&
+          prev.nav_v2 === next.nav_v2 &&
+          prev.guided_tours === next.guided_tours
+            ? prev
+            : next,
+        );
       })
       .catch(() => {})
       .finally(() => setFeaturesLoaded(true));
@@ -504,6 +527,17 @@ export default function DashboardLayout({
 
   return (
     <DashboardContext.Provider value={contextValue}>
+      <TourPrefsProvider
+        userId={profile?.id ?? null}
+        serverPrefs={profile?.tours ?? null}
+        serverPrefsStartedAt={profileStartedAt}
+        available={featuresLoaded && features.guided_tours}
+      >
+      <TourProvider
+        features={features}
+        featuresLoaded={featuresLoaded}
+        autoBlocked={billingBanner?.type === 'error'}
+      >
       <div className="flex h-screen flex-col overflow-hidden">
         <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-[100] focus:rounded-md focus:bg-background focus:px-3 focus:py-2 focus:text-sm focus:shadow-lg focus:ring-2 focus:ring-ring">Skip to content</a>
         <Header user={user} activeTeamId={activeTeamId} onTeamChange={handleHeaderTeamChange} refreshKey={refreshKey} profile={profile} />
@@ -565,7 +599,7 @@ export default function DashboardLayout({
             >
               {/* Gate children until account status is resolved to prevent frozen-user flash */}
               {!accountStatusLoaded && activeTeamId ? (
-                <div className="flex flex-1 items-center justify-center">
+                <div className="flex flex-1 items-center justify-center" data-tour-block>
                   <div className="h-6 w-6 animate-spin rounded-full border-2 border-muted border-t-foreground" />
                 </div>
               ) : (
@@ -577,6 +611,8 @@ export default function DashboardLayout({
         </div>
         <ChangelogPopup />
       </div>
+      </TourProvider>
+      </TourPrefsProvider>
     </DashboardContext.Provider>
   );
 }

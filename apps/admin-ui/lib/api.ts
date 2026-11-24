@@ -104,6 +104,7 @@ import type {
   CreateMarketingCampaignInput,
   RolePermissionMatrix,
   UserProfile,
+  TourPreferences,
   RootAlert,
   AuditLogEntry,
   ProjectDeletionReasonEntry,
@@ -529,6 +530,14 @@ export const api = {
       return request<UserProfile>('/auth/profile', {
         method: 'PUT',
         body: JSON.stringify(data),
+      });
+    },
+    /** Guided-tour preferences: a small write that never touches the identity provider. */
+    updateTourPrefs(data: { autoEnabled?: boolean; markSeen?: string[]; resetSeen?: boolean }) {
+      return request<TourPreferences>('/auth/profile/tours', {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+        keepalive: true,
       });
     },
     changePassword(

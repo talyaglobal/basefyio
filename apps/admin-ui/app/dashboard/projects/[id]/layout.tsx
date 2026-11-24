@@ -14,6 +14,7 @@ import { ProjectProvider } from '@/contexts/project-context';
 import { useDashboard } from '@/app/dashboard/layout';
 import { NotFoundView } from '@/components/not-found-view';
 import { ContextHelpPanel } from '@/components/context-help-panel';
+import { useTourActive } from '@/components/tour/tour-provider';
 import { subscribebasefyioRealtime, isRealtimePhase1Enabled } from '@/lib/basefyio-realtime';
 import type { RealtimeEventEnvelope } from '@/lib/realtime-types';
 import {
@@ -113,23 +114,24 @@ function SidebarModeIosSegmented({
   );
 }
 
+// tourAnchor is `project-shell-nav-${href.slice(1) || 'overview'}`, written out so scripts/check-tours.js can see it.
 const navItems = [
-  { label: 'Overview', href: '', icon: Database },
+  { label: 'Overview', href: '', tourAnchor: 'project-shell-nav-overview', icon: Database },
   // Tables, collections, and Data Engine entities live in one unified editor.
-  { label: 'Data', href: '/tables', icon: Table2 },
-  { label: 'SQL Editor', href: '/sql', icon: Terminal },
-  { label: 'Database', href: '/database', icon: Wrench },
-  { label: 'Storage', href: '/storage', icon: FolderOpen },
-  { label: 'Auth', href: '/auth', icon: Shield },
-  { label: 'REST API', href: '/api-explorer', icon: Globe },
-  { label: 'Realtime', href: '/realtime', icon: Radio },
-  { label: 'Connection', href: '/connect', icon: Link2 },
-  { label: 'Backup & Export', href: '/backup', icon: Download },
-  { label: 'Branches', href: '/branches', icon: GitBranch },
-  { label: 'Integrations', href: '/integrations', icon: Plug },
-  { label: 'Flows', href: '/flows', icon: Workflow },
-  { label: 'AI / Embeddings', href: '/embeddings', icon: BrainCircuit },
-  { label: 'Settings', href: '/settings', icon: Settings },
+  { label: 'Data', href: '/tables', tourAnchor: 'project-shell-nav-tables', icon: Table2 },
+  { label: 'SQL Editor', href: '/sql', tourAnchor: 'project-shell-nav-sql', icon: Terminal },
+  { label: 'Database', href: '/database', tourAnchor: 'project-shell-nav-database', icon: Wrench },
+  { label: 'Storage', href: '/storage', tourAnchor: 'project-shell-nav-storage', icon: FolderOpen },
+  { label: 'Auth', href: '/auth', tourAnchor: 'project-shell-nav-auth', icon: Shield },
+  { label: 'REST API', href: '/api-explorer', tourAnchor: 'project-shell-nav-api-explorer', icon: Globe },
+  { label: 'Realtime', href: '/realtime', tourAnchor: 'project-shell-nav-realtime', icon: Radio },
+  { label: 'Connection', href: '/connect', tourAnchor: 'project-shell-nav-connect', icon: Link2 },
+  { label: 'Backup & Export', href: '/backup', tourAnchor: 'project-shell-nav-backup', icon: Download },
+  { label: 'Branches', href: '/branches', tourAnchor: 'project-shell-nav-branches', icon: GitBranch },
+  { label: 'Integrations', href: '/integrations', tourAnchor: 'project-shell-nav-integrations', icon: Plug },
+  { label: 'Flows', href: '/flows', tourAnchor: 'project-shell-nav-flows', icon: Workflow },
+  { label: 'AI / Embeddings', href: '/embeddings', tourAnchor: 'project-shell-nav-embeddings', icon: BrainCircuit },
+  { label: 'Settings', href: '/settings', tourAnchor: 'project-shell-nav-settings', icon: Settings },
 ];
 
 export default function ProjectLayout({
@@ -166,6 +168,9 @@ export default function ProjectLayout({
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   useEffect(() => setMobileNavOpen(false), [pathname]);
   const autoLeaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // While the project tour runs, hold the sidebar expanded: in Auto mode hovering would
+  // otherwise swap the rail and the expanded list and replace the highlighted elements.
+  const tourHold = useTourActive('project-shell');
 
   const recoverProjectWithTeamSwitch = useCallback(
     async (projectId: string): Promise<Project | null> => {
@@ -222,7 +227,7 @@ export default function ProjectLayout({
   useEffect(() => () => clearAutoLeaveTimer(), [clearAutoLeaveTimer]);
 
   const sidebarExpanded =
-    sidebarMode === 'open' || (sidebarMode === 'auto' && autoExpanded);
+    sidebarMode === 'open' || (sidebarMode === 'auto' && autoExpanded) || tourHold;
   const showExpanded = sidebarExpanded || mobileNavOpen;
   const asideWidthPx = showExpanded ? sidebarWidth : SIDEBAR_COLLAPSED_PX;
 
@@ -430,7 +435,7 @@ export default function ProjectLayout({
               </div>
             </div>
 
-            <nav aria-label="Project sections" className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-2">
+            <nav aria-label="Project sections" data-tour="project-shell-nav" className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-2">
               {navItems.map((item) => {
                 const href = `${basePath}${item.href}`;
                 const active =
@@ -442,6 +447,7 @@ export default function ProjectLayout({
                   <Link prefetch={false}
                     key={item.label}
                     href={href}
+                    data-tour={item.tourAnchor}
                     className={cn(
                       'flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors',
                       active
@@ -456,7 +462,7 @@ export default function ProjectLayout({
               })}
             </nav>
 
-            <div className="mx-2 mt-2 rounded-md border bg-muted/30 p-3">
+            <div className="mx-2 mt-2 rounded-md border bg-muted/30 p-3" data-tour="project-shell-api-keys">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-muted-foreground">
                   <Key className="h-3 w-3 shrink-0" />
@@ -492,6 +498,7 @@ export default function ProjectLayout({
             <div className="mx-2 mt-2 space-y-0.5">
               <Link prefetch={false}
                 href={`${basePath}/logs`}
+                data-tour="project-shell-nav-logs"
                 className={cn(
                   'flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors',
                   pathname.startsWith(`${basePath}/logs`)
@@ -540,7 +547,7 @@ export default function ProjectLayout({
                 <Database className="h-4 w-4 text-primary" />
               </div>
             </div>
-            <nav aria-label="Project sections" className="flex min-h-0 flex-1 flex-col items-center gap-0.5 overflow-y-auto py-2">
+            <nav aria-label="Project sections" data-tour="project-shell-nav" className="flex min-h-0 flex-1 flex-col items-center gap-0.5 overflow-y-auto py-2">
               {navItems.map((item) => {
                 const href = `${basePath}${item.href}`;
                 const active =
@@ -552,6 +559,7 @@ export default function ProjectLayout({
                   <Link prefetch={false}
                     key={item.label}
                     href={href}
+                    data-tour={item.tourAnchor}
                     title={navLabel(item)}
                     className={cn(
                       'flex h-9 w-9 items-center justify-center rounded-md transition-colors',
@@ -568,6 +576,7 @@ export default function ProjectLayout({
             <div className="mt-auto flex w-full flex-col items-center gap-2 border-t px-1.5 py-2">
               <Link prefetch={false}
                 href={`${basePath}/logs`}
+                data-tour="project-shell-nav-logs"
                 title="Project logs"
                 className={cn(
                   'flex h-9 w-9 items-center justify-center rounded-md transition-colors',

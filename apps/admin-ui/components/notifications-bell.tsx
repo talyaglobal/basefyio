@@ -44,6 +44,7 @@ export function NotificationsBell() {
           className="relative h-9 w-9 shrink-0 text-muted-foreground hover:text-foreground"
           aria-label="Notifications"
           title="Notifications"
+          data-tour="shell-notifications"
         >
           <Bell className="h-4 w-4" />
           {unreadCount > 0 && (

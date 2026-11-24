@@ -305,6 +305,8 @@ export interface FeatureFlags {
   organizations_ui: boolean;
   /** Phase 1 of the simplification: one sidebar, grouped project menu, Connect button, ⌘K. */
   nav_v2: boolean;
+  /** Guided page tours in the dashboard (header Tour button, automatic first-visit tours). */
+  guided_tours: boolean;
 }
 
 /** Root console view of the flags: what is on for everyone and who has it ahead of everyone. */
@@ -449,6 +451,14 @@ export interface UserProfile {
   canEditIdentityFields?: boolean;
   canChangePassword?: boolean;
   forcePasswordChange?: boolean;
+  /** Guided-tour preferences; absent when the API is older than this dashboard (then no automatic tours). */
+  tours?: TourPreferences;
+}
+
+/** Guided-tour preferences of the signed-in user (`GET /api/auth/profile` -> `tours`). */
+export interface TourPreferences {
+  autoEnabled: boolean;
+  seen: string[];
 }
 
 export interface ManagementUser {

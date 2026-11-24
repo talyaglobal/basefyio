@@ -16,7 +16,7 @@ export default function DashboardError({
   }, [error]);
 
   return (
-    <div className="flex h-64 flex-col items-center justify-center gap-4">
+    <div data-tour-block className="flex h-64 flex-col items-center justify-center gap-4">
       <AlertTriangle className="h-10 w-10 text-amber-500" />
       <p className="text-sm text-muted-foreground">
         Something went wrong. Please try again.

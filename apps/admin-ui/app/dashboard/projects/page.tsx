@@ -1036,6 +1036,7 @@ export default function ProjectsPage() {
             onClick={() => setMobileNavOpen((v) => !v)}
             aria-label="Folders, tags and Trash"
             aria-expanded={mobileNavOpen}
+            data-tour="projects-folders-toggle"
             className="flex items-center gap-1.5 rounded-lg border bg-background px-3 py-1.5 text-sm hover:bg-accent transition-colors lg:hidden"
           >
             <FolderOpen className="h-3.5 w-3.5" />
@@ -1043,7 +1044,7 @@ export default function ProjectsPage() {
           </button>
 
           {/* Search */}
-          <div className="relative min-w-[8rem] flex-1">
+          <div className="relative min-w-[8rem] flex-1" data-tour="projects-search">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <input
               value={searchQuery}
@@ -1116,7 +1117,7 @@ export default function ProjectsPage() {
           <Button variant="outline" size="icon" className="h-8 w-8" onClick={loadAll} aria-label="Refresh projects">
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
           </Button>
-          <div className="inline-flex items-center rounded-lg border bg-background p-0.5">
+          <div className="inline-flex items-center rounded-lg border bg-background p-0.5" data-tour="projects-view-toggle">
             <button
               type="button"
               onClick={() => setViewMode('grid')}
@@ -1137,11 +1138,11 @@ export default function ProjectsPage() {
             </button>
           </div>
           <Button asChild size="sm" className="border-0 bg-[#217346] text-white hover:bg-[#1a5c38] focus-visible:ring-2 focus-visible:ring-[#217346] focus-visible:ring-offset-2 focus-visible:ring-offset-background dark:bg-[#217346] dark:hover:bg-[#2a8c57]">
-            <Link href="/dashboard/blueprints" aria-label="Sheet to App">
+            <Link href="/dashboard/blueprints" aria-label="Sheet to App" data-tour="projects-sheet-to-app">
               <FileSpreadsheet className="mr-1 h-3.5 w-3.5" /> <span className="hidden sm:inline">Sheet to App</span>
             </Link>
           </Button>
-          <Button onClick={() => setDialogOpen(true)} size="sm" className="bg-brand-gradient text-white border-0 hover:opacity-90">
+          <Button onClick={() => setDialogOpen(true)} size="sm" className="bg-brand-gradient text-white border-0 hover:opacity-90" data-tour="projects-new">
             <Plus className="mr-1 h-3.5 w-3.5" /> New Project
           </Button>
         </div>
@@ -1242,7 +1243,7 @@ export default function ProjectsPage() {
         <div className="relative flex flex-1 min-h-0 overflow-hidden">
 
           {/* ── Sidebar ──────────────────────────────────────────────────────── */}
-          <aside className={cn(
+          <aside data-tour="projects-sidebar" className={cn(
             'w-56 flex-col border-r bg-card shrink-0 overflow-hidden',
             mobileNavOpen ? 'absolute inset-y-0 left-0 z-30 flex shadow-xl lg:static lg:shadow-none' : 'hidden lg:flex',
           )}>
@@ -1351,7 +1352,8 @@ export default function ProjectsPage() {
           {mobileNavOpen && <div className="absolute inset-0 z-20 bg-black/40 lg:hidden" onClick={() => setMobileNavOpen(false)} />}
 
           {/* ── Main content ──────────────────────────────────────────────────── */}
-          <div className="flex-1 overflow-y-auto">
+          {/* projects-main marks the page as ready for its tour: only once the list has loaded. */}
+          <div className="flex-1 overflow-y-auto" data-tour={loading ? undefined : 'projects-main'}>
             <h1 className="sr-only">Projects</h1>
             {showTrash ? (
               /* ── Trash view ────────────────────────────────────────────────────── */
@@ -1635,9 +1637,10 @@ export default function ProjectsPage() {
               ) : (
                 viewMode === 'grid' ? (
                   <div className="basefyio-grid-row-hover grid grid-cols-[repeat(auto-fill,minmax(min(100%,17rem),1fr))] gap-4">
-                    {filtered.slice(0, shownCount).map((project) => (
+                    {filtered.slice(0, shownCount).map((project, index) => (
                       <DroppableProjectCard
                         key={project.id}
+                        tourFirst={index === 0}
                         project={project}
                         folders={folders}
                         allTags={tags}
@@ -1653,9 +1656,10 @@ export default function ProjectsPage() {
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {filtered.slice(0, shownCount).map((project) => (
+                    {filtered.slice(0, shownCount).map((project, index) => (
                       <ProjectListRow
                         key={project.id}
+                        tourFirst={index === 0}
                         project={project}
                         isSelected={selectedProjects.has(project.id)}
                         onOpen={() => openProject(project.id)}
@@ -2103,12 +2107,15 @@ export default function ProjectsPage() {
 
 function ProjectListRow({
   project,
+  tourFirst = false,
   isSelected,
   onOpen,
   onSelect,
   onContextMenu,
 }: {
   project: ProjectListItem;
+  /** The first row carries the projects tour anchors. */
+  tourFirst?: boolean;
   isSelected: boolean;
   onOpen: () => void;
   onSelect: () => void;
@@ -2118,6 +2125,7 @@ function ProjectListRow({
     <div
       onClick={onOpen}
       onContextMenu={onContextMenu}
+      data-tour={tourFirst ? 'projects-card' : undefined}
       className={`flex cursor-pointer items-center gap-3 rounded-lg border bg-card px-3 py-2 transition-colors hover:bg-accent/40 ${
         isSelected ? 'ring-2 ring-primary border-primary/50' : ''
       }`}
@@ -2161,6 +2169,7 @@ function ProjectListRow({
         type="button"
         aria-label={`Actions for ${project.name}`}
         title="More actions"
+        data-tour={tourFirst ? 'projects-card-actions' : undefined}
         onClick={(e) => { e.stopPropagation(); onContextMenu(e); }}
         className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
       >
@@ -2568,10 +2577,12 @@ const SidebarContextMenu = React.forwardRef<HTMLDivElement, {
 
 // ── DroppableProjectCard ──────────────────────────────────────────────────────
 function DroppableProjectCard({
-  project, folders, allTags, isSelected, hasSelection,
+  project, tourFirst = false, folders, allTags, isSelected, hasSelection,
   onOpen, onSelect, onMoveFolder, onToggleTag, onContextMenu,
 }: {
   project: ProjectListItem;
+  /** The first card carries the projects tour anchors. */
+  tourFirst?: boolean;
   folders: ProjectFolder[];
   allTags: ProjectTag[];
   isSelected: boolean;
@@ -2600,6 +2611,7 @@ function DroppableProjectCard({
       {...attributes}
       {...listeners}
       onContextMenu={onContextMenu}
+      data-tour={tourFirst ? 'projects-card' : undefined}
       className={`rounded-xl border bg-card p-4 flex flex-col gap-3 relative transition-all select-none ${
         isSelected
           ? 'ring-2 ring-primary border-primary/50 bg-primary/[0.02]'
@@ -2644,6 +2656,7 @@ function DroppableProjectCard({
           type="button"
           aria-label={`Actions for ${project.name}`}
           title="More actions"
+          data-tour={tourFirst ? 'projects-card-actions' : undefined}
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => { e.stopPropagation(); onContextMenu(e); }}
           className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -2890,7 +2903,10 @@ const ContextMenu = React.forwardRef<HTMLDivElement, {
 // ── EmptyState ────────────────────────────────────────────────────────────────
 function EmptyState({ onNew, hasFilters }: { onNew: () => void; hasFilters: boolean }) {
   return (
-    <div className="flex flex-col items-center justify-center py-20 text-center">
+    <div
+      className="flex flex-col items-center justify-center py-20 text-center"
+      data-tour={hasFilters ? undefined : 'projects-empty'}
+    >
       <div className="h-14 w-14 rounded-2xl bg-brand-gradient flex items-center justify-center mb-4 shadow-md">
         <Database className="h-7 w-7 text-white" />
       </div>

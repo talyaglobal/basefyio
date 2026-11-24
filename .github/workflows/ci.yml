@@ -83,6 +83,9 @@ jobs:
         run: npm ci
       - name: Typecheck
         run: npx tsc --noEmit
+      # CI never runs the build, so the guided-tour guard (also in prebuild) runs here too.
+      - name: Guided tours check
+        run: node scripts/check-tours.js
 
   typecheck-website:
     name: Website — typecheck

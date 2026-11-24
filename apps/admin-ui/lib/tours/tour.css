@@ -1,0 +1,101 @@
+/*
+ * basefyio theme for driver.js popovers. Every rule is scoped under .basefyio-tour and uses the
+ * dashboard's HSL variables from app/globals.css, so light and dark follow next-themes.
+ */
+.driver-popover.basefyio-tour {
+  --driver-popover-font-family: inherit;
+  font-family: inherit;
+  background-color: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  box-shadow: var(--glass-shadow-lg, 0 8px 32px rgba(0, 0, 0, 0.12));
+  padding: 16px;
+  min-width: 260px;
+  max-width: min(340px, calc(100vw - 24px));
+}
+.driver-popover.basefyio-tour .driver-popover-title {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+  padding-right: 24px;
+}
+.driver-popover.basefyio-tour .driver-popover-description {
+  font-size: 13px;
+  line-height: 1.5;
+  color: hsl(var(--muted-foreground));
+}
+.driver-popover.basefyio-tour .driver-popover-progress-text {
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+}
+.driver-popover.basefyio-tour .driver-popover-close-btn {
+  color: hsl(var(--muted-foreground));
+  border-radius: calc(var(--radius) - 4px);
+}
+.driver-popover.basefyio-tour .driver-popover-close-btn:hover,
+.driver-popover.basefyio-tour .driver-popover-close-btn:focus-visible {
+  color: hsl(var(--foreground));
+}
+.driver-popover.basefyio-tour .driver-popover-footer-btn {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.3;
+  padding: 6px 12px;
+  border-radius: calc(var(--radius) - 4px);
+  border: 1px solid hsl(var(--input));
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  text-shadow: none;
+}
+.driver-popover.basefyio-tour .driver-popover-footer-btn:hover {
+  background-color: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+}
+.driver-popover.basefyio-tour .driver-popover-next-btn,
+.driver-popover.basefyio-tour .driver-popover-next-btn:hover {
+  background-color: hsl(var(--primary));
+  border-color: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+/* driver.js resets its buttons with outline: 0; keyboard users need a visible ring. */
+.driver-popover.basefyio-tour button:focus-visible,
+.driver-popover.basefyio-tour input:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+/* The arrow is coloured per side; a shorthand would undo the transparent sides. */
+.driver-popover.basefyio-tour .driver-popover-arrow-side-left { border-left-color: hsl(var(--popover)); }
+.driver-popover.basefyio-tour .driver-popover-arrow-side-right { border-right-color: hsl(var(--popover)); }
+.driver-popover.basefyio-tour .driver-popover-arrow-side-top { border-top-color: hsl(var(--popover)); }
+.driver-popover.basefyio-tour .driver-popover-arrow-side-bottom { border-bottom-color: hsl(var(--popover)); }
+
+.driver-popover.basefyio-tour .basefyio-tour-optout {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid hsl(var(--border));
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+}
+.driver-popover.basefyio-tour .basefyio-tour-optout input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: hsl(var(--primary));
+  cursor: pointer;
+}
+.driver-popover.basefyio-tour .basefyio-tour-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
