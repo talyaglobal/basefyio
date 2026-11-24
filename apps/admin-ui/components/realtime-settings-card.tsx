@@ -106,14 +106,10 @@ export function RealtimeSettingsCard({ projectId }: RealtimeSettingsCardProps) {
           No tables or collections yet — create one first, then enable realtime here.
         </p>
       ) : (
-<<<<<<< HEAD
-        <div className="flex items-center justify-end gap-2 pb-1">
+        <div className="flex items-center justify-end gap-2 pb-1" data-tour="project-realtime-bulk">
           <span className="mr-auto text-xs text-muted-foreground" data-testid="realtime-count">
             {rows.filter((r) => r.enabled).length} of {rows.length} enabled
           </span>
-=======
-        <div className="flex items-center justify-end gap-2 pb-1" data-tour="project-realtime-bulk">
->>>>>>> b51e20b (feat(dashboard): guided tours for the workspace and project data pages, Guided tours card in Account)
           <button
             type="button"
             className="text-xs font-medium text-primary hover:underline disabled:opacity-50"
