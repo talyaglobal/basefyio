@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { Radio } from 'lucide-react';
+import { confirmDialog } from '@/components/ui/confirm-dialog';
 
 interface RealtimeSettingsCardProps {
   projectId: string;
@@ -106,11 +107,21 @@ export function RealtimeSettingsCard({ projectId }: RealtimeSettingsCardProps) {
         </p>
       ) : (
         <div className="flex items-center justify-end gap-2 pb-1">
+          <span className="mr-auto text-xs text-muted-foreground" data-testid="realtime-count">
+            {rows.filter((r) => r.enabled).length} of {rows.length} enabled
+          </span>
           <button
             type="button"
             className="text-xs font-medium text-primary hover:underline disabled:opacity-50"
             disabled={togglingKey === '__all__' || rows.every((r) => r.enabled)}
             onClick={async () => {
+              const off = rows.filter((r) => !r.enabled);
+              // Events carry full row data and any holder of a project key can read them (#33).
+              if (!(await confirmDialog({
+                title: 'Turn on realtime for everything?',
+                description: `${off.length} table${off.length === 1 ? '' : 's'} and collection${off.length === 1 ? '' : 's'} will start broadcasting INSERT, UPDATE and DELETE events with full row data. Anyone holding a project API key can receive them.`,
+                confirmText: 'Turn on all',
+              }))) return;
               setTogglingKey('__all__');
               try {
                 for (const row of rows.filter((r) => !r.enabled)) {
@@ -134,6 +145,13 @@ export function RealtimeSettingsCard({ projectId }: RealtimeSettingsCardProps) {
             className="text-xs font-medium text-muted-foreground hover:underline disabled:opacity-50"
             disabled={togglingKey === '__all__' || rows.every((r) => !r.enabled)}
             onClick={async () => {
+              const on = rows.filter((r) => r.enabled);
+              if (!(await confirmDialog({
+                title: 'Turn off realtime for everything?',
+                description: `${on.length} table${on.length === 1 ? '' : 's'} and collection${on.length === 1 ? '' : 's'} will stop broadcasting events. Apps subscribed to them stop receiving updates until you turn them back on.`,
+                confirmText: 'Turn off all',
+                destructive: true,
+              }))) return;
               setTogglingKey('__all__');
               try {
                 for (const row of rows.filter((r) => r.enabled)) {
