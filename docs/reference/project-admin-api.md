@@ -274,21 +274,22 @@ SECURITY` table through a policy written for the group, without the owner's or `
   inherit, like ordinary Postgres groups; built-in roles still need `SET ROLE`.
 - Postgres lets a role own a function only in a schema where it may create objects, and the
   project owner cannot grant that on `public`. Keep definer functions in a schema the owner
-  creates, and grant what they need before handing them over:
+  creates, and grant what they need before handing them over (`kb_xg_GROUP` stands for your
+  group's `roleName`):
 
   ```sql
-  CREATE SCHEMA authz;
-  GRANT USAGE ON SCHEMA authz TO authenticated, kb_xg_0123456789;
-  CREATE FUNCTION authz.is_member(org uuid) RETURNS boolean
+  CREATE SCHEMA app_private;
+  GRANT USAGE ON SCHEMA app_private TO authenticated, kb_xg_GROUP;
+  CREATE FUNCTION app_private.is_member(org uuid) RETURNS boolean
     LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public
     AS $$ SELECT EXISTS (SELECT 1 FROM org_members WHERE org_id = org AND user_id = auth.uid()) $$;
-  REVOKE EXECUTE ON FUNCTION authz.is_member(uuid) FROM PUBLIC;
-  GRANT EXECUTE ON FUNCTION authz.is_member(uuid) TO authenticated;
-  GRANT SELECT ON org_members TO kb_xg_0123456789;
-  CREATE POLICY group_reads ON org_members FOR SELECT TO kb_xg_0123456789 USING (true);
-  GRANT CREATE ON SCHEMA authz TO kb_xg_0123456789;
-  ALTER FUNCTION authz.is_member(uuid) OWNER TO kb_xg_0123456789;
-  REVOKE CREATE ON SCHEMA authz FROM kb_xg_0123456789;
+  REVOKE EXECUTE ON FUNCTION app_private.is_member(uuid) FROM PUBLIC;
+  GRANT EXECUTE ON FUNCTION app_private.is_member(uuid) TO authenticated;
+  GRANT SELECT ON org_members TO kb_xg_GROUP;
+  CREATE POLICY group_reads ON org_members FOR SELECT TO kb_xg_GROUP USING (true);
+  GRANT CREATE ON SCHEMA app_private TO kb_xg_GROUP;
+  ALTER FUNCTION app_private.is_member(uuid) OWNER TO kb_xg_GROUP;
+  REVOKE CREATE ON SCHEMA app_private FROM kb_xg_GROUP;
   ```
 
   After the hand-over, change the function's grants as the group (`SET ROLE kb_xg_…`).
