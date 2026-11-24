@@ -138,7 +138,7 @@ export function ProjectCostsPanel({
   const otherBytes = teamUsage ? Math.max(0, teamUsage.bandwidthBytes - report.metered.bandwidthBytes) : 0;
 
   return (
-    <div className="rounded-xl border bg-card p-6">
+    <div data-tour="billing-project-costs" className="rounded-xl border bg-card p-6">
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
         {/* Period + explanation */}
         <div className="lg:col-span-1 space-y-4">

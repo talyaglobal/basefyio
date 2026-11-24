@@ -173,7 +173,7 @@ function BucketList({
   }
 
   return (
-    <div className="w-full min-w-0 space-y-4">
+    <div className="w-full min-w-0 space-y-4" data-tour={loading ? undefined : 'project-storage-root'}>
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold">Storage</h2>
@@ -186,7 +186,7 @@ function BucketList({
             <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
-          <Button size="sm" onClick={() => setCreating(true)}>
+          <Button size="sm" onClick={() => setCreating(true)} data-tour="project-storage-new-bucket">
             <Plus className="mr-1.5 h-3.5 w-3.5" />
             New bucket
           </Button>
@@ -228,7 +228,7 @@ function BucketList({
         </div>
       )}
 
-      <div className="rounded-md border">
+      <div className="rounded-md border" data-tour="project-storage-bucket-list">
         <div className="flex items-center gap-3 border-b bg-muted/30 px-4 py-2 text-xs font-medium text-muted-foreground">
           <span className="flex-1">Bucket</span>
           <span className="w-20 text-center">Access</span>
@@ -331,11 +331,11 @@ function BucketDetail({
   useEffect(() => { loadBucketInfo(); }, [loadBucketInfo, tab]);
 
   return (
-    <div className="w-full min-w-0 space-y-4">
+    <div className="w-full min-w-0 space-y-4" data-tour="project-storage-root">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={onBack}>
+          <Button variant="ghost" size="sm" onClick={onBack} data-tour="project-storage-back">
             <ArrowLeft className="mr-1.5 h-3.5 w-3.5" />
             Buckets
           </Button>
@@ -357,7 +357,7 @@ function BucketDetail({
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 border-b">
+      <div className="flex gap-1 border-b" data-tour="project-storage-tabs">
         <button
           onClick={() => setTab('files')}
           className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
@@ -1072,7 +1072,7 @@ function ObjectBrowser({
             Public link
           </Button>
         )}
-        <Button variant="outline" size="sm" onClick={() => setCreatingFolder((v) => !v)}>
+        <Button variant="outline" size="sm" onClick={() => setCreatingFolder((v) => !v)} data-tour="project-storage-new-folder">
           <FolderPlus className="mr-1.5 h-3.5 w-3.5" />
           New folder
         </Button>
@@ -1080,7 +1080,7 @@ function ObjectBrowser({
           <Folder className="mr-1.5 h-3.5 w-3.5" />
           Upload folder
         </Button>
-        <Button size="sm" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+        <Button size="sm" onClick={() => fileInputRef.current?.click()} disabled={uploading} data-tour="project-storage-upload">
           <Upload className="mr-1.5 h-3.5 w-3.5" />
           {uploading ? (uploadProgress ? `Uploading… ${uploadProgress.percent}%` : 'Uploading…') : 'Upload'}
         </Button>
@@ -1131,7 +1131,7 @@ function ObjectBrowser({
       )}
 
       {/* Breadcrumbs */}
-      <div className="flex items-center gap-1 rounded-md border bg-muted/30 px-3 py-2 text-sm">
+      <div className="flex items-center gap-1 rounded-md border bg-muted/30 px-3 py-2 text-sm" data-tour="project-storage-path">
         <button
           onClick={() => setPrefix('')}
           onDragOver={(e) => { e.preventDefault(); setDragOver(':root:'); }}
@@ -1194,7 +1194,7 @@ function ObjectBrowser({
       </div>
 
       {/* File list */}
-      <div className="rounded-md border">
+      <div className="rounded-md border" data-tour="project-storage-files">
         <div className="flex items-center gap-3 border-b bg-muted/30 px-4 py-2 text-xs font-medium text-muted-foreground">
           <input
             type="checkbox"

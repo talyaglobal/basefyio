@@ -261,7 +261,7 @@ function GitHubCard({
   }
 
   return (
-    <div className="rounded-xl border bg-card">
+    <div className="rounded-xl border bg-card" data-tour="project-integrations-github">
       <div className="flex items-center justify-between p-6 pb-4">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-zinc-900 dark:bg-zinc-100">
@@ -656,7 +656,7 @@ function VercelCard({
   }
 
   return (
-    <div className="rounded-xl border bg-card">
+    <div className="rounded-xl border bg-card" data-tour="project-integrations-vercel">
       <div className="flex items-center justify-between p-6 pb-4">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-black dark:bg-white">
@@ -945,7 +945,7 @@ export default function IntegrationsPage() {
 
       {/* Team integration status banner */}
       {!loadingTeam && activeTeamId && (
-        <div className="rounded-lg border bg-muted/30 px-4 py-3 flex items-center justify-between gap-3">
+        <div className="rounded-lg border bg-muted/30 px-4 py-3 flex items-center justify-between gap-3" data-tour="project-integrations-status">
           <div className="flex items-center gap-3 flex-wrap">
             <span className="text-sm font-medium text-muted-foreground">Team connections:</span>
             <div className="flex items-center gap-2">
@@ -964,6 +964,7 @@ export default function IntegrationsPage() {
             size="sm"
             className="h-7 text-xs shrink-0"
             onClick={() => router.push('/dashboard/team#integrations')}
+            data-tour="project-integrations-manage"
           >
             <Settings className="h-3 w-3 mr-1" />
             Manage

@@ -245,7 +245,7 @@ export function ProjectPitrPanel({ projectId }: { projectId: string }) {
   }
 
   return (
-    <section className="rounded-xl border bg-card p-6 space-y-4">
+    <section className="rounded-xl border bg-card p-6 space-y-4" data-tour="project-backup-pitr">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="flex items-center gap-2 text-base font-semibold">

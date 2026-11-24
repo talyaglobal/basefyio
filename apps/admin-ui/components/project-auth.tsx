@@ -168,14 +168,14 @@ export function ProjectAuth({ projectId }: ProjectAuthProps) {
     );
   }
 
-  const tabs: { id: TabId; label: string; icon: React.ReactNode }[] = [
+  const tabs: { id: TabId; label: string; icon: React.ReactNode; tourAnchor?: string }[] = [
     { id: 'users', label: 'Users', icon: <Users className="h-3.5 w-3.5" /> },
     { id: 'sessions', label: 'Sessions', icon: <Monitor className="h-3.5 w-3.5" /> },
     { id: 'mfa', label: 'MFA', icon: <ShieldCheck className="h-3.5 w-3.5" /> },
     { id: 'policies', label: 'Policies', icon: <Lock className="h-3.5 w-3.5" /> },
-    { id: 'settings', label: 'Settings', icon: <Settings className="h-3.5 w-3.5" /> },
-    { id: 'providers', label: 'Providers', icon: <KeyRound className="h-3.5 w-3.5" /> },
-    { id: 'email', label: 'Email', icon: <Mail className="h-3.5 w-3.5" /> },
+    { id: 'settings', label: 'Settings', icon: <Settings className="h-3.5 w-3.5" />, tourAnchor: 'project-auth-tab-settings' },
+    { id: 'providers', label: 'Providers', icon: <KeyRound className="h-3.5 w-3.5" />, tourAnchor: 'project-auth-tab-providers' },
+    { id: 'email', label: 'Email', icon: <Mail className="h-3.5 w-3.5" />, tourAnchor: 'project-auth-tab-email' },
   ];
 
   return (
@@ -193,7 +193,7 @@ export function ProjectAuth({ projectId }: ProjectAuthProps) {
             </Button>
           )}
           {activeTab === 'users' && (
-            <Button onClick={() => setDialogOpen(true)}>
+            <Button onClick={() => setDialogOpen(true)} data-tour="project-auth-add-user">
               <Plus className="mr-2 h-4 w-4" />
               Add User
             </Button>
@@ -203,7 +203,7 @@ export function ProjectAuth({ projectId }: ProjectAuthProps) {
 
       {/* Realm stats */}
       {realm && (
-        <div className="basefyio-grid-row-hover grid gap-4 sm:grid-cols-3">
+        <div className="basefyio-grid-row-hover grid gap-4 sm:grid-cols-3" data-tour="project-auth-stats">
           <div className="rounded-lg border bg-card p-4">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Shield className="h-4 w-4" />
@@ -233,10 +233,11 @@ export function ProjectAuth({ projectId }: ProjectAuthProps) {
 
       {/* Tabs */}
       <div className="border-b">
-        <nav className="-mb-px flex gap-4">
+        <nav className="-mb-px flex gap-4" data-tour="project-auth-tabs">
           {tabs.map((tab) => (
             <button
               key={tab.id}
+              data-tour={tab.tourAnchor}
               onClick={() => setActiveTab(tab.id)}
               className={`flex items-center gap-1.5 border-b-2 px-1 pb-3 text-sm font-medium transition-colors ${
                 activeTab === tab.id
@@ -386,7 +387,7 @@ function UsersTab({
 
   return (
     <>
-      <div className="mb-3 flex flex-wrap items-center gap-3">
+      <div className="mb-3 flex flex-wrap items-center gap-3" data-tour="project-auth-search">
         <div className="relative w-full sm:max-w-sm">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -417,7 +418,7 @@ function UsersTab({
           No users match “{term}”.
         </div>
       ) : (
-      <div className="rounded-md border overflow-x-auto">
+      <div className="rounded-md border overflow-x-auto" data-tour="project-auth-user-list">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b bg-muted/50">

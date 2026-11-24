@@ -15,6 +15,8 @@ export const ROUTES: TourRoute[] = [
   },
   // With organizations_ui on, /dashboard/team redirects to the members page and the same screen renders there.
   { id: 'team', kind: 'page', routes: ['/dashboard/team', '/dashboard/org/[publicId]/members'] },
+  // Same redirect as the team page: with organizations_ui on, billing renders under the organization.
+  { id: 'billing', kind: 'page', routes: ['/dashboard/billing', '/dashboard/org/[publicId]/billing'] },
   { id: 'org-overview', kind: 'page', routes: ['/dashboard/org/[publicId]'], when: { flagOn: 'organizations_ui' } },
   { id: 'org-projects', kind: 'page', routes: ['/dashboard/org/[publicId]/projects'], when: { flagOn: 'organizations_ui' } },
   { id: 'org-settings', kind: 'page', routes: ['/dashboard/org/[publicId]/settings'], when: { flagOn: 'organizations_ui' } },

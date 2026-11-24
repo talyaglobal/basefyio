@@ -938,7 +938,7 @@ export default function BillingPage() {
       )}
 
       {/* Current Plan */}
-      <div className="rounded-xl border bg-card p-6">
+      <div data-tour="billing-plan" className="rounded-xl border bg-card p-6">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-lg font-semibold text-foreground">Current Plan</h2>
@@ -1016,7 +1016,7 @@ export default function BillingPage() {
       <div className="rounded-xl border bg-card p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold text-foreground">Payment Methods</h2>
-          <Button size="sm" disabled={!canManage} onClick={() => setShowCardDialog(true)}>
+          <Button data-tour="billing-add-card" size="sm" disabled={!canManage} onClick={() => setShowCardDialog(true)}>
             <CreditCard className="w-4 h-4 mr-2" />
             Add card
           </Button>
@@ -1116,7 +1116,7 @@ export default function BillingPage() {
       </Dialog>
 
       {/* Billing Details */}
-      <div className="rounded-xl border bg-card p-6">
+      <div data-tour="billing-details" className="rounded-xl border bg-card p-6">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-lg font-semibold text-foreground">Billing Details</h2>
           {canManage && !editingAccount && billingAccount && (
@@ -1269,7 +1269,7 @@ export default function BillingPage() {
 
       {/* Usage */}
       {usage && currentPlan && (
-        <div className="rounded-xl border bg-card p-6">
+        <div data-tour="billing-usage" className="rounded-xl border bg-card p-6">
           <h2 className="text-lg font-semibold text-foreground mb-4">Usage</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <UsageMeter label="Projects" current={usage.projectCount} max={currentPlan.maxProjects} />
@@ -1305,7 +1305,7 @@ export default function BillingPage() {
 
       {/* Plans */}
       {!isLegacy && !isEnterprise && (
-        <div id="plans" className="scroll-mt-20">
+        <div id="plans" data-tour="billing-plans" className="scroll-mt-20">
           <h2 className="text-lg font-semibold text-foreground mb-4">
             {isFree ? 'Upgrade Your Plan' : 'Available Plans'}
           </h2>
@@ -1463,7 +1463,7 @@ export default function BillingPage() {
       </div>
 
       {/* Invoices */}
-      <div className="rounded-xl border bg-card p-6">
+      <div data-tour="billing-invoices" className="rounded-xl border bg-card p-6">
         <h2 className="text-lg font-semibold text-foreground mb-4">Invoices</h2>
         {invoices.length === 0 ? (
           <p className="text-sm text-muted-foreground">

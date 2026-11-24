@@ -104,7 +104,7 @@ export function ProjectBackupHealthPanel({
   return (
     <section className="rounded-xl border bg-card p-6 space-y-4">
       <div className="flex items-center justify-between">
-        <div>
+        <div data-tour="project-backup-health">
           <h2 className="text-base font-semibold">Backup health</h2>
           <p className="text-xs text-muted-foreground">
             Where the backups are kept, and whether the newest one has been proven to restore.
@@ -168,7 +168,7 @@ export function ProjectBackupHealthPanel({
               <span className="text-xs text-muted-foreground">never run for this project</span>
             )}
           </div>
-          <Button size="sm" onClick={() => void verifyNow()} disabled={!!running || loading || !hasBackup} title={hasBackup ? undefined : 'No nightly backup exists yet to verify'}>
+          <Button size="sm" onClick={() => void verifyNow()} data-tour="project-backup-verify" disabled={!!running || loading || !hasBackup} title={hasBackup ? undefined : 'No nightly backup exists yet to verify'}>
             {running ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />

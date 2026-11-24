@@ -127,7 +127,7 @@ export function ProjectFlows({ projectId }: { projectId: string }) {
             Automate work with triggers and actions. A flow runs its actions in order when triggered.
           </p>
         </div>
-        <Button onClick={() => setEditing('new')}>
+        <Button onClick={() => setEditing('new')} data-tour="project-flows-new">
           <Plus className="mr-1 h-4 w-4" /> New flow
         </Button>
       </div>
@@ -137,14 +137,15 @@ export function ProjectFlows({ projectId }: { projectId: string }) {
           <Loader2 className="h-4 w-4 animate-spin" /> Loading…
         </div>
       ) : flows.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
+        <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground" data-tour="project-flows-list">
           No flows yet. Create your first automation.
         </div>
       ) : (
-        <div className="space-y-3">
-          {flows.map((flow) => (
+        <div className="space-y-3" data-tour="project-flows-list">
+          {flows.map((flow, index) => (
             <FlowCard
               key={flow.id}
+              tourAnchors={index === 0}
               projectId={projectId}
               flow={flow}
               webhookUrl={webhookUrlFor(restUrl, flow.id)}
@@ -228,8 +229,10 @@ function FlowCard({
   onEdit,
   onSecret,
   onChanged,
+  tourAnchors,
 }: {
   projectId: string;
+  tourAnchors?: boolean;
   flow: Flow;
   webhookUrl: string | null;
   onEdit: () => void;
@@ -336,6 +339,7 @@ function FlowCard({
         <button
           onClick={toggleExpand}
           className="text-muted-foreground hover:text-foreground"
+          data-tour={tourAnchors ? 'project-flows-runs' : undefined}
           aria-label={expanded ? `Hide details of ${flow.name}` : `Show details of ${flow.name}`}
           aria-expanded={expanded}
         >
@@ -361,11 +365,11 @@ function FlowCard({
           )}
         </div>
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2" data-tour={tourAnchors ? 'project-flows-enabled' : undefined}>
             <Switch checked={flow.enabled} onCheckedChange={toggleEnabled} disabled={busy} aria-label="Flow enabled" />
             <span className="text-xs text-muted-foreground">{flow.enabled ? 'Enabled' : 'Disabled'}</span>
           </div>
-          <Button size="sm" variant="outline" onClick={run} disabled={busy || !flow.enabled}>
+          <Button size="sm" variant="outline" onClick={run} disabled={busy || !flow.enabled} data-tour={tourAnchors ? 'project-flows-run' : undefined}>
             {busy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Play className="mr-1 h-3.5 w-3.5" />} Run
           </Button>
           <Button size="sm" variant="ghost" onClick={onEdit} disabled={busy} aria-label={`Edit ${flow.name}`}>

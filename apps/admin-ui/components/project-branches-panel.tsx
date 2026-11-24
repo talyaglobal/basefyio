@@ -144,7 +144,7 @@ export function ProjectBranchesPanel({ projectId }: { projectId: string }) {
   return (
     <section className="rounded-xl border bg-card p-6 space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+        <div data-tour={loading ? undefined : 'project-branches-intro'}>
           <h2 className="flex items-center gap-2 text-base font-semibold">
             <GitBranch className="h-4 w-4" /> Preview branches
           </h2>
@@ -155,7 +155,7 @@ export function ProjectBranchesPanel({ projectId }: { projectId: string }) {
           </p>
         </div>
         {!unavailable && (
-          <Button size="sm" onClick={() => setDialogOpen(true)} disabled={!project}>
+          <Button size="sm" onClick={() => setDialogOpen(true)} disabled={!project} data-tour="project-branches-new">
             <Plus className="mr-2 h-4 w-4" />
             New branch
           </Button>
@@ -163,7 +163,7 @@ export function ProjectBranchesPanel({ projectId }: { projectId: string }) {
       </div>
 
       {isBranch && project?.previewBranch && (
-        <div className="flex items-start gap-3 rounded-lg border p-3 text-sm">
+        <div className="flex items-start gap-3 rounded-lg border p-3 text-sm" data-tour="project-branches-unavailable">
           <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
           <p>
             This project is itself a preview branch of{' '}
@@ -179,7 +179,7 @@ export function ProjectBranchesPanel({ projectId }: { projectId: string }) {
       )}
 
       {!isBranch && isNoSql && (
-        <div className="flex items-start gap-3 rounded-lg border p-3 text-sm">
+        <div className="flex items-start gap-3 rounded-lg border p-3 text-sm" data-tour="project-branches-unavailable">
           <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
           <p>Preview branches are available for PostgreSQL projects only.</p>
         </div>
@@ -192,11 +192,11 @@ export function ProjectBranchesPanel({ projectId }: { projectId: string }) {
               <Loader2 className="h-4 w-4 animate-spin" /> Loading branches…
             </div>
           ) : branches.length === 0 ? (
-            <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+            <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground" data-tour="project-branches-list">
               No preview branches yet.
             </p>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto" data-tour="project-branches-list">
               <table className="w-full text-sm">
                 <thead className="text-left text-xs text-muted-foreground">
                   <tr>

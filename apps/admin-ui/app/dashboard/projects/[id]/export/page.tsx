@@ -316,7 +316,7 @@ export default function ProjectExportPage() {
 
       <section className="rounded-xl border bg-card p-6 space-y-4">
         <h2 className="text-base font-semibold">Export options</h2>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-3 sm:grid-cols-2" data-tour="project-backup-export-options">
           {[
             ['includeDatabase', 'Database (pg_dump)'],
             ['includeAuth', 'Auth users and realm'],
@@ -342,7 +342,7 @@ export default function ProjectExportPage() {
             </label>
           ))}
         </div>
-        <Button onClick={handleStartExport} disabled={starting}>
+        <Button onClick={handleStartExport} disabled={starting} data-tour="project-backup-start-export">
           {starting ? (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
           ) : (
@@ -392,7 +392,7 @@ export default function ProjectExportPage() {
       )}
 
       <section className="rounded-xl border bg-card p-6 space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between" data-tour="project-backup-cloud">
           <h2 className="text-base font-semibold">Cloud Backups & Restore</h2>
           <Button variant="outline" size="sm" onClick={loadCloudBackups} disabled={loadingBackups}>
             {loadingBackups ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Refresh'}

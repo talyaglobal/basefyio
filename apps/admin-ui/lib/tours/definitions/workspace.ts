@@ -506,4 +506,54 @@ export const DEFINITIONS: TourDef[] = [
       },
     ],
   },
+  {
+    id: 'billing',
+    ready: 'billing-plan',
+    steps: [
+      {
+        anchor: 'billing-plan',
+        title: 'Current Plan',
+        text: 'Shows the plan that is active right now.',
+      },
+      {
+        anchor: 'billing-add-card',
+        title: 'Add card',
+        text: 'Save a payment card to use for paid plans and invoices.',
+        side: 'left',
+      },
+      {
+        anchor: 'billing-details',
+        title: 'Billing Details',
+        text: 'Keep your company, tax and address details for invoices here.',
+        side: 'top',
+      },
+      // Only once usage and plan data have loaded.
+      {
+        anchor: 'billing-usage',
+        title: 'Usage',
+        text: 'See how much of your plan you have used so far.',
+        side: 'top',
+      },
+      // Only when the cost report has loaded.
+      {
+        anchor: 'billing-project-costs',
+        title: 'Project costs',
+        text: 'A running estimate of what each project adds up to this billing period.',
+        side: 'top',
+      },
+      // Hidden on legacy and enterprise plans.
+      {
+        anchor: 'billing-plans',
+        title: 'Plans',
+        text: 'Compare the available plans and switch to another one.',
+        side: 'top',
+      },
+      {
+        anchor: 'billing-invoices',
+        title: 'Invoices',
+        text: 'Each charge appears here as an invoice, marked paid or unpaid.',
+        side: 'top',
+      },
+    ],
+  },
 ];

@@ -160,7 +160,7 @@ export function ProjectSettingsView() {
       </div>
 
       <form onSubmit={handleSave} className="space-y-8">
-        <section className="rounded-xl border bg-card p-6 space-y-4">
+        <section className="rounded-xl border bg-card p-6 space-y-4" data-tour="project-settings-general">
           <h2 className="text-base font-semibold">General</h2>
           <div className="space-y-2">
             <Label htmlFor="project-name">Project name</Label>
@@ -184,7 +184,7 @@ export function ProjectSettingsView() {
           </div>
         </section>
 
-        <section className="rounded-xl border bg-card p-6 space-y-4">
+        <section className="rounded-xl border bg-card p-6 space-y-4" data-tour="project-settings-organization">
           <h2 className="text-base font-semibold">Organization</h2>
           {loadMeta ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -273,7 +273,7 @@ export function ProjectSettingsView() {
         </section>
 
         <div className="flex items-center gap-3">
-          <Button type="submit" disabled={saving}>
+          <Button type="submit" disabled={saving} data-tour="project-settings-save">
             {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Save changes
           </Button>
@@ -353,7 +353,7 @@ function TransferTeamCard({
   }
 
   return (
-    <section className="space-y-3 rounded-xl border bg-card p-6">
+    <section className="space-y-3 rounded-xl border bg-card p-6" data-tour="project-settings-team">
       <div>
         <h2 className="flex items-center gap-2 text-lg font-semibold">
           <ArrowRightLeft className="h-4 w-4 text-muted-foreground" /> Team
@@ -426,7 +426,7 @@ function DangerZone({
   const remove = () => setTrashOpen(true);
 
   return (
-    <section className="space-y-4 rounded-xl border border-destructive/30 bg-destructive/[0.03] p-6">
+    <section className="space-y-4 rounded-xl border border-destructive/30 bg-destructive/[0.03] p-6" data-tour="project-settings-danger">
       <div>
         <h2 className="flex items-center gap-2 text-lg font-semibold text-destructive">
           <TriangleAlert className="h-4 w-4" /> Danger zone
@@ -524,7 +524,7 @@ function DataAccessCard({
   }
 
   return (
-    <section className="space-y-4 rounded-xl border bg-card p-6">
+    <section className="space-y-4 rounded-xl border bg-card p-6" data-tour="project-settings-data-access">
       <div>
         <h2 className="flex items-center gap-2 text-lg font-semibold">
           Data access
@@ -577,7 +577,7 @@ function MaxRowsCard({
   }
 
   return (
-    <section className="space-y-3 rounded-xl border bg-card p-6">
+    <section className="space-y-3 rounded-xl border bg-card p-6" data-tour="project-settings-rows">
       <div>
         <h2 className="text-lg font-semibold">Data editor page size</h2>
         <p className="text-sm text-muted-foreground">

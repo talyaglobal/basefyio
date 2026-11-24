@@ -696,7 +696,7 @@ engine = create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True)`;
   return (
     <div className="space-y-8">
       <h1 className="text-2xl font-bold tracking-tight">Connection</h1>
-      <div className="inline-flex rounded-lg border bg-muted/40 p-1">
+      <div className="inline-flex rounded-lg border bg-muted/40 p-1" data-tour="project-connect-tabs">
         <button
           type="button"
           onClick={() => setActiveTab('raw')}
@@ -750,7 +750,7 @@ engine = create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True)`;
             </div>
           )}
 
-          <div className="grid gap-3 sm:grid-cols-[220px_1fr]">
+          <div className="grid gap-3 sm:grid-cols-[220px_1fr]" data-tour="project-connect-framework">
             <Select
               value={framework}
               onValueChange={(value) => setFramework(value as FrameworkPreset)}
@@ -802,6 +802,7 @@ engine = create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True)`;
                 variant="ghost"
                 size="sm"
                 onClick={() => void copyEditorContent()}
+                data-tour="project-connect-copy"
               >
                 <Copy className="mr-1.5 h-3.5 w-3.5" />
                 Copy {rawEditorFormat.toUpperCase()}
@@ -814,7 +815,7 @@ engine = create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True)`;
             </pre>
           </div>
 
-          <div className="rounded-lg border border-violet-200/80 bg-violet-50/50 dark:border-violet-900/60 dark:bg-violet-950/25">
+          <div className="rounded-lg border border-violet-200/80 bg-violet-50/50 dark:border-violet-900/60 dark:bg-violet-950/25" data-tour="project-connect-ai-prompt">
             <div className="flex flex-col gap-1 border-b border-violet-200/80 px-4 py-3 dark:border-violet-900/50 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
               <div className="flex gap-3 min-w-0">
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-violet-100 dark:bg-violet-900/50">
@@ -864,7 +865,7 @@ engine = create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True)`;
       <>
       {/* External Database Access */}
       <section className="space-y-3">
-        <h2 className="flex items-center gap-2 text-lg font-semibold">
+        <h2 className="flex items-center gap-2 text-lg font-semibold" data-tour="project-connect-database">
           <Database className="h-5 w-5" />
           External Database Access
         </h2>
@@ -1252,7 +1253,7 @@ engine = create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True)`;
 
       {/* REST API */}
       <section className="space-y-3">
-        <h2 className="flex items-center gap-2 text-lg font-semibold">
+        <h2 className="flex items-center gap-2 text-lg font-semibold" data-tour="project-connect-rest">
           <Globe className="h-5 w-5" />
           REST API
         </h2>
@@ -1351,7 +1352,7 @@ engine = create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True)`;
 
       {/* API Keys */}
       <section className="space-y-3">
-        <h2 className="flex items-center gap-2 text-lg font-semibold">
+        <h2 className="flex items-center gap-2 text-lg font-semibold" data-tour="project-connect-api-keys">
           <Key className="h-5 w-5" />
           API Keys
         </h2>
