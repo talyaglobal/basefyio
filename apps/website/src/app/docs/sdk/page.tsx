@@ -190,21 +190,21 @@ await bf.auth.signOut()`}</code></pre>
 
       <h3>Email Verification</h3>
       <pre><code>{`// User receives OTP via email after sign up
-const { data, error } = await bf.auth.verifyEmail('123456')`}</code></pre>
+const { data, error } = await bf.auth.verifyEmail('123456', { email: 'ada@example.com' })`}</code></pre>
 
       <h3>Password Reset</h3>
       <pre><code>{`// Request reset
 await bf.auth.forgotPassword('user@example.com')
 
 // Reset with OTP
-await bf.auth.resetPassword('123456', 'newpassword')`}</code></pre>
+await bf.auth.resetPassword('123456', 'newpassword', { email: 'ada@example.com' })`}</code></pre>
 
       <h3>Magic Link</h3>
       <pre><code>{`// Send magic link
 await bf.auth.sendMagicLink('user@example.com')
 
 // Verify (from email link)
-const { data } = await bf.auth.verifyMagicLink('otp-from-url')`}</code></pre>
+const { data } = await bf.auth.verifyMagicLink('otp-from-url', { email: 'ada@example.com' })`}</code></pre>
 
       <h3>OAuth</h3>
       <pre><code>{`// Redirect to Google

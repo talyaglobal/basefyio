@@ -113,7 +113,7 @@ const { unsubscribe } = bf.auth.onAuthStateChange((event, session) => {
         <strong>Auth → Settings</strong>), new users receive a code by email.
         Confirm it with the OTP they enter:
       </p>
-      <pre><code>{`const { error } = await bf.auth.verifyEmail('482917')`}</code></pre>
+      <pre><code>{`const { error } = await bf.auth.verifyEmail('482917', { email: 'ada@example.com' })`}</code></pre>
 
       {/* ── Password reset ─────────────────────────────── */}
       <h2 id="password-reset">Password reset</h2>
@@ -122,13 +122,17 @@ const { unsubscribe } = bf.auth.onAuthStateChange((event, session) => {
 await bf.auth.forgotPassword('jane@example.com')
 
 // 2. User enters the code; set the new password
-await bf.auth.resetPassword('482917', 'a-new-strong-password')`}</code></pre>
+await bf.auth.resetPassword('482917', 'a-new-strong-password', { email: 'jane@example.com' })`}</code></pre>
+      <p>
+        Pass the address the code was sent to (basefyio-js 2.6.0). The code then works only for
+        that account, and after five wrong codes the user has to request a new one.
+      </p>
 
       {/* ── Magic links ────────────────────────────────── */}
       <h2>Magic links (passwordless)</h2>
       <p>Email a one-time sign-in code, then exchange it for a session:</p>
       <pre><code>{`await bf.auth.sendMagicLink('jane@example.com')
-const { data } = await bf.auth.verifyMagicLink('482917')`}</code></pre>
+const { data } = await bf.auth.verifyMagicLink('482917', { email: 'jane@example.com' })`}</code></pre>
 
       {/* ── Social login ───────────────────────────────── */}
       <h2>Social login (Google &amp; GitHub)</h2>
