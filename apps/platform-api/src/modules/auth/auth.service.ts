@@ -141,6 +141,13 @@ export class AuthService {
     this.minioPublicSsl = this.config.get<string>('minio.publicSsl') === 'true';
   }
 
+  /** The public avatar bucket exists before anyone uploads, so a missing bucket or policy shows at boot, not on a profile save. */
+  onApplicationBootstrap(): void {
+    this.ensureAvatarBucket().catch((err) =>
+      this.logger.warn(`Avatar bucket ${AuthService.AVATAR_BUCKET} is not ready: ${err?.message ?? err}`),
+    );
+  }
+
   private async ensureAvatarBucket(): Promise<void> {
     const exists = await this.minioClient.bucketExists(AuthService.AVATAR_BUCKET);
     if (!exists) {
@@ -1461,6 +1468,7 @@ export class AuthService {
   async getProfile(userId: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new BadRequestException('User not found');
+    if (user.avatarUrl?.startsWith('data:')) user.avatarUrl = await this.moveInlineAvatar(userId, user.avatarUrl);
     let authProvider: 'local' | 'google' | 'github' = 'local';
     let signOnMethod: 'local' | 'google' | 'github' = 'local';
     let forcePasswordChange = false;
@@ -1569,7 +1577,7 @@ export class AuthService {
     }
 
     if (data.avatarUrl !== undefined) {
-      updateData.avatarUrl = data.avatarUrl || null;
+      updateData.avatarUrl = await this.normaliseAvatarInput(userId, data.avatarUrl);
     }
 
     if (data.notifySignIn !== undefined) {
@@ -1615,6 +1623,7 @@ export class AuthService {
   }
 
   async uploadAvatar(userId: string, file: Express.Multer.File): Promise<{ avatarUrl: string }> {
+    if (!file?.buffer) throw new BadRequestException('Attach the image as the "file" field');
     const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
     if (!allowedTypes.includes(file.mimetype)) {
       throw new BadRequestException('Only JPEG, PNG, WebP, or GIF images are allowed');
@@ -1625,35 +1634,64 @@ export class AuthService {
       throw new BadRequestException('Image must be smaller than 5 MB');
     }
 
-    await this.ensureAvatarBucket();
-
     const ext = file.originalname.split('.').pop()?.toLowerCase() || 'jpg';
-    const objectName = `${userId}/avatar-${Date.now()}.${ext}`;
+    const avatarUrl = await this.storeAvatar(userId, file.buffer, file.mimetype, ext);
+    await this.prisma.user.update({ where: { id: userId }, data: { avatarUrl } });
+    return { avatarUrl };
+  }
 
+  /** Puts an avatar image in the public avatar bucket and returns its URL. */
+  private async storeAvatar(userId: string, buffer: Buffer, mimetype: string, ext: string): Promise<string> {
+    await this.ensureAvatarBucket();
+    const safeExt = /^[a-z0-9]{1,5}$/.test(ext) ? ext : 'jpg';
+    const objectName = `${userId}/avatar-${Date.now()}.${safeExt}`;
     const readable = new PassThrough();
-    readable.end(file.buffer);
-
-    await this.minioClient.putObject(
-      AuthService.AVATAR_BUCKET,
-      objectName,
-      readable,
-      file.size,
-      { 'Content-Type': file.mimetype },
-    );
-
+    readable.end(buffer);
+    await this.minioClient.putObject(AuthService.AVATAR_BUCKET, objectName, readable, buffer.length, {
+      'Content-Type': mimetype,
+    });
     const protocol = this.minioPublicSsl ? 'https' : 'http';
     const port = this.minioPublicPort !== 80 && this.minioPublicPort !== 443
       ? `:${this.minioPublicPort}`
       : '';
-    const avatarUrl = `${protocol}://${this.minioPublicEndpoint}${port}/${AuthService.AVATAR_BUCKET}/${objectName}`;
+    this.logger.log(`Avatar stored for user ${userId}: ${objectName}`);
+    return `${protocol}://${this.minioPublicEndpoint}${port}/${AuthService.AVATAR_BUCKET}/${objectName}`;
+  }
 
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { avatarUrl },
-    });
+  /**
+   * The profile used to keep the picture inline as a data: URL, ~90 KB on
+   * every profile and member response (#150). An inline image sent by an
+   * older dashboard is stored in the bucket instead; any other value must be
+   * an http(s) URL or empty.
+   */
+  private async normaliseAvatarInput(userId: string, value: string): Promise<string | null> {
+    const v = (value ?? '').trim();
+    if (!v) return null;
+    if (v.startsWith('data:')) {
+      const img = parseInlineImage(v);
+      if (!img) throw new BadRequestException('Only JPEG, PNG, WebP, or GIF images are allowed');
+      if (img.buffer.length > 5 * 1024 * 1024) throw new BadRequestException('Image must be smaller than 5 MB');
+      return this.storeAvatar(userId, img.buffer, img.mimetype, img.ext);
+    }
+    if (!/^https?:\/\//i.test(v) || v.length > 2048) {
+      throw new BadRequestException('avatarUrl must be an http(s) URL');
+    }
+    return v;
+  }
 
-    this.logger.log(`Avatar uploaded for user ${userId}: ${objectName}`);
-    return { avatarUrl };
+  /** A stored inline avatar moves to the bucket on first read; on failure the profile shows none rather than 90 KB. */
+  private async moveInlineAvatar(userId: string, dataUrl: string): Promise<string | null> {
+    const img = parseInlineImage(dataUrl);
+    if (!img) return null;
+    try {
+      const url = await this.storeAvatar(userId, img.buffer, img.mimetype, img.ext);
+      // Only replace the value that was read, so a concurrent new upload is never overwritten.
+      await this.prisma.user.updateMany({ where: { id: userId, avatarUrl: dataUrl }, data: { avatarUrl: url } });
+      return url;
+    } catch (err: any) {
+      this.logger.warn(`Moving the inline avatar of ${userId} to storage failed: ${err?.message ?? err}`);
+      return null;
+    }
   }
 
   async listManagementUsersPage(opts: { page: number; pageSize: number; q?: string }) {
@@ -2092,4 +2130,23 @@ export class AuthService {
     };
   }
 
+}
+
+const INLINE_IMAGE_TYPES: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/jpg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+};
+
+/** `data:image/png;base64,...` → bytes, type and extension; null for anything else. */
+export function parseInlineImage(value: string): { buffer: Buffer; mimetype: string; ext: string } | null {
+  const m = /^data:(image\/[a-z+.-]+);base64,([A-Za-z0-9+/=\s]+)$/i.exec(value);
+  if (!m) return null;
+  const mimetype = m[1].toLowerCase();
+  const ext = INLINE_IMAGE_TYPES[mimetype];
+  if (!ext) return null;
+  const buffer = Buffer.from(m[2], 'base64');
+  return buffer.length > 0 ? { buffer, mimetype, ext } : null;
 }

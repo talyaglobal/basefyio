@@ -39,7 +39,8 @@ export default function ProfilePage() {
 
   const [email, setEmail] = useState('');
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
-  const [pendingAvatarDataUrl, setPendingAvatarDataUrl] = useState<string | null>(null);
+  // null: unchanged · '': remove · File: upload on save (to storage; the profile keeps only its URL, #150)
+  const [pendingAvatar, setPendingAvatar] = useState<File | '' | null>(null);
   const [saving, setSaving] = useState(false);
 
   // GitHub linking
@@ -78,7 +79,7 @@ export default function ProfilePage() {
         setProfile(p);
         setEmail(p.email);
         setAvatarPreview(p.avatarUrl || null);
-        setPendingAvatarDataUrl(null);
+        setPendingAvatar(null);
         setNotifySignIn(p.notifySignIn);
         setNotifyTeamInvite(p.notifyTeamInvite);
       })
@@ -101,21 +102,21 @@ export default function ProfilePage() {
     reader.onload = () => {
       const dataUrl = reader.result as string;
       setAvatarPreview(dataUrl);
-      setPendingAvatarDataUrl(dataUrl);
+      setPendingAvatar(file);
     };
     reader.readAsDataURL(file);
   };
 
   const handleRemoveAvatar = () => {
     setAvatarPreview(null);
-    setPendingAvatarDataUrl('');
+    setPendingAvatar('');
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const hasProfileChanges =
     profile &&
     (email !== profile.email ||
-      pendingAvatarDataUrl !== null);
+      pendingAvatar !== null);
 
   const handleSaveProfile = async () => {
     if (!hasProfileChanges) return;
@@ -123,12 +124,13 @@ export default function ProfilePage() {
     try {
       const updates: Record<string, string> = {};
       if (email !== profile!.email) updates.email = email;
-      if (pendingAvatarDataUrl !== null) updates.avatarUrl = pendingAvatarDataUrl;
+      if (pendingAvatar === '') updates.avatarUrl = '';
+      if (pendingAvatar instanceof File) await api.auth.uploadAvatar(pendingAvatar);
 
       const updated = await api.auth.updateProfile(updates);
       setProfile(updated);
       setAvatarPreview(updated.avatarUrl || null);
-      setPendingAvatarDataUrl(null);
+      setPendingAvatar(null);
       refreshUser();
       toast.success('Profile updated');
     } catch (err: any) {
