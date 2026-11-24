@@ -14,6 +14,11 @@ export function hoursLeft(deletedAt: Date, now: Date): number {
   return Math.max(1, Math.ceil((deletedAt.getTime() + TRASH_RETENTION_MS - now.getTime()) / HOUR));
 }
 
+/** The name the owner knows: a trashed project carries an internal "_deleted" suffix (the dashboard strips it the same way). */
+export function trashedDisplayName(name: string): string {
+  return name.replace(/_(\d+_)?deleted$/, '') || name;
+}
+
 /** One key per user and deletion: a project restored and deleted again is announced again. */
 export function purgeWarningKey(projectId: string, deletedAt: Date): string {
   return `trash-purge:${projectId}:${deletedAt.getTime()}`;
@@ -74,6 +79,7 @@ export class ProjectTrashNoticeService {
       select: { userId: true, user: { select: { email: true } } },
     });
     const hours = hoursLeft(project.deletedAt, now);
+    const name = trashedDisplayName(project.name);
     const dedupeKey = purgeWarningKey(project.id, project.deletedAt);
     const seen = new Set<string>();
     let sent = 0;
@@ -88,7 +94,7 @@ export class ProjectTrashNoticeService {
             userId: m.userId,
             type: 'project.purge_warning',
             title: 'Project in the trash will be deleted',
-            message: `"${project.name}" will be deleted permanently in about ${hours} ${hours === 1 ? 'hour' : 'hours'}. Restore it from the trash to keep it.`,
+            message: `"${name}" will be deleted permanently in about ${hours} ${hours === 1 ? 'hour' : 'hours'}. Restore it from the trash to keep it.`,
             href: '/dashboard/projects?view=trash',
             dedupeKey,
           },
@@ -100,7 +106,7 @@ export class ProjectTrashNoticeService {
       const address = m.user?.email?.trim();
       if (!address) continue;
       try {
-        await this.email.sendProjectPurgeWarning(address, project.name, hours);
+        await this.email.sendProjectPurgeWarning(address, name, hours);
       } catch (err: any) {
         this.logger.warn(`Purge warning e-mail for "${project.name}" to ${address} failed: ${err?.message ?? err}`);
       }

@@ -2,6 +2,7 @@ import {
   hoursLeft,
   ProjectTrashNoticeService,
   purgeWarningKey,
+  trashedDisplayName,
   TRASH_RETENTION_MS,
 } from './project-trash-notice.service';
 import { projectPurgeWarningTemplate } from '../email/templates/project-trash.template';
@@ -33,7 +34,7 @@ function setup(opts: { projects?: any[]; members?: any[]; existingKeys?: Set<str
 
 const project = (deletedHoursAgo: number) => ({
   id: 'p1',
-  name: 'Shop <db>',
+  name: 'Shop <db>_deleted',
   teamId: 't1',
   createdBy: 'u-creator',
   deletedAt: new Date(now.getTime() - deletedHoursAgo * HOUR),
@@ -86,6 +87,13 @@ describe('ProjectTrashNoticeService (#262)', () => {
       mailFails: true,
     });
     await expect(svc.run(now)).resolves.toBe(1);
+  });
+
+  it('shows the name without the internal trash suffix', () => {
+    expect(trashedDisplayName('test-batu_deleted')).toBe('test-batu');
+    expect(trashedDisplayName('shop_2_deleted')).toBe('shop');
+    expect(trashedDisplayName('shop_1795418982603_deleted')).toBe('shop');
+    expect(trashedDisplayName('undeleted')).toBe('undeleted');
   });
 
   it('counts hours left, never below one', () => {
