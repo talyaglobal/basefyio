@@ -79,7 +79,7 @@ The access token is the realm's RS256 JWT and carries what a Supabase app reads 
 `amr`), `aud: 'authenticated'`, `app_metadata`, `user_metadata`, `phone`, `sid`. Row-level
 security sees the same claims through `auth.jwt()`, so a policy such as
 `auth.jwt() -> 'app_metadata' ->> 'organization_id'` works as it does on Supabase. Its
-lifetime is the project's `tokenExpirySeconds` setting (default 1800 s; up to 30 days).
+lifetime is the project's `tokenExpirySeconds` setting (default 1800 s; `0` = signed in until sign-out, with one-hour access tokens).
 
 The user is `{ id, aud, role, email, email_confirmed_at, confirmed_at, phone, last_sign_in_at,
 app_metadata: { provider, providers, … }, user_metadata, identities, factors, created_at,

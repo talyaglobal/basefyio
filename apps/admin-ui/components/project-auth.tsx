@@ -1439,7 +1439,8 @@ function SettingsTab({
   const [selfSignup, setSelfSignup] = useState(config.allowSignup);
   const [emailVerification, setEmailVerification] = useState(config.requireEmailVerify);
   const [minPwLen, setMinPwLen] = useState(String(config.minPasswordLength));
-  const [tokenExpiry, setTokenExpiry] = useState(String(config.tokenExpirySeconds));
+  // Empty = signed in until sign-out (stored as 0).
+  const [tokenExpiry, setTokenExpiry] = useState(config.tokenExpirySeconds ? String(config.tokenExpirySeconds) : '');
   const [allowAnonymous, setAllowAnonymous] = useState(config.allowAnonymous ?? false);
   const [enforceMfa, setEnforceMfa] = useState(config.mfaEnforceEnrollment ?? false);
   const [saving, setSaving] = useState(false);
@@ -1447,9 +1448,10 @@ function SettingsTab({
   const minPwNum = Number(minPwLen);
   const minPwError = !/^\d+$/.test(minPwLen.trim()) || minPwNum < 6 || minPwNum > 128
     ? 'Enter a whole number between 6 and 128.' : null;
-  const expiryNum = Number(tokenExpiry);
-  const expiryError = !/^\d+$/.test(tokenExpiry.trim()) || expiryNum < 300 || expiryNum > 2592000
-    ? 'Enter a whole number of seconds between 300 and 2592000 (30 days).' : null;
+  const expiryEmpty = tokenExpiry.trim() === '';
+  const expiryNum = expiryEmpty ? 0 : Number(tokenExpiry);
+  const expiryError = !expiryEmpty && (!/^\d+$/.test(tokenExpiry.trim()) || expiryNum < 300 || expiryNum > 2000000000)
+    ? 'Leave empty to stay signed in until sign-out, or enter at least 300 seconds.' : null;
 
   async function handleSave() {
     if (minPwError || expiryError) return;
@@ -1533,9 +1535,14 @@ function SettingsTab({
           </div>
           <div className="space-y-1.5">
             <Label>Token expiry (seconds)</Label>
-            <Input type="number" value={tokenExpiry} onChange={(e) => setTokenExpiry(e.target.value)} min={300} max={2592000}
+            <Input type="number" value={tokenExpiry} onChange={(e) => setTokenExpiry(e.target.value)} min={300}
+              placeholder="Empty: until sign-out"
               aria-invalid={!!expiryError} className={expiryError ? 'border-destructive' : undefined} />
-            {expiryError && <p className="text-xs text-destructive">{expiryError}</p>}
+            {expiryError ? (
+              <p className="text-xs text-destructive">{expiryError}</p>
+            ) : expiryEmpty ? (
+              <p className="text-xs text-muted-foreground">Users stay signed in until they sign out. Access tokens renew in the background every hour.</p>
+            ) : null}
           </div>
         </div>
       </div>

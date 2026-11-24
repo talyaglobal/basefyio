@@ -194,13 +194,31 @@ describe('user metadata attributes', () => {
 });
 
 describe('setRealmAccessTokenLifespan', () => {
-  it('writes the realm setting, clamped to a sane range', async () => {
+  const THIRTY_DAYS = 2_592_000;
+
+  it('sets the access token lifetime and keeps the session at least 30 days, or as long as the token', async () => {
     const update = jest.fn().mockResolvedValue(undefined);
     const svc = service({ realms: { update } });
     await svc.setRealmAccessTokenLifespan('r1', 3600);
-    expect(update).toHaveBeenCalledWith({ realm: 'r1' }, { accessTokenLifespan: 3600 });
+    expect(update).toHaveBeenLastCalledWith({ realm: 'r1' }, {
+      accessTokenLifespan: 3600, ssoSessionIdleTimeout: THIRTY_DAYS, ssoSessionMaxLifespan: THIRTY_DAYS, offlineSessionIdleTimeout: THIRTY_DAYS,
+    });
     await svc.setRealmAccessTokenLifespan('r1', 5);
-    expect(update).toHaveBeenLastCalledWith({ realm: 'r1' }, { accessTokenLifespan: 60 });
+    expect(update.mock.calls.at(-1)[1].accessTokenLifespan).toBe(60);
+    await svc.setRealmAccessTokenLifespan('r1', 90 * 86400);
+    expect(update.mock.calls.at(-1)[1]).toMatchObject({ accessTokenLifespan: 90 * 86400, ssoSessionMaxLifespan: 90 * 86400 });
+  });
+
+  it('0: the session lasts until sign-out, the access token an hour (renewed in the background)', async () => {
+    const update = jest.fn().mockResolvedValue(undefined);
+    const svc = service({ realms: { update } });
+    await svc.setRealmAccessTokenLifespan('r1', 0);
+    expect(update).toHaveBeenCalledWith({ realm: 'r1' }, {
+      accessTokenLifespan: 3600,
+      ssoSessionIdleTimeout: 2_000_000_000,
+      ssoSessionMaxLifespan: 2_000_000_000,
+      offlineSessionIdleTimeout: 2_000_000_000,
+    });
   });
 });
 

@@ -829,14 +829,41 @@ export class KeycloakAdminService implements OnModuleInit {
   }
 
   /**
-   * How long the access tokens of a realm live (ProjectAuthConfig.tokenExpirySeconds). The
-   * realm's SSO session (30 days) bounds the refresh token and is left alone.
+   * ProjectAuthConfig.tokenExpirySeconds, applied to the realm.
+   *
+   * 0 means "signed in until sign-out": the session (which bounds the refresh token) is
+   * made as long as Keycloak allows, and the access token keeps an hour, renewed in the
+   * background by the SDK. An access token that never expires could not be taken back
+   * once issued, so the long part is the session, which sign-out and revoke do end.
+   * A number sets the access token lifetime; the session is kept at least that long.
    */
   async setRealmAccessTokenLifespan(realmName: string, seconds: number): Promise<void> {
     await this.ensureAuth();
-    const lifespan = Math.max(60, Math.min(Math.floor(seconds), 30 * 24 * 60 * 60));
-    await this.client.realms.update({ realm: realmName }, { accessTokenLifespan: lifespan });
-    this.logger.log(`Realm "${realmName}" access token lifespan set to ${lifespan}s`);
+    const THIRTY_DAYS = 30 * 24 * 60 * 60;
+    const UNTIL_SIGN_OUT = 2_000_000_000; // ~63 years, inside Keycloak's 32-bit seconds
+    const s = Math.floor(Number(seconds) || 0);
+    const updates =
+      s <= 0
+        ? {
+            accessTokenLifespan: 3600,
+            ssoSessionIdleTimeout: UNTIL_SIGN_OUT,
+            ssoSessionMaxLifespan: UNTIL_SIGN_OUT,
+            offlineSessionIdleTimeout: UNTIL_SIGN_OUT,
+          }
+        : (() => {
+            const lifespan = Math.max(60, Math.min(s, UNTIL_SIGN_OUT));
+            const session = Math.max(THIRTY_DAYS, lifespan);
+            return {
+              accessTokenLifespan: lifespan,
+              ssoSessionIdleTimeout: session,
+              ssoSessionMaxLifespan: session,
+              offlineSessionIdleTimeout: session,
+            };
+          })();
+    await this.client.realms.update({ realm: realmName }, updates);
+    this.logger.log(
+      `Realm "${realmName}" sessions ${s <= 0 ? 'last until sign-out' : `last ${updates.ssoSessionMaxLifespan}s`}, access tokens ${updates.accessTokenLifespan}s`,
+    );
   }
 
   async deleteRealm(realmName: string): Promise<void> {

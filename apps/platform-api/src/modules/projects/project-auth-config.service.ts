@@ -18,7 +18,8 @@ const TEMPLATE_FIELDS = [
 
 /** Access token lifetime bounds in seconds (5 minutes to 30 days). */
 const TOKEN_EXPIRY_MIN = 300;
-const TOKEN_EXPIRY_MAX = 30 * 24 * 60 * 60;
+/** Keycloak keeps lifetimes in 32-bit seconds. */
+const TOKEN_EXPIRY_MAX = 2_000_000_000;
 
 const DEFAULT_CONFIG = {
   allowSignup: true,
@@ -64,10 +65,12 @@ export class ProjectAuthConfigService {
     }
 
     if (data.tokenExpirySeconds !== undefined) {
-      const n = Number(data.tokenExpirySeconds);
-      if (!Number.isInteger(n) || n < TOKEN_EXPIRY_MIN || n > TOKEN_EXPIRY_MAX) {
+      // null, '' or 0: users stay signed in until they sign out (stored as 0).
+      const raw = data.tokenExpirySeconds;
+      const n = raw === null || raw === '' ? 0 : Number(raw);
+      if (!Number.isInteger(n) || (n !== 0 && (n < TOKEN_EXPIRY_MIN || n > TOKEN_EXPIRY_MAX))) {
         throw new BadRequestException(
-          `tokenExpirySeconds must be a whole number between ${TOKEN_EXPIRY_MIN} and ${TOKEN_EXPIRY_MAX}`,
+          `tokenExpirySeconds must be empty or 0 (signed in until sign-out), or a whole number from ${TOKEN_EXPIRY_MIN}`,
         );
       }
       data = { ...data, tokenExpirySeconds: n };

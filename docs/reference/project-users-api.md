@@ -62,7 +62,7 @@ examines one page of up to 500 anonymous accounts; repeat it until it reports `m
 | `allowSignup` | `true` | `POST /rest/v1/auth/signup` is open; otherwise 403 |
 | `requireEmailVerify` | `true` | mail a verification code at sign-up |
 | `minPasswordLength` | `6` | |
-| `tokenExpirySeconds` | `1800` | access-token lifetime in seconds, 300 to 2592000 (30 days); other values get a 400 |
+| `tokenExpirySeconds` | `1800` | access-token lifetime in seconds, 300 or more; the sign-in session lasts at least 30 days, or as long as the token. Empty, `null` or `0`: users stay signed in until they sign out (the session has no practical end; access tokens last an hour and the SDK renews them). Other values get a 400 |
 | `allowAnonymous` | `false` | enables `POST /rest/v1/auth/signin/anonymous` |
 | `mfaEnforceEnrollment` | `false` | every user must enroll an authenticator at sign-in |
 | `smtpHost`, `smtpPort`, `smtpUser`, `smtpPass`, `senderEmail`, `senderName` | `null` | send the project's mails through your own SMTP instead of the platform mailer |

@@ -663,8 +663,9 @@ export class ProjectAuthController {
     }
     // The setting is stored here but the lifetime is Keycloak's to apply; without this
     // write every realm kept the 1800 s it was created with, whatever the setting said.
-    const lifespan = Number(body?.tokenExpirySeconds);
-    if (Number.isFinite(lifespan) && lifespan > 0 && project.keycloakRealm) {
+    // Applied only when the request changed it; 0 = signed in until sign-out.
+    const lifespan = body?.tokenExpirySeconds === undefined ? NaN : Number(updated.tokenExpirySeconds);
+    if (Number.isFinite(lifespan) && lifespan >= 0 && project.keycloakRealm) {
       await this.keycloak
         .setRealmAccessTokenLifespan(project.keycloakRealm, lifespan)
         .catch((err: any) =>
@@ -816,7 +817,7 @@ export class ProjectAuthController {
     try {
       const cfg = await this.authConfigService.getOrCreate(projectId);
       const lifespan = Number(cfg.tokenExpirySeconds);
-      if (Number.isFinite(lifespan) && lifespan > 0) {
+      if (Number.isFinite(lifespan) && lifespan >= 0) {
         await this.keycloak.setRealmAccessTokenLifespan(realmName, lifespan);
       }
     } catch (err: any) {
