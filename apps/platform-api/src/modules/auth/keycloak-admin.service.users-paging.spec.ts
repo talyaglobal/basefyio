@@ -28,6 +28,19 @@ describe('KeycloakAdminService.listUsers paging and search', () => {
     expect(find).toHaveBeenCalledWith(expect.objectContaining({ search: 'user7', first: 3, max: 500 }));
   });
 
+  it('?email= is an exact, case-insensitive match, never a partial one', async () => {
+    const { svc, find } = realmOf(30);
+    // Keycloak's own exact flag is asked for; a looser answer is filtered again here.
+    find.mockResolvedValueOnce([
+      { id: 'u1', username: 'user1', email: 'user1@example.test' },
+      { id: 'u11', username: 'user11', email: 'user11@example.test' },
+    ]);
+    const users = await svc.listUsers('r1', { email: ' USER1@Example.test ', search: 'ignored' });
+    expect(find).toHaveBeenCalledWith(expect.objectContaining({ email: 'user1@example.test', exact: true }));
+    expect(find.mock.calls[0][0]).not.toHaveProperty('search');
+    expect(users.map((u) => u.id)).toEqual(['u1']);
+  });
+
   it('sends no search for an empty one', async () => {
     const { svc, find } = realmOf(1);
     await svc.listUsers('r1', { search: '   ' });

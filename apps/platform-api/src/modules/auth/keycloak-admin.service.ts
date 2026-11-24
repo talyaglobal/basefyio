@@ -929,16 +929,19 @@ export class KeycloakAdminService implements OnModuleInit {
    * (Keycloak's own search, over every user of the realm). Keycloak answers 100 users when
    * no `max` is sent, so a realm with more had the rest unreachable; the page is explicit now.
    */
-  async listUsers(realmName: string, opts: { search?: string; first?: number; max?: number } = {}) {
+  async listUsers(realmName: string, opts: { search?: string; email?: string; first?: number; max?: number } = {}) {
     await this.ensureAuth();
     const search = opts.search?.trim();
-    const users = await this.client.users.find({
+    // `email` is an exact, case-insensitive match; `search` stays a partial one.
+    const email = opts.email?.trim().toLowerCase();
+    const found = await this.client.users.find({
       realm: realmName,
       briefRepresentation: false,
       first: Math.max(0, Math.floor(opts.first ?? 0)),
       max: Math.min(500, Math.max(1, Math.floor(opts.max ?? 100))),
-      ...(search ? { search } : {}),
+      ...(email ? { email, exact: true } : search ? { search } : {}),
     });
+    const users = email ? found.filter((u) => (u.email ?? '').toLowerCase() === email) : found;
     return users.map((u) => ({
       id: u.id,
       username: u.username,

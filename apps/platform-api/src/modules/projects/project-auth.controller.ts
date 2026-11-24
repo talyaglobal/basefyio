@@ -212,11 +212,13 @@ export class ProjectAuthController {
     @Query('search') search?: string,
     @Query('first') first?: string,
     @Query('max') max?: string,
+    @Query('email') email?: string,
   ) {
     const project = await this.projectsService.findOne(projectId, user?.sub);
     const num = (v?: string) => (v != null && v !== '' && Number.isFinite(Number(v)) ? Number(v) : undefined);
     return this.keycloak.listUsers(project.keycloakRealm, {
       search: typeof search === 'string' ? search.slice(0, 200) : undefined,
+      email: typeof email === 'string' && email.trim() ? email.slice(0, 320) : undefined,
       first: num(first),
       max: num(max),
     });
