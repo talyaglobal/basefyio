@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { confirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
@@ -86,7 +87,14 @@ function computeFreeName(name: string, taken: Set<string>): string {
 // ── main component ───────────────────────────────────────
 
 export function StorageBrowser({ projectId }: { projectId: string }) {
-  const [activeBucket, setActiveBucket] = useState<string | null>(null);
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  // The open bucket lives in the address: a link opens it, the back button leaves it (#32).
+  const activeBucket = searchParams.get('bucket');
+  const setActiveBucket = (name: string | null) => {
+    router.push(name ? `${pathname}?bucket=${encodeURIComponent(name)}` : pathname, { scroll: false });
+  };
 
   if (activeBucket) {
     return (
@@ -627,7 +635,19 @@ function ObjectBrowser({
   bucketInfo: StorageBucket | null;
 }) {
   const [objects, setObjects] = useState<StorageObject[]>([]);
-  const [prefix, setPrefix] = useState('');
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  // The open folder lives in the address (?bucket=…&prefix=…), so it can be shared and the back button works.
+  const prefix = searchParams.get('prefix') ?? '';
+  const setPrefix = (next: string) => {
+    const q = new URLSearchParams(searchParams.toString());
+    if (next) q.set('prefix', next);
+    else q.delete('prefix');
+    router.push(`${pathname}?${q.toString()}`, { scroll: false });
+  };
+  const [filterText, setFilterText] = useState('');
+  const [sort, setSort] = useState<{ key: 'name' | 'size' | 'modified'; dir: 'asc' | 'desc' }>({ key: 'name', dir: 'asc' });
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -680,6 +700,7 @@ function ObjectBrowser({
   }, [projectId, bucketName, prefix]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { setFilterText(''); }, [prefix]);
   useLiveProjectRefresh(projectId, ['storage.'], load);
 
   const breadcrumbs = prefix ? prefix.split('/').filter(Boolean) : [];
@@ -687,6 +708,25 @@ function ObjectBrowser({
   const files = objects.filter((o) => !o.prefix && o.name);
   // Both folders (by prefix) and files (by name) are selectable.
   const selectableKeys = [...folders.map((f) => f.prefix!), ...files.map((f) => f.name)];
+
+  // What is shown: the current folder, filtered by the search box and sorted. Folders always
+  // come first, by name; the sort applies to files (a folder has no size or date).
+  const needle = filterText.trim().toLowerCase();
+  const leaf = (key: string) => key.slice(prefix.length).replace(/\/$/, '').toLowerCase();
+  const shownFolders = folders
+    .filter((f) => !needle || leaf(f.prefix!).includes(needle))
+    .sort((a, b) => leaf(a.prefix!).localeCompare(leaf(b.prefix!)));
+  const shownFiles = files
+    .filter((f) => !needle || leaf(f.name).includes(needle))
+    .sort((a, b) => {
+      const by =
+        sort.key === 'size'
+          ? (a.size ?? 0) - (b.size ?? 0)
+          : sort.key === 'modified'
+            ? new Date(a.lastModified).getTime() - new Date(b.lastModified).getTime()
+            : leaf(a.name).localeCompare(leaf(b.name), undefined, { numeric: true });
+      return sort.dir === 'asc' ? by : -by;
+    });
 
   // Begin dragging: if the grabbed row is part of the current selection, drag
   // the whole selection; otherwise just that one item.
@@ -1121,6 +1161,38 @@ function ObjectBrowser({
         })}
       </div>
 
+      {/* Search and sort */}
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          type="search"
+          value={filterText}
+          onChange={(e) => setFilterText(e.target.value)}
+          placeholder="Search in this folder"
+          aria-label="Search in this folder"
+          className="h-8 min-w-[12rem] flex-1 rounded border bg-background px-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+        />
+        <select
+          aria-label="Sort files by"
+          value={sort.key}
+          onChange={(e) => setSort((s) => ({ ...s, key: e.target.value as 'name' | 'size' | 'modified' }))}
+          className="h-8 rounded border bg-background px-2 text-sm"
+        >
+          <option value="name">Name</option>
+          <option value="size">Size</option>
+          <option value="modified">Last modified</option>
+        </select>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-8"
+          onClick={() => setSort((s) => ({ ...s, dir: s.dir === 'asc' ? 'desc' : 'asc' }))}
+          title={sort.dir === 'asc' ? 'Ascending' : 'Descending'}
+        >
+          {sort.dir === 'asc' ? 'A → Z' : 'Z → A'}
+        </Button>
+      </div>
+
       {/* File list */}
       <div className="rounded-md border">
         <div className="flex items-center gap-3 border-b bg-muted/30 px-4 py-2 text-xs font-medium text-muted-foreground">
@@ -1151,7 +1223,12 @@ function ObjectBrowser({
           </div>
         ) : (
           <div>
-            {folders.map((folder) => {
+            {needle && shownFolders.length === 0 && shownFiles.length === 0 && (
+              <div className="flex h-24 items-center justify-center text-sm text-muted-foreground">
+                Nothing here matches &quot;{filterText}&quot;.
+              </div>
+            )}
+            {shownFolders.map((folder) => {
               const folderChecked = selected.has(folder.prefix!);
               return (
               <div
@@ -1206,7 +1283,7 @@ function ObjectBrowser({
               );
             })}
 
-            {files.map((file) => {
+            {shownFiles.map((file) => {
               const fileName = file.name.replace(prefix, '');
               const isChecked = selected.has(file.name);
               return (
