@@ -262,7 +262,9 @@ export function CreateProjectDialog({
 
   const [databaseType, setDatabaseType] = useState<ProjectDatabaseType | null>(null);
   // Set only when the user came through the advisor; cleared when they pick a model by hand.
-  const [advisorTemplate, setAdvisorTemplate] = useState<{ templateName: string; entities: string[] } | null>(null);
+  const [advisorTemplate, setAdvisorTemplate] = useState<{ templateName: string; templateKey: string; entities: string[] } | null>(null);
+  // The advisor's starter tables are created with the project unless the user unticks this (#240).
+  const [createStarter, setCreateStarter] = useState(true);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [loading, setLoading] = useState(false);
@@ -723,6 +725,7 @@ export function CreateProjectDialog({
         computeTier,
         region: 'eu-central',
         ...(relational ? { dataAccess } : {}),
+        ...(relational && advisorTemplate && createStarter ? { starter: advisorTemplate.templateKey } : {}),
       });
       toast.success(`Project "${project.name}" created`);
       resetState();
@@ -1242,10 +1245,26 @@ export function CreateProjectDialog({
               {advisorTemplate && (
                 <div className="rounded-lg border bg-muted/40 p-3 text-xs" data-testid="advisor-template-note">
                   <p className="font-medium">Suggested starter: {advisorTemplate.templateName}</p>
-                  <p className="mt-1 text-muted-foreground">
-                    {advisorTemplate.entities.join(', ')}. The project is created empty; add these
-                    from the SQL editor or the AI assistant once it is ready.
-                  </p>
+                  {(databaseType ?? 'RELATIONAL') === 'RELATIONAL' ? (
+                    <label className="mt-2 flex items-start gap-2 text-muted-foreground">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 h-4 w-4 rounded border-input"
+                        checked={createStarter}
+                        onChange={(e) => setCreateStarter(e.target.checked)}
+                        data-testid="advisor-create-starter"
+                      />
+                      <span>
+                        Create these tables with the project: {advisorTemplate.entities.join(', ')}. Each gets an
+                        id, an owner and a creation time; change them freely later.
+                      </span>
+                    </label>
+                  ) : (
+                    <p className="mt-1 text-muted-foreground">
+                      {advisorTemplate.entities.join(', ')}. The project is created empty; add these
+                      collections once it is ready.
+                    </p>
+                  )}
                 </div>
               )}
               {!reimportTarget && (

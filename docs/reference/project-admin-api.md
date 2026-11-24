@@ -28,7 +28,7 @@ not apply to them. That is why the anon key can never reach them.
 
 | Method | Path | Tier | Purpose |
 |---|---|---|---|
-| POST | `/api/projects` | session · token `projects:write` | create a project — `{ name, teamId, description?, databaseType?, dbPassword?, computeTier?, region?, dataAccess? }` |
+| POST | `/api/projects` | session · token `projects:write` | create a project — `{ name, teamId, description?, databaseType?, dbPassword?, computeTier?, region?, dataAccess?, starter? }` |
 | GET | `/api/projects/compute-options` | session · token `projects:read` | `?teamId=` — the compute sizes the team may choose, each with `available` and the `reason` it is not |
 | GET | `/api/projects/:id/resources` | session only | region, compute, and database and file storage against the plan's limits; see [Pricing and limits](pricing-and-limits.md) |
 | GET | `/api/projects` | session · token `projects:read` | `?teamId=` — the team's active projects |
@@ -83,6 +83,7 @@ before.
 | `dataAccess.dataApi` | boolean | `true` | `false`: the REST data API (`/api/rest/v1/…`) answers 403 `The Data API is disabled for this project` for every key; the dashboard, the SQL editor, auth and storage keep working |
 | `dataAccess.autoGrantNewTables` | boolean | `true` | `false`: new `public` tables and sequences are not granted to `anon` and `authenticated`; grant access table by table. `service_role` is always granted |
 | `dataAccess.rlsOnNewTables` | boolean | `false` | `true`: an event trigger enables row-level security on every new `public` table |
+| `starter` | `CRM`, `Inventory`, `ERP`, `Marketplace`, `SaaS`, `CMS`, `AI`, `Analytics`, `Files`, `General` | none | relational projects only: create that starter's tables in `public` as the project owner, so the data access settings above apply to them. Each table has `id uuid`, `owner_id text` (defaults to `auth.uid()`) and `created_at`, plus its own columns and foreign keys. A failure does not stop the project; the activity feed says so |
 
 `dataAccess`, when sent, carries all three fields. `GET /api/projects/compute-options?teamId=`
 answers `{ region, planAllowsDedicated, dedicatedAvailable, tiers: [{ id, label, vcpu, memoryGb,

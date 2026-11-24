@@ -16,6 +16,7 @@ import {
 import { COMPUTE_TIERS, PROJECT_REGIONS, type ComputeTierId, type ProjectRegion } from '../project-compute';
 
 /** Data access settings chosen in the New project dialog (Settings → Data access later). */
+import { STARTER_KEYS, type StarterKey } from '../sql/starter-templates';
 export class DataAccessDto {
   /** The REST data API serves this project. Default true. */
   @IsBoolean()
@@ -104,4 +105,9 @@ export class CreateProjectDto {
   @ValidateNested()
   @Type(() => DataAccessDto)
   dataAccess?: DataAccessDto;
+
+  /** Create the advisor's starter tables (relational projects only); see sql/starter-templates.ts. */
+  @IsOptional()
+  @IsIn([...STARTER_KEYS])
+  starter?: StarterKey;
 }

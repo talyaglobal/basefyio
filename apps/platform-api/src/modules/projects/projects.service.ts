@@ -66,6 +66,7 @@ import {
   type PermissionKey,
 } from '../teams/role-permissions';
 import { TRASH_RETENTION_MS } from './project-trash-notice.service';
+import { isStarterKey, starterSql, starterTables, type StarterKey } from './sql/starter-templates';
 
 
 export interface RlsBootstrapResult {
@@ -460,6 +461,10 @@ export class ProjectsService implements OnApplicationBootstrap {
       // Best-effort: a slow or unreachable document store must not fail
       // project creation. Status is tracked in DataPlaneProvisioning.
       this.provisionNosqlDataPlane(project.id).catch(() => {});
+    }
+
+    if (databaseType === 'RELATIONAL' && importSource === 'MANUAL' && isStarterKey(dto.starter)) {
+      await this.createStarterTables(project.id, userId, adminTarget, dbName, dbUser, dto.starter);
     }
 
     await this.activity.append(project.id, {
@@ -2835,6 +2840,62 @@ export class ProjectsService implements OnApplicationBootstrap {
    * helper functions into a project DB on the shared/control-plane Postgres.
    * Idempotent — safe to call on existing databases.
    */
+  /**
+   * The advisor's starter tables (#240), created as the project owner so the project's
+   * grants and default privileges apply as to any table the owner makes. Best-effort: a
+   * failure is logged and reported in the activity feed; the project itself is ready.
+   */
+  private async createStarterTables(
+    projectId: string,
+    userId: string,
+    target: AdminTarget,
+    dbName: string,
+    dbUser: string,
+    key: StarterKey,
+  ): Promise<void> {
+    const owner = dbUser.replace(/[^a-z0-9_]/g, '');
+    const pool = new Pool({
+      host: target.host,
+      port: target.port,
+      user: target.user,
+      password: target.password,
+      database: dbName.replace(/[^a-z0-9_]/g, ''),
+      max: 1,
+      statement_timeout: 30_000,
+    });
+    try {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query(`SET LOCAL ROLE "${owner}"`);
+        for (const stmt of starterSql(key)) await client.query(stmt);
+        await client.query('COMMIT');
+      } catch (err) {
+        await client.query('ROLLBACK').catch(() => undefined);
+        throw err;
+      } finally {
+        client.release();
+      }
+      await this.activity.append(projectId, {
+        userId,
+        kind: ProjectActivityKind.PROJECT_UPDATED,
+        title: `Starter tables created: ${starterTables(key).join(', ')}`,
+      });
+    } catch (err: any) {
+      this.logger.warn(`Starter tables (${key}) for ${projectId} failed: ${err?.message ?? err}`);
+      await this.activity
+        .append(projectId, {
+          userId,
+          kind: ProjectActivityKind.PROJECT_UPDATED,
+          title: 'Starter tables could not be created',
+          detail: 'The project is ready but empty. Create the tables from the SQL editor.',
+        })
+        .catch(() => undefined);
+    } finally {
+      await pool.end().catch(() => undefined);
+    }
+  }
+
   async applyRlsBootstrap(
     dbName: string,
     dbUser: string,

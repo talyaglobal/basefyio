@@ -32,6 +32,8 @@ interface AdvisorRecommendation {
   title: string;
   reasoning: string[];
   templateName: string;
+  /** The starter's key (CRM, Inventory, …): the server can create its tables. */
+  templateKey: string;
   /** Tables (relational) or collections (document). */
   entities: string[];
   alternative: string;
@@ -233,6 +235,7 @@ function buildRecommendation(answers: Record<string, Option>): AdvisorRecommenda
     title: model === 'RELATIONAL' ? 'Relational Database' : 'Document Database',
     reasoning,
     templateName: tpl.name,
+    templateKey: TEMPLATES[templateKey] ? templateKey : 'General',
     entities,
     alternative:
       model === 'RELATIONAL'
@@ -247,7 +250,7 @@ export function DatabaseAdvisor({
   onPick,
   onBack,
 }: {
-  onPick: (model: AdvisorModel, meta: { templateName: string; entities: string[] }) => void;
+  onPick: (model: AdvisorModel, meta: { templateName: string; templateKey: string; entities: string[] }) => void;
   onBack: () => void;
 }) {
   const [step, setStep] = useState(0);
@@ -356,6 +359,7 @@ export function DatabaseAdvisor({
             onClick={() =>
               onPick(recommendation.model, {
                 templateName: recommendation.templateName,
+                templateKey: recommendation.templateKey,
                 entities: recommendation.entities,
               })
             }
