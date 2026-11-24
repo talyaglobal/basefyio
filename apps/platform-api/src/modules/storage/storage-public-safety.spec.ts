@@ -1,4 +1,4 @@
-import { downloadOnlyHeaders, withoutAnonymousListing } from './storage-public-safety';
+import { downloadOnlyHeaders, servedAs, withoutAnonymousListing } from './storage-public-safety';
 
 const publicPolicy = (bucket: string, withListing: boolean) =>
   JSON.stringify({
@@ -57,4 +57,24 @@ describe('downloadOnlyHeaders', () => {
       expect(downloadOnlyHeaders(t as any)).toEqual({});
     }
   });
+});
+
+
+/** N2: whatever type was stored, only safe types are shown in place. */
+describe('servedAs', () => {
+  it.each([
+    'text/html', 'text/html; charset=utf-8', 'image/svg+xml', 'application/xhtml+xml',
+    'application/rss+xml', 'application/atom+xml', 'text/xml', 'application/javascript',
+    'application/x-shockwave-flash', 'multipart/x-mixed-replace', '', undefined,
+  ])('sends %p as an opaque download', (stored) => {
+    expect(servedAs(stored as string | undefined, false)).toEqual({ contentType: 'application/octet-stream', inline: false });
+  });
+
+  it.each(['image/png', 'image/jpeg', 'video/mp4', 'audio/mpeg', 'application/pdf', 'text/plain; charset=utf-8', 'font/woff2'])(
+    'shows %p in place unless a download was asked for',
+    (stored) => {
+      expect(servedAs(stored, false)).toEqual({ contentType: stored, inline: true });
+      expect(servedAs(stored, true)).toEqual({ contentType: stored, inline: false });
+    },
+  );
 });

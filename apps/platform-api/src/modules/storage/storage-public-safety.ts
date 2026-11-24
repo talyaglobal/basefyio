@@ -29,6 +29,40 @@ export function downloadOnlyHeaders(contentType: string | undefined): Record<str
   return ACTIVE_TYPES.has(type) ? { 'Content-Disposition': 'attachment' } : {};
 }
 
+/**
+ * Media types a browser may show in place (#N2, 2026-11-24). Anything else is
+ * served as a download of opaque bytes, whatever type was stored with it: a
+ * denylist missed `+xml` types and objects stored before the upload rule, and an
+ * uploaded page must never run on a shared API or storage origin.
+ */
+const INLINE_SAFE_TYPES = new Set([
+  'image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp', 'image/avif', 'image/bmp',
+  'image/x-icon', 'image/vnd.microsoft.icon', 'image/heic', 'image/heif', 'image/tiff',
+  'application/pdf', 'text/plain', 'text/csv', 'application/json',
+]);
+
+function inlineSafe(type: string): boolean {
+  return INLINE_SAFE_TYPES.has(type) || /^(video|audio|font)\/[a-z0-9.+-]+$/.test(type);
+}
+
+/**
+ * How a stored object is sent to a browser: its type and whether it may be shown in
+ * place. Unsafe types go out as `application/octet-stream` attachments, so neither the
+ * stored type nor a missing disposition can make the browser render them.
+ */
+export function servedAs(storedType: string | undefined, wantsDownload: boolean): {
+  contentType: string;
+  inline: boolean;
+} {
+  const raw = (storedType || '').trim();
+  const type = raw.split(';')[0].trim().toLowerCase();
+  if (!type || !inlineSafe(type)) return { contentType: 'application/octet-stream', inline: false };
+  return { contentType: raw, inline: !wantsDownload };
+}
+
+/** A response that is never a document: no scripts, no plugins, no same-origin access. */
+export const SANDBOX_CSP = "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'";
+
 interface PolicyStatement {
   Effect?: string;
   Principal?: unknown;

@@ -39,6 +39,7 @@ import {
 } from './storage-list.sql';
 import { StorageSigningService } from './storage-signing.service';
 import { SUPABASE_COMPAT_DISABLED } from '../../common/guards/supabase-compat.guard';
+import { SANDBOX_CSP, servedAs } from '../storage/storage-public-safety';
 
 export type StorageAuthzMode = 'presets' | 'rls';
 
@@ -653,21 +654,24 @@ export class StorageFacadeService {
   pipeBytes(res: Response, source: ByteSource, key: string, download: string | true | undefined): void {
     const { stream, stat, range } = source;
     const fileName = key.split('/').pop() || 'download';
-    const type = (stat.metaData?.['content-type'] as string | undefined) || 'application/octet-stream';
+    const served = servedAs(stat.metaData?.['content-type'] as string | undefined, download !== undefined);
     // setHeader, not res.set: Express's set() appends a charset to Content-Type.
-    res.setHeader('Content-Type', type);
+    res.setHeader('Content-Type', served.contentType);
     const headers: Record<string, string | number> = {
       'Cache-Control': (stat.metaData?.['cache-control'] as string | undefined) || 'no-cache',
       'Accept-Ranges': 'bytes',
       'Cross-Origin-Resource-Policy': 'cross-origin',
       'X-Content-Type-Options': 'nosniff',
     };
+    // A PDF keeps the browser's viewer, which a sandbox would block; every other answer is sandboxed.
+    if (served.contentType.split(';')[0].trim().toLowerCase() !== 'application/pdf') {
+      headers['Content-Security-Policy'] = SANDBOX_CSP;
+    }
     if (stat.etag) headers.ETag = stat.etag.startsWith('"') ? stat.etag : `"${stat.etag}"`;
     if (stat.lastModified instanceof Date) headers['Last-Modified'] = stat.lastModified.toUTCString();
-    headers['Content-Disposition'] =
-      download === undefined
-        ? contentDisposition('inline', fileName)
-        : contentDisposition('attachment', typeof download === 'string' && download ? download : fileName);
+    headers['Content-Disposition'] = served.inline
+      ? contentDisposition('inline', fileName)
+      : contentDisposition('attachment', typeof download === 'string' && download ? download : fileName);
     if (range) {
       headers['Content-Range'] = `bytes ${range.start}-${range.end}/${stat.size}`;
       headers['Content-Length'] = range.end - range.start + 1;
@@ -686,8 +690,7 @@ export class StorageFacadeService {
 
   /** Writes only the headers of {@link pipeBytes}: the answer to HEAD. */
   writeHead(res: Response, stat: StatLike, key: string): void {
-    const type = (stat.metaData?.['content-type'] as string | undefined) || 'application/octet-stream';
-    res.setHeader('Content-Type', type);
+    res.setHeader('Content-Type', servedAs(stat.metaData?.['content-type'] as string | undefined, false).contentType);
     const headers: Record<string, string | number> = {
       'Content-Length': stat.size,
       'Cache-Control': (stat.metaData?.['cache-control'] as string | undefined) || 'no-cache',
