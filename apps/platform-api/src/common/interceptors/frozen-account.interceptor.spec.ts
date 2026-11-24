@@ -27,7 +27,7 @@ describe('FrozenAccountInterceptor', () => {
 
   it('keeps the shell and billing reachable for a frozen account', async () => {
     const { interceptor, findUnique } = makeInterceptor('FROZEN');
-    for (const path of ['/api/auth/profile', '/api/billing/subscription', '/api/teams', '/api/teams/active', '/api/features', '/api/organizations/x']) {
+    for (const path of ['/api/auth/profile', '/api/auth/profile/tours', '/api/billing/subscription', '/api/teams', '/api/teams/active', '/api/features', '/api/organizations/x']) {
       await interceptor.intercept(makeContext({ path, user: { sub: 'u1' } }), next);
     }
     expect(findUnique).not.toHaveBeenCalled();

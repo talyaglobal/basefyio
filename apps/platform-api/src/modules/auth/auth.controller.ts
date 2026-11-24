@@ -9,6 +9,8 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { VerifyResetTokenDto } from './dto/verify-reset-token.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { UpdateTourPreferencesDto } from './dto/update-tour-preferences.dto';
+import { TourPreferencesService } from './tour-preferences.service';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { VerifySignupOtpDto } from './dto/verify-signup-otp.dto';
 import { ResendSignupOtpDto } from './dto/resend-signup-otp.dto';
@@ -30,6 +32,7 @@ export class AuthController {
     private readonly authService: AuthService,
     private readonly keycloak: KeycloakAdminService,
     private readonly observability: ObservabilityService,
+    private readonly tourPreferences: TourPreferencesService,
   ) {}
 
   @Post('signup')
@@ -132,6 +135,20 @@ export class AuthController {
     @Body() dto: UpdateProfileDto,
   ) {
     return this.authService.updateProfile(user.sub, dto);
+  }
+
+  /**
+   * Guided-tour preferences of the signed-in user. Prisma only (no Keycloak
+   * call); JwtAuthGuard alone, so personal API tokens cannot reach it. Stays
+   * under /api/auth so frozen accounts can still save.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Patch('profile/tours')
+  async updateTourPreferences(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: UpdateTourPreferencesDto,
+  ) {
+    return this.tourPreferences.update(user.sub, dto);
   }
 
   @UseGuards(JwtAuthGuard)

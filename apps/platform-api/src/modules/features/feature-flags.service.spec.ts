@@ -10,7 +10,7 @@ function makePrisma(rows: Array<{ key: string; value: unknown }>) {
   };
 }
 
-const OFF = { organizations_ui: false, nav_v2: false };
+const OFF = { organizations_ui: false, nav_v2: false, guided_tours: false };
 
 describe('FeatureFlagsService', () => {
   it('defaults every flag to off and reads the stored value when there is one', async () => {
@@ -29,7 +29,7 @@ describe('FeatureFlagsService', () => {
     ]);
     const service = new FeatureFlagsService(prisma as any);
     expect(await service.all()).toEqual(OFF);
-    expect((await service.management()).users).toEqual({ organizations_ui: [], nav_v2: [] });
+    expect((await service.management()).users).toEqual({ organizations_ui: [], nav_v2: [], guided_tours: [] });
   });
 
   it('reads the table once per 30 seconds', async () => {
@@ -88,5 +88,17 @@ describe('FeatureFlagsService', () => {
     });
     expect(users.nav_v2).toEqual(['a', 'b']);
     await expect(service.setUsers('nope', ['a'])).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('turns guided_tours on for one user ahead of everyone, and an explicit false row stays a kill switch', async () => {
+    const prisma = makePrisma([{ key: 'features.guided_tours.users', value: ['owner'] }]);
+    const service = new FeatureFlagsService(prisma as any);
+    expect(await service.isEnabled('guided_tours')).toBe(false);
+    expect(await service.isEnabled('guided_tours', 'owner')).toBe(true);
+    expect(await service.forUser('someone')).toEqual(OFF);
+
+    prisma.systemSetting.findMany.mockResolvedValue([{ key: 'features.guided_tours', value: false }]);
+    await service.set('guided_tours', false);
+    expect(await service.all()).toEqual(OFF);
   });
 });

@@ -16,6 +16,12 @@ export const FEATURE_FLAGS = {
   organizations_ui: false,
   /** Phase 1 of the simplification: one sidebar, grouped project menu, Connect button, ⌘K. */
   nav_v2: false,
+  /**
+   * Guided page tours: gates the automatic tours, the header Tour button and the
+   * Account settings card. The API route (PATCH /api/auth/profile/tours) and the
+   * profile's `tours` field are always on.
+   */
+  guided_tours: false,
 } as const;
 
 export type FeatureFlagName = keyof typeof FEATURE_FLAGS;

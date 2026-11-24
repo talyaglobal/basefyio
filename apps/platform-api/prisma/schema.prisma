@@ -76,6 +76,10 @@ model User {
   // Mirror of "has an authenticator enrolled in Keycloak"; Keycloak stays the
   // source of truth and the mirror is healed at every sign-in.
   mfaEnrolledAt         DateTime? @map("mfa_enrolled_at")
+  /// Guided page tours start by themselves on the first visit of a page. "Don't show again" sets this to false.
+  toursAutoEnabled      Boolean   @default(true) @map("tours_auto_enabled")
+  /// Ids of the page tours this user has already been shown.
+  toursSeen             String[]  @default([]) @map("tours_seen")
   createdAt             DateTime  @default(now()) @map("created_at")
 
   activeTeam       Team?             @relation("ActiveTeam", fields: [activeTeamId], references: [id])

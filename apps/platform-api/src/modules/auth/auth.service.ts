@@ -19,6 +19,7 @@ import { PassThrough } from 'stream';
 import { KeycloakAdminService } from './keycloak-admin.service';
 import { TERMS_VERSION } from './dto/signup.dto';
 import { PrismaService } from '../../prisma/prisma.service';
+import { toTourPreferences } from './tour-preferences.service';
 import { EmailService } from '../email/email.service';
 import { BillingService } from '../billing/billing.service';
 import { RedisService } from '../redis/redis.service';
@@ -1497,6 +1498,7 @@ export class AuthService {
       notifySignInNewDevice: user.notifySignInNewDevice,
       notifyTeamInvite: user.notifyTeamInvite,
       notifyBrowserPush: user.notifyBrowserPush,
+      tours: toTourPreferences(user),
       role: user.role,
       createdAt: user.createdAt,
       authProvider,
@@ -1612,6 +1614,7 @@ export class AuthService {
       notifySignInNewDevice: user.notifySignInNewDevice,
       notifyTeamInvite: user.notifyTeamInvite,
       notifyBrowserPush: user.notifyBrowserPush,
+      tours: toTourPreferences(user),
       role: user.role,
       createdAt: user.createdAt,
       authProvider,

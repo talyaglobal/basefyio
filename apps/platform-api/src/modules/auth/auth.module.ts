@@ -5,6 +5,7 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { KeycloakAdminService } from './keycloak-admin.service';
 import { PlatformMfaService } from './platform-mfa.service';
+import { TourPreferencesService } from './tour-preferences.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { BillingModule } from '../billing/billing.module';
 import { RootRoleGuard } from '../../common/guards/root-role.guard';
@@ -19,6 +20,7 @@ import { OrganizationsCoreModule } from '../organizations/organizations-core.mod
     AuthService,
     KeycloakAdminService,
     PlatformMfaService,
+    TourPreferencesService,
     JwtStrategy,
     RootRoleGuard,
     ManagementPermissionGuard,
