@@ -27,6 +27,7 @@ import { ProjectsService } from './projects.service';
 import { ProjectAuthConfigService } from './project-auth-config.service';
 import { KeycloakAdminService } from '../auth/keycloak-admin.service';
 import { ProjectMfaService } from './project-mfa.service';
+import { assertEmail, assertName, assertPassword, normalisePhone } from './project-user-input';
 import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
 import { ServiceKeyOnly } from '../../common/decorators/api-key-scope.decorator';
 import {
@@ -241,7 +242,9 @@ export class ProjectAuthController {
     // "Email" is always an available login method; linked OAuth providers add to it.
     const sessTimes = (sessions as any[]).map((s) => s.lastAccess || s.start || 0);
     const lastSignIn = sessTimes.length ? Math.max(...sessTimes) || null : null;
-    return { ...detail, providers: ['email', ...providers], sessions, lastSignIn, sessionCount: sessions.length };
+    // Second-factor state: enrolled, and whether enrollment is required at the next sign-in.
+    const mfa = await this.mfa.status(projectId, userId).catch(() => null);
+    return { ...detail, providers: ['email', ...providers], sessions, lastSignIn, sessionCount: sessions.length, mfa };
   }
 
   @Get('users/:userId/sessions')
@@ -559,10 +562,11 @@ export class ProjectAuthController {
     @CurrentUser() user?: JwtPayload,
   ) {
     const project = await this.projectsService.findOne(projectId, user?.sub);
-    const email = body.email?.trim();
-    if (!email) {
-      throw new BadRequestException('Email is required');
-    }
+    const email = assertEmail(body.email);
+    const cfg = await this.authConfigService.getOrCreate(projectId);
+    assertPassword(body.password, cfg.minPasswordLength);
+    const firstName = assertName(body.firstName, 'First name');
+    const lastName = assertName(body.lastName, 'Last name');
     // An id may be given to keep a user's identity when moving them from another
     // project (rows elsewhere point at it); it has to be a UUID. It used to be
     // ignored, and the user came back under a fresh id.
@@ -576,7 +580,7 @@ export class ProjectAuthController {
     if (existing) {
       throw new ConflictException('A user with this email already exists in this project');
     }
-    const created = await this.keycloak.createUser(project.keycloakRealm, { ...body, email });
+    const created = await this.keycloak.createUser(project.keycloakRealm, { ...body, email, firstName, lastName });
     await this.activity.append(projectId, {
       userId: user?.sub,
       kind: ProjectActivityKind.AUTH_USER_CREATED,
@@ -593,7 +597,12 @@ export class ProjectAuthController {
     @CurrentUser() user?: JwtPayload,
   ) {
     const project = await this.projectsService.findOne(projectId, user?.sub);
-    await this.keycloak.updateRealmUser(project.keycloakRealm, userId, body);
+    const clean: typeof body = { ...body };
+    if (body.email !== undefined) clean.email = assertEmail(body.email);
+    if (body.phoneNumber !== undefined) clean.phoneNumber = normalisePhone(body.phoneNumber) ?? '';
+    if (body.firstName !== undefined) clean.firstName = assertName(body.firstName, 'First name');
+    if (body.lastName !== undefined) clean.lastName = assertName(body.lastName, 'Last name');
+    await this.keycloak.updateRealmUser(project.keycloakRealm, userId, clean);
     await this.activity.append(projectId, {
       userId: user?.sub,
       kind: ProjectActivityKind.AUTH_USER_UPDATED,
@@ -611,6 +620,8 @@ export class ProjectAuthController {
     @CurrentUser() user?: JwtPayload,
   ) {
     const project = await this.projectsService.findOne(projectId, user?.sub);
+    const cfg = await this.authConfigService.getOrCreate(projectId);
+    assertPassword(body?.newPassword, cfg.minPasswordLength);
     await this.keycloak.resetRealmUserPassword(project.keycloakRealm, userId, body.newPassword);
     await this.activity.append(projectId, {
       userId: user?.sub,

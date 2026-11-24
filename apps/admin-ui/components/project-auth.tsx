@@ -682,10 +682,28 @@ function UserDetailDrawer({
                 </>
               )}
               {!user.isAnonymous && (
-                <Button variant="outline" size="sm" className="col-span-2" disabled={busy}
-                  onClick={() => act(() => api.projects.requireRealmUserMfa(projectId, user.id, true), 'User must set up MFA at next login')}>
-                  <ShieldCheck className="mr-2 h-3.5 w-3.5" />Require MFA enrollment
-                </Button>
+                <div className="col-span-2 space-y-1.5">
+                  {detail?.mfa && (
+                    <p className="text-xs text-muted-foreground" data-testid="mfa-state">
+                      {detail.mfa.enrolled
+                        ? 'MFA: set up'
+                        : detail.mfa.enrollmentRequired
+                          ? 'MFA: required, not set up yet. The user is asked at the next sign-in.'
+                          : 'MFA: not set up, not required'}
+                    </p>
+                  )}
+                  {detail?.mfa?.enrollmentRequired && !detail.mfa.enrolled ? (
+                    <Button variant="outline" size="sm" className="w-full" disabled={busy}
+                      onClick={() => act(() => api.projects.requireRealmUserMfa(projectId, user.id, false), 'MFA requirement removed')}>
+                      <ShieldCheck className="mr-2 h-3.5 w-3.5" />Remove MFA requirement
+                    </Button>
+                  ) : !detail?.mfa?.enrolled ? (
+                    <Button variant="outline" size="sm" className="w-full" disabled={busy}
+                      onClick={() => act(() => api.projects.requireRealmUserMfa(projectId, user.id, true), 'User must set up MFA at next login')}>
+                      <ShieldCheck className="mr-2 h-3.5 w-3.5" />Require MFA enrollment
+                    </Button>
+                  ) : null}
+                </div>
               )}
             </section>
 

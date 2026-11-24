@@ -870,6 +870,8 @@ export interface RealmUserDetail {
   sessions: RealmSession[];
   sessionCount: number;
   lastSignIn: number | null;
+  /** Second factor: enrolled, and whether enrollment is required at the next sign-in. */
+  mfa?: { enrolled: boolean; enrollmentRequired: boolean; recoveryCodesLeft: number; verifiedAt: string | null } | null;
 }
 
 export interface MfaFactor {

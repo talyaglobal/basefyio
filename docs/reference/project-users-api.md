@@ -14,10 +14,10 @@ Service key (`apikey`) from your server, or a dashboard session. The anon key is
 |---|---|---|---|
 | GET | `/api/projects/:projectId/auth` | service | realm summary |
 | GET | `/api/projects/:projectId/auth/users` | service | list users, 100 per page: `?search=` (e-mail, username, first or last name, over every user), `?email=` (exact address, case-insensitive; at most one user), `?first=`, `?max=` (≤ 500) |
-| GET | `/api/projects/:projectId/auth/users/:userId` | service | one user with `providers`, `sessions`, `lastSignIn`, `sessionCount` |
-| POST | `/api/projects/:projectId/auth/users` | service | create — `{ email, password, firstName?, lastName? }` |
-| PATCH | `/api/projects/:projectId/auth/users/:userId` | service | `{ firstName?, lastName?, email?, enabled?, phoneNumber?, phoneVerified? }` |
-| POST | `/api/projects/:projectId/auth/users/:userId/reset-password` | service | `{ newPassword }` |
+| GET | `/api/projects/:projectId/auth/users/:userId` | service | one user with `providers`, `sessions`, `lastSignIn`, `sessionCount` and `mfa` (`{ enrolled, enrollmentRequired, recoveryCodesLeft, verifiedAt }`) |
+| POST | `/api/projects/:projectId/auth/users` | service | create — `{ email, password, firstName?, lastName? }`. The e-mail needs a domain suffix, the password the project's minimum length (at most 128), names at most 100 characters; otherwise 400. Empty names are filled from the address, because the sign-in needs them |
+| PATCH | `/api/projects/:projectId/auth/users/:userId` | service | `{ firstName?, lastName?, email?, enabled?, phoneNumber?, phoneVerified? }`. `phoneNumber` is stored in international format (`+905551234567`; spaces, dashes and brackets are dropped); an empty string clears it; anything else is 400. `email` is checked as on create |
+| POST | `/api/projects/:projectId/auth/users/:userId/reset-password` | service | `{ newPassword }` — the project's minimum length applies |
 | DELETE | `/api/projects/:projectId/auth/users/:userId` | service | delete the user |
 | GET | `/api/projects/:projectId/auth/users/:userId/sessions` | service | the user's sessions |
 | DELETE | `/api/projects/:projectId/auth/users/:userId/sessions/:sessionId` | service | revoke one session |
@@ -26,7 +26,7 @@ Service key (`apikey`) from your server, or a dashboard session. The anon key is
 | POST | `/api/projects/:projectId/auth/users/:userId/send-verification` | service | mail an e-mail verification |
 | GET | `/api/projects/:projectId/auth/sessions` | service | every active session in the realm |
 | DELETE | `/api/projects/:projectId/auth/sessions/:sessionId` | service | revoke a session |
-| POST | `/api/projects/:projectId/auth/users/:userId/require-mfa` | service | `{ enabled?: true }` — require the user to enroll an authenticator at next sign-in |
+| POST | `/api/projects/:projectId/auth/users/:userId/require-mfa` | service | `{ enabled?: true }` — require the user to enroll an authenticator at next sign-in; `{ "enabled": false }` removes the requirement |
 | GET | `/api/projects/:projectId/auth/mfa` | service | users with a confirmed second factor, from both sources (below) |
 | DELETE | `/api/projects/:projectId/auth/users/:userId/credentials/:credentialId` | service | remove a credential (for example a lost authenticator) |
 | DELETE | `/api/projects/:projectId/auth/users/:userId/mfa` | service | reset an authenticator the user enrolled through the SDK → `{ enabled: false }` |
