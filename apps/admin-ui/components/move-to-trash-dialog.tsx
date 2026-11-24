@@ -48,14 +48,15 @@ export function MoveToTrashDialog({
   onOpenChange: (open: boolean) => void;
   onMoved: (projectId: string) => void;
 }) {
-  const [reason, setReason] = useState<string>('none');
+  // '' = no reason chosen; stored apart from "None of the above" (#190).
+  const [reason, setReason] = useState<string>('');
   const [details, setDetails] = useState('');
   const [typed, setTyped] = useState('');
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (open) {
-      setReason('none');
+      setReason('');
       setDetails('');
       setTyped('');
     }
@@ -70,8 +71,8 @@ export function MoveToTrashDialog({
     try {
       const picked = DELETE_REASONS.find((r) => r.code === reason);
       await api.projects.delete(project.id, {
-        reasonCode: reason,
-        reasonLabel: picked?.label || 'None of the above',
+        reasonCode: picked ? picked.code : undefined,
+        reasonLabel: picked ? picked.label : undefined,
         details: details.trim() || undefined,
       });
       toast.success(`"${project.name}" moved to trash`);
@@ -108,7 +109,7 @@ export function MoveToTrashDialog({
                 <button
                   key={r.code}
                   type="button"
-                  onClick={() => setReason(r.code)}
+                  onClick={() => setReason(reason === r.code ? '' : r.code)}
                   aria-pressed={reason === r.code}
                   className={`rounded-md border px-2.5 py-1.5 text-xs transition-colors ${
                     reason === r.code ? 'border-primary bg-primary/10 text-foreground' : 'text-muted-foreground hover:bg-accent'

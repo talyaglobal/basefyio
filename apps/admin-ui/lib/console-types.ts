@@ -62,7 +62,8 @@ export interface ConsoleOverview {
     teams: number;
     payingTeams: number;
     pastDueTeams: number;
-    projects: { active: number; paused: number; deactivated: number; deleted: number };
+    /** Real projects only (preview branches left out). `permanentlyDeleted` is counted from deletion records (#190). */
+    projects: { active: number; paused: number; deactivated: number; deleted: number; permanentlyDeleted?: number };
   };
   money: {
     mrrUsd: number;
@@ -172,7 +173,9 @@ export interface ConsoleProjectDetail {
   generatedAt: string;
   project: {
     id: string;
+    /** Display name; a trashed row's internal "_deleted" suffix is stripped. */
     name: string;
+    internalName?: string;
     slug: string;
     description: string | null;
     status: string;
@@ -243,6 +246,16 @@ export interface ConsoleProjectDetail {
     bandwidthBytes: number;
     storageBytes: number;
     dbSizeBytes: number;
+  }>;
+  /** Latest activity log entries; also present for a project in the trash. */
+  activity?: Array<{
+    id: string;
+    kind: string;
+    title: string;
+    detail: string | null;
+    actorUserId: string | null;
+    actorName: string | null;
+    createdAt: string;
   }>;
 }
 

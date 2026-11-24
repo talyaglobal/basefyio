@@ -36,7 +36,7 @@ not apply to them. That is why the anon key can never reach them.
 | GET | `/api/projects/deactivated` | session · token `projects:read` | `?teamId=` — deactivated projects |
 | GET | `/api/projects/:id` | session · token `projects:read` | one project — no credentials, see [The project object](#the-project-object) |
 | PATCH | `/api/projects/:id` | session · token `projects:write` | `{ name?, description?, folderId?, tags? }` |
-| GET | `/api/projects/:id/activity` | session · token `logs:read` | `?page=&limit=` — the project's activity log (limit 1–500, default 50) |
+| GET | `/api/projects/:id/activity` | session · token `logs:read` | `?page=&limit=` — the project's activity log (limit 1–500, default 50). Also answers for a project in the trash, to its team members, until the retention purge removes it |
 | PATCH | `/api/projects/:id/max-rows` | session · token `settings:write` | `{ maxRowsPerTable }` — page-size ceiling of the dashboard data grid |
 | POST | `/api/projects/:id/move-to-team` | session | `{ teamId }` — move the project to another team (an API token is refused) |
 | POST | `/api/projects/:id/deactivate` | session · token `projects:write` | freeze the project without deleting data |
@@ -44,7 +44,7 @@ not apply to them. That is why the anon key can never reach them.
 | DELETE | `/api/projects/:id` | session · token `projects:write` | move the project to the trash — optional body `{ reasonCode?, reasonLabel?, details? }` |
 | POST | `/api/projects/:id/restore` | session · token `projects:write` | take a project out of the trash |
 | DELETE | `/api/projects/:id/permanent` | session · token `projects:write` | permanently delete a project that is in the trash |
-| GET | `/api/projects/deletion-reasons` | root | `?limit=` — recent deletions and the reasons given (at most 500) |
+| GET | `/api/projects/deletion-reasons` | root | `?limit=` — recent deletion events (at most 500): `kind` (`trashed`, `restored`, `permanent`), project name without the trash suffix, team, actor, reason. Permanently deleted projects stay listed. `reasonCode: null` means no reason was chosen; `none` means "None of the above" (rows written before deletion records existed, #190, used `none` for both) |
 
 ### Create
 

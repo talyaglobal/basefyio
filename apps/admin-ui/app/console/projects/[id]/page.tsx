@@ -325,6 +325,34 @@ export default function ConsoleProjectPage() {
             </table>
           )}
         </Panel>
+
+        <Panel title="Activity" description="Who did what, newest first (kept while the project is in the trash)" flush>
+          {!data.activity || data.activity.length === 0 ? (
+            <p className="p-4 text-sm text-muted-foreground">No activity recorded.</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="border-b bg-muted/40">
+                <tr>
+                  <th className={th}>When</th>
+                  <th className={th}>Who</th>
+                  <th className={th}>What</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.activity.map((a) => (
+                  <tr key={a.id} className="border-b last:border-0">
+                    <td className={`${td} whitespace-nowrap`} title={a.createdAt}>{timeAgo(a.createdAt)}</td>
+                    <td className={td} title={a.actorUserId ?? undefined}>{a.actorName ?? '—'}</td>
+                    <td className={td}>
+                      <span className="font-medium">{a.title}</span>
+                      {a.detail && <span className="ml-1 text-muted-foreground">{a.detail}</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </Panel>
       </div>
     </>
   );

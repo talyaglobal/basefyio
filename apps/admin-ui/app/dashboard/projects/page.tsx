@@ -2,6 +2,7 @@
 
 import { useEscape } from '@/lib/keyboard';
 import { DELETE_REASONS, MoveToTrashDialog } from '@/components/move-to-trash-dialog';
+import { TrashedProjectActivityDialog } from '@/components/trashed-project-activity-dialog';
 import React, {
   useCallback,
   useEffect,
@@ -276,7 +277,8 @@ export default function ProjectsPage() {
   const [bulkDeactivateConfirm, setBulkDeactivateConfirm] = useState(false);
   const [bulkDeactivating, setBulkDeactivating] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
-  const [bulkDeleteReasonCode, setBulkDeleteReasonCode] = useState<string>('none');
+  // '' = no reason chosen (#190).
+  const [bulkDeleteReasonCode, setBulkDeleteReasonCode] = useState<string>('');
   const [bulkDeleteDetails, setBulkDeleteDetails] = useState('');
   const [bulkDeleteConfirmText, setBulkDeleteConfirmText] = useState('');
 
@@ -292,6 +294,7 @@ export default function ProjectsPage() {
   const [loadingTrash, setLoadingTrash] = useState(false);
   const [restoringId, setRestoringId] = useState<string | null>(null);
   const [permDeleteConfirm, setPermDeleteConfirm] = useState<ProjectListItem | null>(null);
+  const [activityProject, setActivityProject] = useState<{ id: string; name: string } | null>(null);
   const [permDeleting, setPermDeleting] = useState(false);
 
   const [sidebarDelete, setSidebarDelete] = useState<{ kind: 'folder' | 'tag'; id: string; name: string; count: number } | null>(null);
@@ -837,12 +840,12 @@ export default function ProjectsPage() {
     try {
       const selectedReason = DELETE_REASONS.find((x) => x.code === bulkDeleteReasonCode);
       await moveProjectsToTrash(ids, {
-        reasonCode: bulkDeleteReasonCode,
-        reasonLabel: selectedReason?.label || 'None of the above',
+        reasonCode: selectedReason ? selectedReason.code : undefined,
+        reasonLabel: selectedReason ? selectedReason.label : undefined,
         details: bulkDeleteDetails.trim() || undefined,
       });
       setBulkDeleteConfirm(false);
-      setBulkDeleteReasonCode('none');
+      setBulkDeleteReasonCode('');
       setBulkDeleteDetails('');
       setBulkDeleteConfirmText('');
     } catch (err: any) {
@@ -1186,7 +1189,7 @@ export default function ProjectsPage() {
                 variant="destructive"
                 size="sm"
                 onClick={() => {
-                  setBulkDeleteReasonCode('none');
+                  setBulkDeleteReasonCode('');
                   setBulkDeleteDetails('');
                   setBulkDeleteConfirmText('');
                   setBulkDeleteConfirm(true);
@@ -1440,6 +1443,13 @@ export default function ProjectsPage() {
                             return `Deleted ${dateTime} · ${rem} until purge`;
                           })()}
                         </p>
+                        <button
+                          type="button"
+                          onClick={() => setActivityProject({ id: project.id, name: displayName })}
+                          className="mb-2 text-[11px] font-medium text-primary hover:underline"
+                        >
+                          View activity
+                        </button>
                         {canManage ? (
                           <div className="flex items-center gap-2">
                             <button
@@ -1890,6 +1900,7 @@ export default function ProjectsPage() {
       )}
 
       {/* ── Single delete confirm modal ───────────────────────────────────── */}
+      <TrashedProjectActivityDialog project={activityProject} onOpenChange={(open) => !open && setActivityProject(null)} />
       <MoveToTrashDialog
         project={deleteConfirm ? { id: deleteConfirm.id, name: deleteConfirm.name } : null}
         open={!!deleteConfirm}
@@ -1964,7 +1975,7 @@ export default function ProjectsPage() {
           title="Move to Trash"
           onClose={() => {
             setBulkDeleteConfirm(false);
-            setBulkDeleteReasonCode('none');
+            setBulkDeleteReasonCode('');
             setBulkDeleteDetails('');
             setBulkDeleteConfirmText('');
           }}
@@ -1991,7 +2002,7 @@ export default function ProjectsPage() {
                   <button
                     key={r.code}
                     type="button"
-                    onClick={() => setBulkDeleteReasonCode(r.code)}
+                    onClick={() => setBulkDeleteReasonCode(bulkDeleteReasonCode === r.code ? '' : r.code)}
                     className={`rounded-full border px-2.5 py-1 text-[11px] transition-colors ${
                       bulkDeleteReasonCode === r.code
                         ? 'border-primary bg-primary/10 text-primary'
@@ -2038,7 +2049,7 @@ export default function ProjectsPage() {
               className="flex-1"
               onClick={() => {
                 setBulkDeleteConfirm(false);
-                setBulkDeleteReasonCode('none');
+                setBulkDeleteReasonCode('');
                 setBulkDeleteDetails('');
                 setBulkDeleteConfirmText('');
               }}

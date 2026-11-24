@@ -473,6 +473,35 @@ model ProjectActivityLog {
   @@map("project_activity_logs")
 }
 
+/// One project deletion event: moved to trash, restored, or permanently
+/// deleted. A snapshot on purpose, with no relation to `projects`: the record
+/// must survive the project's permanent deletion (activity logs cascade away).
+model ProjectDeletionRecord {
+  id              String   @id @default(uuid())
+  /// trashed | restored | permanent
+  kind            String   @db.VarChar(20)
+  projectId       String   @map("project_id")
+  /// The name as the owner knew it, without the internal "_deleted" suffix.
+  projectName     String   @map("project_name")
+  projectSlug     String?  @map("project_slug")
+  /// Set for preview branches, so counters can leave them out.
+  parentProjectId String?  @map("parent_project_id")
+  teamId          String?  @map("team_id")
+  teamName        String?  @map("team_name")
+  /// Null when the system acted (retention purge).
+  actorUserId     String?  @map("actor_user_id")
+  /// Null when no reason was chosen; "none" is the explicit "None of the above".
+  reasonCode      String?  @map("reason_code") @db.VarChar(80)
+  reasonLabel     String?  @map("reason_label") @db.VarChar(512)
+  details         String?  @db.Text
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt(sort: Desc)])
+  @@index([projectId, createdAt(sort: Desc)])
+  @@index([kind, createdAt(sort: Desc)])
+  @@map("project_deletion_records")
+}
+
 model ProjectFolder {
   id        String   @id @default(uuid())
   name      String

@@ -1940,17 +1940,18 @@ export default function ManagementPage() {
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold">Project Deletion Reasons</h2>
           <p className="text-xs text-muted-foreground">
-            Last {projectDeletionReasons.length} records. A deleted project stays in the trash for 24 hours and is then
-            removed for good, so Overview and the Projects "Deleted" filter count only what is still in the trash.
+            Last {projectDeletionReasons.length} events. A deleted project stays in the trash for 24 hours and is then
+            removed for good; both events are listed, and permanently deleted projects stay in this list.
           </p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1100px] text-left text-sm">
             <thead>
               <tr className="border-b text-xs text-muted-foreground">
-                <th className="px-2 py-2">Deleted By</th>
+                <th className="px-2 py-2">By</th>
                 <th className="px-2 py-2">Team</th>
                 <th className="px-2 py-2">Project</th>
+                <th className="px-2 py-2">Event</th>
                 <th className="px-2 py-2">Reason</th>
                 <th className="px-2 py-2">Details</th>
                 <th className="px-2 py-2">Status</th>
@@ -1960,7 +1961,7 @@ export default function ManagementPage() {
             <tbody>
               {projectDeletionReasons.length === 0 ? (
                 <tr>
-                  <td className="px-2 py-5 text-center text-muted-foreground" colSpan={7}>
+                  <td className="px-2 py-5 text-center text-muted-foreground" colSpan={8}>
                     No project deletion reason records yet.
                   </td>
                 </tr>
@@ -1968,7 +1969,9 @@ export default function ManagementPage() {
                 projectDeletionReasons.map((row) => (
                   <tr key={row.id} className="border-b last:border-0">
                     <td className="px-2 py-2">
-                      <div className="font-medium" title={row.actorUserId || undefined}>{row.actorName || '-'}</div>
+                      <div className="font-medium" title={row.actorUserId || undefined}>
+                        {row.actorName || (row.kind === 'permanent' && !row.actorUserId ? 'System (24 h purge)' : '-')}
+                      </div>
                     </td>
                     <td className="px-2 py-2">
                       <div className="font-medium" title={row.teamId || undefined}>{row.teamName || '-'}</div>
@@ -1982,9 +1985,21 @@ export default function ManagementPage() {
                       </p>
                       <p className="font-mono text-[11px] text-muted-foreground" title={row.projectId}>
                         {row.projectId.slice(0, 8)}
+                        {row.isPreviewBranch ? ' · preview branch' : ''}
                       </p>
                     </td>
-                    <td className="px-2 py-2">{row.reasonLabel || 'None of the above'}</td>
+                    <td className="whitespace-nowrap px-2 py-2">
+                      {row.kind === 'permanent'
+                        ? 'Permanently deleted'
+                        : row.kind === 'restored'
+                          ? 'Restored'
+                          : 'Moved to trash'}
+                    </td>
+                    <td className="px-2 py-2">
+                      {row.reasonCode ? row.reasonLabel || row.reasonCode : (
+                        <span className="text-muted-foreground">No reason given</span>
+                      )}
+                    </td>
                     <td
                       className="max-w-[360px] truncate px-2 py-2 text-muted-foreground"
                       title={row.details || ''}

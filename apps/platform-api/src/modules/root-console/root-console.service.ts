@@ -6,6 +6,10 @@ import { ProjectCostService, isPayingSubscription } from '../billing/project-cos
 import type { CostLine, ProjectCostReport } from '../billing/project-cost.pricing';
 import { BucketInventory, PLATFORM_BUCKETS, StorageService } from '../storage/storage.service';
 import { DiskUsageService } from './disk-usage.service';
+import {
+  countPermanentlyDeletedProjects,
+  displayProjectName,
+} from '../projects/project-deletion-records';
 
 /** Cost figures for one project, ours and the customer's, for the current calendar month. */
 export interface ConsoleProjectCost {
@@ -123,6 +127,7 @@ export class RootConsoleService {
       usageTotals,
       signupRows,
       projectRows,
+      permanentlyDeleted,
     ] = await Promise.all([
       this.costs.getPlatformReport(),
       this.storage.getBucketInventory(),
@@ -130,7 +135,8 @@ export class RootConsoleService {
       this.prisma.user.count({ where: { createdAt: { gte: since30d } } }),
       this.prisma.user.count({ where: { lastLoginAt: { gte: since30d } } }),
       this.prisma.team.count(),
-      this.prisma.project.groupBy({ by: ['status'], _count: { _all: true } }),
+      // Real projects only: preview branches are not counted (#190).
+      this.prisma.project.groupBy({ by: ['status'], where: { parentProjectId: null }, _count: { _all: true } }),
       this.prisma.subscription.findMany({
         select: {
           status: true,
@@ -162,6 +168,7 @@ export class RootConsoleService {
         where: { createdAt: { gte: sixMonthsAgo } },
         select: { createdAt: true },
       }),
+      countPermanentlyDeletedProjects(this.prisma).catch(() => 0),
     ]);
 
     // What each team costs us and occupies, from the same report as the totals.
@@ -257,7 +264,10 @@ export class RootConsoleService {
           active: statusCount('ACTIVE'),
           paused: statusCount('PAUSED'),
           deactivated: statusCount('DEACTIVATED'),
+          /** In the trash now. */
           deleted: statusCount('DELETED'),
+          /** Removed for good, as recorded since #190 (older removals left no record). */
+          permanentlyDeleted,
         },
       },
       money: {
@@ -346,7 +356,7 @@ export class RootConsoleService {
       const sub = r.team.subscription;
       return {
         id: r.id,
-        name: r.name,
+        name: displayProjectName(r.name),
         slug: r.slug,
         status: r.status,
         databaseType: r.databaseType,
@@ -443,11 +453,12 @@ export class RootConsoleService {
     });
     if (!project) throw new NotFoundException('Project not found');
 
-    const [cost, buckets, tables, history] = await Promise.all([
+    const [cost, buckets, tables, history, activity] = await Promise.all([
       this.costs.getProjectReport(projectId),
       this.projectBuckets(project.id, project.status, project.storagePrefix ?? project.slug),
       this.tableSizes(project.dbName),
       this.usageHistory(project.id),
+      this.recentActivity(project.id),
     ]);
 
     const sub = project.team.subscription;
@@ -455,7 +466,9 @@ export class RootConsoleService {
       generatedAt: new Date().toISOString(),
       project: {
         id: project.id,
-        name: project.name,
+        // The name the owner knew; a trashed row carries an internal "_deleted" suffix.
+        name: displayProjectName(project.name),
+        internalName: project.name,
         slug: project.slug,
         description: project.description,
         status: project.status,
@@ -508,8 +521,40 @@ export class RootConsoleService {
         tables: tables.items,
         tablesError: tables.error,
       },
+      /** Monthly usage (metering), not who did what; see `activity` for that. */
       history,
+      /** Latest activity log entries, also for a project in the trash (#190). */
+      activity,
     };
+  }
+
+  /** The newest activity entries of a project, with the actor's name. */
+  private async recentActivity(projectId: string, take = 100) {
+    const rows = await this.prisma.projectActivityLog.findMany({
+      where: { projectId },
+      orderBy: { createdAt: 'desc' },
+      take,
+      select: { id: true, kind: true, title: true, detail: true, userId: true, createdAt: true },
+    });
+    const userIds = [...new Set(rows.map((r) => r.userId).filter((v): v is string => !!v))];
+    const users = userIds.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: userIds } },
+          select: { id: true, email: true, firstName: true, lastName: true },
+        })
+      : [];
+    const nameById = new Map(
+      users.map((u) => [u.id, [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.email]),
+    );
+    return rows.map((r) => ({
+      id: r.id,
+      kind: r.kind,
+      title: r.title,
+      detail: r.detail,
+      actorUserId: r.userId,
+      actorName: r.userId ? nameById.get(r.userId) ?? null : 'System',
+      createdAt: r.createdAt.toISOString(),
+    }));
   }
 
   // ── Storage ──────────────────────────────────────────────

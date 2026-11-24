@@ -33,6 +33,19 @@ describe('ProjectActivityService (#27)', () => {
     expect((prisma.projectActivityLog.findMany.mock.calls as any)[0][0].where).toBe(where);
   });
 
+  it('reads the history of a trashed project for a team member (#190)', async () => {
+    const { svc, prisma } = build();
+    await svc.listForProject('p1', 'u1');
+    const where = (prisma.project.findFirst.mock.calls as any)[0][0].where;
+    expect(where).toEqual({ id: 'p1' });
+  });
+
+  it('answers 404 to someone outside the team', async () => {
+    const { svc, prisma } = build();
+    prisma.teamMember.findUnique.mockResolvedValueOnce(null as any);
+    await expect(svc.listForProject('p1', 'u9')).rejects.toThrow('Project not found');
+  });
+
   it('publishes the actor name with a live row', async () => {
     const { svc, realtime } = build();
     await svc.append('p1', { userId: 'u1', kind: 'flow.created' as any, title: 'Flow created: x' });

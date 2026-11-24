@@ -66,6 +66,13 @@ import {
   type PermissionKey,
 } from '../teams/role-permissions';
 import { TRASH_RETENTION_MS } from './project-trash-notice.service';
+import {
+  NO_REASON_LABEL,
+  lastTrashReason,
+  listDeletionEntries,
+  normalizeDeletionReason,
+  recordProjectDeletion,
+} from './project-deletion-records';
 import { isStarterKey, starterSql, starterTables, type StarterKey } from './sql/starter-templates';
 
 
@@ -1712,6 +1719,15 @@ export class ProjectsService implements OnApplicationBootstrap {
 
     this.logger.log(`Project "${project.name}" soft-deleted by user ${userId} (db: ${archivedDbName})`);
 
+    // A missing reason is stored as "no reason", not as "None of the above" (#190).
+    const pickedReason = normalizeDeletionReason(reason);
+    await recordProjectDeletion(this.prisma, this.logger, {
+      kind: 'trashed',
+      project,
+      actorUserId: userId,
+      reason: pickedReason,
+    });
+
     await this.activity.append(id, {
       userId,
       kind: ProjectActivityKind.PROJECT_DELETED,
@@ -1719,9 +1735,11 @@ export class ProjectsService implements OnApplicationBootstrap {
       detail: project.name,
       metadata: {
         originalProjectName: project.name,
-        reasonCode: reason?.reasonCode || 'none',
-        reasonLabel: reason?.reasonLabel || 'None of the above',
-        details: reason?.details?.trim() || null,
+        reasonCode: pickedReason.reasonCode,
+        reasonLabel: pickedReason.reasonLabel ?? NO_REASON_LABEL,
+        details: pickedReason.details,
+        // Marks rows that also have a deletion record, so the console list shows them once.
+        deletionRecorded: true,
       },
     });
 
@@ -1973,87 +1991,7 @@ export class ProjectsService implements OnApplicationBootstrap {
     if (actor?.role !== 'ROOT') {
       throw new ForbiddenException('Only ROOT can view project deletion reasons');
     }
-
-    const rows = await this.prisma.projectActivityLog.findMany({
-      where: { kind: ProjectActivityKind.PROJECT_DELETED },
-      orderBy: { createdAt: 'desc' },
-      take: Math.max(1, Math.min(limit || 200, 500)),
-    });
-
-    const actorIds = Array.from(
-      new Set(rows.map((x) => x.userId).filter((value): value is string => Boolean(value))),
-    );
-    const projectIds = Array.from(new Set(rows.map((x) => x.projectId)));
-
-    const [actors, projects] = await Promise.all([
-      actorIds.length > 0
-        ? this.prisma.user.findMany({
-            where: { id: { in: actorIds } },
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              email: true,
-            },
-          })
-        : Promise.resolve([]),
-      projectIds.length > 0
-        ? this.prisma.project.findMany({
-            where: { id: { in: projectIds } },
-            select: {
-              id: true,
-              name: true,
-              status: true,
-              teamId: true,
-              team: { select: { id: true, name: true } },
-            },
-          })
-        : Promise.resolve([]),
-    ]);
-
-    const actorById = new Map(actors.map((a) => [a.id, a] as const));
-    const projectById = new Map(projects.map((p) => [p.id, p] as const));
-
-    return rows.map((x) => {
-      const metadata =
-        x.metadata && typeof x.metadata === 'object'
-          ? (x.metadata as Record<string, unknown>)
-          : {};
-      return {
-        id: x.id,
-        createdAt: x.createdAt,
-        actorUserId: x.userId,
-        actorName: (() => {
-          if (!x.userId) return null;
-          const actorUser = actorById.get(x.userId);
-          if (!actorUser) return null;
-          return (
-            [actorUser.firstName, actorUser.lastName].filter(Boolean).join(' ').trim() ||
-            actorUser.email ||
-            null
-          );
-        })(),
-        projectId: x.projectId,
-        projectName: (() => {
-          const project = projectById.get(x.projectId);
-          return (
-            (typeof metadata.originalProjectName === 'string' &&
-              metadata.originalProjectName) ||
-            project?.name ||
-            null
-          );
-        })(),
-        teamId: projectById.get(x.projectId)?.team?.id || projectById.get(x.projectId)?.teamId || null,
-        teamName: projectById.get(x.projectId)?.team?.name || null,
-        // null: the project row is gone (soft-deleted projects are purged after 24 hours)
-        projectStatus: projectById.get(x.projectId)?.status ?? null,
-        reasonCode:
-          typeof metadata.reasonCode === 'string' ? metadata.reasonCode : null,
-        reasonLabel:
-          typeof metadata.reasonLabel === 'string' ? metadata.reasonLabel : null,
-        details: typeof metadata.details === 'string' ? metadata.details : null,
-      };
-    });
+    return listDeletionEntries(this.prisma, limit);
   }
 
   /**
@@ -2308,6 +2246,12 @@ export class ProjectsService implements OnApplicationBootstrap {
       detail: originalName,
     });
 
+    await recordProjectDeletion(this.prisma, this.logger, {
+      kind: 'restored',
+      project,
+      actorUserId: userId,
+    });
+
     {
       const restoredProject = await this.prisma.project.findUnique({
         where: { id },
@@ -2360,6 +2304,9 @@ export class ProjectsService implements OnApplicationBootstrap {
     project: {
       id: string;
       name: string;
+      slug?: string | null;
+      teamId?: string | null;
+      parentProjectId?: string | null;
       keycloakRealm: string;
       dbName: string;
       dbUser: string;
@@ -2372,7 +2319,15 @@ export class ProjectsService implements OnApplicationBootstrap {
     await this.dropDatabaseUser(project.dbUser).catch(() => {});
     await this.dropReadonlyRoleQuietly(project.dbReadonlyUser);
 
+    // Read before the delete: the activity rows cascade away with the project.
+    const reason = await lastTrashReason(this.prisma, project.id);
     await this.prisma.project.delete({ where: { id: project.id } });
+    await recordProjectDeletion(this.prisma, this.logger, {
+      kind: 'permanent',
+      project,
+      actorUserId: userId ?? null,
+      reason,
+    });
 
     this.logger.log(
       `Project "${project.name}" permanently deleted${userId ? ` by user ${userId}` : ''}`,
@@ -2463,7 +2418,10 @@ export class ProjectsService implements OnApplicationBootstrap {
         await this.dropDatabaseUser(project.dbUser).catch(() => {});
         await this.dropReadonlyRoleQuietly(project.dbReadonlyUser);
 
+        const reason = await lastTrashReason(this.prisma, project.id);
         await this.prisma.project.delete({ where: { id: project.id } });
+        // No actor: the retention purge did it.
+        await recordProjectDeletion(this.prisma, this.logger, { kind: 'permanent', project, reason });
 
         this.logger.log(`Cleanup: permanently deleted "${project.name}"`);
       } catch (err: any) {

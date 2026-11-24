@@ -198,8 +198,11 @@ export class ProjectActivityService {
     userId: string,
     opts: { page?: number; limit?: number; q?: string; kind?: string; from?: Date; to?: Date } = {},
   ) {
+    // A trashed project's history stays readable for its team during the
+    // retention window (#190): the row only exists until the purge removes it.
     const project = await this.prisma.project.findFirst({
-      where: { id: projectId, status: { not: 'DELETED' } },
+      where: { id: projectId },
+      select: { id: true, teamId: true },
     });
     if (!project) throw new NotFoundException('Project not found');
 

@@ -637,6 +637,10 @@ export interface AuditLogEntry {
 
 export interface ProjectDeletionReasonEntry {
   id: string;
+  /** trashed | restored | permanent (#190). Older activity-only rows are "trashed". */
+  kind?: 'trashed' | 'restored' | 'permanent';
+  isPreviewBranch?: boolean;
+  source?: 'record' | 'activity';
   createdAt: string;
   actorUserId: string | null;
   actorName?: string | null;
@@ -646,6 +650,7 @@ export interface ProjectDeletionReasonEntry {
   teamName?: string | null;
   /** DELETED while in the 24-hour trash; null once the project is permanently removed. */
   projectStatus?: string | null;
+  /** null: no reason was chosen. "none": "None of the above" (older rows used "none" for both). */
   reasonCode: string | null;
   reasonLabel: string | null;
   details: string | null;
