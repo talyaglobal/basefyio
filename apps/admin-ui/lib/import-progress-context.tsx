@@ -1,5 +1,7 @@
 'use client';
 
+import { usePathname } from 'next/navigation';
+import { getAccessToken } from '@/lib/auth';
 import { createContext, useContext, useState, useRef, useCallback, useEffect, type ReactNode } from 'react';
 import { api } from '@/lib/api';
 import {
@@ -102,6 +104,14 @@ function getPersistedJob(): {
     }
   } catch {}
   return null;
+}
+
+const STALE_JOB_MS = 12 * 60 * 60 * 1000;
+const PUBLIC_AUTH_PATHS = ['/login', '/signup', '/forgot-password', '/reset-password', '/set-new-password', '/auth', '/cli-authorize'];
+
+function isPublicAuthPath(pathname: string | null): boolean {
+  if (!pathname) return false;
+  return PUBLIC_AUTH_PATHS.some((p) => pathname === p || pathname.startsWith(p + '/'));
 }
 
 export function ImportProgressProvider({ children }: { children: ReactNode }) {
@@ -313,12 +323,27 @@ export function ImportProgressProvider({ children }: { children: ReactNode }) {
     }, 3000);
   }, [isAutoCancelledFailure, stopPolling]);
 
+  const pathname = usePathname();
+
   useEffect(() => {
     if (resumedRef.current) return;
-    resumedRef.current = true;
+    // A saved import is picked up again only for a signed-in user, away from the sign-in and
+    // password pages (#276): there the progress calls are refused and the corner widget
+    // flickered over the login form. Evaluated again on every page change, so it resumes
+    // right after sign-in.
+    if (isPublicAuthPath(pathname) || !getAccessToken()) return;
 
     const saved = getPersistedJob();
-    if (!saved) return;
+    if (!saved) {
+      resumedRef.current = true;
+      return;
+    }
+    resumedRef.current = true;
+    // A job older than this is long over; showing it again only confuses.
+    if (Date.now() - saved.startedAt > STALE_JOB_MS) {
+      clearPersistedJob();
+      return;
+    }
 
     startTracking(
       saved.jobId,
@@ -327,7 +352,7 @@ export function ImportProgressProvider({ children }: { children: ReactNode }) {
       saved.startedAt,
       saved.projectId,
     );
-  }, [startTracking]);
+  }, [startTracking, pathname]);
 
   return (
     <ImportProgressContext.Provider value={{
