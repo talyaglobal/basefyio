@@ -104,6 +104,7 @@ function StatCard({
   return (
     <Link
       href={href}
+      prefetch={false}
       className={`block w-full text-left rounded-xl border bg-gradient-to-br ${STAT_COLORS[colorIndex % STAT_COLORS.length]} p-5 backdrop-blur-sm transition-all hover:shadow-md hover:-translate-y-0.5 active:scale-[0.98]`}
     >
       {/* Icon + Label row */}
@@ -321,7 +322,7 @@ export default function DashboardPage() {
         </div>
         <div className="flex items-center gap-2">
           <Button asChild className="border-0 bg-[#217346] text-white hover:bg-[#1a5c38] focus-visible:ring-2 focus-visible:ring-[#217346] focus-visible:ring-offset-2 focus-visible:ring-offset-background dark:bg-[#217346] dark:hover:bg-[#2a8c57]">
-            <Link href="/dashboard/blueprints">
+            <Link prefetch={false} href="/dashboard/blueprints">
               <FileSpreadsheet className="mr-2 h-4 w-4" />
               Sheet to App
             </Link>
@@ -639,7 +640,7 @@ export default function DashboardPage() {
           ) : (
             <div className="space-y-1">
               {recentProjects.map((p) => (
-                <Link
+                <Link prefetch={false}
                   key={p.id}
                   href={`/dashboard/projects/${p.id}`}
                   className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-accent group"
@@ -684,7 +685,7 @@ export default function DashboardPage() {
               New Project
             </button>
 
-            <Link
+            <Link prefetch={false}
               href="/dashboard/projects"
               className="flex w-full items-center gap-3 rounded-lg border px-4 py-3 text-left text-sm font-medium transition-colors hover:bg-accent"
             >
@@ -695,7 +696,7 @@ export default function DashboardPage() {
               <ArrowRight className="ml-auto h-4 w-4 text-muted-foreground" />
             </Link>
 
-            <Link
+            <Link prefetch={false}
               href="/dashboard/team"
               className="flex w-full items-center gap-3 rounded-lg border px-4 py-3 text-left text-sm font-medium transition-colors hover:bg-accent"
             >
@@ -706,7 +707,7 @@ export default function DashboardPage() {
               <ArrowRight className="ml-auto h-4 w-4 text-muted-foreground" />
             </Link>
 
-            <Link
+            <Link prefetch={false}
               href="/dashboard/account"
               className="flex w-full items-center gap-3 rounded-lg border px-4 py-3 text-left text-sm font-medium transition-colors hover:bg-accent"
             >

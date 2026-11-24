@@ -114,12 +114,23 @@ function renderNavLink(
   pathname: string,
   collapsed: boolean,
   host: string,
+  router: { prefetch: (href: string) => void },
 ) {
   const active = isActive(pathname);
+  const target = hrefForHost(href, host);
+  // Every sidebar link used to prefetch as soon as it was on screen: a dozen background
+  // requests on each page load (#151). A route is prefetched when the pointer or focus
+  // reaches the link instead. Links to another host are not prefetched at all.
+  const prefetchNow = () => {
+    if (target.startsWith('/')) router.prefetch(target);
+  };
   return (
     <Link
       key={id ?? href}
-      href={hrefForHost(href, host)}
+      href={target}
+      prefetch={false}
+      onMouseEnter={prefetchNow}
+      onFocus={prefetchNow}
       title={collapsed ? label : undefined}
       className={cn(
         'flex items-center gap-3 rounded-md px-2 py-2 text-sm transition-colors',
@@ -267,11 +278,11 @@ export function DashboardSidebar({
     >
 
       <nav aria-label="Dashboard sections" className="flex flex-1 flex-col gap-0.5 p-2 overflow-y-auto">
-        {items.map((item) => renderNavLink(item, pathname, collapsed, host))}
+        {items.map((item) => renderNavLink(item, pathname, collapsed, host, router))}
 
         {rootItems.length > 0 && (
           <div className="mt-auto flex flex-col gap-0.5 border-t border-border pt-2">
-            {rootItems.map((item) => renderNavLink(item, pathname, collapsed, host))}
+            {rootItems.map((item) => renderNavLink(item, pathname, collapsed, host, router))}
           </div>
         )}
       </nav>
