@@ -206,6 +206,12 @@ jobs:
 
             # ── Deploy ──
             echo "=== Deploying $SHA ==="
+            # The services customers reach are replaced one beside the other: the new container
+            # starts next to the old one, takes over when it answers, and only then does the old
+            # one stop (uptime target 99.99%: no deploy may take the site or the API down).
+            # If that cannot finish, the plain `up -d` below does the job the old way.
+            IMAGE_TAG=$SHA bash scripts/ops/rolling-up.sh platform-api admin-ui website \
+              || echo "::warning::rolling update did not finish; the plain up -d below completes the deploy"
             IMAGE_TAG=$SHA docker compose -f docker-compose.prod.yml --env-file .env.production up -d --remove-orphans
 
             # ── Cleanup ──
