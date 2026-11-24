@@ -400,3 +400,44 @@ describe('findForbiddenSqlPattern — escapes are decoded where the string is ru
     expect(findForbiddenSqlPattern('SELECT U&"pg\\005fread\\005ffile"(\'/x\')', 'owner')).toBe('pg_read_file');
   });
 });
+
+/**
+ * KolayAcademy report N1 (2026-11-24): keyed SQL runs on the owner's connection
+ * after SET LOCAL ROLE, and the owner may switch to service_role. Any way of
+ * reaching set_config, or of running a SQL string the guard cannot see, is a
+ * role escalation for a public key, so the name alone decides.
+ */
+describe('public keys cannot reach set_config or run SQL strings (N1)', () => {
+  const escalations = [
+    "select set_config('ro'||'le','service_role',true)",
+    "select set_config(('role'),'service_role',true)",
+    "select set_config(chr(114)||'ole','service_role',true)",
+    "select set_config(text 'role','service_role',true)",
+    "select set_config(format('%s','role'),'service_role',true)",
+    "with c(n) as (values ('role')) select set_config(n,'service_role',true) from c",
+    "select set_config('request.'||'jwt.claims','{\"sub\":\"someone-else\"}',true)",
+    "select pg_catalog.set_config('role','none',true)",
+    'select "set_config"(\'role\',\'service_role\',true)',
+    'select U&"set\\005fconfig"(\'role\',\'service_role\',true)',
+    "select 1; select set_config('ro'||'le','service_role',true); select * from secrets",
+    "select query_to_xml('select set_con'||'fig(''role'',''service_role'',true)', true, true, '')",
+    "select cursor_to_xml('c', 1, true, true, '')",
+    "select * from dblink('dbname=x','select 1') as t(a int)",
+  ];
+  for (const role of ['anon', 'authenticated'] as const) {
+    it.each(escalations)(`refuses for ${role}: %s`, (q) => {
+      expect(findForbiddenSqlPattern(q, role)).not.toBeNull();
+    });
+  }
+
+  it('keeps reading settings and storing text that mentions the name', () => {
+    expect(findForbiddenSqlPattern("select current_setting('request.jwt.claims', true)", 'anon')).toBeNull();
+    expect(findForbiddenSqlPattern("select id from notes where body = 'call set_config(role)'", 'anon')).toBeNull();
+    expect(findForbiddenSqlPattern("insert into notes(body) values ('query_to_xml is a function')", 'authenticated')).toBeNull();
+  });
+
+  it('leaves set_config to the service key and the dashboard', () => {
+    expect(findForbiddenSqlPattern("select set_config('app.tenant','t1',true)", 'service_role')).toBeNull();
+    expect(findForbiddenSqlPattern("select set_config('app.tenant','t1',true)", 'owner')).toBeNull();
+  });
+});

@@ -549,6 +549,35 @@ function checkForbidden(stream: Stream): string | null {
   return null;
 }
 
+/**
+ * Functions a public key (anon, or a signed-in user through it) may never call,
+ * whatever their arguments.
+ *
+ * Keyed SQL runs on the project owner's connection after SET LOCAL ROLE anon or
+ * authenticated, and the owner is a member of service_role. `set_config('role',
+ * …)` therefore switches to service_role (BYPASSRLS) or back to the owner, and
+ * `set_config('request.jwt.claims', …)` names any user. Checking the argument
+ * text was not enough: `'ro'||'le'`, chr(), format() or a CTE column build the
+ * same name at run time. The query_to_xml family and dblink run a SQL string the
+ * guard never sees, so they are refused the same way. The service key and the
+ * dashboard keep all of them.
+ */
+const PUBLIC_KEY_FORBIDDEN_FUNCTIONS = new Set([
+  'SET_CONFIG',
+  'QUERY_TO_XML',
+  'QUERY_TO_XMLSCHEMA',
+  'QUERY_TO_XML_AND_XMLSCHEMA',
+  'CURSOR_TO_XML',
+  'CURSOR_TO_XMLSCHEMA',
+]);
+
+function publicKeyForbiddenFunction(symbol: string): string | null {
+  const name = bareName(symbol);
+  if (PUBLIC_KEY_FORBIDDEN_FUNCTIONS.has(name)) return name.toLowerCase();
+  if (name.startsWith('DBLINK')) return 'dblink';
+  return null;
+}
+
 function checkOwnerOnly(stream: Stream): string | null {
   const { symbols, literal } = stream;
   const joined = symbols.join(' ');
@@ -561,6 +590,9 @@ function checkOwnerOnly(stream: Stream): string | null {
     if (setsIdentitySetting(symbols, i, literal)) return 'SET request.jwt.*';
     if (setConfigIdentitySetting(stream, i)) return 'SET request.jwt.*';
     if (symbols[i] === 'TRUNCATE' && (!literal || atStatementStart(symbols, i, literal))) return 'TRUNCATE';
+    // The named checks above give the clearer message; this one catches every other spelling.
+    const fn = publicKeyForbiddenFunction(symbols[i]);
+    if (fn) return `${fn}()`;
   }
   return null;
 }
