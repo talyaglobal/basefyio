@@ -21,6 +21,8 @@ export interface PoolerProject {
   dbPassword: string;
   dbReadonlyUser?: string | null;
   dbReadonlyPassword?: string | null;
+  /** Extra LOGIN roles of the project: they connect through the pooler as well. */
+  extraRoles?: Array<{ roleName: string; password: string }>;
   maxDbConnections?: number | null;
   team?: {
     subscription?: { plan?: { maxDbConnections: number | null } | null } | null;
@@ -92,6 +94,7 @@ export class PgBouncerService implements OnModuleInit {
         dbPassword: true,
         dbReadonlyUser: true,
         dbReadonlyPassword: true,
+        extraRoles: { select: { roleName: true, password: true } },
         maxDbConnections: true,
         team: {
           select: {
@@ -407,6 +410,13 @@ ${this.serverResetLines()}${tlsLines}`;
       // own entry — only once both halves of the credential exist.
       if (p.dbReadonlyUser && p.dbReadonlyPassword) {
         lines.push(`"${p.dbReadonlyUser}" "${p.dbReadonlyPassword}"`);
+      }
+      for (const r of p.extraRoles ?? []) {
+        // Names are generated (kb_xr_<hex>) and passwords base64url, but a quote would
+        // break the file, so anything else is left out rather than written.
+        if (/^[a-z0-9_]{1,63}$/.test(r.roleName) && r.password && !/["\s]/.test(r.password)) {
+          lines.push(`"${r.roleName}" "${r.password}"`);
+        }
       }
     }
 

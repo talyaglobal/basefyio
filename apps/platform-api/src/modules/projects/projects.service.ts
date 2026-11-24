@@ -47,7 +47,14 @@ import {
 import { RealtimeEventsService } from '../../common/realtime/realtime-events.service';
 import { AdminTarget, ProjectProvisioningService } from './project-provisioning.service';
 import { ProjectReadonlyRoleService, readonlyRoleNameFor } from './project-readonly-role.service';
-import { ProjectExtraRoleService, type ExtraRoleMemberOf } from './project-extra-role.service';
+import {
+  ProjectExtraRoleService,
+  memberOfColumn,
+  memberOfFromColumn,
+  parseMemberOf,
+  parseRoleSettings,
+  type ExtraRoleSettings,
+} from './project-extra-role.service';
 import { previewBranchOf } from './branches/preview-branch';
 import { stripProjectSecrets } from './project-secrets';
 import { prefixIsAmbiguous } from '../storage/bucket-names';
@@ -929,20 +936,80 @@ export class ProjectsService implements OnApplicationBootstrap {
 
   async listExtraRoles(projectId: string, userId: string) {
     const project = await this.loadProjectForDbCredentials(projectId, userId);
-    return this.prisma.projectExtraRole.findMany({
+    const rows = await this.prisma.projectExtraRole.findMany({
       where: { projectId: project.id },
-      select: { id: true, label: true, roleName: true, password: true, memberOf: true, createdAt: true },
+      select: { id: true, label: true, roleName: true, password: true, memberOf: true, settings: true, createdAt: true },
       orderBy: { createdAt: 'asc' },
     });
+    return rows.map((r) => this.extraRoleView(r));
+  }
+
+  /** `memberOf` stays the stored string; `memberships` is the same as a list, `settings` the limits in ms. */
+  private extraRoleView<T extends { memberOf: string; settings?: unknown }>(row: T) {
+    return { ...row, memberships: memberOfFromColumn(row.memberOf), settings: (row.settings ?? {}) as ExtraRoleSettings };
+  }
+
+  /** Change the memberships or limits of an extra role; the role is re-provisioned with them. */
+  async updateExtraRole(
+    projectId: string,
+    userId: string,
+    roleId: string,
+    input: { memberOf?: unknown; settings?: unknown },
+  ) {
+    const project = await this.loadProjectForDbCredentials(projectId, userId);
+    const row = await this.prisma.projectExtraRole.findFirst({ where: { id: roleId, projectId: project.id } });
+    if (!row) throw new NotFoundException('Extra role not found');
+    const members = input.memberOf === undefined ? memberOfFromColumn(row.memberOf) : parseMemberOf(input.memberOf);
+    const settings =
+      input.settings === undefined
+        ? parseRoleSettings(row.settings ?? {})
+        : { ...parseRoleSettings(row.settings ?? {}), ...parseRoleSettings(input.settings) };
+    // A null value in the request removes that limit.
+    if (input.settings && typeof input.settings === 'object') {
+      for (const [k, v] of Object.entries(input.settings as Record<string, unknown>)) {
+        if (v === null) {
+          const key = (Object.keys(parseRoleSettings({ [k]: 0 }))[0] ?? k) as keyof ExtraRoleSettings;
+          delete settings[key];
+        }
+      }
+    }
+    const target = this.provisioning.resolveAdminTarget(project);
+    try {
+      await this.extraRole.provision({
+        ...target,
+        dbName: project.dbName,
+        roleName: row.roleName,
+        rolePassword: row.password,
+        memberOf: members,
+        settings,
+      });
+    } catch (err: any) {
+      if (err instanceof BadRequestException) throw err;
+      throw new InternalServerErrorException(`Failed to update extra role: ${err.message}`);
+    }
+    const updated = await this.prisma.projectExtraRole.update({
+      where: { id: roleId },
+      data: { memberOf: memberOfColumn(members), settings: settings as any },
+      select: { id: true, label: true, roleName: true, password: true, memberOf: true, settings: true, createdAt: true },
+    });
+    await this.activity.append(project.id, {
+      userId,
+      kind: ProjectActivityKind.PROJECT_UPDATED,
+      title: `Extra database role updated: ${row.label}`,
+    });
+    return this.extraRoleView(updated);
   }
 
   async createExtraRole(
     projectId: string,
     userId: string,
     label: string,
-    memberOf: ExtraRoleMemberOf,
+    memberOfInput: unknown,
+    settingsInput?: unknown,
   ) {
     const project = await this.loadProjectForDbCredentials(projectId, userId);
+    const members = parseMemberOf(memberOfInput);
+    const settings = parseRoleSettings(settingsInput);
     const trimmedLabel = label?.trim();
     if (!trimmedLabel || trimmedLabel.length > 80) {
       throw new BadRequestException('Label must be 1–80 characters');
@@ -966,7 +1033,8 @@ export class ProjectsService implements OnApplicationBootstrap {
         dbName: project.dbName,
         roleName,
         rolePassword: password,
-        memberOf,
+        memberOf: members,
+        settings,
       });
     } catch (err: any) {
       if (err instanceof BadRequestException) throw err;
@@ -974,8 +1042,8 @@ export class ProjectsService implements OnApplicationBootstrap {
     }
 
     const row = await this.prisma.projectExtraRole.create({
-      data: { projectId: project.id, label: trimmedLabel, roleName, password, memberOf },
-      select: { id: true, label: true, roleName: true, password: true, memberOf: true, createdAt: true },
+      data: { projectId: project.id, label: trimmedLabel, roleName, password, memberOf: memberOfColumn(members), settings: settings as any },
+      select: { id: true, label: true, roleName: true, password: true, memberOf: true, settings: true, createdAt: true },
     });
     await this.activity.append(project.id, {
       userId,

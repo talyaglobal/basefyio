@@ -189,6 +189,21 @@ describe('buildUserlist', () => {
   });
 });
 
+describe('buildUserlist — extra database roles', () => {
+  it('lets a project\'s extra roles log in through the pooler, and leaves out a malformed entry', () => {
+    const out = userlist(service(), [
+      { ...owner, extraRoles: [{ roleName: 'kb_xr_0123456789', password: 'xpw' }, { roleName: 'bad"name', password: 'x' }] },
+      { ...other, extraRoles: [{ roleName: 'kb_xr_abcdef0123', password: 'has space' }] },
+    ]);
+    expect(out.split('\n').filter(Boolean)).toEqual([
+      '"kb_user_a" "pa"',
+      '"kb_xr_0123456789" "xpw"',
+      '"kb_user_b" "pb"',
+      expect.stringMatching(/^"pgbouncer_admin" /),
+    ]);
+  });
+});
+
 describe('server_reset_query', () => {
   it('leaves the ini unchanged when unset or blank', () => {
     expect(ini(service({ 'pgbouncer.serverResetQuery': '' }), [owner, other])).toBe(TODAY);

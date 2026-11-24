@@ -160,6 +160,11 @@ per page; it does not limit how many rows a table can hold.
 | POST | `/api/projects/:id/db-readonly-role` | session · token `secrets:write` | create the read-only companion role, or repair its grants |
 | PATCH | `/api/projects/:id/db-readonly-password` | session · token `secrets:write` | `{ password? }` — rotate the read-only role's password |
 | DELETE | `/api/projects/:id/db-readonly-role` | session · token `secrets:write` | remove the read-only role |
+| GET | `/api/projects/:id/db-extra-roles` | session · token `secrets:read` | the project's extra database roles with their passwords, memberships and limits |
+| POST | `/api/projects/:id/db-extra-roles` | session · token `secrets:write` | `{ label, memberOf?, settings? }` — create an extra LOGIN role (see Extra database roles) |
+| PATCH | `/api/projects/:id/db-extra-roles/:roleId` | session · token `secrets:write` | `{ memberOf?, settings? }` — change its memberships or limits |
+| PATCH | `/api/projects/:id/db-extra-roles/:roleId/password` | session · token `secrets:write` | `{ password? }` — rotate its password |
+| DELETE | `/api/projects/:id/db-extra-roles/:roleId` | session · token `secrets:write` | remove the role |
 | PATCH | `/api/projects/:id/db-connection-limit` | session · token `settings:write` | `{ maxDbConnections: number \| null }` — pooled connections allowed to this database |
 
 *Who:* the four write routes need the team permission **reset database password** (team owners
@@ -235,6 +240,24 @@ sequence in the database, including rows protected by row-level security, and ca
 Calling it again repairs the grants and keeps the current password. Answer:
 `{ user, password, warnings }`. `DELETE` answers `{ message, warnings }`; rotating or removing a role
 that does not exist is 400.
+
+### Extra database roles
+
+Up to ten LOGIN roles per project for applications that connect with their own credentials, named
+`kb_xr_<hex>` and labelled for the dashboard. Each is `NOINHERIT` and never a superuser.
+
+- `memberOf`: `"none"`, one of `anon`, `authenticated`, `service_role`, a comma list, or an array such
+  as `["anon", "authenticated"]`. Every membership is `INHERIT FALSE, SET TRUE`: the role has none of
+  their rights until the session runs `SET [LOCAL] ROLE anon` (or `authenticated`) itself.
+- `settings`: run-time limits set on the role, in milliseconds or as `"30s"`, `"5min"`, `"1h"`
+  (0 = no limit, at most 24 h): `statementTimeout`, `idleInTransactionSessionTimeout`, `lockTimeout`.
+  They are part of the role and are re-applied every time it is repaired; in `PATCH`, `null` removes
+  one. Other names are refused with 400.
+- The role logs in directly or through the pooler (port 6432) with its own password; the pooler
+  configuration is regenerated when a role is created, changed, rotated or removed.
+
+Answer of `GET`, `POST` and `PATCH`: `{ id, label, roleName, password, memberOf, memberships, settings,
+createdAt }` — `memberOf` as stored (`"anon,authenticated"`), `memberships` as a list, `settings` in ms.
 
 ### Pooler connection limit
 

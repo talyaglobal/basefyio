@@ -477,11 +477,25 @@ export class ProjectsController {
   @Post(':id/db-extra-roles')
   async createExtraRole(
     @Param('id') id: string,
-    @Body() body: { label: string; memberOf?: string },
+    @Body() body: { label: string; memberOf?: string | string[]; settings?: Record<string, unknown> },
     @CurrentUser() user: JwtPayload,
   ) {
-    const memberOf = (body?.memberOf as any) || 'none';
-    return this.projectsService.createExtraRole(id, user.sub, body?.label, memberOf);
+    return this.projectsService.createExtraRole(id, user.sub, body?.label, body?.memberOf ?? 'none', body?.settings);
+  }
+
+  /** Memberships (`memberOf`: a list) and run-time limits (`settings`) of an extra role. */
+  @Scopes('secrets:write')
+  @Patch(':id/db-extra-roles/:roleId')
+  async updateExtraRole(
+    @Param('id') id: string,
+    @Param('roleId') roleId: string,
+    @Body() body: { memberOf?: string | string[]; settings?: Record<string, unknown> },
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.projectsService.updateExtraRole(id, user.sub, roleId, {
+      memberOf: body?.memberOf,
+      settings: body?.settings,
+    });
   }
 
   @Scopes('secrets:write')
