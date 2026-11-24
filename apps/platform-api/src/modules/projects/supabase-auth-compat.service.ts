@@ -424,6 +424,36 @@ export class SupabaseAuthCompatService {
     }
   }
 
+  /**
+   * `POST /rest/v1/auth/signout`, what basefyio-js signOut() calls (#247).
+   * - a refresh token in the body ends the session it belongs to (no access token needed,
+   *   so an expired access token does not keep the session alive);
+   * - `scope: 'global'` ends every session of the user, `'others'` every other one;
+   *   both need the user's access token;
+   * - `'local'` without a refresh token ends the access token's own session.
+   */
+  async signOutSdk(
+    projectId: string,
+    claims: Record<string, unknown> | undefined,
+    scope: 'local' | 'others' | 'global',
+    refreshToken?: string,
+  ): Promise<void> {
+    const signedIn = typeof claims?.sub === 'string' && !!claims.sub;
+    if (refreshToken) {
+      const realm = (await this.getProject(projectId)).keycloakRealm;
+      await this.sdkAuth.revokeRefreshToken(realm, this.clientOfRefreshToken(realm, refreshToken), refreshToken);
+    }
+    if (scope === 'global' || scope === 'others') {
+      if (!signedIn) throw new UnauthorizedException('Signing out other sessions needs the user\'s access token');
+      await this.logout(projectId, claims!, scope);
+      return;
+    }
+    if (refreshToken) return;
+    if (!signedIn) throw new UnauthorizedException('Send the refresh token, or the user\'s access token, to sign out');
+    // Without a session id there is no single session to end; ending all of them would surprise the caller.
+    if (typeof claims!.sid === 'string') await this.logout(projectId, claims!, 'local');
+  }
+
   // ── /signup, /recover, /otp, /resend ────────────────────────────────────
 
   async signup(

@@ -113,6 +113,14 @@ export function pageObjects<T extends { name: string; prefix?: string; size?: nu
   return limit === undefined && !offset ? out : out.slice(offset, limit === undefined ? undefined : offset + limit);
 }
 
+/** A folder entry carries `prefix` only, as documented; an empty `name` read as a file with no name (#168). */
+export function withoutFolderName<T extends { name?: string; prefix?: string }>(o: T): T | Omit<T, 'name'> {
+  if (!o.prefix || o.name) return o;
+  const rest: Partial<T> = { ...o };
+  delete rest.name;
+  return rest as Omit<T, 'name'>;
+}
+
 /**
  * What a request may say when it creates a bucket. Checked here, at the HTTP
  * edge, and not in StorageService: the importers call the service with names
@@ -424,7 +432,7 @@ export class StorageController {
       objects,
       this.statFn(projectId, user?.sub, bucketName),
     );
-    return pageObjects(visible, { limit, offset, sortBy, order });
+    return pageObjects(visible, { limit, offset, sortBy, order }).map(withoutFolderName);
   }
 
   // The body lands in a disk spool (multer stops reading at the limit, which

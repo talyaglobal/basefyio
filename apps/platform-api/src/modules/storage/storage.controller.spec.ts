@@ -33,7 +33,7 @@ import {
   ServiceUnavailableException,
   UnsupportedMediaTypeException,
 } from '@nestjs/common';
-import { MAX_FILE_SIZE, StorageController, pageObjects } from './storage.controller';
+import { MAX_FILE_SIZE, StorageController, pageObjects, withoutFolderName } from './storage.controller';
 
 const user = { sub: 'u1' } as any;
 
@@ -661,5 +661,13 @@ describe("move, copy, rename and the signed URL: input and existence", () => {
       await expect(controller.deleteObjects("p1", "b", body, serviceReq, undefined)).rejects.toThrow(BadRequestException);
     }
     expect(storage.deleteObjects).not.toHaveBeenCalled();
+  });
+});
+
+describe('withoutFolderName (#168)', () => {
+  it('drops the empty name of a folder entry and leaves files alone', () => {
+    expect(withoutFolderName({ name: '', prefix: 'avatars/', size: 0 })).toEqual({ prefix: 'avatars/', size: 0 });
+    expect('name' in withoutFolderName({ name: '', prefix: 'avatars/' })).toBe(false);
+    expect(withoutFolderName({ name: 'a.png', size: 3 })).toEqual({ name: 'a.png', size: 3 });
   });
 });

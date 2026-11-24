@@ -24,9 +24,10 @@ defaults to `https://api.basefyio.com`. A browser bundle has no `process.env`, s
 values explicitly there (for example from `import.meta.env.VITE_…` under Vite). Further options:
 `autoRefreshToken` (default `true`) and `headers` (sent on every request).
 
-This page describes `basefyio-js` 2.3.0 as it is in `packages/sdk`. Second-factor and anonymous
-sign-in, realtime channels (presence and broadcast), image transforms, resumable uploads and
-storage access rules are new in 2.3.0; the npm release 2.2.0 has everything else on this page.
+This page describes `basefyio-js` as it is in `packages/sdk`. The npm release 2.4.0 has everything
+on this page except the server-side `signOut()` and `getUser()` answering 401 without a request
+when nobody is signed in, which arrive in 2.5.0. Second-factor and anonymous sign-in, realtime
+channels, image transforms, resumable uploads and storage access rules are in 2.3.0 and later.
 
 Every method returns `{ data, error }` — `error` is `{ message, status?, code? }` and is never
 thrown — except `rpc()`, which returns the rows directly, and the realtime calls. `code` is set
@@ -47,7 +48,7 @@ when the API answers with a machine-readable code (for example `mfa_required`,
 | `regenerateRecoveryCodes(code)` | `POST /rest/v1/auth/mfa/recovery-codes` | |
 | `signInAnonymously()` | `POST /rest/v1/auth/signin/anonymous` | tokens with `isAnonymous: true`; the project must allow it |
 | `upgradeAnonymous({ email, password, firstName?, lastName? })` | `POST /rest/v1/auth/anonymous/upgrade` | same user id, now an account |
-| `signOut()` | — | clears the session locally |
+| `signOut({ scope? })` | `POST /rest/v1/auth/signout` | revokes the refresh token on the server and clears the local session (2.5.0; earlier versions only cleared it locally). `scope: 'others'` keeps this session and ends the rest, `'global'` ends all. Without a session nothing is sent and no `SIGNED_OUT` fires |
 | `verifyEmail(otp)`, `forgotPassword(email)`, `resetPassword(otp, newPassword)` | the matching routes | |
 | `sendMagicLink(email)`, `verifyMagicLink(otp)` | | |
 | `changeEmail(newEmail)`, `confirmChangeEmail(otp)` | | needs a session |
@@ -109,6 +110,13 @@ await bf.from('settings').upsert({ key: 'theme', value: 'dark' }, { onConflict: 
 
 Column and table names are quoted as identifiers; values are always bound. A refused statement
 (see the SQL guard in [sql-api.md](./sql-api.md)) comes back as `error`.
+
+**Who may write.** With the default data access settings, the anon key alone can read public
+tables (`select`) but not write them: `insert`, `update`, `upsert` and `delete` answer
+`permission denied for table`. Sign the user in first; a signed-in user may write every table,
+so add row level security policies to limit which rows. The service key may do everything and
+ignores policies; use it only on a server. Projects that turned off "Grant API access to new
+tables automatically" grant each table themselves.
 
 **Writes need a filter.** `update()` and `delete()` without at least one filter (`eq`, `in`, `or`, …)
 throw before anything is sent, so a missing `.eq()` can never change or remove a whole table. To

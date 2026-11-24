@@ -10,6 +10,8 @@ import {
   Headers,
   UseGuards,
   ForbiddenException,
+  HttpCode,
+  UnauthorizedException,
   BadRequestException,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
@@ -257,6 +259,19 @@ export class ProjectSdkAuthController {
     return this.sdkAuth.refresh(projectId, body.refreshToken);
   }
 
+  /** Ends the session on the server (#247); see SupabaseAuthCompatService.signOutSdk. */
+  @Post('signout')
+  @HttpCode(204)
+  async signout(
+    @Req() req: Request,
+    @Body() body: { refreshToken?: string; scope?: string } = {},
+  ): Promise<void> {
+    const payload = this.getPayload(req);
+    const scope = body?.scope === 'global' || body?.scope === 'others' ? body.scope : 'local';
+    const refreshToken = typeof body?.refreshToken === 'string' && body.refreshToken ? body.refreshToken : undefined;
+    await this.gotrue.signOutSdk(payload.projectId, payload.jwtClaims, scope, refreshToken);
+  }
+
   @Get('me')
   async me(
     @Req() req: Request,
@@ -264,7 +279,7 @@ export class ProjectSdkAuthController {
   ) {
     const { projectId } = this.getPayload(req);
     const token = auth?.replace('Bearer ', '');
-    if (!token) throw new ForbiddenException('Missing Authorization header');
+    if (!token) throw new UnauthorizedException('Missing Authorization header');
     return this.sdkAuth.me(projectId, token);
   }
 

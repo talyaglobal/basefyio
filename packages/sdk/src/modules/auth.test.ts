@@ -207,3 +207,59 @@ describe('AuthClient.refreshSession (#246)', () => {
     expect(auth.getSession()?.refreshToken).toBe('r1');
   });
 });
+
+describe('AuthClient.signOut (#247)', () => {
+  const signedIn = async (responses: Record<string, unknown>) => {
+    const { http, sent } = fakeHttp({ '/rest/v1/auth/signin': TOKENS, '/rest/v1/auth/me': { id: 'u1' }, ...responses });
+    const auth = new AuthClient(http, false);
+    await auth.signIn({ email: 'a@b.c', password: 'x' });
+    sent.length = 0;
+    return { auth, sent };
+  };
+
+  it('revokes the refresh token on the server and clears the session', async () => {
+    const { auth, sent } = await signedIn({ '/rest/v1/auth/signout': null });
+    const events: string[] = [];
+    auth.onAuthStateChange((e: string) => events.push(e));
+    const res = await auth.signOut();
+    expect(res.error).toBeNull();
+    expect(sent).toEqual([{ path: '/rest/v1/auth/signout', method: 'POST', body: { refreshToken: 'r1' } }]);
+    expect(auth.getSession()).toBeNull();
+    expect(events).toContain('SIGNED_OUT');
+  });
+
+  it('clears the session even when the server cannot be reached, and says so', async () => {
+    const { auth } = await signedIn({ '/rest/v1/auth/signout': { throws: { message: 'offline', status: 0 } } });
+    const res = await auth.signOut();
+    expect(res.error?.message).toBe('offline');
+    expect(auth.getSession()).toBeNull();
+  });
+
+  it('keeps this session when signing out the other devices', async () => {
+    const { auth, sent } = await signedIn({ '/rest/v1/auth/signout': null });
+    await auth.signOut({ scope: 'others' });
+    expect(sent[0].body).toEqual({ scope: 'others' });
+    expect(auth.getSession()).not.toBeNull();
+  });
+
+  it('does nothing and fires no event without a session', async () => {
+    const { http, sent } = fakeHttp({});
+    const auth = new AuthClient(http, false);
+    const events: string[] = [];
+    auth.onAuthStateChange((e: string) => events.push(e));
+    await expect(auth.signOut()).resolves.toEqual({ data: null, error: null });
+    expect(sent).toEqual([]);
+    expect(events).toEqual([]);
+  });
+});
+
+describe('AuthClient.getUser without a session (#169)', () => {
+  it('answers 401 without a request', async () => {
+    const { http, sent } = fakeHttp({});
+    const auth = new AuthClient(http, false);
+    const res = await auth.getUser();
+    expect(res.error?.status).toBe(401);
+    expect(sent).toEqual([]);
+  });
+});
+

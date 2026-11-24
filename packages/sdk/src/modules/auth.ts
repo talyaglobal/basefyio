@@ -301,8 +301,41 @@ export class AuthClient {
     return value === true || value === 'true';
   }
 
-  async signOut(): Promise<void> {
+  /**
+   * Ends the session on the server as well (#247): the refresh token is revoked,
+   * so it cannot mint new tokens. `scope: 'others'` signs out every other device,
+   * `'global'` every session including this one. Without a session nothing is
+   * sent and no SIGNED_OUT event fires. The local session is cleared even when
+   * the server cannot be reached; `error` then says so.
+   */
+  async signOut(options?: { scope?: 'local' | 'others' | 'global' }): Promise<BasefyioResponse<null>> {
+    const session = this.session;
+    if (!session) return { data: null, error: null };
+    const scope = options?.scope ?? 'local';
+    const refreshToken = session.refreshToken || undefined;
+    let error: BasefyioResponse<null>['error'] = null;
+    const send = async (body: Record<string, unknown>) => {
+      try {
+        await this.http.json('/rest/v1/auth/signout', { method: 'POST', body: JSON.stringify(body) });
+      } catch (err: any) {
+        error = { message: err?.message ?? 'Sign-out request failed', status: err?.status };
+      }
+    };
+    if (scope === 'others') {
+      // Keep this session: the access token proves who is asking.
+      await send({ scope });
+      return { data: null, error };
+    }
+    if (scope === 'global') {
+      await send({ scope, refreshToken });
+      this.clearSession();
+      return { data: null, error };
+    }
+    // Local: forget the session first, so an expired access token is not sent;
+    // the refresh token alone identifies the session to end.
     this.clearSession();
+    if (refreshToken) await send({ refreshToken });
+    return { data: null, error };
   }
 
   async verifyEmail(otp: string): Promise<BasefyioResponse<VerifyEmailResult>> {
@@ -470,6 +503,9 @@ export class AuthClient {
   }
 
   async getUser(): Promise<BasefyioResponse<User>> {
+    if (!this.session?.accessToken) {
+      return { data: null, error: { message: 'Not signed in', status: 401 } };
+    }
     try {
       const data = await this.http.json<User>('/rest/v1/auth/me');
       if (this.session) {

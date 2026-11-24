@@ -24,6 +24,7 @@ link and therefore accept the anon key as `?apikey=`.
 | POST | `/api/rest/v1/auth/mfa/verify-enrollment` | anon + user (or a challenge) | confirm the first code; returns recovery codes |
 | POST | `/api/rest/v1/auth/mfa/disable` | anon + user | turn the factor off (needs a code); the service key may reset a user by id |
 | POST | `/api/rest/v1/auth/mfa/recovery-codes` | anon + user | replace the recovery codes |
+| POST | `/api/rest/v1/auth/signout` | anon (+ user for `others`/`global`) | end a session on the server: `{ refreshToken }` ends that session; `{ scope: "others" }` every other session, `{ scope: "global" }` all of them (204) |
 | POST | `/api/rest/v1/auth/signin/anonymous` | anon | a session without an account (off unless the project allows it) |
 | POST | `/api/rest/v1/auth/anonymous/upgrade` | anon + user | turn the anonymous user into an e-mail/password account |
 | POST | `/api/rest/v1/auth/verify-email` | anon | confirm the code from the verification mail |

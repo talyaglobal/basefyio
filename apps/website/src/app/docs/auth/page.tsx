@@ -74,8 +74,11 @@ const { data, error } = await bf.auth.signIn({
 // The signed-in user
 const { data: user } = await bf.auth.getUser()
 
-// Sign out (clears the local session)
-await bf.auth.signOut()`}</code></pre>
+// Sign out: ends the session on the server and clears it locally (basefyio-js 2.5.0)
+await bf.auth.signOut()
+// Sign out every other device, or every session
+await bf.auth.signOut({ scope: 'others' })
+await bf.auth.signOut({ scope: 'global' })`}</code></pre>
       <p>
         Every method returns <code>{`{ data, error }`}</code> — check{" "}
         <code>error</code> before using <code>data</code>. One account per email is
