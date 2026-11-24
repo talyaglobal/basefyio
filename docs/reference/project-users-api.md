@@ -66,6 +66,7 @@ examines one page of up to 500 anonymous accounts; repeat it until it reports `m
 | `allowAnonymous` | `false` | enables `POST /rest/v1/auth/signin/anonymous` |
 | `mfaEnforceEnrollment` | `false` | every user must enroll an authenticator at sign-in |
 | `smtpHost`, `smtpPort`, `smtpUser`, `smtpPass`, `senderEmail`, `senderName` | `null` | send the project's mails through your own SMTP instead of the platform mailer |
+| `emailProvider` | `null` | `null` = the platform mailer; `smtp` (or a provider with its key) = your mail service; `none` = the platform sends no auth mail at all (verification, reset, magic link, invitation, e-mail change, welcome). With `none`, create links and codes with the service key through `POST /api/auth/v1/admin/generate_link` and send them yourself |
 | `verifyEmailSubject/Body`, `resetPasswordSubject/Body`, `welcomeSubject/Body`, `inviteUserSubject/Body`, `magicLinkSubject/Body`, `changeEmailSubject/Body`, `reauthSubject/Body` | platform templates | per-project mail templates; `{{project_name}}`, `{{otp}}` and the flow's link are substituted |
 
 The response never includes `smtpPass`.

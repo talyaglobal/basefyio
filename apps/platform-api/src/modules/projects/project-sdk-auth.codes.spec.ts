@@ -99,3 +99,20 @@ describe('magic-link codes', () => {
   });
 });
 
+
+describe('a project that sends its own mail', () => {
+  it('gets no auth e-mail from the platform', async () => {
+    const svc: any = Object.create(ProjectSdkAuthService.prototype);
+    svc.logger = { debug: jest.fn(), warn: jest.fn() };
+    svc.authConfig = { getRaw: jest.fn(async () => ({ emailProvider: 'none' })) };
+    svc.email = { sendRawHtml: jest.fn() };
+    svc.sendDefaultEmail = jest.fn();
+    svc.sendViaSmtp = jest.fn();
+    for (const type of ['verify', 'reset', 'magic_link', 'invite', 'welcome', 'change_email', 'reauth']) {
+      await svc.sendProjectEmail('p1', 'ada@example.com', 'P', type, { otp: '123456' });
+    }
+    expect(svc.email.sendRawHtml).not.toHaveBeenCalled();
+    expect(svc.sendDefaultEmail).not.toHaveBeenCalled();
+    expect(svc.sendViaSmtp).not.toHaveBeenCalled();
+  });
+});

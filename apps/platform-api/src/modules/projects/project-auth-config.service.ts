@@ -79,6 +79,9 @@ export class ProjectAuthConfigService {
       if (!String(has('smtpHost') ?? '').trim() || !String(has('smtpUser') ?? '').trim() || !has('smtpPass')) {
         throw new BadRequestException('Custom SMTP needs a host, username and password');
       }
+    } else if (data.emailProvider === 'none') {
+      // The project's app sends every auth mail; stored credentials are dropped so nothing falls back to them.
+      data = { ...data, smtpHost: null, smtpUser: null, smtpPass: null };
     } else if (data.emailProvider === null || data.emailProvider === '') {
       // Back to the platform default: drop the SMTP settings so they are not used as a fallback.
       data = { ...data, emailProvider: null, smtpHost: null, smtpUser: null, smtpPass: null };

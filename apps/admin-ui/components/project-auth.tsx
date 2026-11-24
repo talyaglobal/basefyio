@@ -1719,8 +1719,18 @@ function EmailTab({
             <option value="resend">Resend</option>
             <option value="sendgrid">SendGrid</option>
             <option value="ses">Amazon SES</option>
+            <option value="none">None — my app sends the e-mails</option>
           </select>
         </div>
+
+        {provider === 'none' && (
+          <p className="text-sm text-muted-foreground">
+            No auth e-mail is sent for this project: verification, password reset, magic link, invitation,
+            e-mail change and welcome mails are all skipped. Create the links and codes on your server with
+            the service key (<code className="text-xs">POST /api/auth/v1/admin/generate_link</code>) and send
+            them with your own mailer.
+          </p>
+        )}
 
         {provider === 'smtp' && (
           <div className="grid gap-4 sm:grid-cols-2">

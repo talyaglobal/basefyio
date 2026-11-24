@@ -1032,6 +1032,11 @@ export class ProjectSdkAuthService {
     extraVars: Record<string, string>,
   ): Promise<void> {
     const rawCfg = await this.authConfig.getRaw(projectId);
+    // The project sends its own mail (emailProvider "none"): the platform sends nothing at all.
+    if ((rawCfg as any).emailProvider === 'none') {
+      this.logger.debug(`Project ${projectId} sends its own mail; "${type}" not sent`);
+      return;
+    }
 
     const customSubject = (rawCfg as any)[SUBJECT_FIELDS[type]] as string | null;
     const customBody = (rawCfg as any)[BODY_FIELDS[type]] as string | null;
