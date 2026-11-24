@@ -13,6 +13,8 @@ import { defineConfig, devices } from '@playwright/test';
  *   creates a storage state for. Skipped when E2E_EMAIL / E2E_PASSWORD are
  *   unset, so the suite stays green on a machine without credentials.
  *
+ * - `tours` — the guided-tours spec; needs its own account, see tests/tours.spec.ts.
+ *
  * Tags: @critical (must stay green before any PR merges), @gated (needs an
  * explicit opt-in: creates data or takes minutes), @screenshots (SCREENSHOTS=1).
  */
@@ -41,6 +43,14 @@ export default defineConfig({
       name: 'authenticated',
       testMatch: /(routes|critical|screenshots|responsive)\.spec\.ts/,
       use: { ...devices['Desktop Chrome'], storageState: '.auth/state.json' },
+    },
+    {
+      // Guided tours: a dedicated account (E2E_TOURS_EMAIL / E2E_TOURS_PASSWORD) that signs
+      // in inside the spec itself, so it never uses the shared storage state. Skips itself
+      // without the account or without the guided_tours flag.
+      name: 'tours',
+      testMatch: /tours\.spec\.ts/,
+      use: { ...devices['Desktop Chrome'] },
     },
   ],
 });

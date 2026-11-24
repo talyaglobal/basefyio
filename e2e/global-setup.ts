@@ -1,6 +1,7 @@
 import { chromium, request, type FullConfig } from '@playwright/test';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { apiBase, sleep } from './helpers/api';
 
 /**
  * Signs the e2e account in once and keeps the browser state for every
@@ -15,11 +16,34 @@ import { join } from 'node:path';
 const STATE_DIR = join(__dirname, '.auth');
 const STATE_FILE = join(STATE_DIR, 'state.json');
 
-function apiBase(baseURL: string): string {
-  if (process.env.E2E_API_URL) return process.env.E2E_API_URL.replace(/\/$/, '');
-  // app.<domain> → api.<domain>; anything else falls back to the dashboard's proxy.
-  const m = /^(https?:\/\/)app\.(.+)$/.exec(baseURL);
-  return m ? `${m[1]}api.${m[2]}/api` : `${baseURL.replace(/\/$/, '')}/api/proxy`;
+type ApiContext = Awaited<ReturnType<typeof request.newContext>>;
+
+async function switchToursOff(api: ApiContext, API: string, auth: Record<string, string>) {
+  let lastStatus = 0;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const res = await api
+      .patch(`${API}/auth/profile/tours`, { headers: auth, data: { autoEnabled: false } })
+      .catch(() => null);
+    lastStatus = res ? res.status() : 0;
+    if (res && res.ok()) return;
+    if (lastStatus === 404) {
+      console.log('e2e: the API has no guided tours yet (404), nothing to switch off');
+      return;
+    }
+    if (attempt < 3) await sleep(1_500);
+  }
+  // Still failing: only a problem when the feature is live for this account.
+  let flagOn = false;
+  try {
+    const f = await api.get(`${API}/features/me`, { headers: auth });
+    if (f.ok()) flagOn = !!((await f.json()) as { guided_tours?: boolean }).guided_tours;
+  } catch {
+    /* treated as flag off */
+  }
+  if (flagOn) {
+    throw new Error(`e2e: guided_tours is on for the e2e account but automatic tours could not be switched off (last status ${lastStatus})`);
+  }
+  console.warn(`e2e: warning, could not switch automatic tours off (last status ${lastStatus}); guided_tours is not on for this account, continuing`);
 }
 
 export default async function globalSetup(config: FullConfig) {
@@ -41,6 +65,10 @@ export default async function globalSetup(config: FullConfig) {
   if (!login.ok()) throw new Error(`e2e: API login failed (${login.status()}): ${(await login.text()).slice(0, 200)}`);
   const tokens = (await login.json()) as { accessToken: string; refreshToken: string };
   const auth = { Authorization: `Bearer ${tokens.accessToken}` };
+
+  // Automatic tours off for this shared account, so a popover never covers a
+  // click in the other specs. Never turned ON here.
+  await switchToursOff(api, API, auth);
 
   const teams = (await (await api.get(`${API}/teams`, { headers: auth })).json()) as Array<{ id: string; publicId?: string; isPersonal?: boolean }>;
   const team = teams.find((t) => t.isPersonal) ?? teams[0];
@@ -68,12 +96,23 @@ export default async function globalSetup(config: FullConfig) {
 
   // 2. The browser: sign in through the real page and keep the state.
   const browser = await chromium.launch();
-  const page = await browser.newPage({ baseURL });
+  const context = await browser.newContext({ baseURL });
+  // Second safety net: this browser never starts a tour on its own, and the
+  // saved state carries the key for every spec.
+  await context.addInitScript(() => {
+    try {
+      window.localStorage.setItem('basefyio_tours_auto', 'off');
+    } catch {
+      /* storage unavailable */
+    }
+  });
+  const page = await context.newPage();
   await page.goto('/login');
   await page.locator('input[type="email"], input[name="email"]').first().fill(email);
   await page.locator('input[type="password"]').first().fill(password);
   await page.getByRole('button', { name: /^sign in$/i }).first().click();
   await page.waitForURL(/\/dashboard/, { timeout: 45_000 });
+  await page.evaluate(() => window.localStorage.setItem('basefyio_tours_auto', 'off'));
   await page.context().storageState({ path: STATE_FILE });
   await browser.close();
   console.log(`e2e: signed in as ${email}; project ${project.id}; organization ${process.env.E2E_ORG_ID}`);

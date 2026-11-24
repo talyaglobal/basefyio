@@ -2682,6 +2682,57 @@ export default function ManagementPage() {
                 {flagUsers && flagUsers.nav_v2.length > 0 && <> ({flagUsers.nav_v2.length} enrolled)</>}
               </button>
             )}
+            {isRoot && (
+              <label
+                className="flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs"
+                title="Automatic page tours, the header Tour button and the Account card. On for everyone within 30 seconds; off hides them again."
+              >
+                <Switch
+                  checked={!!featureFlags?.guided_tours}
+                  disabled={featureFlags === null || savingFlag}
+                  onCheckedChange={async (next) => {
+                    setSavingFlag(true);
+                    try {
+                      const flags = await api.features.set('guided_tours', next);
+                      setFeatureFlags(flags);
+                      toast.success(next ? 'Guided tours switched on for everyone' : 'Guided tours switched off');
+                    } catch (err: any) {
+                      toast.error(err?.message || 'Could not change the flag');
+                    } finally {
+                      setSavingFlag(false);
+                    }
+                  }}
+                />
+                Guided tours for everyone
+              </label>
+            )}
+            {isRoot && profile?.id && (
+              <button
+                type="button"
+                className="rounded-md border px-2.5 py-1.5 text-xs hover:bg-accent disabled:opacity-50"
+                disabled={flagUsers === null || savingFlag}
+                title="Try guided tours on this account only, ahead of everyone. Reload the dashboard afterwards."
+                onClick={async () => {
+                  if (!flagUsers) return;
+                  const current = flagUsers.guided_tours ?? [];
+                  const mine = current.includes(profile.id);
+                  const next = mine ? current.filter((id) => id !== profile.id) : [...current, profile.id];
+                  setSavingFlag(true);
+                  try {
+                    const users = await api.features.setUsers('guided_tours', next);
+                    setFlagUsers(users);
+                    toast.success(mine ? 'Guided tours off for your account' : 'Guided tours on for your account (reload the dashboard)');
+                  } catch (err: any) {
+                    toast.error(err?.message || 'Could not change the flag');
+                  } finally {
+                    setSavingFlag(false);
+                  }
+                }}
+              >
+                {flagUsers?.guided_tours?.includes(profile.id) ? 'Guided tours: on for me' : 'Guided tours: try it on my account'}
+                {flagUsers && (flagUsers.guided_tours?.length ?? 0) > 0 && <> ({flagUsers.guided_tours.length} enrolled)</>}
+              </button>
+            )}
           </div>
         </div>
         <div className="overflow-x-auto">
