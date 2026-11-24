@@ -465,7 +465,7 @@ export function QueryEditor({ projectId }: QueryEditorProps) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
-      <div className="flex items-center gap-1 overflow-x-auto rounded-md border bg-muted/30 p-1">
+      <div className="flex items-center gap-1 overflow-x-auto rounded-md border bg-muted/30 p-1" data-tour="project-sql-js-tabs">
         {tabs.map((tab) => (
           <div
             key={tab.id}
@@ -577,7 +577,7 @@ export function QueryEditor({ projectId }: QueryEditorProps) {
           )}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button type="button" variant="outline" size="sm" disabled={insertableNames === 0}>
+              <Button type="button" variant="outline" size="sm" disabled={insertableNames === 0} data-tour="project-sql-js-insert-name">
                 Insert name
                 <ChevronDown className="ml-1.5 h-3.5 w-3.5" />
               </Button>
@@ -622,6 +622,7 @@ export function QueryEditor({ projectId }: QueryEditorProps) {
             onClick={() => setShowReference((v) => !v)}
             title="Query dialect reference"
             aria-label="Query dialect reference"
+            data-tour="project-sql-js-reference"
           >
             <HelpCircle className="h-4 w-4" />
           </Button>
@@ -636,7 +637,7 @@ export function QueryEditor({ projectId }: QueryEditorProps) {
             }}
             disabled={savedQueries.length === 0}
           >
-            <SelectTrigger className="h-8 w-[200px] text-xs">
+            <SelectTrigger className="h-8 w-[200px] text-xs" data-tour="project-sql-js-saved">
               <SelectValue placeholder={savedQueries.length === 0 ? 'No saved queries' : 'Saved queries'} />
             </SelectTrigger>
             <SelectContent>
@@ -668,6 +669,7 @@ export function QueryEditor({ projectId }: QueryEditorProps) {
               setSaveDialogOpen(true);
             }}
             disabled={!query.trim()}
+            data-tour="project-sql-js-save"
           >
             <Save className="mr-1.5 h-3.5 w-3.5" />
             Save
@@ -752,6 +754,7 @@ export function QueryEditor({ projectId }: QueryEditorProps) {
               : "collection('orders').find({ status: 'paid' }).sort({ _createdAt: -1 }).limit(50)"
           }
           spellCheck={false}
+          data-tour="project-sql-js-editor"
         />
         <div className="absolute bottom-3 right-3 flex gap-2">
           <Button
@@ -765,7 +768,7 @@ export function QueryEditor({ projectId }: QueryEditorProps) {
             <Trash2 className="mr-2 h-4 w-4" />
             Clear
           </Button>
-          <Button onClick={() => execute()} disabled={running || !query.trim()} size="sm">
+          <Button onClick={() => execute()} disabled={running || !query.trim()} size="sm" data-tour="project-sql-js-run">
             {running ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (

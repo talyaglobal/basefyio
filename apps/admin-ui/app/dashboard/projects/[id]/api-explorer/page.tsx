@@ -87,9 +87,14 @@ function EndpointCard({
   response?: string;
 }) {
   const [open, setOpen] = useState(method === 'GET');
+  // The GET card is the first one: it carries the tour anchor.
+  const isFirstCard = method === 'GET';
 
   return (
-    <div className="rounded-lg border bg-card">
+    <div
+      className="rounded-lg border bg-card"
+      data-tour={isFirstCard ? 'project-api-explorer-endpoints' : undefined}
+    >
       <button
         type="button"
         onClick={() => setOpen(!open)}
@@ -200,7 +205,7 @@ function FilterReference({ columns }: { columns: ColumnInfo[] }) {
   ];
 
   return (
-    <div className="rounded-lg border bg-card">
+    <div className="rounded-lg border bg-card" data-tour="project-api-explorer-filters">
       <div className="px-4 py-3 border-b">
         <h2 className="text-sm font-semibold">Filter Reference</h2>
         <p className="text-xs text-muted-foreground mt-0.5">
@@ -306,7 +311,7 @@ export default function ApiExplorerPage() {
 
       {/* Table selector + base URL */}
       <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2" data-tour="project-api-explorer-table">
           <label htmlFor="api-explorer-table" className="text-sm font-medium shrink-0">Table</label>
           <select
             id="api-explorer-table"
@@ -321,7 +326,7 @@ export default function ApiExplorerPage() {
             ))}
           </select>
         </div>
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex items-center gap-2 min-w-0" data-tour="project-api-explorer-base-url">
           <span className="text-xs text-muted-foreground shrink-0">Base URL:</span>
           <code className="truncate text-xs bg-muted px-2 py-1 rounded">{restUrl}</code>
           <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => copyText(restUrl, 'REST URL')}>
@@ -331,7 +336,7 @@ export default function ApiExplorerPage() {
       </div>
 
       {/* Warning for service key */}
-      <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+      <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300" data-tour="project-api-explorer-security">
         <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
         <div>
           <strong>Security note:</strong> POST, PATCH, and DELETE examples use the <strong>service key</strong> (bypasses RLS).

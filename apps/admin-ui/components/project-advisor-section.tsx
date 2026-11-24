@@ -231,7 +231,7 @@ export function ProjectAdvisorSection({
 
   return (
     <div className="space-y-4">
-      <div className="basefyio-grid-row-hover grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="basefyio-grid-row-hover grid gap-3 sm:grid-cols-2 lg:grid-cols-4" data-tour="project-overview-summary">
         <div className="rounded-xl border bg-card px-4 py-3 shadow-sm">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
             Status
@@ -297,7 +297,7 @@ export function ProjectAdvisorSection({
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+      <div className="overflow-hidden rounded-xl border bg-card shadow-sm" data-tour="project-overview-advisor">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-muted/30 px-4 py-3">
           <div className="flex items-center gap-2">
             <Lightbulb className="h-4 w-4 text-muted-foreground" />

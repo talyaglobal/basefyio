@@ -1539,15 +1539,15 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
   const selName = selParsed?.name ?? null;
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full" data-tour="project-tables-root">
       {tables.length === 0 && collections.length === 0 && entities.length === 0 ? (
-        <div className="flex flex-1 flex-col items-center justify-center rounded-lg border border-dashed">
+        <div className="flex flex-1 flex-col items-center justify-center rounded-lg border border-dashed" data-tour="project-tables-empty">
           <Table2 className="mb-3 h-10 w-10 text-muted-foreground/50" />
           <p className="font-medium">No data objects yet</p>
           <p className="mb-4 text-sm text-muted-foreground">
             Create a SQL table, a NoSQL collection, or a Data Engine entity to get started.
           </p>
-          <Button onClick={() => setCreateOpen(true)}>
+          <Button onClick={() => setCreateOpen(true)} data-tour="project-tables-create-first">
             <Plus className="mr-2 h-4 w-4" />
             Create New
           </Button>
@@ -1561,7 +1561,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
             className="shrink-0 border-r bg-muted/30 flex flex-col relative"
             style={{ width: sidebarWidth }}
           >
-            <div className="sticky top-0 z-10 shrink-0 border-b bg-muted/40 p-2 backdrop-blur-sm">
+            <div className="sticky top-0 z-10 shrink-0 border-b bg-muted/40 p-2 backdrop-blur-sm" data-tour="project-tables-find">
               <div className="relative">
                 <Search
                   className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
@@ -1626,8 +1626,12 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
                   </p>
                 </div>
               ) : (
-                filteredItems.map((t) => (
-                  <div key={`${t.kind}:${t.name}`} className="group relative">
+                filteredItems.map((t, itemIndex) => (
+                  <div
+                    key={`${t.kind}:${t.name}`}
+                    className="group relative"
+                    data-tour={itemIndex === 0 ? 'project-tables-list' : undefined}
+                  >
                     <button
                       onClick={() => openItem(keyOf(t.kind, t.name))}
                       className={cn(
@@ -1748,7 +1752,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
           <div className="flex-1 min-w-0 flex flex-col">
             {selectedKey ? (
               <>
-                <div className="flex items-center border-b bg-muted/30 px-2 py-1.5">
+                <div className="flex items-center border-b bg-muted/30 px-2 py-1.5" data-tour="project-tables-open-tabs">
                   <div className="flex items-center gap-1 overflow-x-auto min-w-0 flex-1">
                     {openTabs.map((tab) => {
                       const active = tab === selectedKey;
@@ -1793,7 +1797,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
                     </Button>
                     {selKind === 'sql' && (
                       <>
-                        <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setImportOpen(true)}>
+                        <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setImportOpen(true)} data-tour="project-tables-import">
                           <ImportIcon className="mr-1.5 h-3.5 w-3.5" />
                           Import Data
                         </Button>
@@ -1815,7 +1819,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
                       </>
                     )}
                     <div className="relative">
-                      <Button size="sm" className="h-7 text-xs" onClick={() => setCreateOpen(true)}>
+                      <Button size="sm" className="h-7 text-xs" onClick={() => setCreateOpen(true)} data-tour="project-tables-new">
                         <Plus className="mr-1.5 h-3.5 w-3.5" />
                         New
                       </Button>
@@ -1857,7 +1861,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
                       {appliedFilter ? (data?.total === 1 ? ' matches' : ' match') : ''}
                     </Badge>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex items-center gap-2 shrink-0" data-tour="project-tables-grid-toolbar">
                     <Input
                       placeholder="Filter rows..."
                       className="h-8 w-48 text-xs"
@@ -2227,7 +2231,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
             ) : (
               <div className="flex flex-1 flex-col items-center justify-center gap-3 text-muted-foreground">
                 <p>Select an item from the sidebar</p>
-                <Button size="sm" variant="outline" onClick={() => setCreateOpen(true)}>
+                <Button size="sm" variant="outline" onClick={() => setCreateOpen(true)} data-tour="project-tables-new">
                   <Plus className="mr-1.5 h-3.5 w-3.5" />
                   New
                 </Button>

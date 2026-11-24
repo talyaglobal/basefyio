@@ -114,7 +114,7 @@ export default function OrganizationSettingsPage() {
 
   return (
     <div className="max-w-2xl space-y-8">
-      <section className="space-y-4 rounded-xl border p-5">
+      <section className="space-y-4 rounded-xl border p-5" data-tour="org-settings-profile">
         <div>
           <h2 className="font-semibold">Profile</h2>
           <p className="text-xs text-muted-foreground">
@@ -191,14 +191,14 @@ export default function OrganizationSettingsPage() {
 
         {canEdit && (
           <div className="flex justify-end">
-            <Button onClick={save} disabled={saving}>
+            <Button onClick={save} disabled={saving} data-tour="org-settings-save">
               {saving ? 'Saving…' : 'Save changes'}
             </Button>
           </div>
         )}
       </section>
 
-      <section className="space-y-3 rounded-xl border p-5">
+      <section className="space-y-3 rounded-xl border p-5" data-tour="org-settings-address">
         <div>
           <h2 className="font-semibold">Address</h2>
           <p className="text-xs text-muted-foreground">

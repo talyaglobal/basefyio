@@ -35,17 +35,17 @@ export default function OrganizationProjectsPage() {
 
   if (projects.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed p-10 text-center">
+      <div className="rounded-xl border border-dashed p-10 text-center" data-tour="org-projects-list">
         <p className="text-sm text-muted-foreground">No projects in this organization yet.</p>
         <Button asChild size="sm" className="mt-4">
-          <Link href="/dashboard/projects">Create the first one</Link>
+          <Link href="/dashboard/projects" data-tour="org-projects-create">Create the first one</Link>
         </Button>
       </div>
     );
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border">
+    <div className="overflow-hidden rounded-xl border" data-tour="org-projects-list">
       <table className="w-full text-sm">
         <thead className="bg-muted/40 text-left text-xs text-muted-foreground">
           <tr>
@@ -56,10 +56,10 @@ export default function OrganizationProjectsPage() {
           </tr>
         </thead>
         <tbody>
-          {projects.map((p) => (
+          {projects.map((p, i) => (
             <tr key={p.id} className="border-t hover:bg-accent/40">
               <td className="px-4 py-2">
-                <Link href={`/dashboard/projects/${p.id}`} className="font-medium hover:underline">
+                <Link href={`/dashboard/projects/${p.id}`} className="font-medium hover:underline" data-tour={i === 0 ? 'org-projects-open' : undefined}>
                   {p.name}
                 </Link>
                 <div className="text-xs text-muted-foreground">{p.slug}</div>

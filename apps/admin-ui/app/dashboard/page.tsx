@@ -322,12 +322,12 @@ export default function DashboardPage() {
         </div>
         <div className="flex items-center gap-2">
           <Button asChild className="border-0 bg-[#217346] text-white hover:bg-[#1a5c38] focus-visible:ring-2 focus-visible:ring-[#217346] focus-visible:ring-offset-2 focus-visible:ring-offset-background dark:bg-[#217346] dark:hover:bg-[#2a8c57]">
-            <Link prefetch={false} href="/dashboard/blueprints">
+            <Link prefetch={false} href="/dashboard/blueprints" data-tour="overview-sheet-to-app">
               <FileSpreadsheet className="mr-2 h-4 w-4" />
               Sheet to App
             </Link>
           </Button>
-          <Button onClick={() => setDialogOpen(true)} className="bg-brand-gradient text-white border-0 hover:opacity-90">
+          <Button onClick={() => setDialogOpen(true)} data-tour="overview-new-project" className="bg-brand-gradient text-white border-0 hover:opacity-90">
             <Plus className="mr-2 h-4 w-4" />
             New Project
           </Button>
@@ -341,6 +341,7 @@ export default function DashboardPage() {
           <button
             type="button"
             onClick={() => setTeamDropdownOpen((prev) => !prev)}
+            data-tour="overview-scope"
             className="flex h-12 items-center gap-2 rounded-xl border border-input bg-card px-4 text-sm font-medium shadow-sm transition-colors hover:bg-accent"
           >
             <Users className="h-4 w-4 text-muted-foreground" />
@@ -383,7 +384,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Search */}
-        <div className="relative min-w-0 flex-1" data-dashboard-search="true">
+        <div className="relative min-w-0 flex-1" data-dashboard-search="true" data-tour="overview-search">
           <Search
             className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground"
             aria-hidden
@@ -466,7 +467,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Stat Cards */}
-      <div className="basefyio-grid-row-hover grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="basefyio-grid-row-hover grid gap-4 sm:grid-cols-2 lg:grid-cols-4" data-tour="overview-stats">
         <StatCard
           icon={Database}
           label="Total Projects"
@@ -611,7 +612,7 @@ export default function DashboardPage() {
       {/* Recent Projects + Quick Actions Row */}
       <div className="basefyio-grid-row-hover grid gap-4 lg:grid-cols-3">
         {/* Recent Projects */}
-        <div className="lg:col-span-2 rounded-xl border bg-card p-5">
+        <div className="lg:col-span-2 rounded-xl border bg-card p-5" data-tour="overview-recent">
           <div className="mb-4 flex items-center justify-between">
             <div>
               <h2 className="font-semibold">Recent Projects</h2>
@@ -668,7 +669,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Quick Actions */}
-        <div className="rounded-xl border bg-card p-5 space-y-4">
+        <div className="rounded-xl border bg-card p-5 space-y-4" data-tour="overview-quick-actions">
           <div>
             <h2 className="font-semibold">Quick Actions</h2>
             <p className="text-xs text-muted-foreground">Common tasks</p>

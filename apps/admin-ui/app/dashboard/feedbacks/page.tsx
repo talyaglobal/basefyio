@@ -325,7 +325,7 @@ export default function FeedbacksPage() {
         </Button>
       </div>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-2" data-tour="feedbacks-status-filter">
         <button
           onClick={() => setFilterStatus(null)}
           aria-pressed={!filterStatus}
@@ -398,7 +398,7 @@ export default function FeedbacksPage() {
         </div>
       )}
 
-      <div className="max-w-md">
+      <div className="max-w-md" data-tour="feedbacks-search">
         <Input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -411,12 +411,12 @@ export default function FeedbacksPage() {
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
       ) : filtered.length === 0 ? (
-        <div className="rounded-lg border bg-card p-12 text-center text-muted-foreground">
+        <div className="rounded-lg border bg-card p-12 text-center text-muted-foreground" data-tour="feedbacks-list">
           No feedbacks found.
         </div>
       ) : (
-        <div className="space-y-3">
-          {visible.map((fb) => {
+        <div className="space-y-3" data-tour="feedbacks-list">
+          {visible.map((fb, fbIndex) => {
             const typeCfg = TYPE_CONFIG[fb.type] || TYPE_CONFIG.GENERAL;
             const statusCfg = STATUS_CONFIG[fb.status] || STATUS_CONFIG.OPEN;
             const attachments = parseAttachments(fb.attachments);
@@ -745,6 +745,7 @@ export default function FeedbacksPage() {
                       onClick={() => openHistory(fb.id)}
                       aria-label={`Open activity history: ${fb.title}`}
                       className="w-full rounded-md border bg-muted/30 px-3 py-2 text-left text-xs hover:bg-muted/50"
+                      data-tour={fbIndex === 0 ? 'feedbacks-dev-action' : undefined}
                     >
                       <span className="font-medium text-foreground">Developer action:</span>{' '}
                       {isDeleted
@@ -771,7 +772,7 @@ export default function FeedbacksPage() {
                     )}
 
                     {canComment && (
-                      <div className="space-y-2 rounded-md border p-3">
+                      <div className="space-y-2 rounded-md border p-3" data-tour={fbIndex === 0 ? 'feedbacks-comment' : undefined}>
                         {replyToByFeedback[fb.id] && (
                           <div className="flex items-center justify-between rounded-md border bg-muted/30 px-2 py-1 text-xs">
                             <span>
@@ -956,6 +957,7 @@ export default function FeedbacksPage() {
                           size="sm"
                           variant="outline"
                           disabled={updatingId === fb.id || fb.status === 'CLOSED' || !isOwner || isDeleted}
+                          data-tour={fbIndex === 0 ? 'feedbacks-mark-done' : undefined}
                           onClick={() =>
                             handleStatusChange(
                               fb.id,

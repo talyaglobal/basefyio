@@ -359,7 +359,7 @@ export function CollectionDocumentsPanel({
   return (
     <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
       {/* Toolbar */}
-      <div className="flex items-center gap-2 border-b px-4 py-2">
+      <div className="flex items-center gap-2 border-b px-4 py-2" data-tour="project-tables-docs-toolbar">
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-sm font-mono font-medium text-foreground truncate">{collectionName}</span>
           <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">

@@ -149,7 +149,7 @@ function TeamIntegrationsSection({ teamId, canManage, refreshKey }: { teamId: st
   }
 
   return (
-    <div id="integrations" className="space-y-4 scroll-mt-4">
+    <div id="integrations" className="space-y-4 scroll-mt-4" data-tour="team-integrations">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold">Integrations</h2>
@@ -568,11 +568,16 @@ export default function TeamSettingsPage() {
     }
   }
 
+  // The tour points at the role menu of the first member the owner can change.
+  const firstRoleMemberId = currentUserIsOwner
+    ? members.find((x) => x.role !== 'OWNER' && x.id !== currentUserId)?.id
+    : undefined;
+
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       {/* Incoming invites */}
       {myInvites.length > 0 && (
-        <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-4 dark:border-blue-900 dark:bg-blue-950/20">
+        <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-4 dark:border-blue-900 dark:bg-blue-950/20" data-tour="team-my-invites">
           <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold">
             <Mail className="h-4 w-4 text-blue-600" />
             Pending Invites ({myInvites.length})
@@ -638,7 +643,7 @@ export default function TeamSettingsPage() {
             <RefreshCw className="h-4 w-4" />
           </Button>
           {hasPermission('canInviteMembers') && (
-            <Button onClick={() => setDialogOpen(true)}>
+            <Button onClick={() => setDialogOpen(true)} data-tour="team-invite">
               <Plus className="mr-2 h-4 w-4" />
               Invite
             </Button>
@@ -648,7 +653,7 @@ export default function TeamSettingsPage() {
 
       {/* Team Name — owner or users with canRenameTeam */}
       {hasPermission('canRenameTeam') && (
-        <div className="rounded-lg border bg-card p-4 space-y-3">
+        <div className="rounded-lg border bg-card p-4 space-y-3" data-tour="team-name">
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-sm font-semibold">{noun} Name</h2>
@@ -729,7 +734,7 @@ export default function TeamSettingsPage() {
       ) : (
         <>
           {/* Members */}
-          <div className="rounded-xl border bg-card overflow-hidden">
+          <div className="rounded-xl border bg-card overflow-hidden" data-tour="team-members">
             <div className="border-b bg-muted/40 px-4 py-2.5 flex items-center gap-2">
               <Users className="h-3.5 w-3.5 text-muted-foreground" />
               <span className="text-sm font-medium">Members</span>
@@ -832,6 +837,7 @@ export default function TeamSettingsPage() {
                                 variant="outline"
                                 size="sm"
                                 className="h-7 px-2 text-xs gap-1"
+                                data-tour={m.id === firstRoleMemberId ? 'team-member-role' : undefined}
                               >
                                 {isAdmin ? (
                                   <><Shield className="h-3 w-3" />Admin</>
@@ -989,7 +995,7 @@ export default function TeamSettingsPage() {
             </p>
           </div>
 
-          <div className="rounded-xl border bg-card overflow-hidden">
+          <div className="rounded-xl border bg-card overflow-hidden" data-tour="team-permissions">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/40">

@@ -89,7 +89,7 @@ export default function OrganizationLayout({ children }: { children: React.React
   return (
     <OrganizationContext.Provider value={contextValue}>
       <div className="space-y-6">
-        <header className="flex flex-wrap items-center gap-4">
+        <header className="flex flex-wrap items-center gap-4" data-tour="org-overview-header">
           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-brand-gradient text-white shadow-sm shrink-0">
             {organization ? (
               <OrganizationKindIcon kind={organization.kind} className="h-6 w-6" />
@@ -120,7 +120,7 @@ export default function OrganizationLayout({ children }: { children: React.React
           </div>
         </header>
 
-        <nav className="flex gap-1 overflow-x-auto border-b" aria-label="Organization sections">
+        <nav className="flex gap-1 overflow-x-auto border-b" aria-label="Organization sections" data-tour="org-overview-tabs">
           {TABS.map((tab) => {
             const href = `${base}${tab.sub}`;
             const active = tab.sub === '' ? pathname === base : pathname.startsWith(href);

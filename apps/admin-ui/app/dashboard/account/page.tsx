@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import Cookies from 'js-cookie';
 import { api } from '@/lib/api';
 import { useDashboard } from '@/app/dashboard/layout';
+import { useTourPrefs } from '@/lib/tour-prefs';
 import type { UserProfile } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,6 +19,7 @@ import {
   BellRing,
   Camera,
   Check,
+  Compass,
   Eye,
   EyeOff,
   Github,
@@ -25,6 +27,7 @@ import {
   Laptop,
   Link2,
   Loader2,
+  RotateCcw,
   Save,
   Unlink,
   User,
@@ -36,6 +39,8 @@ export default function AccountPage() {
   const searchParams = useSearchParams();
   const { refreshUser, refreshProfile } = useDashboard();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const tourPrefs = useTourPrefs();
+  const [savingTours, setSavingTours] = useState(false);
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -335,7 +340,7 @@ export default function AccountPage() {
           Account information
         </h2>
 
-        <div className="flex items-center gap-5">
+        <div className="flex items-center gap-5" data-tour="account-photo">
           <div className="relative">
             <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full bg-primary/10 ring-2 ring-border">
               {avatarPreview ? (
@@ -398,7 +403,7 @@ export default function AccountPage() {
           </div>
         )}
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-2" data-tour="account-name">
           <div className="space-y-2">
             <Label htmlFor="account-first">First name <span className="text-destructive" aria-hidden>*</span></Label>
             <Input
@@ -429,7 +434,7 @@ export default function AccountPage() {
             <Badge variant="secondary" className="text-xs">{profile.role}</Badge>
             <Badge variant="outline" className="text-xs uppercase">{authProvider}</Badge>
           </div>
-          <Button onClick={handleSaveProfile} disabled={!hasProfileChanges || saving} size="sm">
+          <Button onClick={handleSaveProfile} disabled={!hasProfileChanges || saving} size="sm" data-tour="account-save">
             {saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
             Save changes
           </Button>
@@ -525,7 +530,7 @@ export default function AccountPage() {
         </p>
 
         <div className="space-y-3">
-          <fieldset className="space-y-2 rounded-md border px-4 py-3">
+          <fieldset className="space-y-2 rounded-md border px-4 py-3" data-tour="account-signin-emails">
             <legend className="px-1 text-sm font-medium">Sign-in emails</legend>
             {(
               [
@@ -578,7 +583,7 @@ export default function AccountPage() {
         </div>
       </div>
 
-      <div className="rounded-lg border bg-card p-6 space-y-4">
+      <div className="rounded-lg border bg-card p-6 space-y-4" data-tour="account-browser-alerts">
         <h2 className="flex items-center gap-2 text-sm font-medium">
           <BellRing className="h-4 w-4" />
           Browser notifications
@@ -629,11 +634,104 @@ export default function AccountPage() {
       </div>
 
       <div className="flex justify-end">
-        <Button onClick={handleSaveNotifications} disabled={!hasNotifChanges || savingNotifs} size="sm">
+        <Button onClick={handleSaveNotifications} disabled={!hasNotifChanges || savingNotifs} size="sm" data-tour="account-save-notifications">
           {savingNotifs ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
           Save notification preferences
         </Button>
       </div>
+
+      {tourPrefs.loaded && (
+        <div id="guided-tours" className="rounded-lg border bg-card p-6 space-y-4" data-tour="account-tours">
+          <h2 className="flex items-center gap-2 text-sm font-medium">
+            <Compass className="h-4 w-4" />
+            Guided tours
+          </h2>
+          <p className="text-xs text-muted-foreground">
+            Each page has a short tour that points out its main buttons. A tour starts by itself the first time you open a page.
+          </p>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3 rounded-md border px-4 py-3">
+              <div className="pr-4">
+                <p className="text-sm font-medium">Start tours automatically</p>
+                <p className="text-xs text-muted-foreground">
+                  Show each page&apos;s tour the first time you open that page.
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={tourPrefs.autoEnabled}
+                aria-label="Start tours automatically"
+                disabled={savingTours}
+                onClick={async () => {
+                  const next = !tourPrefs.autoEnabled;
+                  setSavingTours(true);
+                  try {
+                    const saved = await tourPrefs.setAutoEnabled(next);
+                    if (saved) {
+                      toast.success(next ? 'Automatic tours turned on' : 'Automatic tours turned off');
+                    } else {
+                      toast.error('Could not save right now. Your choice is kept in this browser and will be saved when the connection is back.');
+                    }
+                  } finally {
+                    setSavingTours(false);
+                  }
+                }}
+                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out disabled:opacity-50 ${
+                  tourPrefs.autoEnabled ? 'bg-primary' : 'bg-muted'
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                    tourPrefs.autoEnabled ? 'translate-x-[22px]' : 'translate-x-[2px]'
+                  } mt-[2px]`}
+                />
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between gap-3 rounded-md border px-4 py-3">
+              <div className="pr-4">
+                <p className="text-sm font-medium">Show tours again</p>
+                <p className="text-xs text-muted-foreground">
+                  Forget which tours you have seen and turn automatic tours back on. Each page shows its tour once more.
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {tourPrefs.seen.length === 0
+                    ? 'No tours seen yet.'
+                    : tourPrefs.seen.length === 1
+                      ? '1 tour seen.'
+                      : `${tourPrefs.seen.length} tours seen.`}
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                disabled={savingTours || (tourPrefs.autoEnabled && tourPrefs.seen.length === 0)}
+                onClick={async () => {
+                  setSavingTours(true);
+                  try {
+                    const ok = await tourPrefs.resetSeen();
+                    if (ok) toast.success('Tours will show again on each page');
+                    else toast.error('Could not reset the tours. Try again.');
+                  } finally {
+                    setSavingTours(false);
+                  }
+                }}
+              >
+                {savingTours ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="mr-1.5 h-3.5 w-3.5" />}
+                Show tours again
+              </Button>
+            </div>
+          </div>
+
+          <p className="text-xs text-muted-foreground">
+            To replay the tour of the page you are on, use the Tour button in the header.
+          </p>
+        </div>
+      )}
 
       {isExternalAuth && !forcePasswordChange && (
         <div className="rounded-lg border bg-card p-6 space-y-2">
@@ -649,7 +747,7 @@ export default function AccountPage() {
       )}
 
       {!isExternalAuth && (
-      <div className="rounded-lg border bg-card p-6 space-y-4">
+      <div className="rounded-lg border bg-card p-6 space-y-4" data-tour="account-password">
         <h2 className="flex items-center gap-2 text-sm font-medium">
           <KeyRound className="h-4 w-4" />
           Change password

@@ -57,7 +57,7 @@ export default function OrganizationOverviewPage() {
         <p className="max-w-2xl text-sm text-muted-foreground">{organization.description}</p>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" data-tour="org-overview-stats">
         <Stat label="Projects" value={counts.projects} hint={projectsHint} href={`${base}/projects`} icon={FolderOpen} />
         <Stat
           label="Members"
@@ -84,10 +84,10 @@ export default function OrganizationOverviewPage() {
 
       <div className="flex flex-wrap gap-2">
         <Button asChild size="sm">
-          <Link href="/dashboard/projects">Open projects</Link>
+          <Link href="/dashboard/projects" data-tour="org-overview-open-projects">Open projects</Link>
         </Button>
         <Button asChild size="sm" variant="outline">
-          <Link href={`${base}/members`}>Invite a member</Link>
+          <Link href={`${base}/members`} data-tour="org-overview-invite">Invite a member</Link>
         </Button>
         {organization.websiteUrl && (
           <Button asChild size="sm" variant="ghost">

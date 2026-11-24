@@ -150,10 +150,11 @@ export default function DatabasePage() {
     }
   }
 
-  const tabBtn = (t: Tab, label: string) => (
+  const tabBtn = ({ t, label, tourAnchor }: { t: Tab; label: string; tourAnchor: string }) => (
     <button
       key={t}
       type="button"
+      data-tour={tourAnchor}
       onClick={() => setTab(t)}
       className={`whitespace-nowrap shrink-0 rounded px-3 py-1.5 text-sm ${tab === t ? 'bg-background font-medium shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
     >
@@ -177,7 +178,7 @@ export default function DatabasePage() {
             </Button>
           )}
           {tab !== 'extensions' && tab !== 'policies' && (
-            <Button size="sm" className="whitespace-nowrap" onClick={() => setDialogOpen(true)}>
+            <Button size="sm" className="whitespace-nowrap" onClick={() => setDialogOpen(true)} data-tour="project-database-new">
               <Plus className="mr-1.5 h-4 w-4 shrink-0" />
               New {TAB_SINGULAR[tab]}
             </Button>
@@ -186,11 +187,11 @@ export default function DatabasePage() {
       </div>
 
       <div className="inline-flex max-w-full overflow-x-auto rounded-lg border bg-muted/40 p-1">
-        {tabBtn('indexes', 'Indexes')}
-        {tabBtn('triggers', 'Triggers')}
-        {tabBtn('functions', 'Functions')}
-        {tabBtn('extensions', 'Extensions')}
-        {tabBtn('policies', 'Policies')}
+        {tabBtn({ t: 'indexes', label: 'Indexes', tourAnchor: 'project-database-tab-indexes' })}
+        {tabBtn({ t: 'triggers', label: 'Triggers', tourAnchor: 'project-database-tab-triggers' })}
+        {tabBtn({ t: 'functions', label: 'Functions', tourAnchor: 'project-database-tab-functions' })}
+        {tabBtn({ t: 'extensions', label: 'Extensions', tourAnchor: 'project-database-tab-extensions' })}
+        {tabBtn({ t: 'policies', label: 'Policies', tourAnchor: 'project-database-tab-policies' })}
       </div>
 
       {tab === 'functions' && (

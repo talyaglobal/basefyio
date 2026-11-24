@@ -200,10 +200,10 @@ export function Blueprints({ teamId }: { teamId: string | null }) {
           onChange={onFile}
         />
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={downloadTemplate}>
+          <Button variant="outline" onClick={downloadTemplate} data-tour="blueprints-template">
             <Download className="mr-1 h-4 w-4" /> Starter template
           </Button>
-          <Button onClick={() => fileRef.current?.click()} disabled={analyzing || !teamId}>
+          <Button onClick={() => fileRef.current?.click()} disabled={analyzing || !teamId} data-tour="blueprints-new">
             <Upload className="mr-1 h-4 w-4" />
             New from Excel
           </Button>
@@ -236,11 +236,11 @@ export function Blueprints({ teamId }: { teamId: string | null }) {
           <Loader2 className="h-4 w-4 animate-spin" /> Loading…
         </div>
       ) : list.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
+        <div data-tour="blueprints-list" className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
           No blueprints yet. Upload an Excel file to get started.
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-2" data-tour="blueprints-list">
           {list.map((bp) => (
             <button
               key={bp.id}
@@ -497,7 +497,7 @@ export function BlueprintDetailView({
             className="hidden"
             onChange={onResync}
           />
-          <Button variant="outline" size="sm" onClick={() => resyncRef.current?.click()} disabled={busy}>
+          <Button variant="outline" size="sm" onClick={() => resyncRef.current?.click()} disabled={busy} data-tour="blueprint-detail-sync">
             <Upload className="mr-1 h-3.5 w-3.5" /> Sync from Excel
           </Button>
           <Button variant="ghost" size="sm" onClick={remove}>
@@ -529,6 +529,7 @@ export function BlueprintDetailView({
                 variant="outline"
                 onClick={() => setDraft(structuredClone(bp.dataModel))}
                 disabled={busy}
+                data-tour="blueprint-detail-edit"
               >
                 <Pencil className="mr-1 h-3.5 w-3.5" /> Edit
               </Button>
@@ -549,7 +550,7 @@ export function BlueprintDetailView({
         )}
         {draft
           ? draft.tables.map((t, ti) => (
-              <div key={ti} className="space-y-2 rounded-lg border bg-card p-4">
+              <div key={ti} className="space-y-2 rounded-lg border bg-card p-4" data-tour={ti === 0 ? 'blueprint-detail-table' : undefined}>
                 <div className="flex items-center gap-2">
                   <Table2 className="h-4 w-4 text-primary" />
                   <Input
@@ -596,8 +597,8 @@ export function BlueprintDetailView({
                 ))}
               </div>
             ))
-          : bp.dataModel.tables.map((t) => (
-              <div key={t.name} className="rounded-lg border bg-card p-4">
+          : bp.dataModel.tables.map((t, ti) => (
+              <div key={t.name} className="rounded-lg border bg-card p-4" data-tour={ti === 0 ? 'blueprint-detail-table' : undefined}>
                 <div className="mb-2 flex items-center gap-2 font-medium">
                   <Table2 className="h-4 w-4 text-primary" /> {t.name}
                   {t.label !== t.name && (
@@ -619,22 +620,24 @@ export function BlueprintDetailView({
       {/* Actions */}
       <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-card p-4">
         {bp.status === 'DRAFT' && (
-          <Button onClick={approve} disabled={busy || !!draft}>
+          <Button onClick={approve} disabled={busy || !!draft} data-tour="blueprint-detail-approve">
             {busy && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
             <CheckCircle2 className="mr-1 h-4 w-4" /> Approve
           </Button>
         )}
         {(bp.status === 'APPROVED' || bp.status === 'GENERATED' || bp.status === 'FAILED') && (
           <>
-            <Combobox
-              className="w-64"
-              options={projects.map((p) => ({ value: p.id, label: p.name }))}
-              value={targetProject}
-              onValueChange={setTargetProject}
-              placeholder="Select target project"
-              searchPlaceholder="Search projects…"
-            />
-            <Button onClick={generate} disabled={busy || !targetProject || (importData && !dataSheets)}>
+            <span data-tour="blueprint-detail-target">
+              <Combobox
+                className="w-64"
+                options={projects.map((p) => ({ value: p.id, label: p.name }))}
+                value={targetProject}
+                onValueChange={setTargetProject}
+                placeholder="Select target project"
+                searchPlaceholder="Search projects…"
+              />
+            </span>
+            <Button onClick={generate} disabled={busy || !targetProject || (importData && !dataSheets)} data-tour="blueprint-detail-generate">
               {busy && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
               <Database className="mr-1 h-4 w-4" />
               {bp.generatedDataModel ? 'Re-generate' : 'Generate tables'}
@@ -668,7 +671,7 @@ export function BlueprintDetailView({
         <div className="space-y-3 rounded-lg border bg-card p-4">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-medium">Schema migrations</h2>
-            <Button size="sm" variant="outline" onClick={planMigration} disabled={busy}>
+            <Button size="sm" variant="outline" onClick={planMigration} disabled={busy} data-tour="blueprint-detail-plan">
               {busy && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
               Plan changes
             </Button>

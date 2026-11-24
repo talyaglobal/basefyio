@@ -308,7 +308,7 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
-      <div className="flex shrink-0 items-center gap-1 overflow-x-auto rounded-md border bg-muted/30 p-1">
+      <div className="flex shrink-0 items-center gap-1 overflow-x-auto rounded-md border bg-muted/30 p-1" data-tour="project-sql-tabs">
         {tabs.map((tab) => (
           <div
             key={tab.id}
@@ -363,7 +363,7 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
             </button>
           </div>
         ))}
-        <Button type="button" variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={addTab}>
+        <Button type="button" variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={addTab} data-tour="project-sql-new-tab">
           <Plus className="h-3.5 w-3.5" />
         </Button>
       </div>
@@ -380,6 +380,7 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
           onKeyDown={handleKeyDown}
           className="h-[38vh] min-h-[260px] w-full resize-y rounded-md border bg-muted/30 p-4 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-ring"
           placeholder="SELECT * FROM ..."
+          data-tour="project-sql-editor"
           spellCheck={false}
         />
         <div className="absolute bottom-3 right-3 flex gap-2">
@@ -394,7 +395,7 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
             <Trash2 className="mr-2 h-4 w-4" />
             Clear
           </Button>
-          <Button onClick={() => execute()} disabled={running || !query.trim()} size="sm">
+          <Button onClick={() => execute()} disabled={running || !query.trim()} size="sm" data-tour="project-sql-run">
             {running ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (

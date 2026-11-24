@@ -105,7 +105,7 @@ export default function NewOrganizationPage() {
         <p className="text-sm text-muted-foreground">A separate space with its own projects, members, roles and plan.</p>
       </div>
 
-      <ol className="flex items-center gap-2 text-xs" aria-label="Steps">
+      <ol className="flex items-center gap-2 text-xs" aria-label="Steps" data-tour="org-new-steps">
         {STEPS.map((label, i) => (
           <li key={label} className="flex items-center gap-2">
             <span
@@ -126,7 +126,7 @@ export default function NewOrganizationPage() {
 
       {step === 0 && (
         <section className="space-y-4 rounded-xl border p-5">
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-tour="org-new-name">
             <Label htmlFor="org-new-name">Name</Label>
             <Input
               id="org-new-name"
@@ -142,7 +142,7 @@ export default function NewOrganizationPage() {
             <p className="text-xs text-muted-foreground">2–60 characters. You can rename it later; its address never changes.</p>
           </div>
           <div className="flex justify-end">
-            <Button onClick={() => setStep(1)} disabled={!nameOk}>
+            <Button onClick={() => setStep(1)} disabled={!nameOk} data-tour="org-new-next">
               Next <ArrowRight className="ml-1 h-4 w-4" />
             </Button>
           </div>

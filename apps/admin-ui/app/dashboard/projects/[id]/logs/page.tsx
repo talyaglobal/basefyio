@@ -258,7 +258,7 @@ export default function ProjectLogsPage() {
           {totalActivity === 1 ? 'event' : 'events'}{' '}recorded. Use the page
           controls below to scroll back through the project&apos;s full history.
         </p>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
+        <div className="mt-3 flex flex-wrap items-center gap-2" data-tour="project-logs-filter">
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -292,7 +292,7 @@ export default function ProjectLogsPage() {
           <Button type="button" variant="outline" size="sm" onClick={() => setReloadTick((t) => t + 1)}>
             Refresh
           </Button>
-          <Button type="button" variant="outline" size="sm" onClick={() => void exportCsv()} disabled={exporting}>
+          <Button type="button" variant="outline" size="sm" onClick={() => void exportCsv()} disabled={exporting} data-tour="project-logs-export">
             {exporting ? 'Exporting…' : 'Export CSV'}
           </Button>
           {filtered && (
@@ -316,7 +316,7 @@ export default function ProjectLogsPage() {
             {totalActivity.toLocaleString('en-US')} {filtered ? 'matching' : 'total'}
           </p>
         </div>
-        <div className="relative mt-4">
+        <div className="relative mt-4" data-tour="project-logs-timeline">
           {activityLoading && (
             <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-card/60">
               <div className="h-6 w-6 animate-spin rounded-full border-4 border-primary border-t-transparent" />
@@ -327,7 +327,7 @@ export default function ProjectLogsPage() {
             emptyText={filtered ? 'No events match these filters.' : undefined}
           />
         </div>
-        <div className="mt-4 flex items-center justify-between gap-2">
+        <div className="mt-4 flex items-center justify-between gap-2" data-tour="project-logs-pager">
           <p className="text-xs text-muted-foreground">
             Page {safePage} / {totalPages}
           </p>
@@ -355,7 +355,7 @@ export default function ProjectLogsPage() {
       </section>
 
       {showImportLog ? (
-        <section className="flex min-h-0 min-w-0 flex-col gap-2">
+        <section className="flex min-h-0 min-w-0 flex-col gap-2" data-tour="project-logs-import-detail">
           <h2 className="text-sm font-semibold text-foreground">
             Supabase import detail
           </h2>

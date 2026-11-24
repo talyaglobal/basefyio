@@ -178,6 +178,7 @@ export function ApiTokenCreate({ tokenId }: { tokenId?: string } = {}) {
           onChange={(e) => setName(e.target.value)}
           placeholder="orders-agent"
           className="max-w-md"
+          data-tour="api-token-form-name"
         />
       </div>
 
@@ -188,7 +189,7 @@ export function ApiTokenCreate({ tokenId }: { tokenId?: string } = {}) {
       ) : (
         <div className="space-y-4">
           {!isEdit && mcpPreset.length > 0 && (
-            <div className="flex flex-col gap-3 rounded-xl border bg-card px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-3 rounded-xl border bg-card px-4 py-3 sm:flex-row sm:items-center sm:justify-between" data-tour="api-token-form-preset">
               <div className="min-w-0">
                 <p className="flex items-center gap-2 text-sm font-semibold">
                   <Bot className="h-4 w-4 text-primary" /> MCP (read-only)
@@ -212,7 +213,7 @@ export function ApiTokenCreate({ tokenId }: { tokenId?: string } = {}) {
           )}
 
           {/* Master toggle */}
-          <div className="flex items-center justify-between rounded-xl border bg-muted/40 px-4 py-3">
+          <div className="flex items-center justify-between rounded-xl border bg-muted/40 px-4 py-3" data-tour="api-token-form-all">
             <div>
               <p className="text-sm font-semibold">All permissions</p>
               <p className="text-xs text-muted-foreground">
@@ -226,7 +227,7 @@ export function ApiTokenCreate({ tokenId }: { tokenId?: string } = {}) {
             />
           </div>
 
-          {categories.map(([category, gs]) => {
+          {categories.map(([category, gs], ci) => {
             const catScopes = categoryScopes(gs);
             const catAllOn = catScopes.every((s) => scopes.has(s));
             const catSome = !catAllOn && catScopes.some((s) => scopes.has(s));
@@ -246,11 +247,11 @@ export function ApiTokenCreate({ tokenId }: { tokenId?: string } = {}) {
                 </div>
 
                 <div className="space-y-3">
-                  {gs.map((g) => {
+                  {gs.map((g, gi) => {
                     const gScopes = groupScopes(g);
                     const gAllOn = gScopes.every((s) => scopes.has(s));
                     return (
-                      <div key={g.resource} className="rounded-xl border bg-card">
+                      <div key={g.resource} className="rounded-xl border bg-card" data-tour={ci === 0 && gi === 0 ? 'api-token-form-group' : undefined}>
                         <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
                           <div className="min-w-0">
                             <p className="text-sm font-medium">{g.label}</p>
@@ -296,7 +297,7 @@ export function ApiTokenCreate({ tokenId }: { tokenId?: string } = {}) {
           })}
 
           {/* Expiry */}
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-tour="api-token-form-expiry">
             <Label htmlFor="token-exp">Expiry (optional)</Label>
             <Input
               id="token-exp"
@@ -321,7 +322,7 @@ export function ApiTokenCreate({ tokenId }: { tokenId?: string } = {}) {
           <Button variant="outline" onClick={() => router.push('/dashboard/account/api-tokens')} disabled={saving}>
             Cancel
           </Button>
-          <Button onClick={save} disabled={saving || loading}>
+          <Button onClick={save} disabled={saving || loading} data-tour="api-token-form-save">
             {saving && <Loader2 className="mr-1 h-4 w-4 animate-spin" />} {isEdit ? 'Save changes' : 'Create token'}
           </Button>
         </div>

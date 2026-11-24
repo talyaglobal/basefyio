@@ -80,6 +80,8 @@ export function ApiTokens() {
       return true;
     });
   }, [tokens, search, statusFilter]);
+  // The tour points at the actions of the first active row (revoked rows have Edit and Roll disabled).
+  const firstActiveId = filtered.find((t) => t.status === 'active')?.id;
 
   const revoke = async (t: ApiToken) => {
     const isActive = t.status === 'active';
@@ -140,10 +142,11 @@ export function ApiTokens() {
             variant="outline"
             onClick={() => router.push('/dashboard/account/api-tokens/new?preset=mcp')}
             title="Create a read-only token and get the MCP client setup"
+            data-tour="api-tokens-connect-agent"
           >
             <Bot className="mr-1 h-4 w-4" /> Connect an AI agent
           </Button>
-          <Button onClick={() => router.push('/dashboard/account/api-tokens/new')}>
+          <Button onClick={() => router.push('/dashboard/account/api-tokens/new')} data-tour="api-tokens-create">
             <Plus className="mr-1 h-4 w-4" /> Create Token
           </Button>
         </div>
@@ -160,7 +163,7 @@ export function ApiTokens() {
             className="h-9 w-full rounded-lg border bg-background pl-8 pr-3 text-sm outline-none focus:ring-1 focus:ring-primary/50"
           />
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5" data-tour="api-tokens-status-filter">
           {([
             { key: 'all', label: 'All', n: counts.all },
             { key: 'active', label: 'Active', n: counts.active },
@@ -184,7 +187,7 @@ export function ApiTokens() {
       </div>
 
       {/* Table */}
-      <div className="overflow-hidden rounded-xl border bg-card">
+      <div className="overflow-hidden rounded-xl border bg-card" data-tour={loading ? undefined : 'api-tokens-table'}>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -253,7 +256,7 @@ export function ApiTokens() {
                         <StatusBadge status={t.status} />
                       </td>
                       <td className="px-4 py-3 align-top">
-                        <div className="flex items-center justify-end gap-0.5">
+                        <div className="flex items-center justify-end gap-0.5" data-tour={t.id === firstActiveId ? 'api-tokens-row-actions' : undefined}>
                           <Button size="sm" variant="ghost" onClick={() => router.push(`/dashboard/account/api-tokens/${t.id}/edit`)} title="Edit" disabled={t.status !== 'active'}>
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>

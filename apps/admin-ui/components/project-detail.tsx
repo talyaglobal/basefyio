@@ -346,6 +346,7 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
                   'transition-colors hover:bg-accent/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 )}
                 title="Rename"
+                data-tour="project-overview-name"
               >
                 {project.name}
               </button>
@@ -369,6 +370,7 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
             type="button"
             onClick={openStatusDialog}
             title="Change project status"
+            data-tour="project-overview-status"
             className="rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <Badge
@@ -449,7 +451,7 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
       <ProjectResourcesCard projectId={project.id} host={project.dbHost} port={project.dbPort} />
 
       <div className="basefyio-grid-row-hover grid gap-5 md:grid-cols-3">
-        <div className="rounded-lg border bg-card p-5">
+        <div className="rounded-lg border bg-card p-5" data-tour="project-overview-database">
           <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
             <Database className="h-4 w-4" />
             Database
@@ -477,7 +479,7 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
           </div>
         </div>
 
-        <div className="rounded-lg border bg-card p-5">
+        <div className="rounded-lg border bg-card p-5" data-tour="project-overview-anon-key">
           <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
             <Key className="h-4 w-4" />
             Anon Key

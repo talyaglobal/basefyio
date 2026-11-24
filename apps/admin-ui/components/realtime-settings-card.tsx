@@ -88,7 +88,7 @@ export function RealtimeSettingsCard({ projectId }: RealtimeSettingsCardProps) {
         <Radio className="h-5 w-5 text-primary" />
         <h2 className="text-lg font-semibold">Realtime</h2>
       </div>
-      <p className="text-sm text-muted-foreground">
+      <p className="text-sm text-muted-foreground" data-tour="project-realtime-what-is-sent">
         Enabled tables and collections broadcast INSERT / UPDATE / DELETE events to connected
         clients via{' '}
         <code className="rounded bg-muted px-1 py-0.5 text-xs">bf.realtime.subscribe()</code>.
@@ -102,14 +102,18 @@ export function RealtimeSettingsCard({ projectId }: RealtimeSettingsCardProps) {
           <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
         </div>
       ) : rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
+        <p className="text-sm text-muted-foreground" data-tour="project-realtime-list">
           No tables or collections yet — create one first, then enable realtime here.
         </p>
       ) : (
+<<<<<<< HEAD
         <div className="flex items-center justify-end gap-2 pb-1">
           <span className="mr-auto text-xs text-muted-foreground" data-testid="realtime-count">
             {rows.filter((r) => r.enabled).length} of {rows.length} enabled
           </span>
+=======
+        <div className="flex items-center justify-end gap-2 pb-1" data-tour="project-realtime-bulk">
+>>>>>>> b51e20b (feat(dashboard): guided tours for the workspace and project data pages, Guided tours card in Account)
           <button
             type="button"
             className="text-xs font-medium text-primary hover:underline disabled:opacity-50"
@@ -173,10 +177,14 @@ export function RealtimeSettingsCard({ projectId }: RealtimeSettingsCardProps) {
       )}
       {!loading && rows.length > 0 && (
         <div className="divide-y rounded-md border">
-          {rows.map((row) => {
+          {rows.map((row, rowIndex) => {
             const key = `${row.kind}:${row.entity}`;
             return (
-              <div key={key} className="flex items-center justify-between px-4 py-2.5">
+              <div
+                key={key}
+                className="flex items-center justify-between px-4 py-2.5"
+                data-tour={rowIndex === 0 ? 'project-realtime-list' : undefined}
+              >
                 <div className="flex min-w-0 items-center gap-2">
                   <span className="truncate font-mono text-sm">{row.entity}</span>
                   <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">

@@ -38,7 +38,7 @@ export default function SqlPage() {
     return (
       <div className="flex h-full min-h-0 flex-col gap-3">
         <h1 className="shrink-0 text-2xl font-bold tracking-tight">SQL Editor</h1>
-        <div className="flex min-h-0 flex-1 flex-col rounded-xl border bg-card p-3">
+        <div className="flex min-h-0 flex-1 flex-col rounded-xl border bg-card p-3" data-tour="project-sql-card">
           <SqlEditor projectId={id} />
         </div>
       </div>
@@ -68,12 +68,13 @@ export default function SqlPage() {
           className="flex items-center gap-0.5 rounded-md border bg-muted/30 p-0.5"
           role="radiogroup"
           aria-label="Query mode"
+          data-tour="project-sql-mode"
         >
           {segment('js', 'JS Query')}
           {segment('sql', 'SQL')}
         </div>
       </div>
-      <div className="flex min-h-0 flex-1 flex-col rounded-xl border bg-card p-3">
+      <div className="flex min-h-0 flex-1 flex-col rounded-xl border bg-card p-3" data-tour="project-sql-card">
         {mode === 'js' ? <QueryEditor projectId={id} /> : <SqlEditor projectId={id} />}
       </div>
     </div>
