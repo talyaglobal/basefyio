@@ -161,7 +161,7 @@ per page; it does not limit how many rows a table can hold.
 | PATCH | `/api/projects/:id/db-readonly-password` | session · token `secrets:write` | `{ password? }` — rotate the read-only role's password |
 | DELETE | `/api/projects/:id/db-readonly-role` | session · token `secrets:write` | remove the read-only role |
 | GET | `/api/projects/:id/db-extra-roles` | session · token `secrets:read` | the project's extra database roles with their passwords, memberships and limits |
-| POST | `/api/projects/:id/db-extra-roles` | session · token `secrets:write` | `{ label, memberOf?, settings? }` — create an extra LOGIN role (see Extra database roles) |
+| POST | `/api/projects/:id/db-extra-roles` | session · token `secrets:write` | `{ label, kind?, memberOf?, settings? }` — create an extra LOGIN role, or a NOLOGIN group role with `kind: "group"` (see Extra database roles) |
 | PATCH | `/api/projects/:id/db-extra-roles/:roleId` | session · token `secrets:write` | `{ memberOf?, settings? }` — change its memberships or limits |
 | PATCH | `/api/projects/:id/db-extra-roles/:roleId/password` | session · token `secrets:write` | `{ password? }` — rotate its password |
 | DELETE | `/api/projects/:id/db-extra-roles/:roleId` | session · token `secrets:write` | remove the role |
@@ -256,8 +256,45 @@ Up to ten LOGIN roles per project for applications that connect with their own c
 - The role logs in directly or through the pooler (port 6432) with its own password; the pooler
   configuration is regenerated when a role is created, changed, rotated or removed.
 
-Answer of `GET`, `POST` and `PATCH`: `{ id, label, roleName, password, memberOf, memberships, settings,
-createdAt }` — `memberOf` as stored (`"anon,authenticated"`), `memberships` as a list, `settings` in ms.
+Answer of `GET`, `POST` and `PATCH`: `{ id, label, kind, roleName, password, memberOf, memberships,
+settings, createdAt }` — `memberOf` as stored (`"anon,authenticated"`), `memberships` as a list, `settings`
+in ms, `password` `null` for a group.
+
+#### Group roles
+
+`POST … { label, kind: "group" }` creates a NOLOGIN role `kb_xg_<hex>` for the project (up to ten):
+never a superuser, never `BYPASSRLS`, a member of nothing, with no password. Use it to own
+`SECURITY DEFINER` functions and to receive grants, so a function can read a `FORCE ROW LEVEL
+SECURITY` table through a policy written for the group, without the owner's or `service_role`'s rights.
+
+- The project owner is a member `WITH INHERIT FALSE, SET TRUE`: it can `ALTER FUNCTION … OWNER TO
+  kb_xg_…`, `GRANT … TO kb_xg_…` and `SET ROLE kb_xg_…`, but does not use the group's rights by
+  accident.
+- A login role lists the group in `memberOf` (`["authenticated", "kb_xg_…"]`). Group memberships
+  inherit, like ordinary Postgres groups; built-in roles still need `SET ROLE`.
+- Postgres lets a role own a function only in a schema where it may create objects, and the
+  project owner cannot grant that on `public`. Keep definer functions in a schema the owner
+  creates, and grant what they need before handing them over:
+
+  ```sql
+  CREATE SCHEMA authz;
+  GRANT USAGE ON SCHEMA authz TO authenticated, kb_xg_0123456789;
+  CREATE FUNCTION authz.is_member(org uuid) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public
+    AS $$ SELECT EXISTS (SELECT 1 FROM org_members WHERE org_id = org AND user_id = auth.uid()) $$;
+  REVOKE EXECUTE ON FUNCTION authz.is_member(uuid) FROM PUBLIC;
+  GRANT EXECUTE ON FUNCTION authz.is_member(uuid) TO authenticated;
+  GRANT SELECT ON org_members TO kb_xg_0123456789;
+  CREATE POLICY group_reads ON org_members FOR SELECT TO kb_xg_0123456789 USING (true);
+  GRANT CREATE ON SCHEMA authz TO kb_xg_0123456789;
+  ALTER FUNCTION authz.is_member(uuid) OWNER TO kb_xg_0123456789;
+  REVOKE CREATE ON SCHEMA authz FROM kb_xg_0123456789;
+  ```
+
+  After the hand-over, change the function's grants as the group (`SET ROLE kb_xg_…`).
+- `PATCH` and password rotation do not apply to a group (400). `DELETE` hands everything the group
+  owns back to the project owner first, revokes its grants, and removes it from the login roles
+  that listed it; nothing the project created is deleted.
 
 ### Pooler connection limit
 

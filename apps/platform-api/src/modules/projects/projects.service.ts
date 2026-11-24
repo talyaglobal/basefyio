@@ -93,6 +93,8 @@ export interface RlsDiagnostic {
 const AUTH_RECREATED_MESSAGE =
   'Project reactivated. Authentication was recreated; previous users and settings could not be restored.';
 
+const SELECT_XR = { id: true, label: true, roleName: true, password: true, memberOf: true, settings: true, kind: true, createdAt: true } as const;
+
 @Injectable()
 export class ProjectsService implements OnApplicationBootstrap {
   private readonly logger = new Logger(ProjectsService.name);
@@ -938,15 +940,23 @@ export class ProjectsService implements OnApplicationBootstrap {
     const project = await this.loadProjectForDbCredentials(projectId, userId);
     const rows = await this.prisma.projectExtraRole.findMany({
       where: { projectId: project.id },
-      select: { id: true, label: true, roleName: true, password: true, memberOf: true, settings: true, createdAt: true },
+      select: SELECT_XR,
       orderBy: { createdAt: 'asc' },
     });
     return rows.map((r) => this.extraRoleView(r));
   }
 
   /** `memberOf` stays the stored string; `memberships` is the same as a list, `settings` the limits in ms. */
-  private extraRoleView<T extends { memberOf: string; settings?: unknown }>(row: T) {
-    return { ...row, memberships: memberOfFromColumn(row.memberOf), settings: (row.settings ?? {}) as ExtraRoleSettings };
+  private extraRoleView<T extends { memberOf: string; settings?: unknown; kind?: string; password?: string }>(row: T) {
+    const group = row.kind === 'group';
+    return {
+      ...row,
+      kind: group ? 'group' : 'login',
+      // A group cannot log in: no password to show.
+      password: group ? null : row.password,
+      memberships: memberOfFromColumn(row.memberOf),
+      settings: (row.settings ?? {}) as ExtraRoleSettings,
+    };
   }
 
   /** Change the memberships or limits of an extra role; the role is re-provisioned with them. */
@@ -959,7 +969,13 @@ export class ProjectsService implements OnApplicationBootstrap {
     const project = await this.loadProjectForDbCredentials(projectId, userId);
     const row = await this.prisma.projectExtraRole.findFirst({ where: { id: roleId, projectId: project.id } });
     if (!row) throw new NotFoundException('Extra role not found');
-    const members = input.memberOf === undefined ? memberOfFromColumn(row.memberOf) : parseMemberOf(input.memberOf);
+    if (row.kind === 'group') {
+      throw new BadRequestException('A group role has no memberships or limits to change; add login roles to it instead');
+    }
+    const members =
+      input.memberOf === undefined
+        ? memberOfFromColumn(row.memberOf)
+        : parseMemberOf(input.memberOf, await this.projectGroupRoles(project.id));
     const settings =
       input.settings === undefined
         ? parseRoleSettings(row.settings ?? {})
@@ -990,7 +1006,7 @@ export class ProjectsService implements OnApplicationBootstrap {
     const updated = await this.prisma.projectExtraRole.update({
       where: { id: roleId },
       data: { memberOf: memberOfColumn(members), settings: settings as any },
-      select: { id: true, label: true, roleName: true, password: true, memberOf: true, settings: true, createdAt: true },
+      select: SELECT_XR,
     });
     await this.activity.append(project.id, {
       userId,
@@ -1000,32 +1016,66 @@ export class ProjectsService implements OnApplicationBootstrap {
     return this.extraRoleView(updated);
   }
 
+  /** The project's group role names, which login roles may join. */
+  private async projectGroupRoles(projectId: string): Promise<string[]> {
+    const rows = await this.prisma.projectExtraRole.findMany({
+      where: { projectId, kind: 'group' },
+      select: { roleName: true },
+    });
+    return rows.map((r) => r.roleName);
+  }
+
   async createExtraRole(
     projectId: string,
     userId: string,
     label: string,
     memberOfInput: unknown,
     settingsInput?: unknown,
+    kindInput?: unknown,
   ) {
     const project = await this.loadProjectForDbCredentials(projectId, userId);
-    const members = parseMemberOf(memberOfInput);
-    const settings = parseRoleSettings(settingsInput);
+    const kind = kindInput === undefined || kindInput === null || kindInput === '' ? 'login' : String(kindInput);
+    if (kind !== 'login' && kind !== 'group') throw new BadRequestException('kind must be "login" or "group"');
     const trimmedLabel = label?.trim();
     if (!trimmedLabel || trimmedLabel.length > 80) {
       throw new BadRequestException('Label must be 1–80 characters');
     }
-
-    const existing = await this.prisma.projectExtraRole.count({
-      where: { projectId: project.id },
-    });
+    const existing = await this.prisma.projectExtraRole.count({ where: { projectId: project.id, kind } });
     if (existing >= 10) {
-      throw new BadRequestException('Maximum of 10 extra database roles per project');
+      throw new BadRequestException(`Maximum of 10 extra database ${kind} roles per project`);
+    }
+    const target = this.provisioning.resolveAdminTarget(project);
+
+    if (kind === 'group') {
+      // A group has no password, no limits and no memberships of its own: it only owns and receives.
+      if (parseMemberOf(memberOfInput, []).length) throw new BadRequestException('A group role is a member of nothing');
+      if (Object.keys(parseRoleSettings(settingsInput)).length) {
+        throw new BadRequestException('A group role cannot log in, so it has no run-time limits');
+      }
+      const roleName = 'kb_xg_' + randomBytes(5).toString('hex');
+      try {
+        await this.extraRole.provisionGroup({ ...target, roleName, ownerRole: project.dbUser });
+      } catch (err: any) {
+        if (err instanceof BadRequestException) throw err;
+        throw new InternalServerErrorException(`Failed to create group role: ${err.message}`);
+      }
+      const row = await this.prisma.projectExtraRole.create({
+        data: { projectId: project.id, label: trimmedLabel, roleName, password: '', memberOf: 'none', kind: 'group' },
+        select: SELECT_XR,
+      });
+      await this.activity.append(project.id, {
+        userId,
+        kind: ProjectActivityKind.PROJECT_UPDATED,
+        title: `Database group role created: ${trimmedLabel}`,
+      });
+      return this.extraRoleView(row);
     }
 
+    const members = parseMemberOf(memberOfInput, await this.projectGroupRoles(project.id));
+    const settings = parseRoleSettings(settingsInput);
     // kb_xr_ prefix + 10 random hex chars — unique across the shared cluster.
     const roleName = 'kb_xr_' + randomBytes(5).toString('hex');
     const password = randomBytes(24).toString('base64url');
-    const target = this.provisioning.resolveAdminTarget(project);
 
     try {
       await this.extraRole.provision({
@@ -1042,8 +1092,8 @@ export class ProjectsService implements OnApplicationBootstrap {
     }
 
     const row = await this.prisma.projectExtraRole.create({
-      data: { projectId: project.id, label: trimmedLabel, roleName, password, memberOf: memberOfColumn(members), settings: settings as any },
-      select: { id: true, label: true, roleName: true, password: true, memberOf: true, settings: true, createdAt: true },
+      data: { projectId: project.id, label: trimmedLabel, roleName, password, memberOf: memberOfColumn(members), settings: settings as any, kind: 'login' },
+      select: SELECT_XR,
     });
     await this.activity.append(project.id, {
       userId,
@@ -1053,7 +1103,7 @@ export class ProjectsService implements OnApplicationBootstrap {
     this.pgbouncer.regenerateConfig().catch((err) =>
       this.logger.warn(`PgBouncer config update failed: ${err}`),
     );
-    return row;
+    return this.extraRoleView(row);
   }
 
   async rotateExtraRolePassword(
@@ -1067,6 +1117,7 @@ export class ProjectsService implements OnApplicationBootstrap {
       where: { id: roleId, projectId: project.id },
     });
     if (!row) throw new NotFoundException('Extra role not found');
+    if (row.kind === 'group') throw new BadRequestException('A group role cannot log in, so it has no password');
 
     const password = nextPassword?.trim() || randomBytes(24).toString('base64url');
     this.assertStrongDbPassword(password);
@@ -1099,12 +1150,27 @@ export class ProjectsService implements OnApplicationBootstrap {
     if (!row) throw new NotFoundException('Extra role not found');
 
     const target = this.provisioning.resolveAdminTarget(project);
+    const group = row.kind === 'group';
     const { warnings } = await this.extraRole.drop({
       ...target,
       roleName: row.roleName,
       dbName: project.dbName,
+      ...(group ? { reassignTo: project.dbUser } : {}),
     });
     await this.prisma.projectExtraRole.delete({ where: { id: roleId } });
+    if (group) {
+      // DROP ROLE already removed the memberships in Postgres; keep the stored lists in step.
+      const members = await this.prisma.projectExtraRole.findMany({ where: { projectId: project.id, kind: 'login' } });
+      for (const m of members) {
+        const list = memberOfFromColumn(m.memberOf);
+        if (list.includes(row.roleName)) {
+          await this.prisma.projectExtraRole.update({
+            where: { id: m.id },
+            data: { memberOf: memberOfColumn(list.filter((n) => n !== row.roleName)) },
+          });
+        }
+      }
+    }
     await this.activity.append(project.id, {
       userId,
       kind: ProjectActivityKind.PROJECT_UPDATED,

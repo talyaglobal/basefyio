@@ -35,31 +35,45 @@ const SETTING_ALIASES: Record<string, keyof ExtraRoleSettings> = {
 const MAX_SETTING_MS = 24 * 60 * 60 * 1000;
 const UNIT_MS: Record<string, number> = { ms: 1, s: 1000, min: 60_000, h: 3_600_000 };
 
+/** Names the platform generates for a project's NOLOGIN group roles. */
+export const GROUP_ROLE_RE = /^kb_xg_[0-9a-f]{10}$/;
+
+export function isBuiltInMember(name: string): name is ExtraRoleMember {
+  return (MEMBERS as readonly string[]).includes(name);
+}
+
 /**
  * The memberships asked for: a role name, a comma list, an array, or "none".
- * Returned de-duplicated in a fixed order, so the stored value is stable.
+ * A built-in role (anon, authenticated, service_role) or one of the project's own
+ * group roles (`groups`; `'any'` accepts any generated group name, for stored values).
+ * Returned de-duplicated, built-ins first in a fixed order, then groups sorted.
  */
-export function parseMemberOf(input: unknown): ExtraRoleMember[] {
+export function parseMemberOf(input: unknown, groups: readonly string[] | 'any' = []): string[] {
   if (input === undefined || input === null || input === '' || input === 'none') return [];
   const raw = Array.isArray(input) ? input : String(input).split(',');
   const wanted = new Set<string>();
   for (const v of raw) {
     const name = String(v).trim().toLowerCase();
     if (!name || name === 'none') continue;
-    if (!(MEMBERS as readonly string[]).includes(name)) {
-      throw new BadRequestException(`Invalid memberOf value: ${name} (use anon, authenticated, service_role or none)`);
+    const groupOk = GROUP_ROLE_RE.test(name) && (groups === 'any' || groups.includes(name));
+    if (!isBuiltInMember(name) && !groupOk) {
+      throw new BadRequestException(
+        `Invalid memberOf value: ${name} (use anon, authenticated, service_role, one of this project's group roles, or none)`,
+      );
     }
     wanted.add(name);
   }
-  return MEMBERS.filter((m) => wanted.has(m));
+  const builtIns = MEMBERS.filter((m) => wanted.has(m));
+  const own = [...wanted].filter((m) => !isBuiltInMember(m)).sort();
+  return [...builtIns, ...own];
 }
 
-export function memberOfColumn(members: ExtraRoleMember[]): string {
+export function memberOfColumn(members: readonly string[]): string {
   return members.length ? members.join(',') : 'none';
 }
 
-export function memberOfFromColumn(value: string | null | undefined): ExtraRoleMember[] {
-  return parseMemberOf(value ?? 'none');
+export function memberOfFromColumn(value: string | null | undefined): string[] {
+  return parseMemberOf(value ?? 'none', 'any');
 }
 
 function toMs(value: unknown, key: string): number {
@@ -151,13 +165,13 @@ export class ProjectExtraRoleService {
     dbName: string;
     roleName: string;
     rolePassword: string;
-    /** One role or several; [] / 'none' = no membership. */
-    memberOf: ExtraRoleMemberOf | ExtraRoleMember[];
+    /** One role or several; [] / 'none' = no membership. Group names were checked by the caller. */
+    memberOf: ExtraRoleMemberOf | string[];
     settings?: ExtraRoleSettings;
   }): Promise<void> {
     assertIdent(p.dbName, 'database');
     assertIdent(p.roleName, 'extra role');
-    const members = parseMemberOf(p.memberOf);
+    const members = parseMemberOf(p.memberOf, 'any');
     const settings = parseRoleSettings(p.settings ?? {});
     if (!p.rolePassword) throw new BadRequestException('A password is required');
 
@@ -190,13 +204,47 @@ export class ProjectExtraRoleService {
         );
       }
 
-      // Grant each target membership with INHERIT FALSE, SET TRUE.
+      // A built-in role is entered on purpose (INHERIT FALSE, SET TRUE: SET ROLE first). The project's
+      // own group roles work as ordinary Postgres groups: their grants apply without SET ROLE.
       for (const member of members) {
-        await c.query(`GRANT "${member}" TO "${p.roleName}" WITH INHERIT FALSE, SET TRUE, ADMIN FALSE`);
+        const inherit = isBuiltInMember(member) ? 'FALSE' : 'TRUE';
+        await c.query(`GRANT "${member}" TO "${p.roleName}" WITH INHERIT ${inherit}, SET TRUE, ADMIN FALSE`);
       }
     });
 
     this.logger.log(`Extra role "${p.roleName}" (memberOf=${memberOfColumn(members)}) ready on "${p.dbName}"`);
+  }
+
+  /**
+   * A NOLOGIN group role of the project: it owns SECURITY DEFINER functions and receives grants.
+   * Never a superuser, never BYPASSRLS, member of nothing. The project owner becomes its member
+   * WITH INHERIT FALSE, SET TRUE, ADMIN FALSE: enough for ALTER FUNCTION … OWNER TO and for
+   * SET ROLE, never for using its rights by accident. Idempotent.
+   */
+  async provisionGroup(p: AdminTarget & { roleName: string; ownerRole: string }): Promise<void> {
+    assertIdent(p.roleName, 'group role');
+    assertIdent(p.ownerRole, 'owner role');
+    if (!GROUP_ROLE_RE.test(p.roleName)) throw new BadRequestException('Invalid group role name');
+    await this.withClient(p, async (c) => {
+      const attrs = 'NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS NOREPLICATION';
+      const { rows } = await c.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [p.roleName]);
+      await c.query(`${rows.length ? 'ALTER' : 'CREATE'} ROLE "${p.roleName}" WITH ${attrs}`);
+      await c.query(`ALTER ROLE "${p.roleName}" RESET ALL`);
+      const { rows: memberships } = await c.query<{ rolename: string }>(
+        `SELECT r.rolname FROM pg_auth_members m
+           JOIN pg_roles r ON r.oid = m.roleid
+           JOIN pg_roles mr ON mr.oid = m.member
+          WHERE mr.rolname = $1`,
+        [p.roleName],
+      );
+      for (const { rolename } of memberships) {
+        await c.query(`REVOKE "${rolename}" FROM "${p.roleName}" CASCADE`).catch((err) =>
+          this.logger.warn(`REVOKE ${rolename} FROM ${p.roleName}: ${err?.message}`),
+        );
+      }
+      await c.query(`GRANT "${p.roleName}" TO "${p.ownerRole}" WITH INHERIT FALSE, SET TRUE, ADMIN FALSE`);
+    });
+    this.logger.log(`Group role "${p.roleName}" ready, owner "${p.ownerRole}" may SET ROLE to it`);
   }
 
   async setPassword(p: AdminTarget & { roleName: string; rolePassword: string }): Promise<void> {
@@ -207,8 +255,13 @@ export class ProjectExtraRoleService {
     );
   }
 
-  async drop(p: AdminTarget & { roleName: string; dbName?: string }): Promise<{ warnings: string[] }> {
+  /**
+   * Remove a role. `reassignTo` (group roles): what it owns — functions, tables — goes to that role
+   * first, so removing a group never deletes the project's objects; only its grants are revoked.
+   */
+  async drop(p: AdminTarget & { roleName: string; dbName?: string; reassignTo?: string }): Promise<{ warnings: string[] }> {
     assertIdent(p.roleName, 'extra role');
+    if (p.reassignTo) assertIdent(p.reassignTo, 'owner role');
     const warnings: string[] = [];
 
     if (p.dbName) {
@@ -226,6 +279,7 @@ export class ProjectExtraRoleService {
           try {
             const client = await dbPool.connect();
             try {
+              if (p.reassignTo) await client.query(`REASSIGN OWNED BY "${p.roleName}" TO "${p.reassignTo}"`);
               await client.query(`DROP OWNED BY "${p.roleName}"`);
             } finally {
               client.release();

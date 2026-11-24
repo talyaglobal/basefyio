@@ -102,3 +102,37 @@ describe('ProjectExtraRoleService.provision', () => {
     expect(none.sql.filter((q) => q.startsWith('GRANT "'))).toEqual([]);
   });
 });
+
+describe('group roles', () => {
+  it('memberOf takes the project\'s own groups, and only those', () => {
+    const groups = ['kb_xg_aaaaaaaaaa', 'kb_xg_bbbbbbbbbb'];
+    expect(parseMemberOf(['kb_xg_bbbbbbbbbb', 'anon'], groups)).toEqual(['anon', 'kb_xg_bbbbbbbbbb']);
+    expect(() => parseMemberOf(['kb_xg_cccccccccc'], groups)).toThrow(BadRequestException);
+    expect(() => parseMemberOf(['kb_user_0123456789'], groups)).toThrow(BadRequestException);
+    expect(memberOfFromColumn('authenticated,kb_xg_aaaaaaaaaa')).toEqual(['authenticated', 'kb_xg_aaaaaaaaaa']);
+  });
+
+  it('a login role joins a group as an ordinary member, a built-in role only through SET ROLE', async () => {
+    const { svc, sql } = build();
+    await svc.provision({
+      ...target, dbName: 'kb_db', roleName: 'kb_xr_cc', rolePassword: 'pw',
+      memberOf: ['authenticated', 'kb_xg_aaaaaaaaaa'],
+    });
+    expect(sql).toContain('GRANT "authenticated" TO "kb_xr_cc" WITH INHERIT FALSE, SET TRUE, ADMIN FALSE');
+    expect(sql).toContain('GRANT "kb_xg_aaaaaaaaaa" TO "kb_xr_cc" WITH INHERIT TRUE, SET TRUE, ADMIN FALSE');
+  });
+
+  it('creates a NOLOGIN group without rights of its own, and lets the owner SET ROLE to it', async () => {
+    const { svc, sql } = build(['service_role']);
+    await svc.provisionGroup({ ...target, roleName: 'kb_xg_0123456789', ownerRole: 'kb_user_owner' });
+    const create = sql.find((q) => q.startsWith('CREATE ROLE "kb_xg_0123456789"'))!;
+    for (const attr of ['NOLOGIN', 'NOSUPERUSER', 'NOCREATEROLE', 'NOBYPASSRLS', 'NOINHERIT']) expect(create).toContain(attr);
+    expect(sql).toContain('REVOKE "service_role" FROM "kb_xg_0123456789" CASCADE');
+    expect(sql).toContain('GRANT "kb_xg_0123456789" TO "kb_user_owner" WITH INHERIT FALSE, SET TRUE, ADMIN FALSE');
+  });
+
+  it('refuses a name that is not a generated group name', async () => {
+    const { svc } = build();
+    await expect(svc.provisionGroup({ ...target, roleName: 'postgres', ownerRole: 'kb_user_owner' })).rejects.toBeInstanceOf(BadRequestException);
+  });
+});

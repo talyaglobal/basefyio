@@ -23,6 +23,7 @@ const CONNECTION_SELECT = {
   dbReadonlyPassword: true,
   maxDbConnections: true,
   extraRoles: {
+    where: { kind: 'login' },
     select: { id: true, label: true, roleName: true, password: true, memberOf: true, createdAt: true },
     orderBy: { createdAt: 'asc' as const },
   },

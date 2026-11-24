@@ -425,7 +425,10 @@ model ProjectExtraRole {
   /// The built-in roles this role is a member of, comma-separated (anon, authenticated,
   /// service_role), or "none". Each membership is INHERIT FALSE, SET TRUE (the caller must
   /// SET LOCAL ROLE explicitly).
-  memberOf  String   @default("none") @map("member_of") @db.VarChar(64)
+  memberOf  String   @default("none") @map("member_of") @db.VarChar(512)
+  /// "login": an application connects with it. "group": NOLOGIN, owns functions and receives grants;
+  /// the project owner is a member WITH INHERIT FALSE, SET TRUE, and login roles may join it.
+  kind      String   @default("login") @db.VarChar(8)
   /// Per-role run-time limits in milliseconds: { statementTimeoutMs, idleInTransactionSessionTimeoutMs,
   /// lockTimeoutMs }. Applied with ALTER ROLE … SET after every provision.
   settings  Json?

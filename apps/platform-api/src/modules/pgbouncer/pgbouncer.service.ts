@@ -94,7 +94,7 @@ export class PgBouncerService implements OnModuleInit {
         dbPassword: true,
         dbReadonlyUser: true,
         dbReadonlyPassword: true,
-        extraRoles: { select: { roleName: true, password: true } },
+        extraRoles: { where: { kind: 'login' }, select: { roleName: true, password: true } },
         maxDbConnections: true,
         team: {
           select: {

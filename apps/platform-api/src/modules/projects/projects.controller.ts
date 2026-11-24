@@ -477,10 +477,17 @@ export class ProjectsController {
   @Post(':id/db-extra-roles')
   async createExtraRole(
     @Param('id') id: string,
-    @Body() body: { label: string; memberOf?: string | string[]; settings?: Record<string, unknown> },
+    @Body() body: { label: string; kind?: 'login' | 'group'; memberOf?: string | string[]; settings?: Record<string, unknown> },
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.projectsService.createExtraRole(id, user.sub, body?.label, body?.memberOf ?? 'none', body?.settings);
+    return this.projectsService.createExtraRole(
+      id,
+      user.sub,
+      body?.label,
+      body?.memberOf ?? 'none',
+      body?.settings,
+      body?.kind,
+    );
   }
 
   /** Memberships (`memberOf`: a list) and run-time limits (`settings`) of an extra role. */
