@@ -39,6 +39,16 @@ describe('StorageSigningService', () => {
     expect(decoded.exp - decoded.iat).toBe(SIGNED_UPLOAD_SECONDS);
   });
 
+  it('marks an upload URL minted by the service key, never one minted for a user', () => {
+    const svc = build({ STORAGE_URL_SIGNING_SECRET: 's' });
+    const minted = svc.verify(svc.signUpload(project, 'docs', 'in.txt', undefined, false, true), project, 'upload', 'docs', 'in.txt');
+    expect(minted).toMatchObject({ svc: true });
+    const forUser = svc.verify(svc.signUpload(project, 'docs', 'in.txt', 'alice', false, true), project, 'upload', 'docs', 'in.txt');
+    expect(forUser).not.toHaveProperty('svc');
+    const byAnon = svc.verify(svc.signUpload(project, 'docs', 'in.txt', undefined, false), project, 'upload', 'docs', 'in.txt');
+    expect(byAnon).not.toHaveProperty('svc');
+  });
+
   it('peekProjectId reads the project before verification; garbage is an InvalidJWT', () => {
     const svc = build({ STORAGE_URL_SIGNING_SECRET: 's' });
     expect(svc.peekProjectId(svc.signDownload(project, 'b', 'k', 10))).toBe('p1');

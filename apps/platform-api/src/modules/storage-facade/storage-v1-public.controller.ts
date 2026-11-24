@@ -138,7 +138,9 @@ export class StorageV1PublicController {
       const claims = this.facade.signer.verify(token as string, project, 'upload', bucketName, key);
       const who = claims.owner
         ? { caller: { kind: 'authenticated' as const, sub: claims.owner }, role: 'authenticated' as const, jwtClaims: { sub: claims.owner } }
-        : this.facade.anonymous();
+        : claims.svc
+          ? this.facade.service()
+          : this.facade.anonymous();
       // Authorisation happened when the URL was minted; the store is written as that caller.
       const { Key } = await this.facade.upload(project, who, bucketName, key, input, {
         upsert: claims.upsert,

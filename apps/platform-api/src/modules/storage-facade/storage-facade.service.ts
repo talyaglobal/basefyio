@@ -94,6 +94,7 @@ export interface SupabaseBucket {
 }
 
 const ANON_CALLER: FacadeCaller = { caller: { kind: 'anon' }, role: 'anon' };
+const SERVICE_CALLER: FacadeCaller = { caller: { kind: 'service' }, role: 'service_role' };
 
 const DRY_INSERT_SQL = `
   INSERT INTO storage.objects (bucket_id, name, owner, owner_id, metadata, user_metadata, version)
@@ -197,6 +198,11 @@ export class StorageFacadeService {
 
   anonymous(): FacadeCaller {
     return ANON_CALLER;
+  }
+
+  /** The caller behind an upload URL the service key (or the dashboard) minted. */
+  service(): FacadeCaller {
+    return SERVICE_CALLER;
   }
 
   get signer(): StorageSigningService {
@@ -519,7 +525,7 @@ export class StorageFacadeService {
       const mode = await this.access.resolveMode(project.id, bucket, key);
       if (mode === 'owner-only' && !isPrivileged(who.caller)) this.access.assertCanOverwrite(who.caller, mode, existing, key);
     }
-    const token = this.signing.signUpload(project, bucket, key, owner, upsert);
+    const token = this.signing.signUpload(project, bucket, key, owner, upsert, isPrivileged(who.caller));
     return { url: `/object/upload/sign/${bucket}/${key}?token=${token}`, token };
   }
 

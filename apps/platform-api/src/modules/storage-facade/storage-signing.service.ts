@@ -33,6 +33,8 @@ export interface SignedUpload {
   url: string;
   owner?: string;
   upsert: boolean;
+  /** Minted by the service key or the dashboard: the upload is written with their rights. */
+  svc?: true;
 }
 
 export type SignedClaims = SignedDownload | SignedUpload;
@@ -88,9 +90,17 @@ export class StorageSigningService {
     return jwt.sign(claims, this.secretFor(project), { algorithm: 'HS256', expiresIn });
   }
 
-  signUpload(project: SigningProject, bucket: string, key: string, owner: string | undefined, upsert: boolean): string {
+  signUpload(
+    project: SigningProject,
+    bucket: string,
+    key: string,
+    owner: string | undefined,
+    upsert: boolean,
+    privileged = false,
+  ): string {
     const claims: SignedUpload = { kind: 'upload', pid: project.id, url: `${bucket}/${key}`, upsert };
     if (owner) claims.owner = owner;
+    if (privileged && !owner) claims.svc = true;
     return jwt.sign(claims, this.secretFor(project), { algorithm: 'HS256', expiresIn: SIGNED_UPLOAD_SECONDS });
   }
 

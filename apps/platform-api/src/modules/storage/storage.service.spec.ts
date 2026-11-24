@@ -1079,3 +1079,19 @@ describe('uploadFeedbackAttachment', () => {
     expect(client.putObject.mock.calls[0][4]).toEqual({ 'Content-Type': 'image/png' });
   });
 });
+
+describe('reading a path with a dot segment', () => {
+  it('answers 400 before touching the store, and keeps names with two dots', async () => {
+    const svc: any = Object.create(StorageService.prototype);
+    svc.assertProjectAccess = jest.fn(async () => ({ id: 'p1' }));
+    svc.ownedBucket = jest.fn(async () => 'phys');
+    svc.client = { statObject: jest.fn(async () => ({ size: 1 })), getObject: jest.fn(async () => 'stream') };
+    svc.publicClient = { presignedGetObject: jest.fn(async () => 'https://signed') };
+    for (const bad of ['../secret', 'a/../b', 'a/./b', 'x\0y']) {
+      await expect(svc.getObject('p1', undefined, 'docs', bad)).rejects.toBeInstanceOf(BadRequestException);
+      await expect(svc.getPresignedUrl('p1', undefined, 'docs', bad)).rejects.toBeInstanceOf(BadRequestException);
+    }
+    expect(svc.client.statObject).not.toHaveBeenCalled();
+    await expect(svc.getObject('p1', undefined, 'docs', 'release-v1..2.txt')).resolves.toMatchObject({ stream: 'stream' });
+  });
+});

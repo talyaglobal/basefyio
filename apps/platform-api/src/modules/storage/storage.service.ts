@@ -880,6 +880,14 @@ export class StorageService {
     return { name: dest, size: stat.size, etag: stat.etag, id };
   }
 
+  /** A read of `..` or a NUL is a bad request, not a store error (500). Names that merely contain two dots are fine. */
+  private assertReadableKey(objectName: string): void {
+    const key = String(objectName ?? '');
+    if (!key || key.includes('\0') || key.split('/').some((seg) => seg === '..' || seg === '.')) {
+      throw new BadRequestException('Invalid object path');
+    }
+  }
+
   private cleanKey(raw: string, what: string): string {
     const key = (raw || '').replace(/^\/+/, '');
     if (!key || key.includes('..') || key.includes('\0')) throw new BadRequestException(`Invalid ${what} key`);
@@ -1002,6 +1010,7 @@ export class StorageService {
     bucketName: string,
     objectName: string,
   ): Promise<{ stream: Readable; stat: Minio.BucketItemStat }> {
+    this.assertReadableKey(objectName);
     const project = await this.assertProjectAccess(projectId, userId);
     const minioBucket = await this.ownedBucket(project, bucketName);
 
@@ -1032,6 +1041,7 @@ export class StorageService {
     offset: number,
     length?: number,
   ): Promise<{ stream: Readable; stat: Minio.BucketItemStat }> {
+    this.assertReadableKey(objectName);
     const project = await this.assertProjectAccess(projectId, userId);
     const minioBucket = await this.ownedBucket(project, bucketName);
     return this.getObjectIn(minioBucket, objectName, { offset, length });
@@ -1129,6 +1139,7 @@ export class StorageService {
     objectName: string,
     expiry = 3600,
   ) {
+    this.assertReadableKey(objectName);
     const project = await this.assertProjectAccess(projectId, userId);
     const minioBucket = await this.ownedBucket(project, bucketName);
 
