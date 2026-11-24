@@ -33,12 +33,12 @@ customer contract.
 | POST | `/api/billing/attach-payment-method` | session | `{ teamId, paymentMethodId, makeDefault? }` — save the card; it becomes the default unless `makeDefault` is `false` and a default exists |
 | POST | `/api/billing/checkout` | session | `{ teamId, planName, successUrl, cancelUrl }` — a checkout session for a paid plan |
 | POST | `/api/billing/portal` | session | `{ teamId, returnUrl }` — the customer portal |
-| POST | `/api/billing/change-plan` | session | `{ teamId, planName }` |
-| POST | `/api/billing/preview-plan-change` | session | `{ teamId, planName }` — the proration before changing |
+| POST | `/api/billing/change-plan` | session | `{ teamId, planName }` — a more expensive plan now; a cheaper paid plan at the end of the paid period (see Moving to a cheaper paid plan) |
+| POST | `/api/billing/preview-plan-change` | session | `{ teamId, planName }` — the proration before changing; for a cheaper paid plan `kind: "scheduled"`, `effectiveAt`, `amountDueNow: 0`, `nextCharge` |
 | POST | `/api/billing/downgrade-preview` | session | `{ teamId }` — the three steps of a move to Free, what is owed, and what is over the Free limits |
 | POST | `/api/billing/downgrade` | session | `{ teamId }` — move to Free (see Moving to Free below) |
 | POST | `/api/billing/cancel` | session | `{ teamId }` — the same as `downgrade` |
-| POST | `/api/billing/resume` | session | `{ teamId }` — undo a scheduled move to Free |
+| POST | `/api/billing/resume` | session | `{ teamId }` — undo a scheduled move to Free or to a cheaper paid plan |
 | POST | `/api/billing/retry-payment` | session | `{ teamId, paymentMethodId? }` |
 | POST | `/api/billing/student-verification/request` | session | `{ email, teamId? }` — mail a code to a student address |
 | POST | `/api/billing/student-verification/confirm` | session | `{ email, code, teamId? }` |
@@ -83,6 +83,21 @@ nothing is ever deleted for you.
 `steps` (`pay`, `limits`, `switch` with `done`/`pending`/`blocked`), `outstanding`, `limits`
 (`blockers`, `warnings`), `effectiveAt` and `canProceed`.
 
+## Moving to a cheaper paid plan
+
+`POST /api/billing/change-plan` with a paid plan cheaper than the current one (Business → Pro):
+
+1. **Pay what is owed** first: an unpaid balance answers `400` with `code: "outstanding_balance"`.
+2. **Fit the new plan's limits**: usage above them answers `400` with `code: "over_plan_limits"`
+   and a `blockers` list.
+3. **Schedule**: the team keeps the plan it paid for until the paid period ends; nothing is
+   charged or refunded now. The renewal then switches to the cheaper plan and charges its price.
+   The answer is `{ scheduled: true, effectiveAt, planName }`, and `GET /api/billing/subscription`
+   reports it as `scheduledPlanChange: { planName, at }`.
+
+With no paid period running, the cheaper plan is bought at once like any other plan change.
+Choosing another paid plan, moving to Free or `resume` replaces or undoes the scheduled change.
+
 ## Example
 
 ```bash
@@ -96,7 +111,7 @@ curl -s "https://api.basefyio.com/api/billing/usage?teamId=$TEAM_ID" -H "Authori
 |---|---|
 | 401 | no session |
 | 403 | the caller is not a member of `teamId` |
-| 400 | unknown `planName`, a payment the processor refused (the message is the processor's), `card_required`, `last_card_required`, `payment_failed`, `over_free_limits` |
+| 400 | unknown `planName`, a payment the processor refused (the message is the processor's), `card_required`, `last_card_required`, `payment_failed`, `over_free_limits`, `outstanding_balance`, `over_plan_limits` |
 | 404 | a card that is not saved on this team |
 | 409 | another card change for the team is in progress |
 | 500 | Stripe is not configured on this installation (`STRIPE_SECRET_KEY` unset); the payment routes need it |

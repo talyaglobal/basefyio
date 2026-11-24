@@ -31,6 +31,8 @@ interface Opts {
   projects?: number;
   members?: number;
   marker?: boolean;
+  /** A scheduled move to this cheaper paid plan. */
+  planMarker?: string;
   chargeFails?: boolean;
 }
 
@@ -48,6 +50,7 @@ function setup(o: Opts = {}) {
   let def: string | null = o.defaultCard === undefined ? cards[0]?.id ?? null : o.defaultCard;
   const invoices = (o.invoices ?? []).map((i) => ({ ...i }));
   const settings = new Map<string, any>(o.marker ? [['billing_scheduled_free:t1', { at: future.toISOString() }]] : []);
+  if (o.planMarker) settings.set('billing_scheduled_plan:t1', { planName: o.planMarker, at: future.toISOString() });
 
   const prisma: any = {
     subscription: {
@@ -86,7 +89,7 @@ function setup(o: Opts = {}) {
     systemSetting: {
       upsert: jest.fn(async ({ where, create }: any) => { calls.push('marker.set'); settings.set(where.key, create.value); }),
       deleteMany: jest.fn(async ({ where }: any) => { settings.delete(where.key); }),
-      findUnique: jest.fn(async ({ where }: any) => (settings.has(where.key) ? { key: where.key } : null)),
+      findUnique: jest.fn(async ({ where }: any) => (settings.has(where.key) ? { key: where.key, value: settings.get(where.key) } : null)),
     },
   };
 
@@ -371,4 +374,82 @@ describe('the renewal job and scheduled moves', () => {
 it('refuses a move to Free for a team already on Free', async () => {
   const { service } = setup({ plan: 'free' });
   await expect(service.downgradeToFree('t1', 'u1')).rejects.toBeInstanceOf(BadRequestException);
+});
+
+describe('moving to a cheaper paid plan (Business -> Pro)', () => {
+  it('schedules the move for the end of the paid period and charges nothing now', async () => {
+    const { service, sub, processor, settings } = setup({ plan: 'business' });
+    const res = await service.changePlan('t1', 'u1', 'pro');
+    expect(res).toMatchObject({ scheduled: true, planName: 'pro' });
+    expect(sub.planId).toBe('pl-biz');
+    expect(processor.createPaymentIntent).not.toHaveBeenCalled();
+    expect(settings.get('billing_scheduled_plan:t1')).toMatchObject({ planName: 'pro' });
+  });
+
+  it('asks for the outstanding balance first and schedules nothing', async () => {
+    const { service, settings } = setup({
+      plan: 'business',
+      invoices: [{ id: 'inv-1', status: 'open', amountDue: 10000, amountPaid: 0 }],
+    });
+    const res = await codeOf(service.changePlan('t1', 'u1', 'pro'));
+    expect(res).toMatchObject({ status: 400, code: 'outstanding_balance' });
+    expect(settings.has('billing_scheduled_plan:t1')).toBe(false);
+  });
+
+  it('replaces a scheduled move to Free', async () => {
+    const { service, sub, settings } = setup({ plan: 'business', sub: { cancelAtPeriodEnd: true }, marker: true });
+    await service.changePlan('t1', 'u1', 'pro');
+    expect(sub.cancelAtPeriodEnd).toBe(false);
+    expect(settings.has('billing_scheduled_free:t1')).toBe(false);
+    expect(settings.get('billing_scheduled_plan:t1')).toMatchObject({ planName: 'pro' });
+  });
+
+  it('the preview says when it happens and what the next charge is', async () => {
+    const { service } = setup({ plan: 'business' });
+    const res = await service.previewPlanChange('t1', 'u1', 'pro');
+    expect(res).toMatchObject({ kind: 'scheduled', amountDueNow: 0, nextCharge: 2000 });
+    expect(new Date(res.effectiveAt).getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it('the renewal switches to the cheaper plan, then charges its price', async () => {
+    const { service, sub, processor, settings } = setup({ plan: 'business', planMarker: 'pro' });
+    const res = await service.chargeSubscription('t1', 'sub-1');
+    expect(res.status).toBe('success');
+    expect(sub.planId).toBe('pl-pro');
+    expect(processor.createPaymentIntent).toHaveBeenCalledWith(expect.objectContaining({ amount: 2000 }));
+    expect(settings.has('billing_scheduled_plan:t1')).toBe(false);
+  });
+
+  it('a renewal without a scheduled change keeps charging the current plan', async () => {
+    const { service, sub, processor } = setup({ plan: 'business' });
+    await service.chargeSubscription('t1', 'sub-1');
+    expect(sub.planId).toBe('pl-biz');
+    expect(processor.createPaymentIntent).toHaveBeenCalledWith(expect.objectContaining({ amount: 10000 }));
+  });
+
+  it('resume undoes the scheduled cheaper plan', async () => {
+    const { service, sub, settings } = setup({ plan: 'business', planMarker: 'pro' });
+    await service.resumeSubscription('t1', 'u1');
+    expect(settings.has('billing_scheduled_plan:t1')).toBe(false);
+    expect(sub.planId).toBe('pl-biz');
+  });
+
+  it('moving to Free instead drops the scheduled cheaper plan', async () => {
+    const { service, settings } = setup({ plan: 'business', planMarker: 'pro' });
+    await service.downgradeToFree('t1', 'u1');
+    expect(settings.has('billing_scheduled_plan:t1')).toBe(false);
+    expect(settings.has('billing_scheduled_free:t1')).toBe(true);
+  });
+
+  it('with no paid period running, the cheaper plan is bought now', async () => {
+    const past = new Date(Date.now() - 24 * 3600 * 1000);
+    const { service, sub, calls, settings } = setup({
+      plan: 'business',
+      sub: { currentPeriodEnd: past, nextBillingDate: past },
+    });
+    await service.changePlan('t1', 'u1', 'pro');
+    expect(calls).toContain('charge:2000:plan_upgrade');
+    expect(sub.planId).toBe('pl-pro');
+    expect(settings.has('billing_scheduled_plan:t1')).toBe(false);
+  });
 });

@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { ProjectCostsPanel } from '@/components/project-costs-panel';
+import { PlanChangeDialog } from '@/components/billing-plan-change-dialog';
 import type { TeamCostReport } from '@/lib/types';
 import { formatDate, formatDateTime } from '@/lib/format';
 import { ENTERPRISE_CONTACT_HREF, blockedSentence, enforcementSentence } from '@/lib/plan-resources';
@@ -62,6 +63,8 @@ interface Subscription {
   retryCount?: number;
   /** False when the server would answer billing changes with 403 (not the owner). */
   canManage?: boolean;
+  /** A move to a cheaper paid plan waiting for the end of the paid period. */
+  scheduledPlanChange?: { planName: string; at: string } | null;
 }
 
 interface Usage {
@@ -449,6 +452,7 @@ export default function BillingPage() {
   const [cards, setCards] = useState<SavedCards | null>(null);
   const [cardBusy, setCardBusy] = useState<string | null>(null);
   const [showDowngradeDialog, setShowDowngradeDialog] = useState(false);
+  const [showPlanChange, setShowPlanChange] = useState(false);
   const [downgradePreview, setDowngradePreview] = useState<DowngradePreview | null>(null);
   const [loadingDowngrade, setLoadingDowngrade] = useState(false);
   const [downgrading, setDowngrading] = useState(false);
@@ -836,6 +840,9 @@ export default function BillingPage() {
     currentPlan?.name === 'enterprise' || (currentPlan as any)?.features?.enterprise === true;
   const isFree = currentPlan?.name === 'free';
   const isPaid = currentPlan && !isLegacy && !isFree;
+  const scheduledPlan = subscription?.scheduledPlanChange
+    ? plans.find((p) => p.name === subscription.scheduledPlanChange!.planName) ?? null
+    : null;
   const canManage = subscription?.canManage !== false;
 
   return (
@@ -915,13 +922,18 @@ export default function BillingPage() {
               )}
             </div>
           </div>
-          <Button
-            variant="outline"
-            onClick={() => setShowCardDialog(true)}
-            className="border-amber-600 text-amber-400 hover:bg-amber-950/50"
-          >
-            Update Payment Method
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={payInvoiceNow} disabled={payingInvoice || !canManage}>
+              {payingInvoice ? 'Paying…' : 'Pay now'}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setShowCardDialog(true)}
+              className="border-amber-600 text-amber-400 hover:bg-amber-950/50"
+            >
+              Update Payment Method
+            </Button>
+          </div>
         </div>
       )}
 
@@ -950,14 +962,19 @@ export default function BillingPage() {
                 Moves to Free on {formatDate((subscription.nextBillingDate || subscription.currentPeriodEnd) as string)}
               </p>
             )}
+            {scheduledPlan && (
+              <p className="text-sm text-amber-600 dark:text-amber-400 mt-2">
+                Moves to {scheduledPlan.displayName} on {formatDate(subscription!.scheduledPlanChange!.at)}
+              </p>
+            )}
           </div>
           <div className="flex gap-2">
-            {isPaid && !subscription?.cancelAtPeriodEnd && (
-              <Button variant="outline" size="sm" onClick={handleOpenDowngrade} disabled={canceling || !canManage}>
+            {isPaid && !subscription?.cancelAtPeriodEnd && !scheduledPlan && (
+              <Button variant="outline" size="sm" onClick={() => setShowPlanChange(true)} disabled={canceling || !canManage}>
                 {canceling ? 'Canceling...' : 'Cancel Subscription'}
               </Button>
             )}
-            {subscription?.cancelAtPeriodEnd && (
+            {(subscription?.cancelAtPeriodEnd || scheduledPlan) && (
               <Button size="sm" onClick={handleResume} disabled={resuming || !canManage}>
                 {resuming ? 'Resuming...' : 'Resume Subscription'}
               </Button>
@@ -1338,6 +1355,16 @@ export default function BillingPage() {
                   {isCurrent && (
                     <div className="mt-6 w-full py-2 text-center text-sm text-muted-foreground">Your current plan</div>
                   )}
+                  {isCurrent && isPaid && !subscription?.cancelAtPeriodEnd && !scheduledPlan && (
+                    <Button
+                      className="mt-2 w-full"
+                      variant="destructive"
+                      onClick={() => setShowPlanChange(true)}
+                      disabled={!canManage}
+                    >
+                      Cancel
+                    </Button>
+                  )}
                   {!isCurrent && plan.name === 'free' && isPaid && !subscription?.cancelAtPeriodEnd && (
                     <Button className="mt-6 w-full" variant="outline" onClick={handleOpenDowngrade} disabled={!canManage}>
                       Downgrade to Free
@@ -1539,6 +1566,17 @@ export default function BillingPage() {
       </div>
 
       {/* Invoice Detail Dialog */}
+      <PlanChangeDialog
+        open={showPlanChange}
+        onOpenChange={setShowPlanChange}
+        teamId={activeTeamId}
+        plans={plans}
+        currentPlan={currentPlan ?? null}
+        onUpgrade={(plan) => handleOpenUpgradeDialog(plan as Plan)}
+        onMoveToFree={handleOpenDowngrade}
+        onChanged={loadData}
+      />
+
       <Dialog open={!!selectedInvoice} onOpenChange={(open) => { if (!open) setSelectedInvoice(null); }}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>

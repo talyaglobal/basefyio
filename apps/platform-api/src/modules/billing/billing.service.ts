@@ -255,10 +255,12 @@ export class BillingService implements OnModuleInit {
       }
     }
 
+    const scheduledPlanChange = sub ? await this.getScheduledPlanChange(teamId).catch(() => null) : null;
     return {
       ...sub,
       hasPaymentMethod,
       accountStatus: sub?.team?.accountStatus || 'ACTIVE',
+      scheduledPlanChange,
     };
   }
 
@@ -1514,6 +1516,64 @@ export class BillingService implements OnModuleInit {
     return `billing_scheduled_free:${teamId}`;
   }
 
+  private scheduledPlanKey(teamId: string) {
+    return `billing_scheduled_plan:${teamId}`;
+  }
+
+  /** A move to a cheaper paid plan at the end of the paid period, if one is scheduled. */
+  async getScheduledPlanChange(teamId: string): Promise<{ planName: string; at: string } | null> {
+    const row = await this.prisma.systemSetting.findUnique({ where: { key: this.scheduledPlanKey(teamId) } });
+    const v = row?.value as any;
+    return v && typeof v.planName === 'string' ? { planName: v.planName, at: String(v.at ?? '') } : null;
+  }
+
+  private async clearScheduledPlan(teamId: string) {
+    await this.prisma.systemSetting.deleteMany({ where: { key: this.scheduledPlanKey(teamId) } });
+  }
+
+  /**
+   * Business -> Pro and the like: nothing is refunded and nothing is charged now.
+   * The team keeps the plan it paid for until the period ends; the renewal then
+   * switches to the cheaper plan and charges its price. What is owed is paid
+   * first and the usage must already fit the cheaper plan, as for Free.
+   */
+  private async schedulePaidDowngrade(teamId: string, userId: string, sub: any, newPlan: any, effectiveAt: Date) {
+    const outstanding = await this.outstandingBalance(teamId, sub);
+    if (outstanding.total > 0) {
+      throw new BadRequestException({
+        statusCode: 400,
+        error: 'Bad Request',
+        code: 'outstanding_balance',
+        message: 'Pay the outstanding balance first, then change the plan.',
+      });
+    }
+    const { blockers } = planLimitFindings(newPlan as any, await this.usageSnapshot(teamId));
+    if (blockers.length) {
+      throw new BadRequestException({
+        statusCode: 400,
+        error: 'Bad Request',
+        code: 'over_plan_limits',
+        message: `Reduce your usage to the ${newPlan.displayName} limits first. ${blockers.map((b) => this.describeLimit(b)).join('; ')}.`,
+        blockers,
+      });
+    }
+    // One scheduled change at a time: choosing a paid plan replaces a scheduled move to Free.
+    if (sub.cancelAtPeriodEnd) {
+      await this.prisma.subscription.update({ where: { id: sub.id }, data: { cancelAtPeriodEnd: false } });
+    }
+    await this.clearScheduledDowngrade(teamId);
+    const key = this.scheduledPlanKey(teamId);
+    const value = { planName: newPlan.name, at: effectiveAt.toISOString(), requestedBy: userId, requestedAt: new Date().toISOString() };
+    await this.prisma.systemSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+    this.logger.log(`Team ${teamId} moves to ${newPlan.name} on ${effectiveAt.toISOString()}`);
+    return {
+      message: `Your plan moves to ${newPlan.displayName} on ${effectiveAt.toISOString().slice(0, 10)}`,
+      scheduled: true,
+      effectiveAt: effectiveAt.toISOString(),
+      planName: newPlan.name,
+    };
+  }
+
   private async markScheduledDowngrade(teamId: string, at: Date, userId: string) {
     const key = this.scheduledDowngradeKey(teamId);
     const value = { at: at.toISOString(), requestedBy: userId, requestedAt: new Date().toISOString() };
@@ -1583,6 +1643,7 @@ export class BillingService implements OnModuleInit {
     }
 
     // (c) Switch. A failed upgrade still being retried never happened: it is dropped, not charged.
+    await this.clearScheduledPlan(teamId);
     const fresh: any = await this.prisma.subscription.findUnique({ where: { id: sub.id }, include: { plan: true } });
     const effectiveAt = this.downgradeEffectiveAt(fresh ?? sub);
     if (sub.stripeSubscriptionId) await this.stripe.cancelSubscription(sub.stripeSubscriptionId);
@@ -1632,6 +1693,11 @@ export class BillingService implements OnModuleInit {
     const sub = await this.prisma.subscription.findUnique({ where: { teamId } });
     if (!sub?.stripeSubscriptionId) {
       // Prepaid billing: the scheduled move is only a flag the renewal job reads.
+      if (sub && !sub.cancelAtPeriodEnd && (await this.getScheduledPlanChange(teamId))) {
+        await this.clearScheduledPlan(teamId);
+        this.logger.log(`Scheduled plan change undone for team ${teamId}`);
+        return { message: 'Subscription resumed' };
+      }
       if (!sub?.cancelAtPeriodEnd) throw new BadRequestException('No scheduled change to undo');
       await this.prisma.subscription.update({ where: { id: sub.id }, data: { cancelAtPeriodEnd: false } });
       await this.clearScheduledDowngrade(teamId);
@@ -1689,14 +1755,16 @@ export class BillingService implements OnModuleInit {
       return { message: `You are already on ${newPlan.displayName}` };
     }
 
-    // Business rule: downgrades not allowed mid-cycle
+    // A cheaper paid plan takes effect when the paid period ends (owner request, 2026-11-24).
     if (newPlan.priceMonthly < currentPlan.priceMonthly) {
-      const periodText = sub.currentPeriodEnd
-        ? ` Current billing cycle ends on ${sub.currentPeriodEnd.toISOString()}.`
-        : '';
-      throw new BadRequestException(
-        `Downgrade is not allowed after an upgrade in the active billing period. Current plan is ${currentPlan.displayName}.${periodText}`,
-      );
+      if (sub.stripeSubscriptionId) {
+        throw new BadRequestException(
+          `This subscription is billed as a recurring card subscription; contact support to move to ${newPlan.displayName}.`,
+        );
+      }
+      const effectiveAt = this.downgradeEffectiveAt({ ...sub, plan: currentPlan });
+      if (effectiveAt) return this.schedulePaidDowngrade(teamId, userId, sub, newPlan, effectiveAt);
+      // No paid period running: the cheaper plan is bought now, like any other change below.
     }
 
     if (!sub?.stripeCustomerId) {
@@ -1818,6 +1886,9 @@ export class BillingService implements OnModuleInit {
     if (!sub.stripeSubscriptionId) {
       await this.clearScheduledDowngrade(teamId).catch((e: any) =>
         this.logger.warn(`Could not clear a scheduled move to Free for team ${teamId}: ${e.message}`),
+      );
+      await this.clearScheduledPlan(teamId).catch((e: any) =>
+        this.logger.warn(`Could not clear a scheduled plan change for team ${teamId}: ${e.message}`),
       );
     }
 
@@ -2009,6 +2080,26 @@ export class BillingService implements OnModuleInit {
         await this.clearScheduledDowngrade(sub.teamId);
         this.logger.log(`Team ${teamId} moved to the Free plan at the end of its paid period`);
         return { teamId, status: 'success', message: 'Moved to the Free plan as scheduled' };
+      }
+    }
+
+    // A cheaper paid plan was scheduled for the end of the paid period: switch, then charge its price.
+    if (!sub.stripeSubscriptionId && !sub.cancelAtPeriodEnd) {
+      const planChange = await this.getScheduledPlanChange(sub.teamId);
+      if (planChange) {
+        const target = await this.prisma.plan.findUnique({ where: { name: planChange.planName } });
+        if (target && target.id !== sub.planId && target.priceMonthly > 0) {
+          await this.prisma.subscription.update({
+            where: { id: sub.id },
+            data: { planId: target.id, pendingPlanId: null, pendingAmountDue: null },
+          });
+          (sub as any).planId = target.id;
+          (sub as any).plan = target;
+          (sub as any).pendingPlanId = null;
+          (sub as any).pendingAmountDue = null;
+          this.logger.log(`Team ${teamId} moved to the ${target.name} plan at the end of its paid period`);
+        }
+        await this.clearScheduledPlan(sub.teamId);
       }
     }
 
@@ -2493,7 +2584,20 @@ export class BillingService implements OnModuleInit {
     if (!currentPlan) {
       throw new NotFoundException('Current plan not found');
     }
-    if (newPlan.priceMonthly < currentPlan.priceMonthly) {
+    if (newPlan.priceMonthly < currentPlan.priceMonthly && !sub.stripeSubscriptionId) {
+      const effectiveAt = this.downgradeEffectiveAt({ ...sub, plan: currentPlan });
+      if (effectiveAt) {
+        return {
+          kind: 'scheduled' as const,
+          currentPlan: { name: currentPlan.name, displayName: currentPlan.displayName, priceMonthly: currentPlan.priceMonthly },
+          newPlan: { name: newPlan.name, displayName: newPlan.displayName, priceMonthly: newPlan.priceMonthly },
+          effectiveAt: effectiveAt.toISOString(),
+          amountDueNow: 0,
+          nextCharge: this.withStudentDiscount(newPlan.priceMonthly, sub.studentDiscountPercent),
+          currency: 'usd',
+        };
+      }
+    } else if (newPlan.priceMonthly < currentPlan.priceMonthly) {
       throw new BadRequestException('Downgrade preview is not supported');
     }
     // A paid plan is never chosen without a saved default card (owner, 2026-11-20).

@@ -3075,6 +3075,24 @@ export const api = {
         body: JSON.stringify({ teamId, planName }),
       });
     },
+    /** A cheaper paid plan: `kind: 'scheduled'` when it waits for the end of the paid period; otherwise the usual preview. */
+    previewCheaperPlan(teamId: string, planName: string) {
+      return request<
+        | {
+            kind: 'scheduled';
+            currentPlan: { name: string; displayName: string; priceMonthly: number };
+            newPlan: { name: string; displayName: string; priceMonthly: number };
+            effectiveAt: string;
+            amountDueNow: number;
+            nextCharge: number;
+            currency: string;
+          }
+        | { kind?: undefined; dueNow: number; currency: string }
+      >('/billing/preview-plan-change', {
+        method: 'POST',
+        body: JSON.stringify({ teamId, planName }),
+      });
+    },
     retryPayment(teamId: string, paymentMethodId?: string) {
       return request<{ message: string; success: boolean }>('/billing/retry-payment', {
         method: 'POST',
