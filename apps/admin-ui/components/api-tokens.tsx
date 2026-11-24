@@ -187,10 +187,10 @@ export function ApiTokens() {
       </div>
 
       {/* Table */}
-      <div className="overflow-hidden rounded-xl border bg-card" data-tour={loading ? undefined : 'api-tokens-table'}>
+      <div className="overflow-hidden rounded-xl border bg-card">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead>
+            <thead data-tour={loading ? undefined : 'api-tokens-table'}>
               <tr className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
                 <th className="px-4 py-2.5 font-medium">Token</th>
                 <th className="px-4 py-2.5 font-medium">Permissions</th>

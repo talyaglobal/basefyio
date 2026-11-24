@@ -418,9 +418,9 @@ function UsersTab({
           No users match “{term}”.
         </div>
       ) : (
-      <div className="rounded-md border overflow-x-auto" data-tour="project-auth-user-list">
+      <div className="rounded-md border overflow-x-auto">
         <table className="w-full text-sm">
-          <thead>
+          <thead data-tour="project-auth-user-list">
             <tr className="border-b bg-muted/50">
               <th className="px-4 py-2 text-left font-medium">User</th>
               <th className="px-4 py-2 text-left font-medium">UID</th>

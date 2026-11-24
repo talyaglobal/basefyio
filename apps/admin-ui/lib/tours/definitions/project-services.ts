@@ -35,7 +35,7 @@ export const DEFINITIONS: TourDef[] = [
       {
         anchor: 'project-auth-tab-email',
         title: 'Email',
-        text: 'Choose how sign-in emails are sent and edit their wording.',
+        text: 'Choose how account emails are sent and edit their subject and text.',
       },
       {
         anchor: 'project-auth-search',
@@ -45,7 +45,7 @@ export const DEFINITIONS: TourDef[] = [
       {
         anchor: 'project-auth-user-list',
         title: 'Users',
-        text: 'Select a user to see details, reset a password or sign them out.',
+        text: 'Select a user to see details, or use the row buttons to edit, reset or delete.',
       },
     ],
   },
@@ -118,7 +118,7 @@ export const DEFINITIONS: TourDef[] = [
         // The label reads Copy ENV or Copy JSON, depending on the chosen format.
         anchor: 'project-connect-copy',
         title: 'Copy variables',
-        text: 'Copies all variables with their real values; secrets stay hidden on screen.',
+        text: 'Copies every variable; secrets are filled in only if you may see them.',
         align: 'end',
       },
       {
@@ -188,8 +188,8 @@ export const DEFINITIONS: TourDef[] = [
       },
       {
         anchor: 'project-flows-runs',
-        title: 'Recent runs',
-        text: "Opens the flow's latest runs and their results.",
+        title: 'Details',
+        text: "Shows the flow's details and its latest runs.",
         align: 'start',
       },
       {
@@ -309,7 +309,7 @@ export const DEFINITIONS: TourDef[] = [
       {
         anchor: 'project-settings-danger',
         title: 'Danger zone',
-        text: 'Pause the project or move it to the trash.',
+        text: 'Deactivate the project to freeze it, or delete it by moving it to the trash.',
       },
     ],
   },

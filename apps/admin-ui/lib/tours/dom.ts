@@ -87,6 +87,9 @@ export function focusInEditable(): boolean {
   const el = document.activeElement as HTMLElement | null;
   if (!el || el === document.body) return false;
   if (insideTour(el)) return false;
+  // Fields the app focuses by itself (the AI panel input). A user who clicks or types there is
+  // caught by the provider's pointer and key listeners instead.
+  if (el.hasAttribute('data-tour-autofocus')) return false;
   const tag = el.tagName;
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
 }

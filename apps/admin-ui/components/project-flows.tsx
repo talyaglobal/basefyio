@@ -141,7 +141,7 @@ export function ProjectFlows({ projectId }: { projectId: string }) {
           No flows yet. Create your first automation.
         </div>
       ) : (
-        <div className="space-y-3" data-tour="project-flows-list">
+        <div className="space-y-3">
           {flows.map((flow, index) => (
             <FlowCard
               key={flow.id}
@@ -334,7 +334,7 @@ function FlowCard({
   };
 
   return (
-    <div className="rounded-lg border bg-card">
+    <div className="rounded-lg border bg-card" data-tour={tourAnchors ? 'project-flows-list' : undefined}>
       <div className="flex flex-wrap items-center gap-3 p-4">
         <button
           onClick={toggleExpand}

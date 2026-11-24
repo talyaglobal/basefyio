@@ -64,6 +64,40 @@ function lineOf(content, index) {
   return content.slice(0, index).split('\n').length;
 }
 
+/**
+ * The string literals that can become the attribute's value: the expression itself, both
+ * branches of a conditional, both sides of || and ??, the right side of &&. Literals inside a
+ * condition (method === 'GET' ? ...) are not values. Returns null when the expression does not parse.
+ */
+function valueLiterals(expr) {
+  const sf = ts.createSourceFile('anchor.ts', `(${expr});`, ts.ScriptTarget.ES2019, true, ts.ScriptKind.TS);
+  if (sf.parseDiagnostics && sf.parseDiagnostics.length) return null;
+  const stmt = sf.statements[0];
+  if (!stmt || !ts.isExpressionStatement(stmt)) return null;
+  const out = [];
+  const visit = (n) => {
+    if (ts.isParenthesizedExpression(n) || ts.isAsExpression(n) || ts.isNonNullExpression(n)) return visit(n.expression);
+    if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) return void out.push(n.text);
+    if (ts.isConditionalExpression(n)) {
+      visit(n.whenTrue);
+      visit(n.whenFalse);
+      return;
+    }
+    if (ts.isBinaryExpression(n)) {
+      const op = n.operatorToken.kind;
+      if (op === ts.SyntaxKind.BarBarToken || op === ts.SyntaxKind.QuestionQuestionToken) {
+        visit(n.left);
+        visit(n.right);
+      } else if (op === ts.SyntaxKind.AmpersandAmpersandToken) {
+        visit(n.right);
+      }
+    }
+    // identifiers, undefined, null, calls: no literal value
+  };
+  visit(stmt.expression);
+  return out;
+}
+
 // ── 1. Anchors in the source ─────────────────────────────────────────────────
 /** anchor -> [{ file, line }] */
 const sourceAnchors = new Map();
@@ -92,7 +126,11 @@ for (const dir of SOURCE_DIRS) {
         err(`${r}:${line} data-tour={${expr.trim()}} uses a template; write the anchor as a string literal or a tourAnchor field`);
         continue;
       }
-      const literals = [...expr.matchAll(/["']([^"']+)["']/g)].map((x) => x[1]);
+      const literals = valueLiterals(expr);
+      if (literals === null) {
+        err(`${r}:${line} data-tour={${expr.trim()}} could not be parsed`);
+        continue;
+      }
       if (literals.length === 0) {
         err(`${r}:${line} data-tour={${expr.trim()}} has no string literal; use a literal, a condition with literals, or tourAnchor`);
         continue;

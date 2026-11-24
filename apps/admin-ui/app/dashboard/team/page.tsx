@@ -734,8 +734,8 @@ export default function TeamSettingsPage() {
       ) : (
         <>
           {/* Members */}
-          <div className="rounded-xl border bg-card overflow-hidden" data-tour="team-members">
-            <div className="border-b bg-muted/40 px-4 py-2.5 flex items-center gap-2">
+          <div className="rounded-xl border bg-card overflow-hidden">
+            <div className="border-b bg-muted/40 px-4 py-2.5 flex items-center gap-2" data-tour="team-members">
               <Users className="h-3.5 w-3.5 text-muted-foreground" />
               <span className="text-sm font-medium">Members</span>
               <span className="ml-auto text-xs text-muted-foreground">{members.length} member{members.length !== 1 ? 's' : ''}</span>

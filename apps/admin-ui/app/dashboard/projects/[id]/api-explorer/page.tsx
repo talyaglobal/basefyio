@@ -87,13 +87,12 @@ function EndpointCard({
   response?: string;
 }) {
   const [open, setOpen] = useState(method === 'GET');
-  // The GET card is the first one: it carries the tour anchor.
-  const isFirstCard = method === 'GET';
 
   return (
     <div
       className="rounded-lg border bg-card"
-      data-tour={isFirstCard ? 'project-api-explorer-endpoints' : undefined}
+      // The GET card is the first one: it carries the tour anchor.
+      data-tour={method === 'GET' ? 'project-api-explorer-endpoints' : undefined}
     >
       <button
         type="button"

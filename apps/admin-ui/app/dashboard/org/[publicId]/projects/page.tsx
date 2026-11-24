@@ -45,9 +45,9 @@ export default function OrganizationProjectsPage() {
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border" data-tour="org-projects-list">
+    <div className="overflow-hidden rounded-xl border">
       <table className="w-full text-sm">
-        <thead className="bg-muted/40 text-left text-xs text-muted-foreground">
+        <thead className="bg-muted/40 text-left text-xs text-muted-foreground" data-tour="org-projects-list">
           <tr>
             <th className="px-4 py-2 font-medium">Project</th>
             <th className="px-4 py-2 font-medium">Status</th>

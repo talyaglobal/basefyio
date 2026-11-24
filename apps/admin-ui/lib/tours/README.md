@@ -50,13 +50,16 @@ Route and definition files may only `import type` (the guard evaluates them on t
 ## Anchors
 
 - `data-tour="<tour-id>-<control>"` as a string literal, e.g. `data-tour="project-sql-run"`.
-- Conditional: `data-tour={first ? 'projects-card' : undefined}` (the guard reads the literals).
+- Conditional: `data-tour={first ? 'projects-card' : undefined}` (the guard reads the literals that can be the value: both branches of `? :`, both sides of
+  `||` and `??`, the right side of `&&`; literals inside the condition are ignored).
 - Items rendered from an array: add a literal `tourAnchor: 'project-shell-nav-sql'` field to the
   item and render `data-tour={item.tourAnchor}`. Never build an anchor with a template string.
 - An anchor value may appear in one file only. Twins in that file (expanded and rail sidebar,
   grid card and list row) are fine: the first visible one is used.
 - Mark only the first item of a list (first card, first active row), never every item.
 - Anchor the wrapper, not an input that opens a dropdown on focus.
+- `data-tour-autofocus` on a field the app focuses by itself (the AI panel input) keeps that
+  focus from cancelling an automatic start; real clicks and key presses still cancel it.
 - `data-tour-block` on an element stops an automatic start while it is visible (spinners, error
   and not-found views, open menus). Dialogs, menus and listboxes (`role=...`) block by themselves.
 

@@ -240,10 +240,11 @@ export function Blueprints({ teamId }: { teamId: string | null }) {
           No blueprints yet. Upload an Excel file to get started.
         </div>
       ) : (
-        <div className="space-y-2" data-tour="blueprints-list">
-          {list.map((bp) => (
+        <div className="space-y-2">
+          {list.map((bp, bpIndex) => (
             <button
               key={bp.id}
+              data-tour={bpIndex === 0 ? 'blueprints-list' : undefined}
               onClick={() => router.push(`/dashboard/blueprints/${bp.id}`)}
               className="flex w-full items-center gap-3 rounded-lg border bg-card p-4 text-left hover:bg-accent"
             >

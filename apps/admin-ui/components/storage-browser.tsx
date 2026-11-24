@@ -228,8 +228,8 @@ function BucketList({
         </div>
       )}
 
-      <div className="rounded-md border" data-tour="project-storage-bucket-list">
-        <div className="flex items-center gap-3 border-b bg-muted/30 px-4 py-2 text-xs font-medium text-muted-foreground">
+      <div className="rounded-md border">
+        <div className="flex items-center gap-3 border-b bg-muted/30 px-4 py-2 text-xs font-medium text-muted-foreground" data-tour="project-storage-bucket-list">
           <span className="flex-1">Bucket</span>
           <span className="w-20 text-center">Access</span>
           <span className="w-20 text-right">Objects</span>

@@ -457,7 +457,7 @@ export const DEFINITIONS: TourDef[] = [
       {
         anchor: 'org-new-name',
         title: 'Name',
-        text: 'Name the organization, knowing you can rename it later.',
+        text: 'Give the organization a name; you can change it later.',
       },
       {
         anchor: 'org-new-next',
@@ -474,7 +474,7 @@ export const DEFINITIONS: TourDef[] = [
       {
         anchor: 'feedbacks-status-filter',
         title: 'Status filter',
-        text: 'Filter feedback by status; Open is selected when the page loads.',
+        text: 'Show only the feedback with the status you pick, or all of it.',
       },
       {
         anchor: 'feedbacks-search',

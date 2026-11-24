@@ -415,7 +415,7 @@ export default function FeedbacksPage() {
           No feedbacks found.
         </div>
       ) : (
-        <div className="space-y-3" data-tour="feedbacks-list">
+        <div className="space-y-3">
           {visible.map((fb, fbIndex) => {
             const typeCfg = TYPE_CONFIG[fb.type] || TYPE_CONFIG.GENERAL;
             const statusCfg = STATUS_CONFIG[fb.status] || STATUS_CONFIG.OPEN;
@@ -595,6 +595,7 @@ export default function FeedbacksPage() {
               <div
                 key={fb.id}
                 id={`feedback-${fb.id}`}
+                data-tour={fbIndex === 0 ? 'feedbacks-list' : undefined}
                 className="rounded-lg border bg-card p-4 transition-colors hover:bg-accent/30"
               >
                 <div className="flex items-start justify-between gap-4">

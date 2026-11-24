@@ -196,9 +196,9 @@ export function ProjectBranchesPanel({ projectId }: { projectId: string }) {
               No preview branches yet.
             </p>
           ) : (
-            <div className="overflow-x-auto" data-tour="project-branches-list">
+            <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="text-left text-xs text-muted-foreground">
+                <thead className="text-left text-xs text-muted-foreground" data-tour="project-branches-list">
                   <tr>
                     <th className="py-2 pr-3 font-medium">Branch</th>
                     <th className="py-2 pr-3 font-medium">Copied</th>

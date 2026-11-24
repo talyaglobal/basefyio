@@ -944,6 +944,8 @@ export function AiAssistant() {
           {/* Textarea */}
           <div className="rounded-xl border bg-background focus-within:ring-1 focus-within:ring-primary/40">
             <textarea
+              // Focused by code whenever the panel opens; that focus must not block an automatic tour.
+              data-tour-autofocus=""
               ref={inputRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}

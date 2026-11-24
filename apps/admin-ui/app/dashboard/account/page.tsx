@@ -40,7 +40,7 @@ export default function AccountPage() {
   const { refreshUser, refreshProfile } = useDashboard();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const tourPrefs = useTourPrefs();
-  const [savingTours, setSavingTours] = useState(false);
+  const [savingTours, setSavingTours] = useState<null | 'auto' | 'reset'>(null);
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -663,19 +663,19 @@ export default function AccountPage() {
                 role="switch"
                 aria-checked={tourPrefs.autoEnabled}
                 aria-label="Start tours automatically"
-                disabled={savingTours}
+                disabled={savingTours !== null}
                 onClick={async () => {
                   const next = !tourPrefs.autoEnabled;
-                  setSavingTours(true);
+                  setSavingTours('auto');
                   try {
                     const saved = await tourPrefs.setAutoEnabled(next);
                     if (saved) {
                       toast.success(next ? 'Automatic tours turned on' : 'Automatic tours turned off');
                     } else {
-                      toast.error('Could not save right now. Your choice is kept in this browser and will be saved when the connection is back.');
+                      toast.error('Could not save right now. Your choice applies here, and saving will be retried shortly.');
                     }
                   } finally {
-                    setSavingTours(false);
+                    setSavingTours(null);
                   }
                 }}
                 className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out disabled:opacity-50 ${
@@ -709,19 +709,19 @@ export default function AccountPage() {
                 variant="outline"
                 size="sm"
                 className="shrink-0"
-                disabled={savingTours || (tourPrefs.autoEnabled && tourPrefs.seen.length === 0)}
+                disabled={savingTours !== null || (tourPrefs.autoEnabled && tourPrefs.seen.length === 0)}
                 onClick={async () => {
-                  setSavingTours(true);
+                  setSavingTours('reset');
                   try {
                     const ok = await tourPrefs.resetSeen();
                     if (ok) toast.success('Tours will show again on each page');
                     else toast.error('Could not reset the tours. Try again.');
                   } finally {
-                    setSavingTours(false);
+                    setSavingTours(null);
                   }
                 }}
               >
-                {savingTours ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="mr-1.5 h-3.5 w-3.5" />}
+                {savingTours === 'reset' ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="mr-1.5 h-3.5 w-3.5" />}
                 Show tours again
               </Button>
             </div>
