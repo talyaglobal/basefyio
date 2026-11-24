@@ -97,10 +97,10 @@ expired or unknown challenge is 401. When the project enforces enrollment
 `mfa/verify-enrollment` with that `challengeId` in the body — the password has already been
 checked — and the verification response carries the tokens.
 
-`POST verify-email` `{ otp }` → `{ message: "Email verified successfully" }`.
+`POST verify-email` `{ otp, email? }` → `{ message: "Email verified successfully" }`.
 `POST forgot-password` `{ email }` and `POST magic-link` `{ email }` always answer
-`{ message: "If an account exists, …" }`; `POST reset-password` `{ otp, newPassword }`;
-`POST magic-link/verify` `{ otp }` → `{ message, userId, email, emailVerified: true }` (the
+`{ message: "If an account exists, …" }`; `POST reset-password` `{ otp, newPassword, email? }`;
+`POST magic-link/verify` `{ otp, email? }` → `{ message, userId, email, emailVerified: true }` (the
 link flow confirms the address and then the app signs the user in).
 `GET me` → `{ id, email, emailVerified, username, firstName, lastName, isAnonymous }`.
 
@@ -118,6 +118,14 @@ The secret is stored by the platform, encrypted at rest with `DB_CRED_ENC_KEY`; 
 goes to the identity provider. Administrators can require enrollment per user
 (`POST /api/projects/:projectId/auth/users/:userId/require-mfa`) and enforce it at sign-in
 for the whole project (`mfaEnforceEnrollment` in the auth config).
+
+### One-time codes
+
+Send `email` with the code (basefyio-js 2.6.0 does when you pass it). The code is then accepted
+only for the address it was mailed to, and five wrong codes for one address answer `429`
+(`code: "too_many_attempts"`) until a new code is requested. A request with the code alone still
+works for older clients, but twenty wrong codes in an hour close that path for the project
+(`429`); the path with the address stays open.
 
 ## Anonymous users
 

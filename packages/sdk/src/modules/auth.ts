@@ -338,11 +338,12 @@ export class AuthClient {
     return { data: null, error };
   }
 
-  async verifyEmail(otp: string): Promise<BasefyioResponse<VerifyEmailResult>> {
+  /** Pass the address with the code (2.6.0): the code then only works for it, and wrong guesses are limited. */
+  async verifyEmail(otp: string, options?: { email?: string }): Promise<BasefyioResponse<VerifyEmailResult>> {
     try {
       const data = await this.http.json<VerifyEmailResult>('/rest/v1/auth/verify-email', {
         method: 'POST',
-        body: JSON.stringify({ otp }),
+        body: JSON.stringify(options?.email ? { otp, email: options.email } : { otp }),
       });
       this.emit('EMAIL_VERIFIED');
       return { data, error: null };
@@ -363,11 +364,16 @@ export class AuthClient {
     }
   }
 
-  async resetPassword(otp: string, newPassword: string): Promise<BasefyioResponse<ResetPasswordResult>> {
+  /** Pass the address the code was sent to (2.6.0): the code then only works for that account. */
+  async resetPassword(
+    otp: string,
+    newPassword: string,
+    options?: { email?: string },
+  ): Promise<BasefyioResponse<ResetPasswordResult>> {
     try {
       const data = await this.http.json<ResetPasswordResult>('/rest/v1/auth/reset-password', {
         method: 'POST',
-        body: JSON.stringify({ otp, newPassword }),
+        body: JSON.stringify(options?.email ? { otp, newPassword, email: options.email } : { otp, newPassword }),
       });
       return { data, error: null };
     } catch (err: any) {
@@ -387,11 +393,12 @@ export class AuthClient {
     }
   }
 
-  async verifyMagicLink(otp: string): Promise<BasefyioResponse<MagicLinkVerifyResult>> {
+  /** Pass the address the link was sent to (2.6.0), as for the other codes. */
+  async verifyMagicLink(otp: string, options?: { email?: string }): Promise<BasefyioResponse<MagicLinkVerifyResult>> {
     try {
       const data = await this.http.json<MagicLinkVerifyResult>('/rest/v1/auth/magic-link/verify', {
         method: 'POST',
-        body: JSON.stringify({ otp }),
+        body: JSON.stringify(options?.email ? { otp, email: options.email } : { otp }),
       });
       return { data, error: null };
     } catch (err: any) {

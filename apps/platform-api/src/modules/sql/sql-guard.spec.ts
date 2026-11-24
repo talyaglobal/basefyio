@@ -402,12 +402,12 @@ describe('findForbiddenSqlPattern — escapes are decoded where the string is ru
 });
 
 /**
- * KolayAcademy report N1 (2026-11-24): keyed SQL runs on the owner's connection
+ * A customer security report (2026-11-24): keyed SQL runs on the owner's connection
  * after SET LOCAL ROLE, and the owner may switch to service_role. Any way of
  * reaching set_config, or of running a SQL string the guard cannot see, is a
  * role escalation for a public key, so the name alone decides.
  */
-describe('public keys cannot reach set_config or run SQL strings (N1)', () => {
+describe('public keys cannot reach set_config or run SQL strings ', () => {
   const escalations = [
     "select set_config('ro'||'le','service_role',true)",
     "select set_config(('role'),'service_role',true)",

@@ -8,11 +8,13 @@ import {
   UnauthorizedException,
   NotFoundException,
   InternalServerErrorException,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
-import { randomInt } from 'crypto';
+import { createHash, randomInt } from 'crypto';
 import * as nodemailer from 'nodemailer';
 import { PrismaService } from '../../prisma/prisma.service';
 import { KeycloakAdminService } from '../auth/keycloak-admin.service';
@@ -323,6 +325,73 @@ export class ProjectSdkAuthService {
     return decodeJwtPayload(token);
   }
 
+  /* ───────── One-time codes (verify e-mail, reset password) ───────── */
+
+  /** Wrong codes allowed per address and code lifetime when the address is sent with the code. */
+  static readonly CODE_ATTEMPTS_PER_ADDRESS = 5;
+  /** Wrong codes allowed per project and hour when a client sends only the code (older SDKs). */
+  static readonly LEGACY_CODE_FAILURES_PER_HOUR = 20;
+
+  private emailHash(email: string): string {
+    return createHash('sha256').update(email.trim().toLowerCase()).digest('hex').slice(0, 32);
+  }
+
+  private tooManyCodes(message: string): HttpException {
+    return new HttpException({ statusCode: 429, error: 'Too Many Requests', code: 'too_many_attempts', message }, HttpStatus.TOO_MANY_REQUESTS);
+  }
+
+  /**
+   * Find the pending code. A six-digit code alone was enough to
+   * reset whichever account it belonged to, and nothing limited the guesses. With
+   * the address, a code only works for that address and five wrong tries end it.
+   * Without the address (clients before basefyio-js 2.6), the old path still works,
+   * but twenty wrong codes in an hour close it for the project; the address path
+   * stays open.
+   */
+  private async takeCode(
+    kind: 'reset_password' | 'verify_email' | 'magic_link',
+    projectId: string,
+    otp: string,
+    email: string | undefined,
+    invalid: string,
+  ): Promise<{ key: string; data: { userId: string; realmName: string; emailHash?: string } }> {
+    const code = String(otp ?? '').trim();
+    const key = `${kind}:${projectId}:${code}`;
+    if (email && email.trim()) {
+      const hash = this.emailHash(email);
+      const attemptsKey = `${kind}_attempts:${projectId}:${hash}`;
+      const attempts = await this.redis.incr(attemptsKey);
+      if (attempts === 1) await this.redis.expire(attemptsKey, 3600);
+      if (attempts > ProjectSdkAuthService.CODE_ATTEMPTS_PER_ADDRESS) {
+        throw this.tooManyCodes('Too many wrong codes for this address. Request a new code.');
+      }
+      const raw = /^\d{6}$/.test(code) ? await this.redis.get(key) : null;
+      const data = raw ? JSON.parse(raw) : null;
+      if (!data || !(await this.codeBelongsTo(data, hash))) throw new BadRequestException(invalid);
+      await this.redis.del(attemptsKey);
+      return { key, data };
+    }
+    const failKey = `${kind}_legacy_fail:${projectId}`;
+    const failures = Number((await this.redis.get(failKey)) ?? 0);
+    if (failures >= ProjectSdkAuthService.LEGACY_CODE_FAILURES_PER_HOUR) {
+      throw this.tooManyCodes('Too many wrong codes. Send the e-mail address together with the code, or request a new code.');
+    }
+    const raw = /^\d{6}$/.test(code) ? await this.redis.get(key) : null;
+    if (!raw) {
+      const n = await this.redis.incr(failKey);
+      if (n === 1) await this.redis.expire(failKey, 3600);
+      throw new BadRequestException(invalid);
+    }
+    return { key, data: JSON.parse(raw) };
+  }
+
+  /** Codes issued before the address was recorded: compare with the user's current address. */
+  private async codeBelongsTo(data: { userId: string; realmName: string; emailHash?: string }, hash: string): Promise<boolean> {
+    if (data.emailHash) return data.emailHash === hash;
+    const user = await this.keycloak.getRealmUserById(data.realmName, data.userId).catch(() => null);
+    return !!user?.email && this.emailHash(user.email) === hash;
+  }
+
   /* ───────── Email verification ───────── */
   /** The one-time code and link that prove an address; shared by sign-up and the anonymous upgrade. */
   async issueEmailVerification(
@@ -331,7 +400,12 @@ export class ProjectSdkAuthService {
     email: string,
   ): Promise<void> {
     const otp = this.generateOtp();
-    const tokenData = JSON.stringify({ userId, realmName: project.keycloakRealm, projectId: project.id });
+    const tokenData = JSON.stringify({
+      userId,
+      realmName: project.keycloakRealm,
+      projectId: project.id,
+      emailHash: this.emailHash(email),
+    });
     await this.redis.set(`verify_email:${project.id}:${otp}`, tokenData, 86400);
 
     const apiBase = this.getPublicApiBase();
@@ -343,12 +417,9 @@ export class ProjectSdkAuthService {
   }
 
   /* ───────── Verify Email ───────── */
-  async verifyEmail(projectId: string, otp: string) {
-    const key = `verify_email:${projectId}:${otp}`;
-    const raw = await this.redis.get(key);
-    if (!raw) throw new BadRequestException('Invalid or expired verification code');
-
-    const { userId, realmName } = JSON.parse(raw);
+  async verifyEmail(projectId: string, otp: string, email?: string) {
+    const { key, data } = await this.takeCode('verify_email', projectId, otp, email, 'Invalid or expired verification code');
+    const { userId, realmName } = data;
     await this.keycloak.setEmailVerified(realmName, userId);
     await this.redis.del(key);
 
@@ -372,7 +443,12 @@ export class ProjectSdkAuthService {
     }
 
     const otp = this.generateOtp();
-    const tokenData = JSON.stringify({ userId: user.id, realmName: project.keycloakRealm, projectId });
+    const tokenData = JSON.stringify({
+      userId: user.id,
+      realmName: project.keycloakRealm,
+      projectId,
+      emailHash: this.emailHash(email),
+    });
     await this.redis.set(`reset_password:${projectId}:${otp}`, tokenData, 3600);
 
     this.sendEmail(projectId, email, project.name, 'reset', { otp })
@@ -382,17 +458,14 @@ export class ProjectSdkAuthService {
   }
 
   /* ───────── Reset Password ───────── */
-  async resetPassword(projectId: string, otp: string, newPassword: string) {
+  async resetPassword(projectId: string, otp: string, newPassword: string, email?: string) {
     const cfg = await this.authConfig.getOrCreate(projectId);
     if (newPassword.length < cfg.minPasswordLength) {
       throw new BadRequestException(`Password must be at least ${cfg.minPasswordLength} characters`);
     }
 
-    const key = `reset_password:${projectId}:${otp}`;
-    const raw = await this.redis.get(key);
-    if (!raw) throw new BadRequestException('Invalid or expired reset code');
-
-    const { userId, realmName } = JSON.parse(raw);
+    const { key, data } = await this.takeCode('reset_password', projectId, otp, email, 'Invalid or expired reset code');
+    const { userId, realmName } = data;
     await this.keycloak.resetRealmUserPassword(realmName, userId, newPassword);
     await this.redis.del(key);
 
@@ -408,7 +481,13 @@ export class ProjectSdkAuthService {
     }
 
     const otp = this.generateOtp();
-    const tokenData = JSON.stringify({ userId: user.id, email, realmName: project.keycloakRealm, projectId });
+    const tokenData = JSON.stringify({
+      userId: user.id,
+      email,
+      realmName: project.keycloakRealm,
+      projectId,
+      emailHash: this.emailHash(email),
+    });
     await this.redis.set(`magic_link:${projectId}:${otp}`, tokenData, 600);
 
     const apiBase = this.getPublicApiBase();
@@ -421,12 +500,9 @@ export class ProjectSdkAuthService {
     return { message: 'If an account exists, a magic link has been sent' };
   }
 
-  async verifyMagicLink(projectId: string, otp: string) {
-    const key = `magic_link:${projectId}:${otp}`;
-    const raw = await this.redis.get(key);
-    if (!raw) throw new BadRequestException('Invalid or expired magic link');
-
-    const { userId, realmName } = JSON.parse(raw);
+  async verifyMagicLink(projectId: string, otp: string, email?: string) {
+    const { key, data } = await this.takeCode('magic_link', projectId, otp, email, 'Invalid or expired magic link');
+    const { userId, realmName } = data;
     await this.redis.del(key);
 
     const user = await this.keycloak.getRealmUserById(realmName, userId);

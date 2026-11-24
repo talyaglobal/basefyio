@@ -76,10 +76,10 @@ export class ProjectSdkAuthController {
   @Post('verify-email')
   async verifyEmail(
     @Req() req: Request,
-    @Body() body: { otp: string },
+    @Body() body: { otp: string; email?: string },
   ) {
     const { projectId } = this.getPayload(req);
-    return this.sdkAuth.verifyEmail(projectId, body.otp);
+    return this.sdkAuth.verifyEmail(projectId, body.otp, body.email);
   }
 
   /**
@@ -149,10 +149,10 @@ export class ProjectSdkAuthController {
   @Post('reset-password')
   async resetPassword(
     @Req() req: Request,
-    @Body() body: { otp: string; newPassword: string },
+    @Body() body: { otp: string; newPassword: string; email?: string },
   ) {
     const { projectId } = this.getPayload(req);
-    return this.sdkAuth.resetPassword(projectId, body.otp, body.newPassword);
+    return this.sdkAuth.resetPassword(projectId, body.otp, body.newPassword, body.email);
   }
 
   @Post('magic-link')
@@ -167,10 +167,10 @@ export class ProjectSdkAuthController {
   @Post('magic-link/verify')
   async verifyMagicLink(
     @Req() req: Request,
-    @Body() body: { otp: string },
+    @Body() body: { otp: string; email?: string },
   ) {
     const { projectId } = this.getPayload(req);
-    return this.sdkAuth.verifyMagicLink(projectId, body.otp);
+    return this.sdkAuth.verifyMagicLink(projectId, body.otp, body.email);
   }
 
   @Get('magic-link-callback')

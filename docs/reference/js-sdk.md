@@ -49,7 +49,7 @@ when the API answers with a machine-readable code (for example `mfa_required`,
 | `signInAnonymously()` | `POST /rest/v1/auth/signin/anonymous` | tokens with `isAnonymous: true`; the project must allow it |
 | `upgradeAnonymous({ email, password, firstName?, lastName? })` | `POST /rest/v1/auth/anonymous/upgrade` | same user id, now an account |
 | `signOut({ scope? })` | `POST /rest/v1/auth/signout` | revokes the refresh token on the server and clears the local session (2.5.0; earlier versions only cleared it locally). `scope: 'others'` keeps this session and ends the rest, `'global'` ends all. Without a session nothing is sent and no `SIGNED_OUT` fires |
-| `verifyEmail(otp)`, `forgotPassword(email)`, `resetPassword(otp, newPassword)` | the matching routes | |
+| `verifyEmail(otp, { email? })`, `forgotPassword(email)`, `resetPassword(otp, newPassword, { email? })` | the matching routes | pass `email` (2.6.0): the code then works only for that address and wrong guesses are limited; `verifyMagicLink(otp, { email? })` the same |
 | `sendMagicLink(email)`, `verifyMagicLink(otp)` | | |
 | `changeEmail(newEmail)`, `confirmChangeEmail(otp)` | | needs a session |
 | `requestReauth()`, `verifyReauth(otp)` | | re-authentication for sensitive actions |

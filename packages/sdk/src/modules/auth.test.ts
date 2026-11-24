@@ -263,3 +263,18 @@ describe('AuthClient.getUser without a session (#169)', () => {
   });
 });
 
+describe('codes carry the address (2.6.0)', () => {
+  it('sends the address with a reset code and a verification code when given', async () => {
+    const { http, sent } = fakeHttp({ '/rest/v1/auth/reset-password': { message: 'ok' }, '/rest/v1/auth/verify-email': { message: 'ok' } });
+    const auth = new AuthClient(http, false);
+    await auth.resetPassword('123456', 'pw-long-enough', { email: 'ada@example.com' });
+    await auth.verifyEmail('654321', { email: 'ada@example.com' });
+    await auth.resetPassword('123456', 'pw-long-enough');
+    expect(sent.map((s) => s.body)).toEqual([
+      { otp: '123456', newPassword: 'pw-long-enough', email: 'ada@example.com' },
+      { otp: '654321', email: 'ada@example.com' },
+      { otp: '123456', newPassword: 'pw-long-enough' },
+    ]);
+  });
+});
+
