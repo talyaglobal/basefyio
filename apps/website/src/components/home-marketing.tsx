@@ -68,7 +68,7 @@ const FEATURES = [
     desc: (
       <>
         Every project gets its own isolated database. Full{" "}
-        <Ext href="https://www.postgresql.org/">SQL</Ext> power, no shared tables, no noisy neighbors.
+        SQL power, no shared tables, no noisy neighbors.
       </>
     ),
     pills: ["SQL", "REST API", "Row-level auth"],
@@ -79,7 +79,7 @@ const FEATURES = [
     title: "Authentication",
     desc: (
       <>
-        Email/password, Google, GitHub, and 8+ OAuth providers. User management, sessions, and{" "}
+        Email/password, Google, GitHub, and 8+ <Ext href="https://oauth.net/2/">OAuth</Ext> providers. User management, sessions, and{" "}
         <Ext href="https://datatracker.ietf.org/doc/html/rfc7519">JWT</Ext> — ready out of the box.
       </>
     ),

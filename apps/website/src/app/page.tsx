@@ -26,7 +26,7 @@ import {
 const ogTitle =
   "basefyio — The Open Source Database Platform";
 const pageDescription =
-  "Backend-as-a-service for developers: a dedicated PostgreSQL-compatible database, auth, storage, auto REST API, JS SDK and CLI for every project.";
+  "Backend-as-a-service for developers: a dedicated SQL database, auth, storage, auto REST API, JS SDK and CLI for every project.";
 const ogDescription =
   "basefyio: Managed database with built-in auth, storage, and instant REST API. Create a project, get a database — ready to query in seconds.";
 
@@ -235,7 +235,7 @@ export default async function Home() {
               </p>
               <p className="mt-2 text-base text-muted-foreground">
                 &mdash; create a project and get a dedicated{" "}
-                <a href="https://www.postgresql.org/" target="_blank" rel="noopener" className="underline decoration-dotted underline-offset-2 hover:text-foreground">SQL</a>{" "}
+                SQL{" "}
                 database
                 &mdash; relational tables with full SQL, plus an optional document
                 store &mdash; with an instant{" "}

@@ -39,7 +39,7 @@ export const FEATURED_COMPARISONS: Record<string, Comparison> = {
       },
       {
         feature: "Auto-generated REST API",
-        basefyio: "Yes, a PostgREST-compatible data API over your tables",
+        basefyio: "Yes, an auto-generated data API over your tables",
         // VERIFY: Supabase serves its data API through PostgREST.
         competitor: "Yes, PostgREST-based data API",
         competitorSource: "https://supabase.com/docs/guides/api",
@@ -74,7 +74,7 @@ export const FEATURED_COMPARISONS: Record<string, Comparison> = {
       },
       {
         feature: "AI and vector search",
-        basefyio: "Embeddings, semantic search and RAG queries; the vector extension is enabled on new projects",
+        basefyio: "Embeddings, semantic search and RAG queries",
         // VERIFY: Supabase vector/AI toolkit based on pgvector.
         competitor: "Vector search with pgvector and an AI toolkit",
         competitorSource: "https://supabase.com/docs/guides/ai",
@@ -300,7 +300,7 @@ export const FEATURED_COMPARISONS: Record<string, Comparison> = {
       },
       {
         feature: "Auto-generated REST API",
-        basefyio: "Yes, a PostgREST-compatible data API over your tables",
+        basefyio: "Yes, an auto-generated data API over your tables",
         // VERIFY: Appwrite exposes REST (and GraphQL) endpoints for its services.
         competitor: "REST endpoints for each service, plus SDKs",
         competitorSource: "https://appwrite.io/docs/apis/rest",
