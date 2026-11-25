@@ -46,7 +46,7 @@ function fill(route: string): string | null {
 
 // Pages added in the release being shipped: CI runs against the live site, where they only exist after
 // the deploy, so a 404 there is skipped (not failed). Remove an entry in the release after it is live.
-const NOT_LIVE_YET = new Set(['/dashboard/projects/[id]/advisors']);
+const NOT_LIVE_YET = new Set<string>([]);
 
 const PUBLIC_ONLY = new Set(['/', '/login', '/signup', '/forgot-password', '/reset-password', '/set-new-password', '/auth/handoff', '/cli-authorize']);
 

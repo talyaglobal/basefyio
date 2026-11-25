@@ -7,6 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Pool } from 'pg';
+import { decryptField } from '../../common/crypto/field-crypto';
 import { access, chmod, rename, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { execFile } from 'child_process';
@@ -414,8 +415,13 @@ ${this.serverResetLines()}${tlsLines}`;
       for (const r of p.extraRoles ?? []) {
         // Names are generated (kb_xr_<hex>) and passwords base64url, but a quote would
         // break the file, so anything else is left out rather than written.
-        if (/^[a-z0-9_]{1,63}$/.test(r.roleName) && r.password && !/["\s]/.test(r.password)) {
-          lines.push(`"${r.roleName}" "${r.password}"`);
+        // The credential middleware decrypts only the project's own columns, not a nested
+        // relation, so these arrive as `enc:v1:...` and must be decrypted here: written as
+        // they are, the pooler would compare the client's password with the ciphertext and
+        // refuse every login of an extra role (the role itself works on a direct connection).
+        const password = decryptField(r.password);
+        if (/^[a-z0-9_]{1,63}$/.test(r.roleName) && password && !/["\s]/.test(password)) {
+          lines.push(`"${r.roleName}" "${password}"`);
         }
       }
     }

@@ -204,6 +204,18 @@ describe('buildUserlist — extra database roles', () => {
   });
 });
 
+describe('buildUserlist — encrypted extra role passwords', () => {
+  it('writes the decrypted password, never the enc:v1 ciphertext', () => {
+    process.env.DB_CRED_ENC_KEY = Buffer.from('0123456789abcdef0123456789abcdef').toString('base64');
+    const { encryptField } = require('../../common/crypto/field-crypto');
+    const cipher = encryptField('plain-role-password') as string;
+    expect(cipher.startsWith('enc:v1:')).toBe(true);
+    const out = userlist(service(), [{ ...owner, extraRoles: [{ roleName: 'kb_xr_0123456789', password: cipher }] }]);
+    expect(out).toContain('"kb_xr_0123456789" "plain-role-password"');
+    expect(out).not.toContain('enc:v1:');
+  });
+});
+
 describe('server_reset_query', () => {
   it('leaves the ini unchanged when unset or blank', () => {
     expect(ini(service({ 'pgbouncer.serverResetQuery': '' }), [owner, other])).toBe(TODAY);
