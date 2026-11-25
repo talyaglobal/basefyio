@@ -715,11 +715,15 @@ services:
       - traefik.http.routers.api.rule=Host(`api.${DOMAIN}`)
       - traefik.http.routers.api.entrypoints=websecure
       - traefik.http.routers.api.tls.certresolver=le
-      - traefik.http.routers.api.middlewares=bf-compress
+      - traefik.http.routers.api.middlewares=bf-compress,bf-retry-api
       # gzip/brotli for JSON and text responses (#151). Explicit exclusions replace Traefik's defaults,
       # so the event stream stays on the list; downloads and images are already compressed or streamed.
       - traefik.http.middlewares.bf-compress.compress.minresponsebodybytes=1024
       - traefik.http.middlewares.bf-compress.compress.excludedcontenttypes=text/event-stream,application/grpc,application/octet-stream,application/zip,application/gzip,application/pdf,image/png,image/jpeg,image/webp,image/gif,video/mp4
+      # A request that cannot connect (the container is leaving or has just left) is sent to the next
+      # server instead of failing. Defined on this service's own labels, so it never depends on another container.
+      - traefik.http.middlewares.bf-retry-api.retry.attempts=4
+      - traefik.http.middlewares.bf-retry-api.retry.initialinterval=150ms
       - traefik.http.services.api.loadbalancer.server.port=4000
       # platform-api sits on several networks (web, internal, docker-api); without this Traefik may pick the
       # docker-api address, which it cannot reach, and answer 503 for the whole API.
@@ -728,8 +732,8 @@ services:
       - traefik.http.services.api.loadbalancer.responseforwarding.flushinterval=100ms
       # Only route once the app answers — avoids deploy-time 502/503s
       - traefik.http.services.api.loadbalancer.healthcheck.path=/api/health
-      - traefik.http.services.api.loadbalancer.healthcheck.interval=10s
-      - traefik.http.services.api.loadbalancer.healthcheck.timeout=5s
+      - traefik.http.services.api.loadbalancer.healthcheck.interval=3s
+      - traefik.http.services.api.loadbalancer.healthcheck.timeout=2s
 
   admin-ui:
     image: ghcr.io/${GHCR_OWNER}/basefyio-ui:${IMAGE_TAG:-latest}
@@ -756,22 +760,30 @@ services:
       - traefik.http.routers.ui.entrypoints=websecure
       - traefik.http.routers.ui.tls.certresolver=le
       - traefik.http.routers.ui.service=ui
-      - traefik.http.routers.ui.middlewares=bf-compress
+      - traefik.http.routers.ui.middlewares=bf-compress-ui,bf-retry-ui
       # Admin console: same app on its own host; middleware.ts keeps only the
       # /dashboard/admin routes there and sends the rest to app.${DOMAIN}.
       - traefik.http.routers.ui-admin.rule=Host(`admin.${DOMAIN}`)
       - traefik.http.routers.ui-admin.entrypoints=websecure
       - traefik.http.routers.ui-admin.tls.certresolver=le
       - traefik.http.routers.ui-admin.service=ui
-      - traefik.http.routers.ui-admin.middlewares=bf-compress
+      - traefik.http.routers.ui-admin.middlewares=bf-compress-ui,bf-retry-ui
+      # This service carries its own copy of the compress middleware: it used to borrow the one defined
+      # on platform-api's labels, so a restart of the API took the dashboard's router down with it.
+      - traefik.http.middlewares.bf-compress-ui.compress.minresponsebodybytes=1024
+      - traefik.http.middlewares.bf-compress-ui.compress.excludedcontenttypes=text/event-stream,application/grpc,application/octet-stream,application/zip,application/gzip,application/pdf,image/png,image/jpeg,image/webp,image/gif,video/mp4
+      # A request that cannot connect (the container is leaving or has just left) is sent to the next
+      # server instead of failing. Defined on this service's own labels, so it never depends on another container.
+      - traefik.http.middlewares.bf-retry-ui.retry.attempts=4
+      - traefik.http.middlewares.bf-retry-ui.retry.initialinterval=150ms
       - traefik.http.services.ui.loadbalancer.server.port=3000
       - traefik.http.services.ui.loadbalancer.server.scheme=http
       # SSE streams need longer response timeouts (default 30s kills long-lived connections)
       - traefik.http.services.ui.loadbalancer.responseforwarding.flushinterval=100ms
       # Only route once Next.js is serving — kills the deploy-time RSC 503s
       - traefik.http.services.ui.loadbalancer.healthcheck.path=/login
-      - traefik.http.services.ui.loadbalancer.healthcheck.interval=10s
-      - traefik.http.services.ui.loadbalancer.healthcheck.timeout=5s
+      - traefik.http.services.ui.loadbalancer.healthcheck.interval=3s
+      - traefik.http.services.ui.loadbalancer.healthcheck.timeout=2s
 
   website:
     image: ghcr.io/${GHCR_OWNER}/basefyio-website:${IMAGE_TAG:-latest}
@@ -785,6 +797,13 @@ services:
     networks:
       - web
     labels:
+      - traefik.http.routers.docs.middlewares=bf-retry-web
+      - traefik.http.routers.status.middlewares=bf-retry-web
+      - traefik.http.routers.website.middlewares=bf-retry-web
+      # A request that cannot connect (the container is leaving or has just left) is sent to the next
+      # server instead of failing. Defined on this service's own labels, so it never depends on another container.
+      - traefik.http.middlewares.bf-retry-web.retry.attempts=4
+      - traefik.http.middlewares.bf-retry-web.retry.initialinterval=150ms
       - traefik.enable=true
       - traefik.http.routers.website.rule=Host(`${DOMAIN}`)
       - traefik.http.routers.website.entrypoints=websecure
@@ -803,8 +822,8 @@ services:
       - traefik.http.routers.status.service=website
       - traefik.http.services.website.loadbalancer.server.port=3000
       - traefik.http.services.website.loadbalancer.healthcheck.path=/
-      - traefik.http.services.website.loadbalancer.healthcheck.interval=10s
-      - traefik.http.services.website.loadbalancer.healthcheck.timeout=5s
+      - traefik.http.services.website.loadbalancer.healthcheck.interval=3s
+      - traefik.http.services.website.loadbalancer.healthcheck.timeout=2s
 
 volumes:
   postgres_data:
