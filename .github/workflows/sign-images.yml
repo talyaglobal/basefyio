@@ -1,0 +1,84 @@
+name: Sign images and publish SBOM
+
+# After a successful production deploy, every application image of that commit is signed
+# (cosign, keyless: the signature names this workflow as the signer) and gets a software bill
+# of materials (SPDX, from syft) attached as a signed attestation. It is a separate workflow
+# on purpose: it runs after the deploy, never blocks or changes it, and a failure here is a
+# red check on this workflow only.
+#
+# Verify an image (docs/guides/verify-images.md):
+#   cosign verify ghcr.io/<owner>/basefyio-api:<sha> \
+#     --certificate-identity-regexp '^https://github.com/<repo>/\.github/workflows/sign-images\.yml@' \
+#     --certificate-oidc-issuer https://token.actions.githubusercontent.com
+#   cosign verify-attestation --type spdxjson ghcr.io/<owner>/basefyio-api:<sha> (same flags)
+
+on:
+  workflow_run:
+    workflows: ['Build & Deploy (on server)']
+    types: [completed]
+    branches: [production]
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: 'Short (12 character) image tag to sign; default: the newest production commit'
+        required: false
+
+permissions:
+  contents: read
+  id-token: write # keyless signing
+
+jobs:
+  sign:
+    name: Sign ${{ matrix.image }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [basefyio-api, basefyio-ui, basefyio-website]
+    steps:
+      - name: Work out the image reference
+        id: ref
+        env:
+          OWNER: ${{ secrets.GHCR_USER }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          INPUT_SHA: ${{ github.event.inputs.sha }}
+        run: |
+          full="${RUN_SHA:-$GITHUB_SHA}"
+          tag="${INPUT_SHA:-${full:0:12}}"
+          owner="$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')"
+          echo "image=ghcr.io/${owner}/${{ matrix.image }}:${tag}" >> "$GITHUB_OUTPUT"
+
+      - uses: sigstore/cosign-installer@v3.7.0
+
+      - name: Log in to the registry
+        run: echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u "${{ secrets.GHCR_USER }}" --password-stdin
+
+      - name: Resolve the digest
+        id: digest
+        run: |
+          d="$(docker buildx imagetools inspect "${{ steps.ref.outputs.image }}" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+          test -n "$d"
+          echo "ref=${{ steps.ref.outputs.image }}@${d}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign the image
+        run: cosign sign --yes "${{ steps.digest.outputs.ref }}"
+
+      - name: Generate the SBOM
+        uses: anchore/sbom-action@v0.17.9
+        with:
+          image: ${{ steps.digest.outputs.ref }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Attach the SBOM as a signed attestation
+        run: cosign attest --yes --type spdxjson --predicate sbom.spdx.json "${{ steps.digest.outputs.ref }}"
+
+      - name: Keep the SBOM with the run
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ matrix.image }}
+          path: sbom.spdx.json
+          retention-days: 90

@@ -63,6 +63,7 @@ documented route stops existing.
 | Page | Covers |
 |---|---|
 | [guides/self-hosting-offline.md](./guides/self-hosting-offline.md) | air-gapped installs and serving HTTPS with your own certificate |
+| [guides/verify-images.md](./guides/verify-images.md) | verify a release image's signature and read its software bill of materials |
 | [reference/configuration.md](./reference/configuration.md) | every environment variable the API and dashboard read |
 | [guides/health-and-metrics.md](./guides/health-and-metrics.md) | `/api/health`, `/api/metrics`, Traefik health checks |
 | [ops/point-in-time-recovery.md](./ops/point-in-time-recovery.md) | how continuous recovery works and how to restore |
