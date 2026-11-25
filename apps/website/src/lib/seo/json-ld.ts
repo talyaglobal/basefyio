@@ -18,6 +18,12 @@ export function organizationSchema(url: string): Thing {
     legalName: SITE.legalName,
     url,
     logo: `${url}/logo.svg`,
+    // Official profiles found in the repo (SITE.twitter, README). TODO: add LinkedIn,
+    // YouTube, Discord etc. once the owner confirms the real URLs; none are invented here.
+    sameAs: [
+      "https://github.com/talyaglobal/basefyio",
+      `https://x.com/${SITE.twitter.replace(/^@/, "")}`,
+    ],
     description:
       "Backend-as-a-service platform for developers: database, authentication, storage, and auto-generated REST API.",
   };

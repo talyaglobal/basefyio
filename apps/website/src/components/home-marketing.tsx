@@ -48,18 +48,41 @@ const frameworks = [
   "Go",
 ] as const;
 
+function Ext({ href, children }: { href: string; children: React.ReactNode }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener"
+      className="underline decoration-dotted underline-offset-2 hover:text-foreground"
+    >
+      {children}
+    </a>
+  );
+}
+
 const FEATURES = [
   {
     icon: Database,
     title: "Dedicated Database",
-    desc: "Every project gets its own isolated database. Full SQL power, no shared tables, no noisy neighbors.",
+    desc: (
+      <>
+        Every project gets its own isolated database. Full{" "}
+        <Ext href="https://www.postgresql.org/">SQL</Ext> power, no shared tables, no noisy neighbors.
+      </>
+    ),
     pills: ["SQL", "REST API", "Row-level auth"],
     band: "base.db",
   },
   {
     icon: Lock,
     title: "Authentication",
-    desc: "Email/password, Google, GitHub, and 8+ OAuth providers. User management, sessions, and JWT — ready out of the box.",
+    desc: (
+      <>
+        Email/password, Google, GitHub, and 8+ OAuth providers. User management, sessions, and{" "}
+        <Ext href="https://datatracker.ietf.org/doc/html/rfc7519">JWT</Ext> — ready out of the box.
+      </>
+    ),
     pills: ["OAuth", "JWT", "SSO"],
     band: "base.auth",
   },
