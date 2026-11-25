@@ -44,6 +44,10 @@ function fill(route: string): string | null {
   return out;
 }
 
+// Pages added in the release being shipped: CI runs against the live site, where they only exist after
+// the deploy, so a 404 there is skipped (not failed). Remove an entry in the release after it is live.
+const NOT_LIVE_YET = new Set(['/dashboard/projects/[id]/advisors']);
+
 const PUBLIC_ONLY = new Set(['/', '/login', '/signup', '/forgot-password', '/reset-password', '/set-new-password', '/auth/handoff', '/cli-authorize']);
 
 for (const route of inventory.dashboard) {
@@ -53,6 +57,7 @@ for (const route of inventory.dashboard) {
     test.skip(target === null, `no fixture for ${route}`);
     const response = await page.goto(target!, { waitUntil: 'domcontentloaded' });
     expect(response, 'navigation answered').not.toBeNull();
+    test.skip(NOT_LIVE_YET.has(route) && response!.status() === 404, `${route} is not live yet`);
     expect(response!.status(), `${target} answers`).toBeLessThan(400);
     // Give client-side redirects (legacy routes) a moment, then make sure we did not land on sign-in.
     await page.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => {});
