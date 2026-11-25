@@ -16,7 +16,7 @@ export async function generateMetadata(): Promise<Metadata> {
   });
 }
 
-/** Area, routes, permissions. Mirrors docs/API_TOKENS.md in the repository. */
+/** Area, routes, permissions. Mirrors docs/reference/api-tokens.md in the repository. */
 const AREAS: [string, string, string][] = [
   ["Projects", "/api/projects, /api/projects/:id, imports, /api/projects/:id/branches", "projects:read · projects:write"],
   ["Project settings", "row limit, connection limit, /api/project-folders, /api/project-tags, AI disclosure", "settings:read · settings:write"],

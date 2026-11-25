@@ -2,7 +2,7 @@
 
 `POST /api/mcp` is basefyio's Model Context Protocol server (Streamable HTTP,
 stateless, JSON responses). An AI agent connects with a platform API token
-(`bf_pat_…`, see [API_TOKENS.md](../API_TOKENS.md)); the token's scopes decide which
+(`bf_pat_…`, see [API_TOKENS.md](api-tokens.md)); the token's scopes decide which
 tools the agent is shown and what each call may do.
 
 Source: `apps/platform-api/src/modules/mcp/` (`mcp-tools.ts` is the catalogue,

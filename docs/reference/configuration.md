@@ -266,7 +266,7 @@ Anonymous sign-in itself is switched on per project in the dashboard, not here. 
 | `REALTIME_BROADCAST_REQUIRE_JWT` | `0` | no / no | `1` = only a signed-in user (or the service key) may broadcast. |
 | `KB_REALTIME_DISABLE` | unset | no / no | `1` turns off the dashboard's own live updates (it then polls). Does not affect the project stream. |
 
-Details: [REALTIME_API.md](../REALTIME_API.md).
+Details: [REALTIME_API.md](realtime-api.md).
 
 ## Mail
 
@@ -380,7 +380,7 @@ Off until a target is set. Records are forwarded by the API process that created
 | `CRON_LEADER_TTL_MS` | `30000` | no / no | Lease lifetime. |
 | `CRON_LEADER_RENEW_MS` | `10000` | no / no | Renewal interval. |
 | `CRON_LEADER_WHEN_REDIS_DOWN` | `run` | no / no | When Redis is unreachable for a whole lease: `run` the jobs anyway or `pause` them. |
-| `TLS_CERT_FILE` / `TLS_KEY_FILE` | `./docker/traefik/certs/tls.crt` / `.key` | compose / — | Certificate (PEM, full chain) and key for the dev file's `tls` profile. See [SELF_HOSTING_OFFLINE.md](../SELF_HOSTING_OFFLINE.md). |
+| `TLS_CERT_FILE` / `TLS_KEY_FILE` | `./docker/traefik/certs/tls.crt` / `.key` | compose / — | Certificate (PEM, full chain) and key for the dev file's `tls` profile. See [SELF_HOSTING_OFFLINE.md](../guides/self-hosting-offline.md). |
 | `ACME_EMAIL` | — | — / compose | Let's Encrypt account address for the production proxy. |
 | `TRAEFIK_DASHBOARD_AUTH` | — | — / compose | `user:hash` basic-auth line protecting the proxy dashboard at `traefik.${DOMAIN}`. |
 | `NODE_OPTIONS` | Node default | — / fixed `--max-old-space-size=1536` | Heap limit of the API process. |
@@ -394,7 +394,7 @@ Published host ports in the dev file are also compose variables: `POSTGRES_PORT`
 ## Backups, point-in-time recovery and disk
 
 Point-in-time recovery uses volumes only the production file defines; see
-[POINT_IN_TIME_RECOVERY.md](../POINT_IN_TIME_RECOVERY.md).
+[POINT_IN_TIME_RECOVERY.md](../ops/point-in-time-recovery.md).
 
 | Variable | Default | Compose (dev / prod) | Purpose |
 |---|---|---|---|
@@ -416,7 +416,7 @@ Point-in-time recovery uses volumes only the production file defines; see
 | `DISK_WARN_PERCENT` / `DISK_CRITICAL_PERCENT` | `80` / `90` | no / no | Disk usage thresholds for the warning and critical states. |
 
 **Added in this release** — off-site copies, restore verification and preview branches. Full
-explanation in [BACKUP_OFFSITE_AND_VERIFICATION.md](../BACKUP_OFFSITE_AND_VERIFICATION.md). None of
+explanation in [BACKUP_OFFSITE_AND_VERIFICATION.md](../ops/backup-offsite-and-verification.md). None of
 these is passed by either compose file today; use an override.
 
 | Variable | Default | Compose (dev / prod) | Purpose |
@@ -452,7 +452,7 @@ these is passed by either compose file today; use an override.
 | `QB_ENCRYPTION_KEY` | unset | no / yes | At least 16 characters; encrypts the stored QuickBooks tokens. Without it the integration answers 503. Never derive it from another credential. |
 | `QUICKBOOKS_WEBHOOK_VERIFIER_TOKEN` | — | no / yes | Passed by the prod file, but no code reads it today. |
 | `TSMART_INTEGRATION_TOKEN_SHA256` | unset (feed off, 404) | no / yes | sha256 (hex) of the bearer token of the tsmart project feed. See [integrations/tsmart.md](../integrations/tsmart.md). |
-| `CODEFYIO_*` | — | no / no | The Codefyio IDE adapter; its variables are listed in [CODEFYIO_ADAPTER.md](../CODEFYIO_ADAPTER.md). Inert until a verifier is configured. |
+| `CODEFYIO_*` | — | no / no | The Codefyio IDE adapter; its variables are listed in [CODEFYIO_ADAPTER.md](../integrations/codefyio-adapter.md). Inert until a verifier is configured. |
 | `GITHUB_INSIGHTS_REPO` | `talyaglobal/basefyio` | no / yes | Repository whose stars, forks and traffic the operator's analytics page reports. |
 | `GITHUB_INSIGHTS_TOKEN` | unset | no / yes | GitHub token with repo scope for clones/views; stars and forks work without it. |
 | `NPM_INSIGHTS_PACKAGES` | `basefyio-cli` | no / yes | Comma-separated npm packages to report downloads for. |
@@ -549,7 +549,7 @@ Source: `apps/platform-api/src/config/configuration.ts`, `apps/platform-api/src/
 
 ## Self-hosting installer (scripts/install.sh)
 
-`scripts/install.sh` writes these into the env file; see `docs/SELF_HOSTING_OFFLINE.md`.
+`scripts/install.sh` writes these into the env file; see `docs/guides/self-hosting-offline.md`.
 
 | Variable | Meaning |
 |---|---|

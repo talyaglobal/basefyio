@@ -52,7 +52,7 @@ basefyio gives you:
 - **Background jobs & caching** — async processing, scheduling, and a shared cache layer
 - **Modern admin dashboard** — project management, SQL editor, data browser, and monitoring
 - **Row-level security policy editor** — switch RLS on or off per table and create, edit or drop policies from the dashboard (Database → Policies) with templates, a SQL preview and a rolled-back "check against database" run; policies still accept hand-written SQL in the SQL editor.
-- **Realtime** — change events for enabled tables and collections, presence (who is on a channel) and client-to-client broadcast over one SSE stream; fan-out through Redis so several API instances serve a project; row-level security applied per subscriber on tables that have it. See [docs/REALTIME_API.md](docs/REALTIME_API.md).
+- **Realtime** — change events for enabled tables and collections, presence (who is on a channel) and client-to-client broadcast over one SSE stream; fan-out through Redis so several API instances serve a project; row-level security applied per subscriber on tables that have it. See [docs/reference/realtime-api.md](docs/reference/realtime-api.md).
 - **Read-only database role** — every new project also gets `<dbUser>_readonly`, a SELECT-only login for BI and reporting tools (it sees every row, like the owner, and can write nothing). Existing projects create it under Connection → Read-only access; its user comes back from `GET /projects/:id/connect` as `readonly`, the password from `POST /projects/:id/secrets/reveal` (owners, admins and the database password permission; each reveal is in the activity log).
 - **Default extensions** — new project databases start with pg_trgm, pgcrypto, unaccent, btree_gist, uuid-ossp and vector (pg_stat_statements where the server preloads it). Database → Extensions → "Install recommended extensions" adds the same set to an existing project.
 - **Per-project pooler limits** — `Project.maxDbConnections`, `Plan.maxDbConnections` or `PGBOUNCER_DEFAULT_MAX_DB_CONNECTIONS` set `pool_size` and `max_db_connections` per database in PgBouncer; unset everywhere, the pooler configuration is unchanged.
@@ -130,7 +130,7 @@ from your `.env` (the defaults are `admin` / `admin`).
 Serving HTTPS with your own certificate (internal CA, offline network):
 `docker compose --profile tls up -d` with `DOMAIN`, `TLS_CERT_FILE` and `TLS_KEY_FILE` set in `.env`.
 Air-gapped installs: bundle the images with `scripts/bundle-images.sh`, load them with
-`scripts/load-images.sh` — see [docs/SELF_HOSTING_OFFLINE.md](docs/SELF_HOSTING_OFFLINE.md).
+`scripts/load-images.sh` — see [docs/guides/self-hosting-offline.md](docs/guides/self-hosting-offline.md).
 
 Both compose files pass an explicit list of variables into the API container, so a setting
 that appears only in `.env` may never reach it. [docs/reference/configuration.md](./docs/reference/configuration.md)
@@ -359,10 +359,10 @@ See [`.env.example`](.env.example) for the annotated template and
 - [docs/README.md](./docs/README.md) — index of the reference manual: every API module, the CLI,
   the JavaScript SDK, configuration, the security model and the error reference.
 - [docs/reference/configuration.md](./docs/reference/configuration.md) — every environment variable.
-- [docs/SELF_HOSTING_OFFLINE.md](./docs/SELF_HOSTING_OFFLINE.md) — air-gapped installs and your own
+- [docs/guides/self-hosting-offline.md](./docs/guides/self-hosting-offline.md) — air-gapped installs and your own
   TLS certificate.
-- [docs/BACKUP_OFFSITE_AND_VERIFICATION.md](./docs/BACKUP_OFFSITE_AND_VERIFICATION.md) and
-  [docs/POINT_IN_TIME_RECOVERY.md](./docs/POINT_IN_TIME_RECOVERY.md) — backups and recovery.
+- [docs/ops/backup-offsite-and-verification.md](./docs/ops/backup-offsite-and-verification.md) and
+  [docs/ops/point-in-time-recovery.md](./docs/ops/point-in-time-recovery.md) — backups and recovery.
 
 ---
 

@@ -2,7 +2,7 @@
 
 Bu kılavuz, basefyio'yu kendi sunucunuza kurmanın kısa yolunu anlatır. Tüm ayrıntılar
 (çevrimdışı kurulum, imaj paketleme, kendi TLS sertifikanız) için İngilizce tam kılavuza
-bakın: [SELF_HOSTING_OFFLINE.md](SELF_HOSTING_OFFLINE.md).
+bakın: [SELF_HOSTING_OFFLINE.md](self-hosting-offline.md).
 
 basefyio tamamen konteynerlerden oluşur. `scripts/install.sh` kurulumu, yeniden
 yapılandırmayı, yükseltmeyi ve geri almayı yönetir: hangi sürümü ve hangi bileşenleri
@@ -153,7 +153,7 @@ scripts/install.sh
 
 Kurulum sağlama toplamını doğrular, imajları yükler ve `--pull never` ile başlar. Kendi TLS
 sertifikanız için `TLS_CERT_FILE` ve `TLS_KEY_FILE` değişkenlerini kullanın; ayrıntılar
-[SELF_HOSTING_OFFLINE.md](SELF_HOSTING_OFFLINE.md) içindeki "TLS with your own certificate"
+[SELF_HOSTING_OFFLINE.md](self-hosting-offline.md) içindeki "TLS with your own certificate"
 bölümündedir.
 
 ---

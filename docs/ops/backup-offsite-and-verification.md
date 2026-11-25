@@ -2,7 +2,7 @@
 
 basefyio takes a nightly archive of every project (03:00 UTC), a daily physical
 base backup of the cluster (02:00 UTC) and ships WAL every ten minutes — see
-[Point-in-Time Recovery](./POINT_IN_TIME_RECOVERY.md). All of that lives in the
+[Point-in-Time Recovery](./point-in-time-recovery.md). All of that lives in the
 MinIO on the same host. This document covers the three things that turn those
 files into something you can rely on:
 

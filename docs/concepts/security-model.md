@@ -9,7 +9,7 @@ row-level security (RLS) in the project's own PostgreSQL database decides what i
 |---|---|---|---|
 | **Project keys** — `anon` and `service_role` | your application | the data API of one project: `/api/rest/v1/*`, `/api/sql/execute`, `/api/realtime/v1/*`, `/api/projects/:id/storage/*`, and the service-key administration routes | this page |
 | **Dashboard session** — a Keycloak JWT of the platform realm | a person signed in to the dashboard | the platform API: projects, teams, billing, database administration | — |
-| **API token** — `bf_pat_…` | an automation acting as a person | the management routes that name a scope, limited by its scopes and its team; every other route answers 403 | [../API_TOKENS.md](../API_TOKENS.md) |
+| **API token** — `bf_pat_…` | an automation acting as a person | the management routes that name a scope, limited by its scopes and its team; every other route answers 403 | [../API_TOKENS.md](../reference/api-tokens.md) |
 
 A project key identifies exactly one project. The guard compares the key with every place a
 request names a project — path, body and query — and refuses a key used against another
@@ -136,7 +136,7 @@ gets 403 there, while the dashboard, the SQL editor, auth and storage keep worki
 | `/api/rest/v1/:table`, `rpc` | role + claims per request; a `SECURITY DEFINER` function cannot be called with the anon key alone |
 | `/api/rest/v1/collections` | same mechanism on the collection tables |
 | `/api/sql/execute` with a key | role + claims; owner-only DDL verbs refused for anon/authenticated by the SQL guard |
-| realtime stream | on a table with RLS, each subscriber receives only the rows its role may select; without RLS every subscriber receives every change ([../REALTIME_API.md](../REALTIME_API.md)) |
+| realtime stream | on a table with RLS, each subscriber receives only the rows its role may select; without RLS every subscriber receives every change ([../REALTIME_API.md](../reference/realtime-api.md)) |
 | storage | every route first checks that the stored bucket belongs to the calling project (recorded owner, or the only matching project prefix; otherwise 404), then per bucket (public/private) plus access rules `public-read`, `authenticated-read`, `owner-only` per bucket or prefix ([../reference/storage-api.md](../reference/storage-api.md#bucket-ownership)) |
 | embeddings / RAG | no row-level policy: writes need the service key, search needs a signed-in user, RAG search is service-only |
 

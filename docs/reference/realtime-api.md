@@ -19,7 +19,7 @@ There are **three ways** to enable/disable realtime on a table or collection:
 2. **Service-key REST API** — for SDK clients and **agents that only hold a
    project API key** (no dashboard login). ← this is what you want for automation.
 3. **Codefyio adapter actions** — `realtime.list` / `realtime.set` (for agents
-   driving the product from the Codefyio IDE). See [CODEFYIO_ADAPTER.md](./CODEFYIO_ADAPTER.md).
+   driving the product from the Codefyio IDE). See [CODEFYIO_ADAPTER.md](../integrations/codefyio-adapter.md).
 
 ---
 

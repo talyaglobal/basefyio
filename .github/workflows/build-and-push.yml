@@ -257,7 +257,7 @@ jobs:
               printf '| Component | Pinned / supported |\n|---|---|\n'
               grep -E '^(KEYCLOAK_SUPPORTED|[A-Z_]+_IMAGE(_PUBLIC)?)=' deploy/components.env | grep -vE '^KEYCLOAK_IMAGE_' \
                 | sed -E 's/^([A-Z_]+)="?([^"]*)"?$/| \1 | `\2` |/'
-              printf '\nInstall or upgrade a self-hosted stack with `scripts/install.sh` (docs/SELF_HOSTING_OFFLINE.md).\n'
+              printf '\nInstall or upgrade a self-hosted stack with `scripts/install.sh` (docs/guides/self-hosting-offline.md).\n'
             } >> /tmp/notes.md
           fi
           # Third-party licences of this release (npm lockfiles + pinned images). A

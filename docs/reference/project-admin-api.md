@@ -12,7 +12,7 @@ Your application's own data traffic belongs on the data API ([rest-api.md](./res
 |---|---|
 | `service` | the project's **service key** in the `apikey` header, or a dashboard session. The anon key is refused with 403. |
 | `session` | a dashboard session (`Authorization: Bearer <Keycloak JWT>`) only. Keys are refused with 401; an API token is refused with 403 `API tokens are not accepted on this route; it needs a dashboard session.` |
-| `session · token` | a dashboard session or an [API token](../API_TOKENS.md) (`bf_pat_…`) holding the scope named in the row. |
+| `session · token` | a dashboard session or an [API token](api-tokens.md) (`bf_pat_…`) holding the scope named in the row. |
 | `root` | a dashboard session of a platform operator (user role `ROOT`); every other account gets 403. |
 
 Every project-scoped route also checks that the signed-in person is a member of the project's
@@ -306,7 +306,7 @@ The pooler configuration is regenerated right away.
 
 ## API keys
 
-These routes take a dashboard session or an [API token](../API_TOKENS.md): `GET` needs
+These routes take a dashboard session or an [API token](api-tokens.md): `GET` needs
 `secrets:read`, every `POST` and `DELETE` (revealing the service key included) needs `secrets:write`.
 
 | Method | Path | Who | What |
@@ -558,7 +558,7 @@ the restore runs in the background. Poll `GET …/pitr/restore/:jobId` until `st
 when only the nearest snapshot was available) or `failed` (`message` says why and whether the
 database changed). One restore per project at a time (409, `details.jobId` names the active one), one
 running platform-wide, at most 3 per project per hour (429). How recovery works and what it covers:
-[../POINT_IN_TIME_RECOVERY.md](../POINT_IN_TIME_RECOVERY.md).
+[../POINT_IN_TIME_RECOVERY.md](../ops/point-in-time-recovery.md).
 
 ## Backup health, restore verification and off-site copies
 
@@ -586,7 +586,7 @@ A verification record has `id`, `projectId`, `trigger`, `status` (`RUNNING`, `PA
 `SKIPPED`), `backupObjectKey`, `backupTakenAt`, `archiveBytes`, `tablesExpected`, `tablesRestored`,
 `rowsMismatched`, `psqlErrorCount`, `countsCompared`, `details`, `error`, `requestedBy`, `startedAt`,
 `finishedAt` and `durationMs`. Only one verification runs at a time per API instance (409 while one
-is running). Configuration and the schedule: [../BACKUP_OFFSITE_AND_VERIFICATION.md](../BACKUP_OFFSITE_AND_VERIFICATION.md).
+is running). Configuration and the schedule: [../BACKUP_OFFSITE_AND_VERIFICATION.md](../ops/backup-offsite-and-verification.md).
 
 ## Preview branches
 
@@ -626,7 +626,7 @@ createdBy }]`. Delete answers `{ "message": "Preview branch moved to trash" }`.
 - [sql-api.md](./sql-api.md) — run SQL as the owner or under a key's role
 - [project-users-api.md](./project-users-api.md) — the project's end users
 - [../concepts/security-model.md](../concepts/security-model.md) — keys, roles and policies
-- [../API_TOKENS.md](../API_TOKENS.md) — which routes accept an API token
+- [../API_TOKENS.md](api-tokens.md) — which routes accept an API token
 - [cli.md](./cli.md) — the same operations from the terminal
 
 Source: `apps/platform-api/src/modules/projects/projects.controller.ts`, `projects.service.ts`,

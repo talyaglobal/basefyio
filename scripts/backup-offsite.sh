@@ -2,7 +2,7 @@
 # Copy basefyio backups to an off-site S3-compatible bucket — from the host.
 #
 # The platform can do this itself (BACKUP_S3_* in the API environment; see
-# docs/BACKUP_OFFSITE_AND_VERIFICATION.md). This script is for operators who
+# docs/ops/backup-offsite-and-verification.md). This script is for operators who
 # prefer a host cron job, or who want a second, independent copy. It mirrors
 # the two local MinIO buckets that hold backups:
 #

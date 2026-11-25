@@ -5,9 +5,9 @@ instance from inside the editor. It is a thin layer **on top of** the existing
 platform API — it adds no business logic and changes no existing routes.
 
 - **id:** `basefyio` · **category:** `database`
-- **manifest:** [`codefyio.adapter.json`](../codefyio.adapter.json) (repo root)
+- **manifest:** [`codefyio.adapter.json`](../../codefyio.adapter.json) (repo root)
 - **HTTP surface:** `/_codefyio/*` (served at the root, outside the `/api` prefix)
-- **In-process client:** [`apps/platform-api/src/codefyio/adapter.ts`](../apps/platform-api/src/codefyio/adapter.ts) → `CodefyioHttpAdapter`
+- **In-process client:** [`apps/platform-api/src/codefyio/adapter.ts`](../../apps/platform-api/src/codefyio/adapter.ts) → `CodefyioHttpAdapter`
 
 ## Safe by default
 

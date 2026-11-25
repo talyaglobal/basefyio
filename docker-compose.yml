@@ -474,7 +474,7 @@ services:
   # Behind this proxy Keycloak needs KC_PROXY_HEADERS=xforwarded and
   # KC_HOSTNAME=auth.<domain>; add them through a compose override rather than
   # here, so a proxy-less dev stack does not start trusting forwarded headers.
-  # See docs/SELF_HOSTING_OFFLINE.md.
+  # See docs/guides/self-hosting-offline.md.
   traefik:
     image: ${TRAEFIK_IMAGE:-traefik:v3.1}
     profiles: ["tls"]

@@ -7,7 +7,7 @@ export const ADAPTER_VERSION = '1.0.0';
 /**
  * The complete, least-privilege action allow-list. `/action` rejects anything
  * not listed here, and it is also advertised in the manifest so the IDE knows
- * what it may call. Keep this in sync with docs/CODEFYIO_ADAPTER.md.
+ * what it may call. Keep this in sync with docs/integrations/codefyio-adapter.md.
  */
 export const CODEFYIO_ACTIONS = [
   {

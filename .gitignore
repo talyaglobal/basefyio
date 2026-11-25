@@ -48,7 +48,7 @@ graphify-out/
 *.rar
 
 # Internal docs & local tooling (not part of the public repo)
-/md/
+/docs/internal/
 .claude/
 /CLAUDE.md
 /.graphifyignore

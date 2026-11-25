@@ -199,7 +199,7 @@ reaches Docker through the `docker-proxy` service instead of a mounted socket.
 - **Without the installer** `docker compose up` stops with
   `required variable REDIS_PASSWORD is missing a value` until the variables are
   in the env file — it never starts the services without a password. Follow
-  [docs/ops/internal-network-hardening.md](ops/internal-network-hardening.md).
+  [docs/ops/internal-network-hardening.md](../ops/internal-network-hardening.md).
 - RabbitMQ applies `RABBITMQ_PASSWORD` only to an empty data volume. On an
   existing broker run `rabbitmqctl change_password <user> <new>` first, then
   write the new value.

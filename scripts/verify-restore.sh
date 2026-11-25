@@ -4,7 +4,7 @@
 # counts with the ones recorded at dump time, and drop the database again.
 #
 # The platform runs the same drill on its own every Sunday (see
-# docs/BACKUP_OFFSITE_AND_VERIFICATION.md); this script is for an operator who
+# docs/ops/backup-offsite-and-verification.md); this script is for an operator who
 # wants to prove a specific archive — or the newest one — right now, from a
 # shell, with nothing but docker, unzip and (optionally) jq on the host.
 #

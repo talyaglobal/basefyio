@@ -751,8 +751,8 @@ export const CATEGORIES = [
       }),
       check('installation documented in the customer\'s language', 1, () => {
         // Credit the Turkish guide itself, never an index page that links to it.
-        if (!exists('docs/KURULUM.md')) return no('English only');
-        const f = marker(/kurulum/i, ['docs/KURULUM.md'], ['.md']);
+        if (!exists('docs/guides/self-hosting-tr.md')) return no('English only');
+        const f = marker(/kurulum/i, ['docs/guides/self-hosting-tr.md'], ['.md']);
         return f.n ? yes(f.where) : no('English only');
       }),
       check('component licences published per release', 1, () => {

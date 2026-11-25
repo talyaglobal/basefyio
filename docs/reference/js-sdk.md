@@ -233,7 +233,7 @@ the user's token travel as headers, never in a URL (it falls back to `EventSourc
 always uses this automatic choice; to force one, construct
 `new RealtimeClient(apiUrl, apiKey, { transport: 'fetch' | 'eventsource', tokenAccessor })`
 yourself. Reconnection uses exponential backoff (1 s doubling to 15 s). Protocol details in
-[../REALTIME_API.md](../REALTIME_API.md).
+[../REALTIME_API.md](realtime-api.md).
 
 ## Types
 

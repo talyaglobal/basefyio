@@ -163,7 +163,7 @@ DELETE /api/rest/v1/todos?id=eq.7
 - Error bodies name the failing constraint or input where Postgres does; a denied write says
   whether a grant is missing or a row-level security policy refused the row.
 - Every successful write is published to realtime subscribers of the table if the table is
-  enabled for realtime (see [../REALTIME_API.md](../REALTIME_API.md)).
+  enabled for realtime (see [../REALTIME_API.md](realtime-api.md)).
 
 **PostgREST dialect**:
 

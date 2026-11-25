@@ -14,7 +14,7 @@ documented route stops existing.
 
 | You want to… | Read |
 |---|---|
-| Install basefyio on your own server | the Quick Start in the [repository README](../README.md), then [reference/configuration.md](./reference/configuration.md); offline installs: [SELF_HOSTING_OFFLINE.md](./SELF_HOSTING_OFFLINE.md) |
+| Install basefyio on your own server | the Quick Start in the [repository README](../README.md), then [reference/configuration.md](./reference/configuration.md); offline installs: [guides/self-hosting-offline.md](./guides/self-hosting-offline.md) |
 | Build an application against a project | [reference/js-sdk.md](./reference/js-sdk.md) |
 | Understand keys, roles and row-level security | [concepts/security-model.md](./concepts/security-model.md) |
 | [concepts/sla.md](./concepts/sla.md) | Availability: the indicators, how a minute counts as down, the targets, the draft compensation policy |
@@ -29,7 +29,7 @@ documented route stops existing.
 | [reference/rest-api.md](./reference/rest-api.md) | `/api/rest/v1/:table`, `/api/rest/v1/rpc/:fn` — tables through the PostgREST query grammar |
 | [reference/collections-api.md](./reference/collections-api.md) | `/api/rest/v1/collections/*` — document collections |
 | [reference/sql-api.md](./reference/sql-api.md) | `POST /api/sql/execute` — SQL with bound parameters |
-| [REALTIME_API.md](./REALTIME_API.md) | `/api/realtime/v1/stream`, realtime bindings |
+| [reference/realtime-api.md](./reference/realtime-api.md) | `/api/realtime/v1/stream`, realtime bindings |
 | [reference/storage-api.md](./reference/storage-api.md) | `/api/projects/:projectId/storage/*` — buckets and objects |
 | [reference/storage-v1-api.md](./reference/storage-v1-api.md) | `/api/storage/v1/*` — the Supabase Storage protocol (`@supabase/storage-js`) over the same buckets |
 | [reference/embeddings-api.md](./reference/embeddings-api.md) | `/api/rest/v1/embeddings/*` — vectors and semantic search |
@@ -47,8 +47,8 @@ documented route stops existing.
 | [reference/organizations-api.md](./reference/organizations-api.md) | `/api/organizations/*` — organizations by public id: kinds, plan, members, projects, role permissions |
 | [reference/platform-status-api.md](./reference/platform-status-api.md) | `/api/platform-status/*` — the public status payload, external probe ingestion, incidents, the canary |
 | [reference/capacity-api.md](./reference/capacity-api.md) | `/api/admin/capacity/*` — load samples, the capacity model, the what-if simulation, benchmark results |
-| [API_TOKENS.md](./API_TOKENS.md) | account API tokens (`bf_pat_…`) and their scopes |
-| [CODEFYIO_ADAPTER.md](./CODEFYIO_ADAPTER.md) | the Codefyio IDE adapter at `/_codefyio/*` |
+| [reference/api-tokens.md](./reference/api-tokens.md) | account API tokens (`bf_pat_…`) and their scopes |
+| [integrations/codefyio-adapter.md](./integrations/codefyio-adapter.md) | the Codefyio IDE adapter at `/_codefyio/*` |
 | [integrations/tsmart.md](./integrations/tsmart.md) | platform-to-platform project feed |
 
 ## Tools
@@ -62,11 +62,11 @@ documented route stops existing.
 
 | Page | Covers |
 |---|---|
-| [SELF_HOSTING_OFFLINE.md](./SELF_HOSTING_OFFLINE.md) | air-gapped installs and serving HTTPS with your own certificate |
+| [guides/self-hosting-offline.md](./guides/self-hosting-offline.md) | air-gapped installs and serving HTTPS with your own certificate |
 | [reference/configuration.md](./reference/configuration.md) | every environment variable the API and dashboard read |
 | [guides/health-and-metrics.md](./guides/health-and-metrics.md) | `/api/health`, `/api/metrics`, Traefik health checks |
-| [POINT_IN_TIME_RECOVERY.md](./POINT_IN_TIME_RECOVERY.md) | how continuous recovery works and how to restore |
-| [BACKUP_OFFSITE_AND_VERIFICATION.md](./BACKUP_OFFSITE_AND_VERIFICATION.md) | off-site backup copies and restore verification |
+| [ops/point-in-time-recovery.md](./ops/point-in-time-recovery.md) | how continuous recovery works and how to restore |
+| [ops/backup-offsite-and-verification.md](./ops/backup-offsite-and-verification.md) | off-site backup copies and restore verification |
 | [reference/errors.md](./reference/errors.md) | the error envelope and what each status means |
 
 ## Conventions used on every page
@@ -82,7 +82,7 @@ service is `https://api.basefyio.com/api`. Every route of the platform API lives
   and bypasses row-level security; it is only ever used from your own server. Both are shown
   on the project's Connection page in the dashboard.
 - *Account credentials* authenticate a person or an automation acting as one: the dashboard
-  session (a Keycloak JWT) or an [API token](./API_TOKENS.md).
+  session (a Keycloak JWT) or an [API token](./reference/api-tokens.md).
 
 **Headers.**
 

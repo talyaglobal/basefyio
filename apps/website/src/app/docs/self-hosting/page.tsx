@@ -21,8 +21,8 @@ export default function SelfHostingDocs() {
         single machine), and <code>docker-compose.prod.yml</code> runs pre-built images behind Traefik with
         Let&apos;s Encrypt certificates (production). This page covers both. The complete, step-by-step version
         lives in the repository:{" "}
-        <a href={`${REPO_DOCS}/SELF_HOSTING_OFFLINE.md`}>docs/SELF_HOSTING_OFFLINE.md</a>. A Turkish
-        installation guide is available too: <a href={`${REPO_DOCS}/KURULUM.md`}>docs/KURULUM.md</a>.
+        <a href={`${REPO_DOCS}/guides/self-hosting-offline.md`}>docs/guides/self-hosting-offline.md</a>. A Turkish
+        installation guide is available too: <a href={`${REPO_DOCS}/guides/self-hosting-tr.md`}>docs/guides/self-hosting-tr.md</a>.
       </p>
 
       <h2>What runs</h2>
@@ -64,7 +64,7 @@ scripts/install.sh root you@example.com          # after signing up: the first a
         the release was tested with, and the installer prints them — with whether the release changed the database —
         when it finishes. On a host without internet access it loads an image bundle and starts without a single
         registry call. The full guide:{" "}
-        <a href={`${REPO_DOCS}/SELF_HOSTING_OFFLINE.md`}>docs/SELF_HOSTING_OFFLINE.md</a>.
+        <a href={`${REPO_DOCS}/guides/self-hosting-offline.md`}>docs/guides/self-hosting-offline.md</a>.
       </p>
 
       <h2>Development: everything on one machine</h2>
@@ -209,7 +209,7 @@ docker compose -f docker-compose.prod.yml --env-file .env.production up -d`}</co
       <ul>
         <li><strong>Project export</strong> — Dashboard → project → Backup &amp; Export, or <code>POST /api/projects/:id/export</code>, produces a ZIP with the database dump, realm users and storage objects.</li>
         <li><strong>Automatic daily backups</strong> — kept per project and restorable from the same page (<code>GET /api/projects/:id/backups</code>).</li>
-        <li><strong>Point-in-time recovery</strong> — continuous WAL archiving with a seven-day window; see <a href={`${REPO_DOCS}/POINT_IN_TIME_RECOVERY.md`}>POINT_IN_TIME_RECOVERY.md</a> and <code>scripts/enable-pitr.sh</code>.</li>
+        <li><strong>Point-in-time recovery</strong> — continuous WAL archiving with a seven-day window; see <a href={`${REPO_DOCS}/ops/point-in-time-recovery.md`}>POINT_IN_TIME_RECOVERY.md</a> and <code>scripts/enable-pitr.sh</code>.</li>
       </ul>
 
       <h2>Monitoring</h2>

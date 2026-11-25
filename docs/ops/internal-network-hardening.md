@@ -2,7 +2,7 @@
 
 Rollout runbook for production-shaped installs (`docker-compose.prod.yml`).
 Self-hosted installs that use `scripts/install.sh` get the same result from
-`scripts/install.sh upgrade`; see docs/SELF_HOSTING_OFFLINE.md.
+`scripts/install.sh upgrade`; see docs/guides/self-hosting-offline.md.
 
 ## What changes
 

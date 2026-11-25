@@ -33,7 +33,7 @@ const DOC_MAP: DocMapEntry[] = [
   { doc: 'docs/reference/storage-api.md', controllers: [`${M}/storage/storage.controller.ts`, `${M}/storage/storage-policy.controller.ts`, `${M}/storage/upload-session.controller.ts`] },
   { doc: 'docs/reference/storage-v1-api.md', controllers: [`${M}/storage-facade/storage-v1.controller.ts`, `${M}/storage-facade/storage-v1-public.controller.ts`, `${M}/storage-facade/storage-catalog.controller.ts`] },
   { doc: 'docs/reference/sql-api.md', controllers: [`${M}/sql/sql.controller.ts`] },
-  { doc: 'docs/REALTIME_API.md', controllers: [`${M}/realtime-data/realtime-data.controller.ts`] },
+  { doc: 'docs/reference/realtime-api.md', controllers: [`${M}/realtime-data/realtime-data.controller.ts`] },
   { doc: 'docs/reference/embeddings-api.md', controllers: [`${M}/tenant-embedding/tenant-embedding-public.controller.ts`, `${M}/tenant-embedding/tenant-embedding.controller.ts`, `${M}/tenant-embedding/ai-disclosure.controller.ts`] },
   { doc: 'docs/reference/rag-api.md', controllers: [`${M}/rag/rag.controller.ts`] },
   { doc: 'docs/reference/flows-api.md', controllers: [`${M}/flows/flows.controller.ts`, `${M}/flows/flow-webhook.controller.ts`] },
@@ -57,7 +57,7 @@ const DOC_MAP: DocMapEntry[] = [
     excluded: [/^\w+ \/api\/billing\/management\//, /^POST \/api\/billing\/webhook$/],
   },
   { doc: 'docs/guides/health-and-metrics.md', controllers: [`${M}/health/health.controller.ts`, `${M}/health/metrics.controller.ts`] },
-  { doc: 'docs/API_TOKENS.md', controllers: [`${M}/api-tokens/api-tokens.controller.ts`] },
+  { doc: 'docs/reference/api-tokens.md', controllers: [`${M}/api-tokens/api-tokens.controller.ts`] },
 ];
 
 function walk(dir: string, accept: (file: string) => boolean, out: string[] = []): string[] {

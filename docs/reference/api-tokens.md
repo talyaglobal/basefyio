@@ -91,7 +91,7 @@ everywhere it has not been explicitly allowed:
 | Feedback | `GET /api/feedback`, `PATCH /api/feedback/:id`, comments and history | `feedback:read` / `feedback:write` |
 
 The route-by-route list with each route's scope is in
-[reference/project-admin-api.md](./reference/project-admin-api.md) for the project routes.
+[reference/project-admin-api.md](./project-admin-api.md) for the project routes.
 
 **Dashboard session only (a token gets 403):**
 
@@ -107,7 +107,7 @@ The route-by-route list with each route's scope is in
 
 **Project data plane:** tables, rows, collections, storage, SQL, flows, RAG, agents, the data
 engine and project users take a dashboard session or a **project key**, not an API token. Use the
-project's service key there (see [docs/README.md](./README.md)); the **MCP server** covers the
+project's service key there (see [docs/README.md](../README.md)); the **MCP server** covers the
 SQL, schema, data, storage and auth reads an agent needs with a token.
 
 ### Team restriction
@@ -126,7 +126,7 @@ narrowed by the team restriction.
 
 The **MCP server** (`POST /api/mcp`) takes tokens only, and its tools need the scopes
 `team:read`, `projects:read`, `schema:read`, `data:read`, `data:write`, `sql:read`, `sql:run`,
-`storage:read` and `auth:read`; see [reference/mcp.md](./reference/mcp.md). It enforces the
+`storage:read` and `auth:read`; see [reference/mcp.md](./mcp.md). It enforces the
 team restriction the same way.
 
 ## Using a token
@@ -177,7 +177,7 @@ console.log(bindings);
 
 To run SQL from automation, use the project's service key against `POST /api/sql/execute`
 with `{ "projectId": "<PROJECT_ID>", "query": "select count(*) from orders" }` — see
-[docs/reference/sql-api.md](./reference/sql-api.md).
+[docs/reference/sql-api.md](./sql-api.md).
 
 The token acts **as you**, limited to its scopes and (if set) its team. It can only
 reach projects in teams you belong to — cross-tenant access is not possible — and a token with a
@@ -231,8 +231,8 @@ expiry. A `teamId` you are not a member of is 403.
 ## API tokens vs. the Codefyio adapter
 
 If you're driving basefyio from the **Codefyio IDE**, use its
-[adapter](./CODEFYIO_ADAPTER.md) instead. The adapter's `/_codefyio/auth/exchange`
+[adapter](../integrations/codefyio-adapter.md) instead. The adapter's `/_codefyio/auth/exchange`
 takes a token issued by Codefyio (`codefyioToken`) and mints its own short-lived
 session; it does not take a `bf_pat_…` token.
 
-Part of the basefyio documentation — index: [README.md](./README.md).
+Part of the basefyio documentation — index: [README.md](../README.md).

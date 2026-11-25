@@ -60,7 +60,7 @@ and used by every later command; run `basefyio login --api-url …` again to swi
 is set, or inside an SSH session (`SSH_TTY`), and exits with 1 (“Browser login requires an
 interactive terminal”). There is no token-based sign-in for CI yet. For automation that needs a
 project's data, use the project's service key against the HTTP API directly, or an account
-[API token](../API_TOKENS.md) on the routes that accept one.
+[API token](api-tokens.md) on the routes that accept one.
 
 **Staying signed in.** Before every command except `login` and `logout`, the CLI refreshes the
 access token when it expires within 60 seconds (`POST /api/auth/refresh`). A request that still

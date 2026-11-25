@@ -191,5 +191,5 @@ several minutes.
 
 ## Related
 
-- [API tokens and scopes](./API_TOKENS.md) — granting an agent `backups:read` /
+- [API tokens and scopes](../reference/api-tokens.md) — granting an agent `backups:read` /
   `backups:write`
