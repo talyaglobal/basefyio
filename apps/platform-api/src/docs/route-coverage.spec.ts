@@ -45,6 +45,7 @@ const DOC_MAP: DocMapEntry[] = [
       `${M}/projects/project-data.controller.ts`,
       `${M}/projects/project-database.controller.ts`,
       `${M}/projects/project-policies.controller.ts`,
+      `${M}/advisors/advisors.controller.ts`,
       `${M}/projects/backups/project-backups.controller.ts`,
       `${M}/projects/branches/project-branches.controller.ts`,
     ],

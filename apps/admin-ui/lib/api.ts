@@ -5,6 +5,7 @@ import type { ConsoleOverview, ConsoleProjectDetail, ConsoleProjectList, Console
 import type { ConsoleAlertFeed } from './console-alert-types';
 import type { ConsoleStatus, PublicStatus, IncidentView, IncidentInput } from './platform-status-types';
 import type { CapacityOverview, CapacityHistoryPoint, CapacityBenchmarkRun, SimulationInput, SimulationResult } from './capacity-types';
+import type { AdvisorCategory, AdvisorReport } from './advisors';
 import type { RlsMutationOptions, RlsMutationResult, RlsPoliciesOverview, RlsPolicyInput } from './rls-policies';
 import type {
   EmbeddingDisclosure,
@@ -1425,6 +1426,14 @@ export const api = {
     },
     listBranches(projectId: string) {
       return request<PreviewBranchListItem[]>(`/projects/${projectId}/branches`);
+    },
+    /** Security and performance advisors: a read-only scan of the project database (#218). */
+    advisors(projectId: string, opts: { category?: AdvisorCategory; refresh?: boolean } = {}) {
+      const q = new URLSearchParams();
+      if (opts.category) q.set('category', opts.category);
+      if (opts.refresh) q.set('refresh', 'true');
+      const qs = q.toString();
+      return request<AdvisorReport>(`/projects/${projectId}/advisors${qs ? `?${qs}` : ''}`);
     },
     createBranch(projectId: string, data: { name: string; dataMode?: 'schema' | 'full' }) {
       return request<PreviewBranchCreateResponse>(`/projects/${projectId}/branches`, {

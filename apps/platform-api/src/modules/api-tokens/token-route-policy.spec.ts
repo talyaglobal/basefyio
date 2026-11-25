@@ -25,6 +25,7 @@ export const CONTROLLER_POLICY: Record<string, [Policy, string]> = {
   'modules/projects/projects.controller.ts': ['token', 'project lifecycle, compute options and data access settings; the project resources card (GET :id/resources), move-to-team, the cluster base backup, the exposed REST schemas (#264) and the credentials reveal (#14) are @JwtOnly'],
   'modules/projects/project-database.controller.ts': ['token', 'indexes, triggers, functions, extensions (schema:*)'],
   'modules/projects/project-policies.controller.ts': ['token', 'RLS policies (schema:*)'],
+  'modules/advisors/advisors.controller.ts': ['token', 'security and performance advisors, read-only catalog scan (schema:read)'],
   'modules/projects/project-api-keys.controller.ts': ['token', 'project keys (secrets:*)'],
   'modules/storage/s3-keys.controller.ts': ['token', 'project S3 access keys are credentials (secrets:*), never storage:*'],
   'modules/projects/folders-tags.controller.ts': ['token', 'project folders and tags (settings:*)'],

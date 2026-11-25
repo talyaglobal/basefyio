@@ -70,6 +70,7 @@ import { TenantEmbeddingModule } from './modules/tenant-embedding/tenant-embeddi
 import { DataEngineModule } from './modules/data-engine/data-engine.module';
 import { DataQueryModule } from './modules/data-query/data-query.module';
 import { DataStructuresModule } from './modules/data-structures/data-structures.module';
+import { AdvisorsModule } from './modules/advisors/advisors.module';
 import { ProvisioningModule } from './modules/provisioning/provisioning.module';
 import { DrizzleModule } from './db/drizzle/drizzle.module';
 import { RagModule } from './modules/rag/rag.module';
@@ -156,6 +157,7 @@ import { TokenContextMiddleware } from './common/request-context/token-context';
     DataEngineModule,
     DataQueryModule,
     DataStructuresModule,
+    AdvisorsModule,
     ProvisioningModule,
     DrizzleModule,
     RagModule,

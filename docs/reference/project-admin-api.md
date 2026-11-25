@@ -431,6 +431,43 @@ connectingUser, rolesPresent, memberships, setRoleResults, failedRoles, sentinel
 when the data API answers `permission denied to set role …`. Projects on a dedicated database host
 are refused with 500.
 
+## Advisors
+
+| Method | Path | Tier | Purpose |
+|---|---|---|---|
+| GET | `/api/projects/:id/advisors` | session · token `schema:read` | `?category=security\|performance&refresh=true` — scan the project database for security and performance problems, each with a suggested fix |
+
+Any team member may read the advisors. The scan is read-only: catalog `SELECT`s (`pg_catalog`,
+`pg_stat_user_indexes`) in a `READ ONLY` transaction that is always rolled back, 5 s per rule and
+at most 200 rows per rule. The fix SQL is shown, never run; copy it into the SQL editor after
+reading it. Platform and system schemas (`auth`, `storage`, `extensions`, `realtime`, `pg_*`,
+`information_schema`, `_bf_*` and the like) and objects owned by an extension are skipped. A
+report is cached for 60 seconds; `refresh=true` scans again.
+
+The answer is
+
+```json
+{ "generatedAt": "2026-11-25T10:00:00.000Z",
+  "counts": { "total": 2, "error": 1, "warn": 1, "info": 0, "security": 1, "performance": 1 },
+  "findings": [{ "id": "rls_disabled:public.todos", "ruleId": "rls_disabled", "severity": "error",
+    "category": "security", "title": "Public write access without row-level security",
+    "detail": "…", "entity": "public.todos",
+    "fixSql": "ALTER TABLE public.todos ENABLE ROW LEVEL SECURITY;\n…", "docsHint": "…" }],
+  "skippedRules": [] }
+```
+
+| Rule | Category | Severity | Finds |
+|---|---|---|---|
+| `rls_disabled` | security | `error` when `anon` or `authenticated` may insert, update or delete, else `warn` | a table with row-level security off |
+| `rls_enabled_no_policy` | security | `info` | a table with row-level security on and no policy (the data API sees no rows) |
+| `security_definer_search_path` | security | `warn` | a `SECURITY DEFINER` function without `SET search_path` |
+| `unindexed_foreign_key` | performance | `warn` | a foreign key whose columns do not lead any index |
+| `unused_index` | performance | `info` | a non-unique, non-constraint index with no scan since statistics began; tables under 1 MB, statistics younger than 7 days and indexes that cover a foreign key are ignored |
+| `no_primary_key` | performance | `info` | a table without a primary key |
+
+`skippedRules: [{ ruleId, reason }]` lists rules that could not run (a timeout, a missing
+privilege); the other findings still hold. An unknown `category` is 400.
+
 ## Importing data
 
 | Method | Path | Tier | Purpose |
