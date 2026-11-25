@@ -367,6 +367,8 @@ export class BackupVerificationService {
     const verifyDb = `${VERIFY_DB_PREFIX}${Math.floor(Date.now() / 1000)}_${randomBytes(3).toString('hex')}`;
     await pool.query(`CREATE DATABASE ${quoteIdent(verifyDb)} TEMPLATE template0 ENCODING 'UTF8'`);
     await onDatabaseCreated(verifyDb);
+    // The restored copy holds a project's data: no other role on the cluster may connect to it.
+    await pool.query(`REVOKE CONNECT ON DATABASE ${quoteIdent(verifyDb)} FROM PUBLIC`);
 
     const psql = await this.runPsql(verifyDb, dumpPath, signal);
     const actual = await this.countRestored(verifyDb);

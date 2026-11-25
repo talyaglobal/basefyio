@@ -396,6 +396,10 @@ export function ConnectionStringsView({
   const [showCreateExtraRole, setShowCreateExtraRole] = useState(false);
   const [extraRoleLabel, setExtraRoleLabel] = useState('');
   const [extraRoleMemberOf, setExtraRoleMemberOf] = useState('none');
+  const [extraRoleName, setExtraRoleName] = useState('');
+  const [rolePrefix, setRolePrefix] = useState<{ prefix: string | null; locked: boolean } | null>(null);
+  const [prefixDraft, setPrefixDraft] = useState('');
+  const [savingPrefix, setSavingPrefix] = useState(false);
   const [creatingExtraRole, setCreatingExtraRole] = useState(false);
   // The credentials in clear, fetched on demand (#14) and kept in memory for this page only.
   const [secrets, setSecrets] = useState<ConnectionSecrets | null>(null);
@@ -407,6 +411,12 @@ export function ConnectionStringsView({
       .catch((err) => toast.error(err.message))
       .finally(() => setLoading(false));
   }, [projectId]);
+
+  const canManageRoles = Boolean(conn?.canResetDbPassword);
+  useEffect(() => {
+    if (!canManageRoles) return;
+    api.projects.getRolePrefix(projectId).then(setRolePrefix).catch(() => setRolePrefix(null));
+  }, [projectId, canManageRoles]);
 
   const isLocalPublicBase = conn
     ? /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(conn.publicBaseUrl)
@@ -636,14 +646,32 @@ engine = create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True)`;
     }
   }
 
+  async function handleSaveRolePrefix() {
+    const prefix = prefixDraft.trim();
+    if (!prefix) return;
+    setSavingPrefix(true);
+    try {
+      setRolePrefix(await api.projects.setRolePrefix(projectId, prefix));
+      setPrefixDraft('');
+      toast.success(`Role prefix set to ${prefix}`);
+    } catch (err: any) {
+      toast.error(err.message || 'Could not set the role prefix');
+    } finally {
+      setSavingPrefix(false);
+    }
+  }
+
   async function handleCreateExtraRole() {
     if (!extraRoleLabel.trim()) return;
     setCreatingExtraRole(true);
     try {
-      await api.projects.createExtraRole(projectId, extraRoleLabel.trim(), extraRoleMemberOf);
+      const name = extraRoleName.trim();
+      await api.projects.createExtraRole(projectId, extraRoleLabel.trim(), extraRoleMemberOf, name || undefined);
       await refreshConnection();
+      if (name) api.projects.getRolePrefix(projectId).then(setRolePrefix).catch(() => undefined);
       setShowCreateExtraRole(false);
       setExtraRoleLabel('');
+      setExtraRoleName('');
       setExtraRoleMemberOf('none');
       toast.success('Database user created');
     } catch (err: any) {
@@ -1089,6 +1117,36 @@ engine = create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True)`;
             must issue <code className="rounded bg-muted px-1">SET LOCAL ROLE</code> explicitly.
           </p>
 
+          <div className="flex flex-wrap items-end gap-2">
+            {rolePrefix?.prefix ? (
+              <p className="text-sm text-muted-foreground">
+                Role prefix: <code className="rounded bg-muted px-1">{rolePrefix.prefix}</code>
+                {rolePrefix.locked ? ' (in use, cannot change)' : ''} — named roles are{' '}
+                <code className="rounded bg-muted px-1">{rolePrefix.prefix}_&lt;name&gt;</code>.
+              </p>
+            ) : null}
+            {!rolePrefix?.locked && (
+              <>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground" htmlFor="db-role-prefix">
+                    {rolePrefix?.prefix ? 'Change role prefix' : 'Role prefix (optional, for named roles)'}
+                  </label>
+                  <Input
+                    id="db-role-prefix"
+                    placeholder="e.g. myapp"
+                    value={prefixDraft}
+                    onChange={(e) => setPrefixDraft(e.target.value)}
+                    maxLength={20}
+                    className="w-48"
+                  />
+                </div>
+                <Button variant="outline" disabled={savingPrefix || !prefixDraft.trim()} onClick={() => void handleSaveRolePrefix()}>
+                  {savingPrefix ? 'Saving…' : 'Set prefix'}
+                </Button>
+              </>
+            )}
+          </div>
+
           {(conn.extraRoles ?? []).map((role) => (
             <div key={role.id} className="rounded-lg border bg-card p-4 space-y-3">
               <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -1161,6 +1219,24 @@ engine = create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True)`;
                     maxLength={80}
                   />
                 </div>
+                {rolePrefix?.prefix ? (
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground" htmlFor="extra-role-name">
+                      Name (optional): {rolePrefix.prefix}_{extraRoleName.trim() || '<name>'}
+                    </label>
+                    <Input
+                      id="extra-role-name"
+                      placeholder="e.g. app"
+                      value={extraRoleName}
+                      onChange={(e) => {
+                        setExtraRoleName(e.target.value);
+                        // A named role joins only this project's group roles.
+                        if (e.target.value.trim()) setExtraRoleMemberOf('none');
+                      }}
+                      maxLength={31}
+                    />
+                  </div>
+                ) : null}
                 <div className="space-y-1">
                   <label className="text-xs text-muted-foreground" htmlFor="extra-role-member-of">Member of</label>
                   <Select value={extraRoleMemberOf} onValueChange={setExtraRoleMemberOf}>
@@ -1169,9 +1245,13 @@ engine = create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True)`;
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none">None (direct grants only)</SelectItem>
-                      <SelectItem value="anon">anon — public requests</SelectItem>
-                      <SelectItem value="authenticated">authenticated — signed-in users</SelectItem>
-                      <SelectItem value="service_role">service_role — backend workers</SelectItem>
+                      {!extraRoleName.trim() && (
+                        <>
+                          <SelectItem value="anon">anon — public requests</SelectItem>
+                          <SelectItem value="authenticated">authenticated — signed-in users</SelectItem>
+                          <SelectItem value="service_role">service_role — backend workers</SelectItem>
+                        </>
+                      )}
                     </SelectContent>
                   </Select>
                 </div>
@@ -1185,7 +1265,7 @@ engine = create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True)`;
                 </Button>
                 <Button
                   variant="ghost"
-                  onClick={() => { setShowCreateExtraRole(false); setExtraRoleLabel(''); setExtraRoleMemberOf('none'); }}
+                  onClick={() => { setShowCreateExtraRole(false); setExtraRoleLabel(''); setExtraRoleName(''); setExtraRoleMemberOf('none'); }}
                 >
                   Cancel
                 </Button>

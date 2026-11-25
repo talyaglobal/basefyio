@@ -218,6 +218,53 @@ db.command('rotate-password')
     await dbRotatePassword(options);
   });
 
+const dbRoles = db
+  .command('roles')
+  .description('Extra database roles: their own login, or a NOLOGIN group (see the connect docs)');
+
+dbRoles
+  .command('list')
+  .description('List the extra database roles (never their passwords)')
+  .option('-p, --project <id>', 'Project id (default: the linked project)')
+  .option('--json', 'Print JSON')
+  .action(async (options) => {
+    const { dbRolesList } = await import('./commands/db-roles.js');
+    await dbRolesList(options);
+  });
+
+dbRoles
+  .command('create [name]')
+  .description('Create a role; with [name] it is <prefix>_<name> (set the project role prefix first)')
+  .option('-p, --project <id>', 'Project id (default: the linked project)')
+  .option('--label <text>', 'Label shown in the dashboard (default: the name)')
+  .option('--group', 'Create a NOLOGIN group role instead of a login role')
+  .option('--member-of <roles>', "Comma list of roles to join (a named role: this project's groups only)")
+  .option('--json', 'Print JSON')
+  .action(async (name, options) => {
+    const { dbRolesCreate } = await import('./commands/db-roles.js');
+    await dbRolesCreate(name, options);
+  });
+
+dbRoles
+  .command('reset-password <role>')
+  .description('Give a login role a new generated password (by role name, label or id)')
+  .option('-p, --project <id>', 'Project id (default: the linked project)')
+  .option('-f, --force', 'Skip confirmation prompt')
+  .action(async (role, options) => {
+    const { dbRolesResetPassword } = await import('./commands/db-roles.js');
+    await dbRolesResetPassword(role, options);
+  });
+
+dbRoles
+  .command('drop <role>')
+  .description('Remove a role; what it owns is handed to the project owner first')
+  .option('-p, --project <id>', 'Project id (default: the linked project)')
+  .option('-f, --force', 'Skip confirmation prompt')
+  .action(async (role, options) => {
+    const { dbRolesDrop } = await import('./commands/db-roles.js');
+    await dbRolesDrop(role, options);
+  });
+
 // ── Inspect ─────────────────────────────────────────────────
 
 program

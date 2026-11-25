@@ -161,14 +161,16 @@ per page; it does not limit how many rows a table can hold.
 | POST | `/api/projects/:id/db-readonly-role` | session · token `secrets:write` | create the read-only companion role, or repair its grants |
 | PATCH | `/api/projects/:id/db-readonly-password` | session · token `secrets:write` | `{ password? }` — rotate the read-only role's password |
 | DELETE | `/api/projects/:id/db-readonly-role` | session · token `secrets:write` | remove the read-only role |
-| GET | `/api/projects/:id/db-extra-roles` | session · token `secrets:read` | the project's extra database roles with their passwords, memberships and limits |
-| POST | `/api/projects/:id/db-extra-roles` | session · token `secrets:write` | `{ label, kind?, memberOf?, settings? }` — create an extra LOGIN role, or a NOLOGIN group role with `kind: "group"` (see Extra database roles) |
+| GET | `/api/projects/:id/db-role-prefix` | session · token `secrets:read` | `{ prefix, locked }` — the prefix of named roles, and whether a role already uses it |
+| PUT | `/api/projects/:id/db-role-prefix` | session · token `secrets:write` | `{ prefix }` — choose the prefix of named roles (see Role prefix) |
+| GET | `/api/projects/:id/db-extra-roles` | session · token `secrets:read` | the project's extra database roles with their memberships and limits, never their passwords |
+| POST | `/api/projects/:id/db-extra-roles` | session · token `secrets:write` | `{ label, name?, kind?, memberOf?, settings? }` — create an extra LOGIN role, or a NOLOGIN group role with `kind: "group"`; `name` makes it `<prefix>_<name>` (see Extra database roles) |
 | PATCH | `/api/projects/:id/db-extra-roles/:roleId` | session · token `secrets:write` | `{ memberOf?, settings? }` — change its memberships or limits |
 | PATCH | `/api/projects/:id/db-extra-roles/:roleId/password` | session · token `secrets:write` | `{ password? }` — rotate its password |
 | DELETE | `/api/projects/:id/db-extra-roles/:roleId` | session · token `secrets:write` | remove the role |
 | PATCH | `/api/projects/:id/db-connection-limit` | session · token `settings:write` | `{ maxDbConnections: number \| null }` — pooled connections allowed to this database |
 
-*Who:* the four write routes need the team permission **reset database password** (team owners
+*Who:* every database role route needs the team permission **reset database password** (team owners
 always have it); others get 403 `Your role does not have the "canResetDbPassword" permission in
 this team`. The reveal route needs a team owner or admin, or a role with that permission; see
 [Credentials](#credentials).
@@ -245,7 +247,10 @@ that does not exist is 400.
 ### Extra database roles
 
 Up to ten LOGIN roles per project for applications that connect with their own credentials, named
-`kb_xr_<hex>` and labelled for the dashboard. Each is `NOINHERIT` and never a superuser.
+`kb_xr_<hex>` (or `<prefix>_<name>`, see Role prefix) and labelled for the dashboard. The attributes
+are fixed: `LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS`. A role is granted
+`CONNECT` on the project's own database only. A guide with connection and migration examples:
+[guides/extra-database-roles.md](../guides/extra-database-roles.md).
 
 - `memberOf`: `"none"`, one of `anon`, `authenticated`, `service_role`, a comma list, or an array such
   as `["anon", "authenticated"]`. Every membership is `INHERIT FALSE, SET TRUE`: the role has none of
@@ -258,8 +263,37 @@ Up to ten LOGIN roles per project for applications that connect with their own c
   configuration is regenerated when a role is created, changed, rotated or removed.
 
 Answer of `GET`, `POST` and `PATCH`: `{ id, label, kind, roleName, password, memberOf, memberships,
-settings, createdAt }` — `memberOf` as stored (`"anon,authenticated"`), `memberships` as a list, `settings`
-in ms, `password` `null` for a group.
+settings, createdAt }` — `roleName` the real Postgres name, `memberOf` as stored (`"anon,authenticated"`),
+`memberships` as a list, `settings` in ms. `password` is set only in the `POST` answer of a login role
+(store it then); `GET` and `PATCH` answer `null`, and a group always has `null`. The credentials reveal
+(`POST …/secrets/reveal`, dashboard session) returns stored passwords; rotation returns a new one.
+
+Every create, change, rotation and removal writes an entry to the project's activity log
+(`GET /api/projects/:id/activity`) with the person, the role name and the action
+(`metadata.event`: `db_role.created`, `db_role.updated`, `db_role.password_rotated`, `db_role.dropped`;
+`db_role.prefix_set` for the prefix), never the password. When a project is deleted for good, its extra
+roles are removed with it; what they own is handed to the project owner first.
+
+#### Role prefix
+
+`PUT …/db-role-prefix { prefix }` gives the project readable role names. Roles created afterwards with
+a `name` are called `<prefix>_<name>` (`myapp_app`, `myapp_owner`); roles created without a `name` keep
+the generated `kb_xr_` / `kb_xg_` names. Answer: `{ prefix, locked }`.
+
+- `prefix`: 3–20 characters, `^[a-z][a-z0-9]{2,19}$`, lower case only. Refused with 400: `anon`,
+  `authenticated`, `service_role`, `kolaybase`, `postgres`, `pg`, and anything starting with `pg_`, `kb_`,
+  `kolaybase`, `supabase` or `basefyio`.
+- 409 when another project uses the prefix, or when a database role named `<prefix>` or starting with
+  `<prefix>_` exists on the server and is not one of this project's roles.
+- The prefix can change until the first role uses it; afterwards a different value is 409 and the same
+  value is accepted again unchanged.
+- `name` in `POST`: `^[a-z][a-z0-9_]{1,30}$`, the whole name at most 63 bytes. `name` without a prefix is
+  400 (set the prefix first). A name that already exists as a database role is 409 and nothing is
+  created: the role is made in one transaction.
+- A named login role can only join this project's group roles (`memberOf: ["myapp_owner"]`); it is never
+  a member of `anon`, `authenticated`, `service_role`, the owner role or another project's role. Roles
+  with generated names keep the memberships described above.
+- Limits: ten login roles and ten group roles per project (400 beyond).
 
 #### Group roles
 
@@ -296,7 +330,8 @@ SECURITY` table through a policy written for the group, without the owner's or `
   After the hand-over, change the function's grants as the group (`SET ROLE kb_xg_…`).
 - `PATCH` and password rotation do not apply to a group (400). `DELETE` hands everything the group
   owns back to the project owner first, revokes its grants, and removes it from the login roles
-  that listed it; nothing the project created is deleted.
+  that listed it; nothing the project created is deleted. Removing a login role also hands what it
+  owns to the project owner first.
 
 ### Pooler connection limit
 

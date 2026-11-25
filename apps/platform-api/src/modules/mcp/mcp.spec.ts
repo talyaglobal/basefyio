@@ -19,6 +19,7 @@ import { McpService } from './mcp.service';
 import { assertToolCatalogue, MCP_TOOLS, McpToolDefinition } from './mcp-tools';
 
 const PROJECT = '11111111-1111-4111-8111-111111111111';
+const ROLE = '22222222-2222-4222-8222-222222222222';
 
 function token(over: Partial<VerifiedToken> = {}): VerifiedToken {
   return { id: 'tok1', userId: 'u1', teamId: null, scopes: [], ...over };
@@ -59,7 +60,13 @@ function harness(members: [string, string][] = [['team-a', 'u1']], tokenRow: any
       { id: 'team-b', name: 'B', slug: 'b', role: 'MEMBER', projectCount: 0 },
     ]),
   };
-  const projects = { findAll: jest.fn().mockResolvedValue([{ id: PROJECT, name: 'p' }]) };
+  const projects = {
+    findAll: jest.fn().mockResolvedValue([{ id: PROJECT, name: 'p' }]),
+    listExtraRoles: jest.fn().mockResolvedValue([{ id: ROLE, roleName: 'cockpit3_app', password: null }]),
+    createExtraRole: jest.fn().mockResolvedValue({ id: ROLE, roleName: 'cockpit3_app', password: 'ROLE-PW-once' }),
+    rotateExtraRolePassword: jest.fn().mockResolvedValue({ password: 'ROLE-PW-rotated' }),
+    dropExtraRole: jest.fn().mockResolvedValue({ message: 'Extra role removed', warnings: [] }),
+  };
   const storage = {
     createBucket: jest.fn().mockResolvedValue({ id: 'bf-p-docs', name: 'docs', public: false }),
     deleteBucket: jest.fn().mockResolvedValue({ message: 'Bucket "docs" deleted' }),
@@ -352,6 +359,28 @@ describe('MCP: buckets and S3 access keys (feedback #225)', () => {
 
     const listed = await svc.invoke(tool('list_s3_keys'), { projectId: PROJECT }, token({ scopes: ['secrets:read'] }));
     expect((listed.content[0] as any).text).not.toContain('S3CRET');
+  });
+
+  it('database role tools call the extra-role service with the same scopes as the routes', async () => {
+    expect(['list_db_roles', 'create_db_role', 'reset_db_role_password', 'drop_db_role'].map((n) => tool(n).scope)).toEqual([
+      'secrets:read', 'secrets:write', 'secrets:write', 'secrets:write',
+    ]);
+    expect(tool('list_db_roles').annotations.readOnlyHint).toBe(true);
+    expect(tool('drop_db_role').annotations.destructiveHint).toBe(true);
+    const { svc, projects, prisma } = harness();
+    const w = token({ scopes: ['secrets:write'] });
+    const created = await svc.invoke(tool('create_db_role'), { projectId: PROJECT, label: 'App', name: 'app', memberOf: ['cockpit3_owner'] }, w);
+    expect((created.content[0] as any).text).toContain('ROLE-PW-once');
+    expect(projects.createExtraRole).toHaveBeenCalledWith(PROJECT, 'u1', 'App', ['cockpit3_owner'], undefined, undefined, 'app');
+    await svc.invoke(tool('reset_db_role_password'), { projectId: PROJECT, roleId: ROLE }, w);
+    expect(projects.rotateExtraRolePassword).toHaveBeenCalledWith(PROJECT, 'u1', ROLE);
+    await svc.invoke(tool('drop_db_role'), { projectId: PROJECT, roleId: ROLE }, w);
+    expect(projects.dropExtraRole).toHaveBeenCalledWith(PROJECT, 'u1', ROLE);
+    const listed = await svc.invoke(tool('list_db_roles'), { projectId: PROJECT }, token({ scopes: ['secrets:read'] }));
+    expect((listed.content[0] as any).text).toContain('cockpit3_app');
+    expect((await svc.invoke(tool('list_db_roles'), { projectId: PROJECT }, w)).isError).toBe(true);
+    await new Promise((res) => setImmediate(res));
+    expect(JSON.stringify(prisma.auditLog.create.mock.calls)).not.toMatch(/ROLE-PW/);
   });
 
   it("does not reach another team's project", async () => {

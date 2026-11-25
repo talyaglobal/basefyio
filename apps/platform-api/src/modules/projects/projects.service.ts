@@ -6,6 +6,7 @@ import {
   InternalServerErrorException,
   BadRequestException,
   BadGatewayException,
+  ConflictException,
   OnApplicationBootstrap,
   Optional,
 } from '@nestjs/common';
@@ -49,12 +50,14 @@ import { AdminTarget, ProjectProvisioningService } from './project-provisioning.
 import { ProjectReadonlyRoleService, readonlyRoleNameFor } from './project-readonly-role.service';
 import {
   ProjectExtraRoleService,
+  isBuiltInMember,
   memberOfColumn,
   memberOfFromColumn,
   parseMemberOf,
   parseRoleSettings,
   type ExtraRoleSettings,
 } from './project-extra-role.service';
+import { assertRolePrefix, foreignPrefixRoles, prefixedRoleName, usesPrefix } from './project-role-prefix';
 import { previewBranchOf } from './branches/preview-branch';
 import { stripProjectSecrets } from './project-secrets';
 import { prefixIsAmbiguous } from '../storage/bucket-names';
@@ -101,7 +104,11 @@ export interface RlsDiagnostic {
 const AUTH_RECREATED_MESSAGE =
   'Project reactivated. Authentication was recreated; previous users and settings could not be restored.';
 
-const SELECT_XR = { id: true, label: true, roleName: true, password: true, memberOf: true, settings: true, kind: true, createdAt: true } as const;
+/** Never the password: it leaves the API only in the create / rotate answer and the credentials reveal. */
+const SELECT_XR = { id: true, label: true, roleName: true, memberOf: true, settings: true, kind: true, createdAt: true } as const;
+/** Login roles per project, and group roles per project. */
+export const MAX_EXTRA_ROLES_PER_KIND = 10;
+type ExtraRoleAuditAction = 'created' | 'updated' | 'password_rotated' | 'dropped';
 
 @Injectable()
 export class ProjectsService implements OnApplicationBootstrap {
@@ -786,8 +793,11 @@ export class ProjectsService implements OnApplicationBootstrap {
     if (!project) throw new NotFoundException('Project not found');
     await this.assertTeamPermission(project.teamId, userId, 'canResetDbPassword');
 
-    const password = nextPassword?.trim() || randomBytes(24).toString('base64url');
-    this.assertStrongDbPassword(password);
+    // The rule is for a password someone chose; a generated one (32 random base64url characters)
+    // often has no special character, and refusing it made rotation fail at random.
+    const chosen = nextPassword?.trim();
+    if (chosen) this.assertStrongDbPassword(chosen);
+    const password = chosen || randomBytes(24).toString('base64url');
 
     const pool = this.getAdminPool();
     const client = await pool.connect();
@@ -891,8 +901,11 @@ export class ProjectsService implements OnApplicationBootstrap {
     if (!project.dbReadonlyUser) {
       throw new BadRequestException('This project has no read-only role yet');
     }
-    const password = nextPassword?.trim() || randomBytes(24).toString('base64url');
-    this.assertStrongDbPassword(password);
+    // The rule is for a password someone chose; a generated one (32 random base64url characters)
+    // often has no special character, and refusing it made rotation fail at random.
+    const chosen = nextPassword?.trim();
+    if (chosen) this.assertStrongDbPassword(chosen);
+    const password = chosen || randomBytes(24).toString('base64url');
     const target = this.provisioning.resolveAdminTarget(project);
     try {
       await this.readonlyRole.setPassword({
@@ -948,6 +961,10 @@ export class ProjectsService implements OnApplicationBootstrap {
 
   /* ─────────────────────────── Extra database roles ─────────────────────── */
 
+  /**
+   * The project's extra roles. Passwords are never in this answer: they are returned once when a
+   * role is created or rotated, and afterwards only by the dashboard's credentials reveal.
+   */
   async listExtraRoles(projectId: string, userId: string) {
     const project = await this.loadProjectForDbCredentials(projectId, userId);
     const rows = await this.prisma.projectExtraRole.findMany({
@@ -958,17 +975,113 @@ export class ProjectsService implements OnApplicationBootstrap {
     return rows.map((r) => this.extraRoleView(r));
   }
 
-  /** `memberOf` stays the stored string; `memberships` is the same as a list, `settings` the limits in ms. */
-  private extraRoleView<T extends { memberOf: string; settings?: unknown; kind?: string; password?: string }>(row: T) {
+  /**
+   * `memberOf` stays the stored string; `memberships` is the same as a list, `settings` the limits in ms.
+   * `password` is null unless `password` is passed (the one answer of a create).
+   */
+  private extraRoleView<T extends { memberOf: string; settings?: unknown; kind?: string }>(row: T, password?: string) {
     const group = row.kind === 'group';
+    const { password: _stored, ...rest } = row as T & { password?: unknown };
     return {
-      ...row,
+      ...rest,
       kind: group ? 'group' : 'login',
       // A group cannot log in: no password to show.
-      password: group ? null : row.password,
+      password: group ? null : (password ?? null),
       memberships: memberOfFromColumn(row.memberOf),
       settings: (row.settings ?? {}) as ExtraRoleSettings,
     };
+  }
+
+  /** Audit entry for an extra role change: who (userId), the role's real name, the action. Never a password. */
+  private async auditExtraRole(
+    projectId: string,
+    userId: string,
+    action: ExtraRoleAuditAction,
+    row: { label: string; roleName: string; kind?: string | null },
+    title: string,
+  ): Promise<void> {
+    await this.activity.append(projectId, {
+      userId,
+      kind: ProjectActivityKind.PROJECT_UPDATED,
+      title: `${title}: ${row.label} (${row.roleName})`,
+      metadata: { event: `db_role.${action}`, roleName: row.roleName, roleKind: row.kind === 'group' ? 'group' : 'login' },
+    });
+  }
+
+  /** The role prefix and whether it can still change (no role uses it yet). */
+  async getRolePrefix(projectId: string, userId: string) {
+    const project = await this.loadProjectForDbCredentials(projectId, userId);
+    return { prefix: project.rolePrefix ?? null, locked: await this.rolePrefixLocked(project) };
+  }
+
+  private async rolePrefixLocked(project: { id: string; rolePrefix?: string | null }): Promise<boolean> {
+    if (!project.rolePrefix) return false;
+    const rows = await this.prisma.projectExtraRole.findMany({ where: { projectId: project.id }, select: { roleName: true } });
+    return rows.some((r) => usesPrefix(project.rolePrefix, r.roleName));
+  }
+
+  /**
+   * Choose the project's role prefix. Refused: an invalid or reserved value (400), a prefix another
+   * project holds or that a cluster role this project does not manage already uses (409), and any
+   * change once a role carries the current prefix (409).
+   */
+  async setRolePrefix(projectId: string, userId: string, input: unknown) {
+    const project = await this.loadProjectForDbCredentials(projectId, userId);
+    const prefix = assertRolePrefix(typeof input === 'string' ? input.trim() : input);
+    if (project.rolePrefix === prefix) return { prefix, locked: await this.rolePrefixLocked(project) };
+    if (await this.rolePrefixLocked(project)) {
+      throw new ConflictException(`The role prefix "${project.rolePrefix}" is in use by a role and can no longer change`);
+    }
+    const taken = await this.prisma.project.findFirst({
+      where: { rolePrefix: { equals: prefix, mode: 'insensitive' }, NOT: { id: project.id } },
+      select: { id: true },
+    });
+    if (taken) throw new ConflictException(`The role prefix "${prefix}" is taken`);
+    const own = await this.prisma.projectExtraRole.findMany({ where: { projectId: project.id }, select: { roleName: true } });
+    const target = this.provisioning.resolveAdminTarget(project);
+    const foreign = foreignPrefixRoles(
+      await this.extraRole.rolesMatchingPrefix(target, prefix),
+      own.map((r) => r.roleName),
+    );
+    if (foreign.length) {
+      throw new ConflictException(`The role prefix "${prefix}" is taken: database roles with that name already exist`);
+    }
+    try {
+      await this.prisma.project.update({ where: { id: project.id }, data: { rolePrefix: prefix } });
+    } catch (err: any) {
+      if (err?.code === 'P2002') throw new ConflictException(`The role prefix "${prefix}" is taken`);
+      throw err;
+    }
+    await this.activity.append(project.id, {
+      userId,
+      kind: ProjectActivityKind.PROJECT_UPDATED,
+      title: `Database role prefix set: ${prefix}`,
+      metadata: { event: 'db_role.prefix_set', prefix, previous: project.rolePrefix ?? null },
+    });
+    return { prefix, locked: false };
+  }
+
+  /**
+   * Memberships a role may hold. A generated (`kb_xr_`) role keeps the original rule: the built-in
+   * roles and the project's own groups. A named (`<prefix>_…`) role may only join the project's
+   * own group roles: never anon, authenticated, service_role, the owner or another project's role.
+   */
+  private async allowedMemberships(
+    project: { id: string; rolePrefix?: string | null },
+    roleName: string,
+    input: unknown,
+  ): Promise<string[]> {
+    const groups = (await this.projectGroupRoles(project.id)).filter((g) => g !== roleName);
+    const members = parseMemberOf(input, groups);
+    if (usesPrefix(project.rolePrefix, roleName)) {
+      const builtIn = members.filter((m) => isBuiltInMember(m));
+      if (builtIn.length) {
+        throw new BadRequestException(
+          `A named role can only be a member of this project's group roles, not ${builtIn.join(', ')}`,
+        );
+      }
+    }
+    return members;
   }
 
   /** Change the memberships or limits of an extra role; the role is re-provisioned with them. */
@@ -987,7 +1100,7 @@ export class ProjectsService implements OnApplicationBootstrap {
     const members =
       input.memberOf === undefined
         ? memberOfFromColumn(row.memberOf)
-        : parseMemberOf(input.memberOf, await this.projectGroupRoles(project.id));
+        : await this.allowedMemberships(project, row.roleName, input.memberOf);
     const settings =
       input.settings === undefined
         ? parseRoleSettings(row.settings ?? {})
@@ -1020,11 +1133,7 @@ export class ProjectsService implements OnApplicationBootstrap {
       data: { memberOf: memberOfColumn(members), settings: settings as any },
       select: SELECT_XR,
     });
-    await this.activity.append(project.id, {
-      userId,
-      kind: ProjectActivityKind.PROJECT_UPDATED,
-      title: `Extra database role updated: ${row.label}`,
-    });
+    await this.auditExtraRole(project.id, userId, 'updated', row, 'Extra database role updated');
     return this.extraRoleView(updated);
   }
 
@@ -1037,6 +1146,30 @@ export class ProjectsService implements OnApplicationBootstrap {
     return rows.map((r) => r.roleName);
   }
 
+  /**
+   * The role's name: `<prefix>_<name>` when `name` is given (the project must have a prefix, and
+   * the name must be free in the cluster), otherwise the generated `kb_xr_` / `kb_xg_` name.
+   */
+  private async extraRoleName(
+    project: { id: string; rolePrefix?: string | null },
+    kind: 'login' | 'group',
+    nameInput: unknown,
+  ): Promise<{ roleName: string; named: boolean }> {
+    if (nameInput === undefined || nameInput === null || nameInput === '') {
+      // Prefix + 10 random hex chars — unique across the shared cluster.
+      return { roleName: (kind === 'group' ? 'kb_xg_' : 'kb_xr_') + randomBytes(5).toString('hex'), named: false };
+    }
+    if (!project.rolePrefix) {
+      throw new BadRequestException(
+        'Set a role prefix first (PUT /api/projects/:id/db-role-prefix), then name the role',
+      );
+    }
+    const roleName = prefixedRoleName(project.rolePrefix, typeof nameInput === 'string' ? nameInput.trim() : nameInput);
+    const dup = await this.prisma.projectExtraRole.findFirst({ where: { roleName }, select: { id: true } });
+    if (dup) throw new ConflictException(`A database role named "${roleName}" already exists; choose another name`);
+    return { roleName, named: true };
+  }
+
   async createExtraRole(
     projectId: string,
     userId: string,
@@ -1044,6 +1177,7 @@ export class ProjectsService implements OnApplicationBootstrap {
     memberOfInput: unknown,
     settingsInput?: unknown,
     kindInput?: unknown,
+    nameInput?: unknown,
   ) {
     const project = await this.loadProjectForDbCredentials(projectId, userId);
     const kind = kindInput === undefined || kindInput === null || kindInput === '' ? 'login' : String(kindInput);
@@ -1053,9 +1187,10 @@ export class ProjectsService implements OnApplicationBootstrap {
       throw new BadRequestException('Label must be 1–80 characters');
     }
     const existing = await this.prisma.projectExtraRole.count({ where: { projectId: project.id, kind } });
-    if (existing >= 10) {
-      throw new BadRequestException(`Maximum of 10 extra database ${kind} roles per project`);
+    if (existing >= MAX_EXTRA_ROLES_PER_KIND) {
+      throw new BadRequestException(`Maximum of ${MAX_EXTRA_ROLES_PER_KIND} extra database ${kind} roles per project`);
     }
+    const { roleName, named } = await this.extraRoleName(project, kind, nameInput);
     const target = this.provisioning.resolveAdminTarget(project);
 
     if (kind === 'group') {
@@ -1064,29 +1199,22 @@ export class ProjectsService implements OnApplicationBootstrap {
       if (Object.keys(parseRoleSettings(settingsInput)).length) {
         throw new BadRequestException('A group role cannot log in, so it has no run-time limits');
       }
-      const roleName = 'kb_xg_' + randomBytes(5).toString('hex');
       try {
-        await this.extraRole.provisionGroup({ ...target, roleName, ownerRole: project.dbUser });
+        await this.extraRole.provisionGroup({ ...target, roleName, ownerRole: project.dbUser, mustNotExist: named });
       } catch (err: any) {
-        if (err instanceof BadRequestException) throw err;
+        if (err instanceof BadRequestException || err instanceof ConflictException) throw err;
         throw new InternalServerErrorException(`Failed to create group role: ${err.message}`);
       }
       const row = await this.prisma.projectExtraRole.create({
         data: { projectId: project.id, label: trimmedLabel, roleName, password: '', memberOf: 'none', kind: 'group' },
         select: SELECT_XR,
       });
-      await this.activity.append(project.id, {
-        userId,
-        kind: ProjectActivityKind.PROJECT_UPDATED,
-        title: `Database group role created: ${trimmedLabel}`,
-      });
+      await this.auditExtraRole(project.id, userId, 'created', row, 'Database group role created');
       return this.extraRoleView(row);
     }
 
-    const members = parseMemberOf(memberOfInput, await this.projectGroupRoles(project.id));
+    const members = await this.allowedMemberships(project, roleName, memberOfInput);
     const settings = parseRoleSettings(settingsInput);
-    // kb_xr_ prefix + 10 random hex chars — unique across the shared cluster.
-    const roleName = 'kb_xr_' + randomBytes(5).toString('hex');
     const password = randomBytes(24).toString('base64url');
 
     try {
@@ -1097,9 +1225,10 @@ export class ProjectsService implements OnApplicationBootstrap {
         rolePassword: password,
         memberOf: members,
         settings,
+        mustNotExist: named,
       });
     } catch (err: any) {
-      if (err instanceof BadRequestException) throw err;
+      if (err instanceof BadRequestException || err instanceof ConflictException) throw err;
       throw new InternalServerErrorException(`Failed to create extra role: ${err.message}`);
     }
 
@@ -1107,15 +1236,12 @@ export class ProjectsService implements OnApplicationBootstrap {
       data: { projectId: project.id, label: trimmedLabel, roleName, password, memberOf: memberOfColumn(members), settings: settings as any, kind: 'login' },
       select: SELECT_XR,
     });
-    await this.activity.append(project.id, {
-      userId,
-      kind: ProjectActivityKind.PROJECT_UPDATED,
-      title: `Extra database role created: ${trimmedLabel}`,
-    });
+    await this.auditExtraRole(project.id, userId, 'created', row, 'Extra database role created');
     this.pgbouncer.regenerateConfig().catch((err) =>
       this.logger.warn(`PgBouncer config update failed: ${err}`),
     );
-    return this.extraRoleView(row);
+    // The only answer that carries the password; store it now.
+    return this.extraRoleView(row, password);
   }
 
   async rotateExtraRolePassword(
@@ -1131,8 +1257,11 @@ export class ProjectsService implements OnApplicationBootstrap {
     if (!row) throw new NotFoundException('Extra role not found');
     if (row.kind === 'group') throw new BadRequestException('A group role cannot log in, so it has no password');
 
-    const password = nextPassword?.trim() || randomBytes(24).toString('base64url');
-    this.assertStrongDbPassword(password);
+    // The rule is for a password someone chose; a generated one (32 random base64url characters)
+    // often has no special character, and refusing it made rotation fail at random.
+    const chosen = nextPassword?.trim();
+    if (chosen) this.assertStrongDbPassword(chosen);
+    const password = chosen || randomBytes(24).toString('base64url');
     const target = this.provisioning.resolveAdminTarget(project);
     try {
       await this.extraRole.setPassword({ ...target, roleName: row.roleName, rolePassword: password });
@@ -1143,11 +1272,7 @@ export class ProjectsService implements OnApplicationBootstrap {
       where: { id: roleId },
       data: { password },
     });
-    await this.activity.append(project.id, {
-      userId,
-      kind: ProjectActivityKind.PROJECT_UPDATED,
-      title: `Extra database role password rotated: ${row.label}`,
-    });
+    await this.auditExtraRole(project.id, userId, 'password_rotated', row, 'Extra database role password rotated');
     this.pgbouncer.regenerateConfig().catch((err) =>
       this.logger.warn(`PgBouncer config update failed: ${err}`),
     );
@@ -1167,7 +1292,7 @@ export class ProjectsService implements OnApplicationBootstrap {
       ...target,
       roleName: row.roleName,
       dbName: project.dbName,
-      ...(group ? { reassignTo: project.dbUser } : {}),
+      reassignTo: project.dbUser,
     });
     await this.prisma.projectExtraRole.delete({ where: { id: roleId } });
     if (group) {
@@ -1183,15 +1308,57 @@ export class ProjectsService implements OnApplicationBootstrap {
         }
       }
     }
-    await this.activity.append(project.id, {
-      userId,
-      kind: ProjectActivityKind.PROJECT_UPDATED,
-      title: `Extra database role removed: ${row.label}`,
-    });
+    await this.auditExtraRole(project.id, userId, 'dropped', row, 'Extra database role removed');
     this.pgbouncer.regenerateConfig().catch((err) =>
       this.logger.warn(`PgBouncer config update failed: ${err}`),
     );
     return { message: 'Extra role removed', warnings };
+  }
+
+  /**
+   * Project teardown: drop every extra role of the project before its database goes, login roles
+   * first, each with what it owns handed to the project owner. Never throws; failures are logged.
+   */
+  private async dropExtraRolesQuietly(project: { id: string; dbName: string; dbUser: string }): Promise<void> {
+    let rows: Array<{ roleName: string; kind: string }>;
+    try {
+      rows = await this.prisma.projectExtraRole.findMany({ where: { projectId: project.id }, select: { roleName: true, kind: true } });
+    } catch (err: any) {
+      this.logger.warn(`Extra roles of project ${project.id} could not be listed for cleanup: ${err?.message || err}`);
+      return;
+    }
+    rows.sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'group' ? 1 : -1));
+    const target = this.sharedAdminTarget();
+    for (const r of rows) {
+      try {
+        const { warnings } = await this.extraRole.drop({ ...target, roleName: r.roleName, dbName: project.dbName, reassignTo: project.dbUser });
+        for (const w of warnings) this.logger.warn(`Extra role "${r.roleName}" cleanup: ${w}`);
+      } catch (err: any) {
+        this.logger.warn(`Extra role "${r.roleName}" cleanup failed: ${err?.message || err}`);
+      }
+    }
+  }
+
+  /**
+   * One-off, idempotent: REVOKE CONNECT … FROM PUBLIC on every live project database on the shared
+   * cluster (new databases get it at creation). Not run automatically; an operator calls it.
+   * Answers the databases that were open to PUBLIC before the call.
+   */
+  async revokePublicConnectOnProjectDatabases(): Promise<{ checked: number; wereOpen: string[]; failed: string[] }> {
+    const projects = await this.prisma.project.findMany({
+      where: { status: { not: 'DELETED' } },
+      select: { dbName: true, dbHost: true, dbPort: true, infrastructure: { select: { pgAdminUser: true, pgAdminPassword: true } } },
+    });
+    const wereOpen: string[] = [];
+    const failed: string[] = [];
+    for (const p of projects) {
+      try {
+        if (await this.extraRole.revokePublicConnect(this.provisioning.resolveAdminTarget(p), p.dbName)) wereOpen.push(p.dbName);
+      } catch {
+        failed.push(p.dbName);
+      }
+    }
+    return { checked: projects.length, wereOpen, failed };
   }
 
   /**
@@ -2315,6 +2482,7 @@ export class ProjectsService implements OnApplicationBootstrap {
     userId?: string,
   ): Promise<void> {
     await this.deleteProjectRealm(project.keycloakRealm);
+    await this.dropExtraRolesQuietly(project);
     await this.dropDatabase(project.dbName).catch(() => {});
     await this.dropDatabaseUser(project.dbUser).catch(() => {});
     await this.dropReadonlyRoleQuietly(project.dbReadonlyUser);
@@ -2375,6 +2543,7 @@ export class ProjectsService implements OnApplicationBootstrap {
       this.logger.warn(`Realm cleanup failed for "${project.name}": ${err.message}`),
     );
 
+    await this.dropExtraRolesQuietly(project);
     await this.dropDatabase(project.dbName).catch(() => {});
     await this.dropDatabaseUser(project.dbUser).catch(() => {});
     await this.dropReadonlyRoleQuietly(project.dbReadonlyUser);
@@ -2414,6 +2583,7 @@ export class ProjectsService implements OnApplicationBootstrap {
       try {
         await this.deleteProjectRealm(project.keycloakRealm);
 
+        await this.dropExtraRolesQuietly(project);
         await this.dropDatabase(project.dbName).catch(() => {});
         await this.dropDatabaseUser(project.dbUser).catch(() => {});
         await this.dropReadonlyRoleQuietly(project.dbReadonlyUser);
@@ -2622,7 +2792,8 @@ export class ProjectsService implements OnApplicationBootstrap {
     try {
       const sanitized = dbName.replace(/[^a-z0-9_]/g, '');
       await client.query(`CREATE DATABASE "${sanitized}"`);
-      this.logger.log(`Database "${sanitized}" created on ${host}`);
+      await client.query(`REVOKE CONNECT ON DATABASE "${sanitized}" FROM PUBLIC`);
+      this.logger.log(`Database "${sanitized}" created on ${host} (public connect revoked)`);
     } catch (err: any) {
       if (err.code === '42P04') {
         this.logger.warn(`Database "${dbName}" already exists on ${host}`);

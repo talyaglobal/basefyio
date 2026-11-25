@@ -236,6 +236,18 @@ describe('platform API token route policy', () => {
     expect(problems).toEqual([]);
   });
 
+  it('database role routes are credentials: secrets:read to list, secrets:write to change', () => {
+    const source = fs.readFileSync(path.join(SRC, 'modules/projects/projects.controller.ts'), 'utf8');
+    const roleRoutes = parseHandlers(source).filter((h) =>
+      h.decorators.some((d) => METHOD_RE.test(d) && /db-(role-prefix|extra-roles)/.test(d)),
+    );
+    expect(roleRoutes.length).toBe(7);
+    for (const h of roleRoutes) {
+      expect(takesTokens(h)).toBe(true);
+      expect(scopesOf(h)).toEqual([h.verb === 'GET' ? 'secrets:read' : 'secrets:write']);
+    }
+  });
+
   it('parses decorators that sit below the method decorator', () => {
     const handlers = parseHandlers(`
 @Controller('x')

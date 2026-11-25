@@ -35,6 +35,10 @@ const TOOLS: [string, string, string][] = [
   ["list_s3_keys", "secrets:read", "S3 endpoint, region, bucket names and keys, never a secret"],
   ["create_s3_key", "secrets:write", "Create an S3 access key; the secret is in this answer only"],
   ["revoke_s3_key", "secrets:write", "Revoke an S3 access key from its next request"],
+  ["list_db_roles", "secrets:read", "Extra database roles of a project, never a password"],
+  ["create_db_role", "secrets:write", "Create an extra database role; the password is in this answer only"],
+  ["reset_db_role_password", "secrets:write", "New generated password for a login role, in this answer only"],
+  ["drop_db_role", "secrets:write", "Remove an extra database role; what it owns goes to the project owner"],
   ["list_auth_users", "auth:read", "End users of the project's authentication, 100 per page"],
 ];
 
@@ -126,9 +130,10 @@ BASEFYIO_MCP_TOKEN=bf_pat_...`}</code></pre>
         </li>
         <li>
           <strong>No secrets.</strong> No tool returns a database password, a project key or a connection
-          string, and no tool rotates or reveals keys or deletes a project. The one exception is{" "}
-          <code>create_s3_key</code> (<code>secrets:write</code>): it returns the new key&apos;s secret once, as
-          the dashboard does, and the audit log does not keep it.
+          string, and no tool rotates or reveals project keys or deletes a project. The exceptions, under{" "}
+          <code>secrets:write</code>: <code>create_s3_key</code> returns the new key&apos;s secret once, and{" "}
+          <code>create_db_role</code> and <code>reset_db_role_password</code> return the role&apos;s password once,
+          as the dashboard does; the audit log does not keep them.
         </li>
         <li>
           <strong>Owner rights.</strong> Data and SQL tools act with the project owner&apos;s rights, as the

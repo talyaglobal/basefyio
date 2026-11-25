@@ -6,6 +6,7 @@ import {
   HttpCode,
   Header,
   Patch,
+  Put,
   Delete,
   Param,
   Query,
@@ -473,11 +474,29 @@ export class ProjectsController {
     return this.projectsService.listExtraRoles(id, user.sub);
   }
 
+  /** The prefix of named extra roles (`<prefix>_<name>`) and whether a role already uses it. */
+  @Scopes('secrets:read')
+  @Get(':id/db-role-prefix')
+  async getRolePrefix(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    return this.projectsService.getRolePrefix(id, user.sub);
+  }
+
+  /** Choose the prefix once; it cannot change after a role uses it. */
+  @Scopes('secrets:write')
+  @Put(':id/db-role-prefix')
+  async setRolePrefix(
+    @Param('id') id: string,
+    @Body() body: { prefix?: string },
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.projectsService.setRolePrefix(id, user.sub, body?.prefix);
+  }
+
   @Scopes('secrets:write')
   @Post(':id/db-extra-roles')
   async createExtraRole(
     @Param('id') id: string,
-    @Body() body: { label: string; kind?: 'login' | 'group'; memberOf?: string | string[]; settings?: Record<string, unknown> },
+    @Body() body: { label: string; name?: string; kind?: 'login' | 'group'; memberOf?: string | string[]; settings?: Record<string, unknown> },
     @CurrentUser() user: JwtPayload,
   ) {
     return this.projectsService.createExtraRole(
@@ -487,6 +506,7 @@ export class ProjectsController {
       body?.memberOf ?? 'none',
       body?.settings,
       body?.kind,
+      body?.name,
     );
   }
 

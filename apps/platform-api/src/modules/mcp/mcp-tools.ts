@@ -25,9 +25,11 @@ import {
  *
  * Each tool calls an existing service with the token owner's user id, so the
  * service's own membership check runs as well. No tool returns a secret (no
- * database password, project key or connection string) with one exception:
- * create_s3_key returns the new key's secret once, under `secrets:write`, as the
- * dashboard does. The audit row never stores arguments or results.
+ * database password, project key or connection string) with these exceptions,
+ * each under `secrets:write` and only in that one answer, as the dashboard does:
+ * create_s3_key returns the new key's secret, create_db_role and
+ * reset_db_role_password the role's password. The audit row never stores
+ * arguments or results.
  */
 
 export interface McpDeps {
@@ -453,6 +455,55 @@ export const MCP_TOOLS: McpToolDefinition[] = [
     input: { projectId, keyId: z.string().uuid().describe('Key id from list_s3_keys.') },
     annotations: WRITE,
     run: (args, c) => c.deps.s3Keys.revoke(args.projectId, c.userId, args.keyId, 'mcp'),
+  },
+  {
+    name: 'list_db_roles',
+    title: 'List extra database roles',
+    scope: 'secrets:read',
+    description:
+      "List a project's extra database roles: id, label, role name, kind (login or group), memberships, run-time limits, created. Never returns a password.",
+    input: { projectId },
+    annotations: READ,
+    run: (args, c) => c.deps.projects.listExtraRoles(args.projectId, c.userId),
+  },
+  {
+    name: 'create_db_role',
+    title: 'Create an extra database role',
+    scope: 'secrets:write',
+    description:
+      'Create an extra database role. kind "login" (default) connects with its own password; "group" is NOLOGIN and owns functions or receives grants. With `name`, the role is called <prefix>_<name> (the project must have a role prefix); without it the name is generated. The password is in this answer only; store it now. At most 10 login and 10 group roles per project.',
+    input: {
+      projectId,
+      label: z.string().min(1).max(80).describe('A label shown in the dashboard, e.g. "API server".'),
+      name: z.string().regex(/^[a-z][a-z0-9_]{1,30}$/).optional().describe('Role name after the prefix, e.g. "app" for <prefix>_app.'),
+      kind: z.enum(['login', 'group']).optional().describe('login (default) or group.'),
+      memberOf: z.array(z.string().max(63)).max(10).optional().describe(
+        "Roles to join. A named role may join only this project's group roles; a generated one also anon, authenticated or service_role (SET ROLE needed).",
+      ),
+    },
+    annotations: { ...WRITE, destructiveHint: false },
+    run: (args, c) =>
+      c.deps.projects.createExtraRole(args.projectId, c.userId, args.label, args.memberOf ?? 'none', undefined, args.kind, args.name),
+  },
+  {
+    name: 'reset_db_role_password',
+    title: 'Reset an extra database role password',
+    scope: 'secrets:write',
+    description:
+      'Give a login role a new generated password. Clients keep their current connection until they reconnect. The new password is in this answer only.',
+    input: { projectId, roleId: z.string().uuid().describe('Role id from list_db_roles.') },
+    annotations: WRITE,
+    run: (args, c) => c.deps.projects.rotateExtraRolePassword(args.projectId, c.userId, args.roleId),
+  },
+  {
+    name: 'drop_db_role',
+    title: 'Drop an extra database role',
+    scope: 'secrets:write',
+    description:
+      "Remove an extra database role. What it owns is handed to the project owner first; clients using it are refused from their next connection. There is no undo.",
+    input: { projectId, roleId: z.string().uuid().describe('Role id from list_db_roles.') },
+    annotations: WRITE,
+    run: (args, c) => c.deps.projects.dropExtraRole(args.projectId, c.userId, args.roleId),
   },
   {
     name: 'list_auth_users',

@@ -5,6 +5,7 @@ import { basename } from 'path';
 import type { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
 import type { BucketSummary, S3ConnectionInfo, S3KeyCreated, S3KeyView } from './storage.js';
+import type { DbRole } from '../commands/db-roles.js';
 import { getApiUrl, getAccessToken, setAccessToken, getRefreshToken, setRefreshToken, clearAuthTokens } from './config.js';
 import {
   buildImportForm,
@@ -469,6 +470,28 @@ export class ApiClient {
   async rotateDbPassword(projectId: string, password?: string) {
     const { data } = await this.client.patch(`/api/projects/${projectId}/db-password`, password ? { password } : {});
     return data as { password: string };
+  }
+
+  /** Extra database roles; the list never carries passwords. */
+  async listDbRoles(projectId: string) {
+    const { data } = await this.client.get(`/api/projects/${projectId}/db-extra-roles`);
+    return data as DbRole[];
+  }
+
+  /** Create an extra role; `name` gives `<prefix>_<name>`. The answer holds the password, once. */
+  async createDbRole(projectId: string, body: { label: string; name?: string; kind?: 'login' | 'group'; memberOf?: string[] }) {
+    const { data } = await this.client.post(`/api/projects/${projectId}/db-extra-roles`, body);
+    return data as DbRole;
+  }
+
+  async resetDbRolePassword(projectId: string, roleId: string) {
+    const { data } = await this.client.patch(`/api/projects/${projectId}/db-extra-roles/${encodeURIComponent(roleId)}/password`, {});
+    return data as { password: string };
+  }
+
+  async dropDbRole(projectId: string, roleId: string) {
+    const { data } = await this.client.delete(`/api/projects/${projectId}/db-extra-roles/${encodeURIComponent(roleId)}`);
+    return data as { message: string; warnings: string[] };
   }
 
   async getS3Info(projectId: string) {

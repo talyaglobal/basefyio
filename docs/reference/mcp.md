@@ -49,12 +49,17 @@ session id is issued; every request stands alone. `GET /api/mcp` answers 405.
 | `list_s3_keys` | `secrets:read` | `S3KeysService.info` + `list`: endpoint, region, bucket names, keys without secrets |
 | `create_s3_key` | `secrets:write` | `S3KeysService.create`; the answer holds the secret, once |
 | `revoke_s3_key` | `secrets:write` | `S3KeysService.revoke`; the MinIO user is deleted first |
+| `list_db_roles` | `secrets:read` | `ProjectsService.listExtraRoles`: extra database roles, never a password |
+| `create_db_role` | `secrets:write` | `ProjectsService.createExtraRole` (`label`, `name?`, `kind?`, `memberOf?`); the answer holds the password, once |
+| `reset_db_role_password` | `secrets:write` | `ProjectsService.rotateExtraRolePassword`, generated password, in that answer only |
+| `drop_db_role` | `secrets:write` | `ProjectsService.dropExtraRole`; what the role owns goes to the project owner first |
 | `list_auth_users` | `auth:read` | `KeycloakAdminService.listUsers`, at most 100 a page |
 
 Nothing that returns a secret (database password, project keys, connection
-strings) and nothing that deletes a project or rotates a key is exposed, with one
-exception: `create_s3_key` returns the new S3 key's secret once, under
-`secrets:write`, exactly as the dashboard does. The audit row stores neither the
+strings) and nothing that deletes a project or rotates a project key is exposed, with
+these exceptions, each under `secrets:write` and only in that one answer, exactly as the
+dashboard does: `create_s3_key` returns the new S3 key's secret, and `create_db_role` and
+`reset_db_role_password` return the extra role's password. The audit row stores neither the
 arguments nor the answer, so the secret is not logged. S3 keys only work when the
 server sets `S3_KEYS_ENABLED=true` (see [storage-api.md](storage-api.md#s3-access-keys)).
 

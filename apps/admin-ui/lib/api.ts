@@ -1821,16 +1821,27 @@ export const api = {
         { method: 'DELETE' },
       );
     },
+    /** Never carries passwords; the credentials reveal does. */
     listExtraRoles(projectId: string) {
-      return request<Array<{ id: string; label: string; roleName: string; password: string; memberOf: string; createdAt: string }>>(
+      return request<Array<{ id: string; label: string; roleName: string; password: null; memberOf: string; createdAt: string }>>(
         `/projects/${projectId}/db-extra-roles`,
       );
     },
-    createExtraRole(projectId: string, label: string, memberOf: string) {
-      return request<{ id: string; label: string; roleName: string; password: string; memberOf: string; createdAt: string }>(
+    /** With `name`, the role is `<prefix>_<name>`; the answer holds the password once. */
+    createExtraRole(projectId: string, label: string, memberOf: string, name?: string) {
+      return request<{ id: string; label: string; roleName: string; password: string | null; memberOf: string; createdAt: string }>(
         `/projects/${projectId}/db-extra-roles`,
-        { method: 'POST', body: JSON.stringify({ label, memberOf }) },
+        { method: 'POST', body: JSON.stringify(name ? { label, memberOf, name } : { label, memberOf }) },
       );
+    },
+    getRolePrefix(projectId: string) {
+      return request<{ prefix: string | null; locked: boolean }>(`/projects/${projectId}/db-role-prefix`);
+    },
+    setRolePrefix(projectId: string, prefix: string) {
+      return request<{ prefix: string; locked: boolean }>(`/projects/${projectId}/db-role-prefix`, {
+        method: 'PUT',
+        body: JSON.stringify({ prefix }),
+      });
     },
     rotateExtraRolePassword(projectId: string, roleId: string, password?: string) {
       return request<{ password: string }>(

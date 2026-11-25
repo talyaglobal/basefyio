@@ -319,6 +319,10 @@ model Project {
   /// with `Accept-Profile` / `Content-Profile`. Empty = `public` only, as before the setting
   /// existed. Grants nothing: the API roles still need USAGE and table privileges.
   restExposedSchemas String[]           @default([]) @map("rest_exposed_schemas")
+  /// Prefix for named extra database roles (`<prefix>_<name>`), chosen once per project. Lower
+  /// case only (validated by the API), so the unique index is case-insensitive in practice.
+  /// Immutable once a role uses it. Null = roles keep generated `kb_xr_` / `kb_xg_` names.
+  rolePrefix         String?            @unique @map("role_prefix") @db.VarChar(20)
   secretKeys        ProjectSecretKey[]
 
   // Folder

@@ -1,6 +1,7 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common';
 import { Pool, PoolClient } from 'pg';
 import type { AdminTarget } from './project-provisioning.service';
+import { CLUSTER_PREFIX_ROLES_SQL, isValidPrefixedRoleName } from './project-role-prefix';
 
 export type ExtraRoleMember = 'anon' | 'authenticated' | 'service_role';
 /** Kept for callers that name one role; `none` means no membership. */
@@ -38,6 +39,11 @@ const UNIT_MS: Record<string, number> = { ms: 1, s: 1000, min: 60_000, h: 3_600_
 /** Names the platform generates for a project's NOLOGIN group roles. */
 export const GROUP_ROLE_RE = /^kb_xg_[0-9a-f]{10}$/;
 
+/** A group role name the platform could have made: generated (`kb_xg_…`) or `<prefix>_<name>`. */
+export function isPlatformGroupName(name: string): boolean {
+  return GROUP_ROLE_RE.test(name) || isValidPrefixedRoleName(name);
+}
+
 export function isBuiltInMember(name: string): name is ExtraRoleMember {
   return (MEMBERS as readonly string[]).includes(name);
 }
@@ -55,7 +61,7 @@ export function parseMemberOf(input: unknown, groups: readonly string[] | 'any' 
   for (const v of raw) {
     const name = String(v).trim().toLowerCase();
     if (!name || name === 'none') continue;
-    const groupOk = GROUP_ROLE_RE.test(name) && (groups === 'any' || groups.includes(name));
+    const groupOk = isPlatformGroupName(name) && (groups === 'any' || groups.includes(name));
     if (!isBuiltInMember(name) && !groupOk) {
       throw new BadRequestException(
         `Invalid memberOf value: ${name} (use anon, authenticated, service_role, one of this project's group roles, or none)`,
@@ -114,6 +120,10 @@ function assertIdent(value: string, what: string): void {
   if (!IDENT_RE.test(value)) throw new BadRequestException(`Invalid ${what} identifier`);
 }
 
+function roleTaken(name: string): ConflictException {
+  return new ConflictException(`A database role named "${name}" already exists; choose another name`);
+}
+
 function sqlLiteral(value: string): string {
   return `'${value.replace(/'/g, "''")}'`;
 }
@@ -168,6 +178,11 @@ export class ProjectExtraRoleService {
     /** One role or several; [] / 'none' = no membership. Group names were checked by the caller. */
     memberOf: ExtraRoleMemberOf | string[];
     settings?: ExtraRoleSettings;
+    /**
+     * A new role with a chosen name: refuse (409) when any role of that name exists in the
+     * cluster, and run everything in one transaction so a failure leaves nothing behind.
+     */
+    mustNotExist?: boolean;
   }): Promise<void> {
     assertIdent(p.dbName, 'database');
     assertIdent(p.roleName, 'extra role');
@@ -175,8 +190,9 @@ export class ProjectExtraRoleService {
     const settings = parseRoleSettings(p.settings ?? {});
     if (!p.rolePassword) throw new BadRequestException('A password is required');
 
-    await this.withClient(p, async (c) => {
+    await this.withClient(p, (c) => this.inTransaction(c, Boolean(p.mustNotExist), async () => {
       const { rows } = await c.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [p.roleName]);
+      if (rows.length && p.mustNotExist) throw roleTaken(p.roleName);
       if (rows.length) {
         await c.query(`ALTER ROLE "${p.roleName}" WITH ${ROLE_ATTRIBUTES} PASSWORD ${sqlLiteral(p.rolePassword)}`);
       } else {
@@ -210,7 +226,7 @@ export class ProjectExtraRoleService {
         const inherit = isBuiltInMember(member) ? 'FALSE' : 'TRUE';
         await c.query(`GRANT "${member}" TO "${p.roleName}" WITH INHERIT ${inherit}, SET TRUE, ADMIN FALSE`);
       }
-    });
+    }));
 
     this.logger.log(`Extra role "${p.roleName}" (memberOf=${memberOfColumn(members)}) ready on "${p.dbName}"`);
   }
@@ -221,13 +237,14 @@ export class ProjectExtraRoleService {
    * WITH INHERIT FALSE, SET TRUE, ADMIN FALSE: enough for ALTER FUNCTION … OWNER TO and for
    * SET ROLE, never for using its rights by accident. Idempotent.
    */
-  async provisionGroup(p: AdminTarget & { roleName: string; ownerRole: string }): Promise<void> {
+  async provisionGroup(p: AdminTarget & { roleName: string; ownerRole: string; mustNotExist?: boolean }): Promise<void> {
     assertIdent(p.roleName, 'group role');
     assertIdent(p.ownerRole, 'owner role');
-    if (!GROUP_ROLE_RE.test(p.roleName)) throw new BadRequestException('Invalid group role name');
-    await this.withClient(p, async (c) => {
+    if (!isPlatformGroupName(p.roleName)) throw new BadRequestException('Invalid group role name');
+    await this.withClient(p, (c) => this.inTransaction(c, Boolean(p.mustNotExist), async () => {
       const attrs = 'NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS NOREPLICATION';
       const { rows } = await c.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [p.roleName]);
+      if (rows.length && p.mustNotExist) throw roleTaken(p.roleName);
       await c.query(`${rows.length ? 'ALTER' : 'CREATE'} ROLE "${p.roleName}" WITH ${attrs}`);
       await c.query(`ALTER ROLE "${p.roleName}" RESET ALL`);
       const { rows: memberships } = await c.query<{ rolename: string }>(
@@ -243,8 +260,58 @@ export class ProjectExtraRoleService {
         );
       }
       await c.query(`GRANT "${p.roleName}" TO "${p.ownerRole}" WITH INHERIT FALSE, SET TRUE, ADMIN FALSE`);
-    });
+    }));
     this.logger.log(`Group role "${p.roleName}" ready, owner "${p.ownerRole}" may SET ROLE to it`);
+  }
+
+  /** `BEGIN … COMMIT` around `fn` when `tx`; role DDL is transactional, so a failure undoes it all. */
+  private async inTransaction<T>(c: PoolClient, tx: boolean, fn: () => Promise<T>): Promise<T> {
+    if (!tx) return fn();
+    await c.query('BEGIN');
+    try {
+      const out = await fn();
+      await c.query('COMMIT');
+      return out;
+    } catch (err: any) {
+      await c.query('ROLLBACK').catch(() => undefined);
+      // Another session created the same name between our check and CREATE ROLE.
+      if (err?.code === '42710') throw new ConflictException('A database role with that name already exists');
+      throw err;
+    }
+  }
+
+  /** Cluster roles named `prefix` or `prefix_…`. */
+  async rolesMatchingPrefix(target: AdminTarget, prefix: string): Promise<string[]> {
+    assertIdent(prefix, 'role prefix');
+    return this.withClient(target, async (c) => {
+      const { rows } = await c.query<{ rolname: string }>(CLUSTER_PREFIX_ROLES_SQL, [prefix]);
+      return rows.map((r) => r.rolname);
+    });
+  }
+
+  async roleExists(target: AdminTarget, roleName: string): Promise<boolean> {
+    assertIdent(roleName, 'role');
+    return this.withClient(target, async (c) => {
+      const { rows } = await c.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [roleName]);
+      return rows.length > 0;
+    });
+  }
+
+  /**
+   * Make sure PUBLIC cannot CONNECT to the database: only roles granted CONNECT (the owner, the
+   * read-only role, the project's extra roles) can. Idempotent; new databases get it at creation.
+   */
+  async revokePublicConnect(target: AdminTarget, dbName: string): Promise<boolean> {
+    assertIdent(dbName, 'database');
+    return this.withClient(target, async (c) => {
+      const { rows } = await c.query<{ open: boolean }>(
+        `SELECT has_database_privilege('public', datname, 'CONNECT') AS open FROM pg_database WHERE datname = $1`,
+        [dbName],
+      );
+      if (!rows.length) return false;
+      await c.query(`REVOKE CONNECT ON DATABASE "${dbName}" FROM PUBLIC`);
+      return Boolean(rows[0].open);
+    });
   }
 
   async setPassword(p: AdminTarget & { roleName: string; rolePassword: string }): Promise<void> {
