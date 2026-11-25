@@ -6,7 +6,7 @@ import { SiteShell } from "@/components/site-shell";
 import { Breadcrumbs } from "@/components/seo/breadcrumbs";
 import { JsonLd } from "@/components/seo/json-ld";
 import { buildMetadata } from "@/lib/seo/metadata";
-import { faqSchema } from "@/lib/seo/json-ld";
+import { faqSchema, pageArticleSchema } from "@/lib/seo/json-ld";
 import { getSiteUrlFromRequest, getAppSignupUrl } from "@/lib/site-url";
 import { docsUrl } from "@/lib/public-hosts";
 import {
@@ -16,6 +16,15 @@ import {
 } from "@/lib/content/comparisons";
 
 type Params = { params: { slug: string } };
+
+function formatDate(iso: string): string {
+  return new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+}
 
 export function generateStaticParams() {
   return getComparisonSlugs().map((slug) => ({ slug }));
@@ -44,6 +53,18 @@ export default async function ComparisonPage({ params }: Params) {
   return (
     <SiteShell>
       <JsonLd data={faqSchema(c.faqs)} />
+      {c.lastUpdated && (
+        <JsonLd
+          data={pageArticleSchema({
+            url,
+            headline: c.title,
+            description: c.description,
+            datePublished: c.lastUpdated,
+            dateModified: c.lastUpdated,
+            siteUrl: base,
+          })}
+        />
+      )}
 
       <div className="mx-auto max-w-4xl px-4 py-16 sm:px-6">
         <Breadcrumbs
@@ -56,7 +77,20 @@ export default async function ComparisonPage({ params }: Params) {
 
         <header className="mb-10">
           <h1 className="text-4xl font-bold tracking-tight">{c.title}</h1>
-          <p className="mt-4 text-lg text-muted-foreground">{c.intro}</p>
+          {c.quickAnswer ? (
+            <p className="mt-4 text-lg text-foreground">{c.quickAnswer}</p>
+          ) : (
+            <p className="mt-4 text-lg text-muted-foreground">{c.intro}</p>
+          )}
+          {c.lastUpdated && (
+            <p className="mt-3 text-sm text-muted-foreground">
+              Last updated:{" "}
+              <time dateTime={c.lastUpdated}>{formatDate(c.lastUpdated)}</time>
+            </p>
+          )}
+          {c.quickAnswer && (
+            <p className="mt-4 text-muted-foreground">{c.intro}</p>
+          )}
         </header>
 
         <section className="mb-12 rounded-xl border border-border bg-accent/30 p-6">
@@ -90,7 +124,18 @@ export default async function ComparisonPage({ params }: Params) {
                       {row.basefyio}
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">
-                      {row.competitor}
+                      {row.competitorSource ? (
+                        <a
+                          href={row.competitorSource}
+                          target="_blank"
+                          rel="noopener"
+                          className="underline decoration-dotted underline-offset-2 hover:text-foreground"
+                        >
+                          {row.competitor}
+                        </a>
+                      ) : (
+                        row.competitor
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -98,6 +143,31 @@ export default async function ComparisonPage({ params }: Params) {
             </table>
           </div>
         </section>
+
+        {c.whenCompetitor && c.whenBasefyio && (
+          <section className="mb-14 grid gap-6 sm:grid-cols-2">
+            <div className="rounded-xl border border-border p-6">
+              <h2 className="text-xl font-semibold tracking-tight">
+                When to choose {c.competitor}
+              </h2>
+              <ul className="mt-3 list-disc space-y-2 pl-5 text-muted-foreground">
+                {c.whenCompetitor.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
+            <div className="rounded-xl border border-border p-6">
+              <h2 className="text-xl font-semibold tracking-tight">
+                When to choose basefyio
+              </h2>
+              <ul className="mt-3 list-disc space-y-2 pl-5 text-muted-foreground">
+                {c.whenBasefyio.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          </section>
+        )}
 
         <section className="mb-14">
           <h2 className="mb-4 text-2xl font-semibold tracking-tight">
@@ -112,6 +182,40 @@ export default async function ComparisonPage({ params }: Params) {
             ))}
           </dl>
         </section>
+
+        {c.sources && (
+          <section className="mb-14">
+            <h2 className="mb-4 text-2xl font-semibold tracking-tight">
+              Sources
+            </h2>
+            <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
+              {c.sources.map((src) => (
+                <li key={src.url}>
+                  <a
+                    href={src.url}
+                    target="_blank"
+                    rel="noopener"
+                    className="underline underline-offset-2 hover:text-foreground"
+                  >
+                    {src.label}
+                  </a>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-3 text-sm text-muted-foreground">
+              Competitor details come from their public documentation and can
+              change. Check their pages for the current state. See also{" "}
+              <Link href="/guides/best-backend-database-for-startups" className="underline underline-offset-2 hover:text-foreground">
+                the best backend for startups guide
+              </Link>{" "}
+              and{" "}
+              <Link href="/" className="underline underline-offset-2 hover:text-foreground">
+                what basefyio is
+              </Link>
+              .
+            </p>
+          </section>
+        )}
 
         <section className="mb-14">
           <h2 className="mb-4 text-2xl font-semibold tracking-tight">

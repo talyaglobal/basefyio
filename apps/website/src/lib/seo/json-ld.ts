@@ -184,3 +184,48 @@ export function itemListSchema(name: string, items: ItemListEntry[]): Thing {
     })),
   };
 }
+
+export type PageArticleInput = {
+  url: string;
+  headline: string;
+  description: string;
+  /** ISO date. */
+  datePublished: string;
+  dateModified: string;
+  /** Origin, for resolving the Organization @id. */
+  siteUrl: string;
+};
+
+/**
+ * Article whose author and publisher are the site's Organization (@id from
+ * {@link organizationSchema}), for editorial pages written by the company.
+ */
+export function pageArticleSchema(input: PageArticleInput): Thing {
+  return {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    headline: input.headline,
+    description: input.description,
+    datePublished: input.datePublished,
+    dateModified: input.dateModified,
+    author: { "@id": `${input.siteUrl}/#organization` },
+    publisher: { "@id": `${input.siteUrl}/#organization` },
+    mainEntityOfPage: { "@type": "WebPage", "@id": input.url },
+    image: `${input.siteUrl}${SITE.defaultOgImage}`,
+    inLanguage: SITE.lang,
+  };
+}
+
+/** AboutPage schema pointing at the site's Organization. */
+export function aboutPageSchema(url: string, siteUrl: string): Thing {
+  return {
+    "@context": "https://schema.org",
+    "@type": "AboutPage",
+    "@id": `${url}#webpage`,
+    url,
+    name: `About ${SITE.name}`,
+    isPartOf: { "@id": `${siteUrl}/#website` },
+    about: { "@id": `${siteUrl}/#organization` },
+    inLanguage: SITE.lang,
+  };
+}

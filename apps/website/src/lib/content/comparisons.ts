@@ -1,4 +1,5 @@
 import type { FaqItem } from "@/lib/seo/json-ld";
+import { FEATURED_COMPARISONS } from "./comparisons-featured";
 
 /**
  * Data registry powering the programmatic `/compare/[slug]` pages. Add an entry
@@ -9,7 +10,11 @@ export type ComparisonRow = {
   feature: string;
   basefyio: string;
   competitor: string;
+  /** Official competitor doc/pricing page that backs the competitor cell. */
+  competitorSource?: string;
 };
+
+export type SourceLink = { label: string; url: string };
 
 export type Comparison = {
   slug: string;
@@ -23,9 +28,17 @@ export type Comparison = {
   positioning: string;
   rows: ComparisonRow[];
   faqs: FaqItem[];
+  /** Featured (answer-first) pages only. ISO date shown as "Last updated". */
+  lastUpdated?: string;
+  /** 2-3 sentence direct answer shown first; quoted by answer engines. */
+  quickAnswer?: string;
+  whenCompetitor?: string[];
+  whenBasefyio?: string[];
+  /** Official competitor pages the claims rest on. */
+  sources?: SourceLink[];
 };
 
-export const COMPARISONS: Comparison[] = [
+const BASE_COMPARISONS: Comparison[] = [
   {
     slug: "basefyio-vs-supabase",
     competitor: "Supabase",
@@ -762,6 +775,11 @@ export const COMPARISONS: Comparison[] = [
     ],
   },
 ];
+
+/** Hand-reviewed, answer-first entries replace the generic ones with the same slug. */
+export const COMPARISONS: Comparison[] = BASE_COMPARISONS.map(
+  (c) => FEATURED_COMPARISONS[c.slug] ?? c,
+);
 
 export function getComparison(slug: string): Comparison | undefined {
   return COMPARISONS.find((c) => c.slug === slug);

@@ -118,7 +118,7 @@ export function createGeoProfile(siteUrl: string): GeoProfile {
     summary:
       "basefyio is a production-grade, self-hosted backend-as-a-service (BaaS) that gives every project its own dedicated database, authentication realm, object storage, and auto-generated REST API.",
     description:
-      "basefyio is a developer backend platform. Each project is provisioned with a dedicated database, an authentication realm, S3-compatible object storage, and an instant REST API. It ships a JavaScript/TypeScript SDK (basefyio-js) and a CLI (basefyio) for managing projects, running migrations, and generating types. It is multi-tenant, runs anywhere via Docker, and is suited to teams who want Supabase-style productivity on infrastructure they control.",
+      "basefyio is a developer backend platform. Each project is provisioned with a dedicated database, an authentication realm, S3-compatible object storage, and an instant REST API. It ships a JavaScript/TypeScript SDK (basefyio-js) and a CLI (basefyio) for managing projects, running migrations, and generating types. It is multi-tenant, runs anywhere via Docker, and is suited to teams who want a ready-made backend on infrastructure they control.",
     offer: {
       price: "0",
       priceCurrency: "USD",
@@ -154,6 +154,17 @@ export function createGeoProfile(siteUrl: string): GeoProfile {
           { title: "REST API reference", url: "/docs/api", note: "Endpoints, auth, and query syntax" },
           { title: "JavaScript/TypeScript SDK", url: "/docs/sdk", note: "basefyio-js client" },
           { title: "CLI reference", url: "/docs/cli", note: "The basefyio command-line tool" },
+        ],
+      },
+      {
+        title: "Guides and company",
+        links: [
+          {
+            title: "Best database and backend for startups",
+            url: "/guides/best-backend-database-for-startups",
+            note: "How to choose between basefyio, Supabase, Firebase, Appwrite, PocketBase and Neon",
+          },
+          { title: "About basefyio", url: "/about", note: "What basefyio is, who builds it, how to contact us" },
         ],
       },
       ...contentSections(),

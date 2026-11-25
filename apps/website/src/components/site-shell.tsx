@@ -80,6 +80,18 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
               </Link>
             ))}
             <Link
+              href="/guides/best-backend-database-for-startups"
+              className="transition-colors hover:text-foreground"
+            >
+              Startup backend guide
+            </Link>
+            <Link
+              href="/about"
+              className="transition-colors hover:text-foreground"
+            >
+              About
+            </Link>
+            <Link
               href="/feed.xml"
               className="transition-colors hover:text-foreground"
             >
