@@ -276,3 +276,16 @@ jobs:
             gh release upload "v$VER" "$LIC" --clobber || echo "::warning::licence upload failed"
           fi
           echo "Released v$VER"
+
+      # Tell Bing/Yandex (IndexNow) about every URL in the live sitemap. Bing's index also feeds
+      # ChatGPT search and Copilot. Best effort: a failure here never fails the deploy.
+      - name: Notify IndexNow
+        continue-on-error: true
+        run: |
+          KEY=$(ls apps/website/public | grep -E '^[0-9a-f]{32}\.txt$' | head -n 1 | sed 's/\.txt$//')
+          if [ -z "$KEY" ]; then echo "no IndexNow key file in apps/website/public; skipping"; exit 0; fi
+          for i in 1 2 3 4 5 6; do
+            curl -fsS "https://basefyio.com/$KEY.txt" | grep -q "$KEY" && break
+            sleep 10
+          done
+          INDEXNOW_KEY="$KEY" node apps/website/scripts/indexnow.mjs

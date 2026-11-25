@@ -15,6 +15,26 @@ const defaultTitle =
 const defaultDescription =
   "basefyio: hosted database, auth, storage, and auto REST API for developers. SDK, CLI, powerful query syntax. Ship backends in minutes.";
 
+/**
+ * Search Console / Bing Webmaster verification tags, read from the server
+ * environment at request time (the values are not secrets). A tag is rendered
+ * only when its variable is set. NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION is kept
+ * as a fallback for existing setups.
+ */
+function verificationMetadata(): Pick<Metadata, "verification"> {
+  const google =
+    process.env.GOOGLE_SITE_VERIFICATION ||
+    process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION;
+  const bing = process.env.BING_SITE_VERIFICATION;
+  if (!google && !bing) return {};
+  return {
+    verification: {
+      ...(google ? { google } : {}),
+      ...(bing ? { other: { "msvalidate.01": bing } } : {}),
+    },
+  };
+}
+
 export async function generateMetadata(): Promise<Metadata> {
   const siteUrl = await getSiteUrlFromRequest();
   const metadataBase = new URL(siteUrl);
@@ -71,13 +91,7 @@ export async function generateMetadata(): Promise<Metadata> {
         follow: true,
       },
     },
-    ...(process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION
-      ? {
-          verification: {
-            google: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION,
-          },
-        }
-      : {}),
+    ...verificationMetadata(),
   };
 }
 

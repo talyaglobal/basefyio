@@ -5,13 +5,14 @@ import { Breadcrumbs } from "@/components/seo/breadcrumbs";
 import { JsonLd } from "@/components/seo/json-ld";
 import { buildMetadata } from "@/lib/seo/metadata";
 import { faqSchema, pageArticleSchema } from "@/lib/seo/json-ld";
+import { GUIDE_STARTUP_BACKEND_UPDATED } from "@/lib/seo/dates";
 import { getSiteUrlFromRequest, getAppSignupUrl } from "@/lib/site-url";
 
 const PATH = "/guides/best-backend-database-for-startups";
 const TITLE = "Best Backend and Database for Startups";
 const DESCRIPTION =
   "How to pick a database and backend platform for a startup: Supabase, Firebase, Appwrite, PocketBase, Neon and basefyio compared, with who each one suits.";
-const UPDATED = "2026-11-25";
+const UPDATED = GUIDE_STARTUP_BACKEND_UPDATED;
 
 const FAQS = [
   {

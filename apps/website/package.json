@@ -13,7 +13,8 @@
     "new:post": "node scripts/new-content.mjs blog",
     "new:compare": "node scripts/new-content.mjs compare",
     "new:use-case": "node scripts/new-content.mjs use-case",
-    "new:term": "node scripts/new-content.mjs term"
+    "new:term": "node scripts/new-content.mjs term",
+    "indexnow": "node scripts/indexnow.mjs"
   },
   "dependencies": {
     "@fontsource/inter": "^5.2.8",

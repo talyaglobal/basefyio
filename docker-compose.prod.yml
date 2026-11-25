@@ -790,6 +790,9 @@ services:
     restart: always
     environment:
       HOSTNAME: 0.0.0.0
+      # Search Console / Bing Webmaster verification tags; a tag renders only when its value is set.
+      GOOGLE_SITE_VERIFICATION: ${GOOGLE_SITE_VERIFICATION:-}
+      BING_SITE_VERIFICATION: ${BING_SITE_VERIFICATION:-}
     deploy:
       resources:
         limits:
