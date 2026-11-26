@@ -51,6 +51,100 @@ type SupportedIdpProvider =
   | 'twitter';
 
 /**
+ * Social sign-in that must never stop on a Keycloak page (customer report, realm kb-payfyio_cloud).
+ *
+ * Keycloak 24's declarative User Profile requires firstName and lastName, and the
+ * VERIFY_PROFILE required action shows the "Update account information" page to any user who
+ * lacks one. GitHub sends a single `name` (often one word, sometimes none), so first sign-ins
+ * through GitHub landed on that page. A project realm therefore keeps the names optional,
+ * VERIFY_PROFILE off and the first-broker-login review off. Email stays as Keycloak declares it.
+ */
+export const OPTIONAL_PROFILE_ATTRIBUTES = ['firstName', 'lastName'] as const;
+
+/** Providers that only hand over an address they have verified: Google, and GitHub's primary address. */
+export const VERIFIED_EMAIL_PROVIDERS = ['google', 'github'] as const;
+
+/** IdP config key recording that the project turned "trust email" off in the panel; the heal respects it. */
+export const TRUST_EMAIL_CHOICE_KEY = 'basefyioTrustEmail';
+
+/**
+ * The User Profile document with firstName/lastName no longer required. `changed` is false when
+ * nothing had to change, so the caller can skip the write.
+ */
+export function relaxUserProfileNames(profile: any): { changed: boolean; profile: any } {
+  if (!profile || !Array.isArray(profile.attributes)) return { changed: false, profile };
+  let changed = false;
+  const attributes = profile.attributes.map((attr: any) => {
+    if (!attr || !(OPTIONAL_PROFILE_ATTRIBUTES as readonly string[]).includes(attr.name)) return attr;
+    if (attr.required === undefined || attr.required === null) return attr;
+    changed = true;
+    const { required: _required, ...rest } = attr;
+    return rest;
+  });
+  return { changed, profile: changed ? { ...profile, attributes } : profile };
+}
+
+/**
+ * An identity provider representation brought up to date: the auto-link first-login flow (no
+ * review page), "trust email" for Google/GitHub unless the project turned it off, and no fixed
+ * `prompt`/`max_age` in its config — Keycloak forwards the app's own `prompt` to the provider
+ * only when the provider config sets none, so the default now rides on each authorization URL.
+ */
+export function healIdentityProviderRepresentation(
+  idp: any,
+  firstBrokerLoginFlowAlias: string,
+): { changed: boolean; idp: any } {
+  if (!idp || typeof idp !== 'object') return { changed: false, idp };
+  const alias = String(idp.alias ?? '');
+  const verifiedEmail = (VERIFIED_EMAIL_PROVIDERS as readonly string[]).includes(alias);
+  const config: Record<string, string> = { ...(idp.config ?? {}) };
+  const next: any = { ...idp, config };
+  let changed = false;
+  if (next.firstBrokerLoginFlowAlias !== firstBrokerLoginFlowAlias) {
+    next.firstBrokerLoginFlowAlias = firstBrokerLoginFlowAlias;
+    changed = true;
+  }
+  if (verifiedEmail) {
+    const wantTrust = config[TRUST_EMAIL_CHOICE_KEY] !== 'false';
+    if (next.trustEmail !== wantTrust) {
+      next.trustEmail = wantTrust;
+      changed = true;
+    }
+    for (const key of ['prompt', 'max_age']) {
+      if (key in config) {
+        delete config[key];
+        changed = true;
+      }
+    }
+  }
+  return { changed, idp: changed ? next : idp };
+}
+
+/**
+ * Attribute importers that copy the provider's name claims onto the user at first sign-in.
+ * Google's OIDC claims map one to one. GitHub has only `name`, which Keycloak's GitHub
+ * provider already splits into first and last name (one word: first name only), so it needs no
+ * mapper — and with the names optional a missing part no longer stops the sign-in.
+ */
+export function socialNameMappers(alias: string): Array<{
+  name: string;
+  identityProviderAlias: string;
+  identityProviderMapper: string;
+  config: Record<string, string>;
+}> {
+  if (alias !== 'google') return [];
+  return [
+    ['given_name', 'firstName'],
+    ['family_name', 'lastName'],
+  ].map(([claim, attribute]) => ({
+    name: `${claim}-to-${attribute}`,
+    identityProviderAlias: alias,
+    identityProviderMapper: 'oidc-user-attribute-idp-mapper',
+    config: { syncMode: 'IMPORT', claim, 'user.attribute': attribute },
+  }));
+}
+
+/**
  * Puts the login time Keycloak keeps on every user session into the access token as
  * `auth_time`. Refreshing keeps the original value, so a refreshed token does not look like a
  * fresh sign-in.
@@ -665,6 +759,12 @@ export class KeycloakAdminService implements OnModuleInit {
       this.logger.warn(`Could not disable VERIFY_EMAIL default action: ${err.message}`);
     }
 
+    // Social sign-in never stops on a Keycloak profile page (names optional, VERIFY_PROFILE off).
+    const socialProblems = await this.ensureSocialLoginProfile(realmName).catch((err: any) => [String(err?.message ?? err)]);
+    if (socialProblems.length) {
+      this.logger.warn(`Social sign-in setup for "${realmName}" reported: ${socialProblems.join('; ')}`);
+    }
+
     this.logger.log(`Realm "${realmName}" created`);
   }
 
@@ -717,6 +817,40 @@ export class KeycloakAdminService implements OnModuleInit {
       ),
     );
     this.logger.log(`Registered OAuth callback on "${anonClientId}": ${callbackUri}`);
+  }
+
+  /**
+   * Register the one URI Keycloak may send a browser to after a sign-out
+   * (`post.logout.redirect.uris`, `##`-separated). Only this API's own
+   * logout callback for the project is added: it checks the app URL against the
+   * project's redirect allowlist itself, so the realm never needs the app URLs.
+   * Idempotent; existing entries are kept.
+   */
+  async ensureAnonClientPostLogoutRedirectUri(
+    realmName: string,
+    uri: string,
+    clientId: string = `${realmName}-anon`,
+  ): Promise<void> {
+    await this.ensureAuth();
+    const found = await this.withRetry(`findClient(${clientId})`, () =>
+      this.client.clients.find({ realm: realmName, clientId }),
+    );
+    const existing = found?.[0];
+    if (!existing?.id) {
+      this.logger.warn(`Cannot register the logout callback: client "${clientId}" does not exist in realm "${realmName}"`);
+      return;
+    }
+    const attributes = { ...((existing.attributes as Record<string, string> | undefined) ?? {}) };
+    const current = String(attributes['post.logout.redirect.uris'] ?? '')
+      .split('##')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (current.includes(uri)) return;
+    attributes['post.logout.redirect.uris'] = [...current, uri].join('##');
+    await this.withRetry(`updateClientPostLogoutUris(${clientId})`, () =>
+      this.client.clients.update({ realm: realmName, id: existing.id! }, { ...existing, attributes }),
+    );
+    this.logger.log(`Registered logout callback on "${clientId}": ${uri}`);
   }
 
   async createClients(realmName: string): Promise<ProjectClients> {
@@ -1024,6 +1158,21 @@ export class KeycloakAdminService implements OnModuleInit {
     await this.ensureAuth();
     const fis = await this.client.users.listFederatedIdentities({ realm: realmName, id: userId });
     return (fis || []).map((f: any) => f.identityProvider).filter(Boolean);
+  }
+
+  /** The user's linked identities with the username the provider gave (Google: the address). */
+  async listUserFederatedIdentityLinks(
+    realmName: string,
+    userId: string,
+  ): Promise<Array<{ identityProvider: string; userName?: string }>> {
+    await this.ensureAuth();
+    const fis = await this.client.users.listFederatedIdentities({ realm: realmName, id: userId });
+    return (fis || [])
+      .filter((f: any) => typeof f?.identityProvider === 'string' && f.identityProvider)
+      .map((f: any) => ({
+        identityProvider: f.identityProvider as string,
+        userName: typeof f.userName === 'string' ? f.userName : undefined,
+      }));
   }
 
   /** Send a lifecycle email (UPDATE_PASSWORD = recovery, VERIFY_EMAIL = confirm). */
@@ -2418,33 +2567,36 @@ export class KeycloakAdminService implements OnModuleInit {
 
   // ── Identity provider operations ──
 
+  /**
+   * Create or update a project's identity provider. `opts.trustEmail` defaults to true; when a
+   * project turns it off the choice is kept in the provider config so the social-login heal
+   * does not turn it back on. Afterwards the realm is brought up to date for social sign-in
+   * (ensureSocialLoginProfile) — "the next time a provider is configured" is one of the moments
+   * an existing realm gets healed.
+   */
   async upsertIdentityProvider(
     realmName: string,
     provider: SupportedIdpProvider,
     clientId: string,
     clientSecret: string,
     redirectUri: string,
+    opts: { trustEmail?: boolean } = {},
   ) {
     await this.ensureAuth();
     await this.ensureAutoLinkFlow(realmName);
 
     const alias = provider;
+    // No fixed `prompt`/`max_age` for Google or GitHub: Keycloak only forwards the app's
+    // `prompt` (signin/:provider?prompt=…) when the provider config sets none. The default the
+    // config used to carry is now the default of the authorization URL.
     const map: Record<
       SupportedIdpProvider,
       { providerId: string; scope: string; extraConfig?: Record<string, string> }
     > = {
-      google: {
-        providerId: 'google',
-        scope: 'openid email profile',
-        extraConfig: { prompt: 'select_account login', max_age: '0' },
-      },
+      google: { providerId: 'google', scope: 'openid email profile' },
       microsoft: { providerId: 'microsoft', scope: 'openid email profile' },
       apple: { providerId: 'apple', scope: 'openid email name' },
-      github: {
-        providerId: 'github',
-        scope: 'user:email',
-        extraConfig: { prompt: 'login', max_age: '0' },
-      },
+      github: { providerId: 'github', scope: 'user:email' },
       gitlab: { providerId: 'gitlab', scope: 'read_user openid profile email' },
       linkedin: { providerId: 'linkedin-openid', scope: 'openid profile email' },
       facebook: { providerId: 'facebook', scope: 'email public_profile' },
@@ -2457,21 +2609,26 @@ export class KeycloakAdminService implements OnModuleInit {
     const headers = { Authorization: `Bearer ${adminToken}`, 'Content-Type': 'application/json' };
     const idpBase = `${baseUrl}/admin/realms/${realmName}/identity-provider/instances`;
 
+    const existing = await axios.get(`${idpBase}/${alias}`, { headers }).catch(() => null);
+    const previousChoice = existing?.data?.config?.[TRUST_EMAIL_CHOICE_KEY];
+    const trustEmail =
+      opts.trustEmail !== undefined ? opts.trustEmail : previousChoice === 'false' ? false : true;
+
     const idpBody = {
       alias,
       providerId: resolved.providerId,
       enabled: true,
-      trustEmail: true,
+      trustEmail,
       firstBrokerLoginFlowAlias: flowAlias,
       config: {
         clientId,
         clientSecret,
         defaultScope: resolved.scope,
         ...(resolved.extraConfig || {}),
+        ...(trustEmail ? {} : { [TRUST_EMAIL_CHOICE_KEY]: 'false' }),
       },
     };
 
-    const existing = await axios.get(`${idpBase}/${alias}`, { headers }).catch(() => null);
     if (existing?.data) {
       await axios.put(`${idpBase}/${alias}`, idpBody, { headers });
       this.logger.log(`Updated ${provider} IdP in realm "${realmName}"`);
@@ -2479,6 +2636,149 @@ export class KeycloakAdminService implements OnModuleInit {
       await axios.post(idpBase, idpBody, { headers });
       this.logger.log(`Created ${provider} IdP in realm "${realmName}"`);
     }
+
+    const problems = await this.ensureSocialLoginProfile(realmName);
+    if (problems.length) {
+      this.logger.warn(`Social sign-in heal for "${realmName}" reported: ${problems.join('; ')}`);
+    }
+  }
+
+  /**
+   * Make a project realm's social sign-in finish without any Keycloak page, and repair realms
+   * created before this existed. Idempotent: every step reads first and writes only what
+   * differs. Best-effort per step; the problems are returned, never thrown.
+   *
+   * 1. User Profile: firstName/lastName not required (email is left as declared).
+   * 2. VERIFY_PROFILE required action disabled.
+   * 3. The built-in "first broker login" flow's Review Profile set to off (our providers use
+   *    the auto-link flow, which has no review step, but a provider pointed at the built-in
+   *    flow by hand would still show it).
+   * 4. Every identity provider: auto-link first-login flow; Google/GitHub trust the address
+   *    unless the project turned that off, and carry no fixed prompt/max_age.
+   * 5. Google: given_name/family_name attribute importers.
+   *
+   * Runs on realm creation, on every provider save, and from POST /projects/:id/auth/repair.
+   */
+  async ensureSocialLoginProfile(realmName: string): Promise<string[]> {
+    const problems: string[] = [];
+    const describe = (err: any) =>
+      err?.response?.data?.errorMessage || err?.response?.data?.error || err?.response?.status || err?.message || String(err);
+    let headers: Record<string, string>;
+    let realmBase: string;
+    try {
+      const baseUrl = this.config.get<string>('keycloak.url');
+      const adminToken = await this.getAdminAccessToken();
+      headers = { Authorization: `Bearer ${adminToken}`, 'Content-Type': 'application/json' };
+      realmBase = `${baseUrl}/admin/realms/${realmName}`;
+    } catch (err) {
+      return [`admin token: ${describe(err)}`];
+    }
+
+    // 1. Names optional.
+    try {
+      const { data: profile } = await axios.get(`${realmBase}/users/profile`, { headers });
+      const relaxed = relaxUserProfileNames(profile);
+      if (relaxed.changed) {
+        await axios.put(`${realmBase}/users/profile`, relaxed.profile, { headers });
+        this.logger.log(`Realm "${realmName}": firstName/lastName are optional now`);
+      }
+    } catch (err) {
+      problems.push(`user profile: ${describe(err)}`);
+    }
+
+    // 2. No "Update account information" page.
+    try {
+      const { data: action } = await axios.get(
+        `${realmBase}/authentication/required-actions/VERIFY_PROFILE`,
+        { headers },
+      );
+      if (action && (action.enabled || action.defaultAction)) {
+        await axios.put(
+          `${realmBase}/authentication/required-actions/VERIFY_PROFILE`,
+          { ...action, enabled: false, defaultAction: false },
+          { headers },
+        );
+        this.logger.log(`Realm "${realmName}": VERIFY_PROFILE disabled`);
+      }
+    } catch (err: any) {
+      if (err?.response?.status !== 404) problems.push(`VERIFY_PROFILE: ${describe(err)}`);
+    }
+
+    // 3. Built-in first broker login: Review Profile off.
+    try {
+      const flowPath = `${realmBase}/authentication/flows/${encodeURIComponent('first broker login')}/executions`;
+      const { data: executions } = await axios.get(flowPath, { headers });
+      const review = (executions || []).find((e: any) => e.providerId === 'idp-review-profile');
+      if (review) {
+        const wanted = { 'update.profile.on.first.login': 'off' };
+        if (review.authenticationConfig) {
+          const cfgUrl = `${realmBase}/authentication/config/${review.authenticationConfig}`;
+          const { data: cfg } = await axios.get(cfgUrl, { headers });
+          if (cfg?.config?.['update.profile.on.first.login'] !== 'off') {
+            await axios.put(cfgUrl, { ...cfg, config: { ...(cfg?.config ?? {}), ...wanted } }, { headers });
+            this.logger.log(`Realm "${realmName}": first-broker-login review profile off`);
+          }
+        } else {
+          await axios.post(
+            `${realmBase}/authentication/executions/${review.id}/config`,
+            { alias: 'review-profile-off', config: wanted },
+            { headers },
+          );
+          this.logger.log(`Realm "${realmName}": first-broker-login review profile off`);
+        }
+      }
+    } catch (err: any) {
+      if (err?.response?.status !== 404) problems.push(`first broker login: ${describe(err)}`);
+    }
+
+    // 4 + 5. Identity providers.
+    let idps: any[] = [];
+    try {
+      const { data } = await axios.get(`${realmBase}/identity-provider/instances`, { headers });
+      idps = Array.isArray(data) ? data : [];
+    } catch (err) {
+      problems.push(`identity providers: ${describe(err)}`);
+    }
+    if (idps.length > 0) {
+      const flowAlias = KeycloakAdminService.AUTO_LINK_FLOW_ALIAS;
+      await this.ensureAutoLinkFlow(realmName);
+      for (const listed of idps) {
+        const alias = String(listed?.alias ?? '');
+        if (!alias) continue;
+        try {
+          // The list answer may mask the secret; the single read is what we write back.
+          const { data: full } = await axios.get(`${realmBase}/identity-provider/instances/${alias}`, { headers });
+          const healed = healIdentityProviderRepresentation(full, flowAlias);
+          if (healed.changed) {
+            await axios.put(`${realmBase}/identity-provider/instances/${alias}`, healed.idp, { headers });
+            this.logger.log(`Realm "${realmName}": identity provider "${alias}" healed`);
+          }
+          const wanted = socialNameMappers(alias);
+          if (wanted.length) {
+            const { data: mappers } = await axios.get(
+              `${realmBase}/identity-provider/instances/${alias}/mappers`,
+              { headers },
+            );
+            const present = new Set((mappers || []).map((m: any) => m.name));
+            for (const mapper of wanted) {
+              if (present.has(mapper.name)) continue;
+              await axios.post(`${realmBase}/identity-provider/instances/${alias}/mappers`, mapper, { headers });
+              this.logger.log(`Realm "${realmName}": mapper ${mapper.name} added to "${alias}"`);
+            }
+          }
+        } catch (err) {
+          problems.push(`identity provider ${alias}: ${describe(err)}`);
+        }
+      }
+    }
+    return problems;
+  }
+
+  /** Whether the realm's provider `alias` trusts the address it hands over (false when absent). */
+  async identityProviderTrustsEmail(realmName: string, alias: string): Promise<boolean> {
+    await this.ensureAuth();
+    const idp = await this.client.identityProviders.findOne({ realm: realmName, alias }).catch(() => null);
+    return !!idp?.enabled && idp?.trustEmail === true;
   }
 
   async deleteIdentityProvider(realmName: string, provider: SupportedIdpProvider) {
@@ -2498,6 +2798,7 @@ export class KeycloakAdminService implements OnModuleInit {
       alias: p.alias,
       providerId: p.providerId,
       enabled: p.enabled,
+      trustEmail: p.trustEmail === true,
     }));
   }
 

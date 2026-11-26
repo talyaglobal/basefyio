@@ -690,9 +690,12 @@ export class ProjectAuthController {
   async saveProvider(
     @Param('projectId') projectId: string,
     @Param('provider') provider: string,
-    @Body() body: { clientId: string; clientSecret?: string; enabled: boolean },
+    @Body() body: { clientId: string; clientSecret?: string; enabled: boolean; trustEmail?: boolean },
     @CurrentUser() user?: JwtPayload,
   ) {
+    if (body?.trustEmail !== undefined && typeof body.trustEmail !== 'boolean') {
+      throw new BadRequestException('trustEmail must be a boolean');
+    }
     if (!OAUTH_PROVIDERS.includes(provider as OAuthProvider)) {
       throw new BadRequestException(`Unsupported provider: ${provider}`);
     }
@@ -725,6 +728,8 @@ export class ProjectAuthController {
       if (secret) {
         await this.keycloak.upsertIdentityProvider(
           project.keycloakRealm, p, body.clientId, secret, redirectUri,
+          // Omitted: keep the provider's current choice (new providers trust the address).
+          body.trustEmail === undefined ? {} : { trustEmail: body.trustEmail },
         );
       }
     } else if (!body.enabled) {
@@ -790,6 +795,9 @@ export class ProjectAuthController {
       // client, a token lifetime that ignores the setting. Bring those up to date here,
       // which is what makes this route the one to run after upgrading.
       const problems = await this.keycloak.ensureRealmGoTrueCompat(realmName);
+      // Social sign-in without Keycloak pages: names optional, VERIFY_PROFILE off, providers
+      // trusting Google/GitHub addresses (idempotent).
+      for (const p of await this.keycloak.ensureSocialLoginProfile(realmName)) problems.push(`social sign-in: ${p}`);
       await this.applyTokenLifespan(projectId, realmName);
       return {
         message: problems.length
