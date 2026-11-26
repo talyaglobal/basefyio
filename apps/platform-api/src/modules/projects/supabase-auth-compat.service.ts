@@ -1,3 +1,4 @@
+import { OAuthPrompt, parseOAuthPrompt } from './oauth-return.util';
 import {
   ConflictException,
   ForbiddenException,
@@ -855,7 +856,14 @@ export class SupabaseAuthCompatService {
   /** The Keycloak authorization URL `GET /authorize` sends the browser to. */
   async authorizeUrl(
     projectId: string,
-    query: { provider?: string; redirect_to?: string; code_challenge?: string; code_challenge_method?: string },
+    query: {
+      provider?: string;
+      redirect_to?: string;
+      code_challenge?: string;
+      code_challenge_method?: string;
+      /** supabase-js `queryParams: { prompt }`; one of login | select_account | consent | none. */
+      prompt?: string;
+    },
   ): Promise<string> {
     const provider = mapProviderName((query.provider ?? '').trim());
     if (!provider) throw new GoTrueError(400, 'validation_failed', 'Unsupported provider: missing provider');
@@ -867,9 +875,16 @@ export class SupabaseAuthCompatService {
       extras.codeChallenge = query.code_challenge;
       extras.codeChallengeMethod = query.code_challenge_method === 'plain' ? 'plain' : 's256';
     }
+    let prompt: OAuthPrompt | undefined;
+    try {
+      prompt = parseOAuthPrompt(query.prompt);
+    } catch (err: any) {
+      throw new GoTrueError(400, 'validation_failed', err?.message ?? 'Invalid prompt');
+    }
     const { url } = await this.sdkAuth.getOAuthRedirectUrl(projectId, provider, query.redirect_to, {
       extras,
       fallbackRedirect: true,
+      prompt,
     });
     return url;
   }

@@ -33,6 +33,7 @@ export class SupabaseAuthOpenController {
     @Query('redirect_to') redirectTo?: string,
     @Query('code_challenge') codeChallenge?: string,
     @Query('code_challenge_method') codeChallengeMethod?: string,
+    @Query('prompt') prompt?: string,
     @Query('apikey') queryKey?: string,
     @Headers('apikey') headerKey?: string,
     @Headers('x-bf-project') projectHeader?: string,
@@ -43,6 +44,7 @@ export class SupabaseAuthOpenController {
       redirect_to: redirectTo,
       code_challenge: codeChallenge,
       code_challenge_method: codeChallengeMethod,
+      prompt,
     });
     res.redirect(302, url);
   }

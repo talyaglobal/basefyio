@@ -21,6 +21,7 @@ import { SupabaseAuthCompatService } from './supabase-auth-compat.service';
 import { ApiKeyGuard, ApiKeyPayload } from '../../common/guards/api-key.guard';
 import { AuthenticatedKeyOnly } from '../../common/decorators/api-key-scope.decorator';
 import { PlanGate } from '../../common/decorators/plan-gate.decorator';
+import { parseAppState, parseOAuthPrompt } from './oauth-return.util';
 
 @Controller('rest/v1/auth')
 @UseGuards(ApiKeyGuard)
@@ -80,6 +81,18 @@ export class ProjectSdkAuthController {
   ) {
     const { projectId } = this.getPayload(req);
     return this.sdkAuth.verifyEmail(projectId, body.otp, body.email);
+  }
+
+  /**
+   * Mail a new verification code. Always the same answer, whether or not the address has an
+   * unconfirmed account; 429 after three requests for one address (or twenty from one IP) in
+   * an hour.
+   */
+  @Post('verify-email/resend')
+  @HttpCode(200)
+  async resendVerification(@Req() req: Request, @Body() body: { email?: string } = {}) {
+    const { projectId } = this.getPayload(req);
+    return this.sdkAuth.resendEmailVerification(projectId, body?.email, this.clientIp(req));
   }
 
   /**
@@ -283,14 +296,43 @@ export class ProjectSdkAuthController {
     return this.sdkAuth.me(projectId, token);
   }
 
+  /**
+   * `prompt` (login | select_account | consent | none) goes to Keycloak and the provider;
+   * `state` is the app's own value and comes back in the callback fragment unchanged.
+   */
   @Get('signin/:provider')
   async signinWithProvider(
     @Req() req: Request,
     @Param('provider') provider: string,
     @Query('redirect_to') redirectTo?: string,
+    @Query('prompt') prompt?: string,
+    @Query('state') state?: string,
   ) {
     const { projectId } = this.getPayload(req);
-    return this.sdkAuth.getOAuthRedirectUrl(projectId, provider, redirectTo);
+    return this.sdkAuth.getOAuthRedirectUrl(projectId, provider, redirectTo, {
+      prompt: parseOAuthPrompt(prompt),
+      appState: parseAppState(state),
+    });
+  }
+
+  /**
+   * A URL that ends the browser's sign-in session (the one a social sign-in left behind) and
+   * returns to `redirectTo`, a registered redirect URL. With the `idToken` from the OAuth
+   * callback, no confirmation page is shown. Pair with POST signout, which ends the session's
+   * tokens on the server.
+   */
+  @Post('logout-url')
+  @HttpCode(200)
+  async logoutUrl(
+    @Req() req: Request,
+    @Body() body: { redirectTo?: string; idToken?: string; state?: string } = {},
+  ) {
+    const { projectId } = this.getPayload(req);
+    return this.sdkAuth.getLogoutUrl(projectId, {
+      redirectTo: body?.redirectTo,
+      idToken: body?.idToken,
+      appState: parseAppState(body?.state),
+    });
   }
 
   // ── Multi-factor authentication ──

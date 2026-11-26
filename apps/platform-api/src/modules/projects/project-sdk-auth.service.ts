@@ -17,7 +17,7 @@ import { firstValueFrom } from 'rxjs';
 import { createHash, randomInt } from 'crypto';
 import * as nodemailer from 'nodemailer';
 import { PrismaService } from '../../prisma/prisma.service';
-import { KeycloakAdminService } from '../auth/keycloak-admin.service';
+import { KeycloakAdminService, VERIFIED_EMAIL_PROVIDERS } from '../auth/keycloak-admin.service';
 import { EmailService } from '../email/email.service';
 import { RedisService } from '../redis/redis.service';
 import { ProjectAuthConfigService } from './project-auth-config.service';
@@ -26,6 +26,14 @@ import { ProjectMfaService } from './project-mfa.service';
 import { ImportedPasswordService } from './imported-password.service';
 import { decodeJwtPayload } from './gotrue-shapes';
 import { MauTracker } from '../billing/mau-tracker.service';
+import {
+  DEFAULT_PROVIDER_PROMPT,
+  OAuthPrompt,
+  OAuthReturnError,
+  isValidAppState,
+  mapOAuthError,
+  withFragmentParams,
+} from './oauth-return.util';
 
 export type EmailType = 'verify' | 'reset' | 'welcome' | 'invite' | 'magic_link' | 'change_email' | 'reauth';
 
@@ -36,6 +44,22 @@ export interface OAuthStateExtras {
   codeChallenge?: string;
   codeChallengeMethod?: 's256' | 'plain';
 }
+
+/** What the provider callback produced: a session, or an error code for the app. */
+export type OAuthCallbackResult =
+  | ({
+      ok: true;
+      accessToken: string;
+      refreshToken: string;
+      expiresIn: number;
+      tokenType: string;
+      /** Keycloak's id_token: `id_token_hint` for a sign-out without a confirmation page. */
+      idToken?: string;
+      redirectTo: string;
+      /** The app's own `state`, returned unchanged. */
+      appState?: string;
+    } & OAuthStateExtras)
+  | ({ ok: false; error: OAuthReturnError; redirectTo: string; appState?: string } & OAuthStateExtras);
 
 const SUBJECT_FIELDS: Record<EmailType, string> = {
   verify: 'verifyEmailSubject',
@@ -134,11 +158,26 @@ export class ProjectSdkAuthService {
     }
 
     const kcClientId = this.getRealmAnonClientId(project.keycloakRealm);
-    const tokens = await this.authenticateInRealm(
-      project.keycloakRealm, kcClientId, data.email, data.password, false, clientIp,
-    );
+    let tokens: Awaited<ReturnType<ProjectSdkAuthService['authenticateInRealm']>>;
+    try {
+      tokens = await this.authenticateInRealm(
+        project.keycloakRealm, kcClientId, data.email, data.password, false, clientIp,
+      );
+    } catch (err) {
+      // A realm that holds sign-in until the address is confirmed refuses the grant. The
+      // account exists and the code is on its way, so this is not a failed sign-up: answer
+      // without tokens and let the app sign in after verify-email.
+      if (!cfg.requireEmailVerify || !(err instanceof UnauthorizedException)) throw err;
+      this.logger.warn(`Sign-up on ${projectId}: no session until the address is verified (${(err as Error).message})`);
+      return { userId, emailVerified: false, verificationRequired: true };
+    }
 
-    return { ...tokens, userId, emailVerified: !cfg.requireEmailVerify };
+    return {
+      ...tokens,
+      userId,
+      emailVerified: !cfg.requireEmailVerify,
+      verificationRequired: !!cfg.requireEmailVerify,
+    };
   }
 
   /* ───────── Sign In ───────── */
@@ -433,6 +472,42 @@ export class ProjectSdkAuthService {
     return { message: 'Email verified successfully' };
   }
 
+  /** Re-sends per address and hour, and per client IP and hour, for verify-email/resend. */
+  static readonly RESEND_PER_ADDRESS_PER_HOUR = 3;
+  static readonly RESEND_PER_IP_PER_HOUR = 20;
+
+  /**
+   * A new verification code for an address that signed up and has not confirmed it yet.
+   * The answer is the same whether or not such an account exists; the limits count the address
+   * asked for (and the caller's IP), not the account, so they do not reveal one either.
+   * Issuing a new code leaves earlier ones valid until they expire.
+   */
+  async resendEmailVerification(projectId: string, email: unknown, clientIp?: string) {
+    const address = typeof email === 'string' ? email.trim() : '';
+    if (!address || address.length > 320 || !address.includes('@')) {
+      throw new BadRequestException('email is required');
+    }
+    const project = await this.getProject(projectId);
+    const answer = { message: 'If the address is waiting for verification, a new code has been sent' };
+
+    const hit = async (key: string, limit: number) => {
+      const n = await this.redis.incr(key);
+      if (n === 1) await this.redis.expire(key, 3600);
+      return n > limit;
+    };
+    if (await hit(`verify_resend:${projectId}:${this.emailHash(address)}`, ProjectSdkAuthService.RESEND_PER_ADDRESS_PER_HOUR)) {
+      throw this.tooManyCodes('Too many verification e-mails for this address. Try again later.');
+    }
+    if (clientIp && (await hit(`verify_resend_ip:${projectId}:${clientIp}`, ProjectSdkAuthService.RESEND_PER_IP_PER_HOUR))) {
+      throw this.tooManyCodes('Too many verification e-mails. Try again later.');
+    }
+
+    const user = await this.keycloak.findUserInRealm(project.keycloakRealm, address).catch(() => null);
+    if (!user?.id || this.keycloak.isAnonymousUser(user) || user.emailVerified) return answer;
+    await this.issueEmailVerification(project, user.id, user.email || address);
+    return answer;
+  }
+
   /* ───────── Forgot Password ───────── */
   async forgotPassword(projectId: string, email: string) {
     const project = await this.getProject(projectId);
@@ -612,9 +687,15 @@ export class ProjectSdkAuthService {
     /**
      * `extras` ride in the state for the callback; `fallbackRedirect` sends an unregistered
      * `redirect_to` to the first registered URL instead of refusing (what the GoTrue facade
-     * does, since supabase-js never shows that 400 to anyone).
+     * does, since supabase-js never shows that 400 to anyone). `prompt` and `appState` are the
+     * caller's, already checked by parseOAuthPrompt / parseAppState.
      */
-    opts: { extras?: OAuthStateExtras; fallbackRedirect?: boolean } = {},
+    opts: {
+      extras?: OAuthStateExtras;
+      fallbackRedirect?: boolean;
+      prompt?: OAuthPrompt;
+      appState?: string;
+    } = {},
   ) {
     const project = await this.getProject(projectId);
     // The only Keycloak URL in this service that a browser opens, so the only
@@ -658,6 +739,7 @@ export class ProjectSdkAuthService {
 
     const stateData = JSON.stringify({
       redirectTo: resolvedRedirect,
+      ...(opts.appState ? { appState: opts.appState } : {}),
       ...(opts.extras ?? {}),
     });
     const state = Buffer.from(stateData).toString('base64url');
@@ -671,22 +753,31 @@ export class ProjectSdkAuthService {
       state,
       kc_idp_hint: provider,
     });
+    // Keycloak applies `prompt` itself (login: sign in again; none: no page at all, an error
+    // back when there is no session) and forwards it to the provider, whose config no longer
+    // fixes one. Without the caller's value, the default the provider config used to force.
+    const prompt = opts.prompt ?? DEFAULT_PROVIDER_PROMPT[provider];
+    if (prompt) params.set('prompt', prompt);
 
     return { url: `${authUrl}?${params.toString()}`, provider };
   }
 
-  async handleOAuthCallback(projectId: string, provider: string, code: string, state: string) {
-    const project = await this.getProject(projectId);
-
-    // state arrives from the browser and anyone can call this URL, so it is
-    // not ours to trust. Parsing it unguarded turned a malformed value into
-    // a 500 with a stack trace, which is both the wrong answer and more than
-    // the caller should learn.
+  /**
+   * The OAuth state that came back through the browser, read defensively: anyone can call the
+   * callback URL, so a malformed value is a 400, and the redirect inside it is measured against
+   * the project's allowlist again (a value no longer registered falls back to the API host).
+   */
+  private async readOAuthState(
+    projectId: string,
+    state: string | undefined,
+  ): Promise<{ redirectTo: string; appState?: string; extras: OAuthStateExtras }> {
     let requestedRedirect = '/';
+    let appState: string | undefined;
     const extras: OAuthStateExtras = {};
     try {
       const parsed = JSON.parse(Buffer.from(state ?? '', 'base64url').toString());
       if (parsed && typeof parsed.redirectTo === 'string') requestedRedirect = parsed.redirectTo;
+      if (isValidAppState(parsed?.appState)) appState = parsed.appState;
       if (parsed?.gotrue === true) extras.gotrue = true;
       if (typeof parsed?.codeChallenge === 'string' && parsed.codeChallenge) {
         extras.codeChallenge = parsed.codeChallenge;
@@ -697,8 +788,7 @@ export class ProjectSdkAuthService {
     }
 
     // Signing the state would not help: it travelled through the browser, so
-    // the allowlist is what decides. A value that is no longer registered
-    // falls back to the API host, where the tokens are already visible.
+    // the allowlist is what decides.
     const redirectTo =
       resolveOAuthRedirect(requestedRedirect, await this.allowedRedirectUrls(projectId)) ?? '/';
     if (redirectTo !== requestedRedirect) {
@@ -706,12 +796,40 @@ export class ProjectSdkAuthService {
         `OAuth state asked for an unregistered redirect on project ${projectId}: ${requestedRedirect.slice(0, 200)}`,
       );
     }
+    return { redirectTo, appState, extras };
+  }
+
+  /**
+   * Keycloak came back with `?error=` instead of a code (the user cancelled, `prompt=none`
+   * without a session, the provider refused). The browser goes back to the app with our code
+   * for it — never to a Keycloak page and never with the upstream free text.
+   */
+  async handleOAuthError(projectId: string, state: string | undefined, rawError: unknown): Promise<OAuthCallbackResult> {
+    await this.getProject(projectId);
+    const { redirectTo, appState, extras } = await this.readOAuthState(projectId, state);
+    const error = mapOAuthError(rawError);
+    this.logger.warn(`OAuth sign-in on project ${projectId} came back with ${String(rawError).slice(0, 80)} (${error})`);
+    return { ok: false, error, redirectTo, appState, ...extras };
+  }
+
+  async handleOAuthCallback(
+    projectId: string,
+    provider: string,
+    code: string,
+    state: string,
+  ): Promise<OAuthCallbackResult> {
+    const project = await this.getProject(projectId);
+    const { redirectTo, appState, extras } = await this.readOAuthState(projectId, state);
 
     const keycloakUrl = this.config.get<string>('keycloak.url');
     const apiBase = this.getPublicApiBase();
     const callbackUrl = `${apiBase}/rest/v1/auth/callback/${projectId}/${provider}`;
     const tokenUrl = `${keycloakUrl}/realms/${project.keycloakRealm}/protocol/openid-connect/token`;
     const kcClientId = this.getRealmAnonClientId(project.keycloakRealm);
+
+    if (typeof code !== 'string' || !code) {
+      return { ok: false, error: 'oauth_failed', redirectTo, appState, ...extras };
+    }
 
     const params = new URLSearchParams({
       grant_type: 'authorization_code',
@@ -720,26 +838,155 @@ export class ProjectSdkAuthService {
       redirect_uri: callbackUrl,
     });
 
+    let data: any;
     try {
-      const { data } = await firstValueFrom(
+      ({ data } = await firstValueFrom(
         this.http.post(tokenUrl, params.toString(), {
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         }),
-      );
-      this.mau?.recordFromAccessToken(project.keycloakRealm, data?.access_token);
-
-      return {
-        accessToken: data.access_token,
-        refreshToken: data.refresh_token,
-        expiresIn: data.expires_in,
-        tokenType: data.token_type,
-        redirectTo,
-        ...extras,
-      };
+      ));
     } catch (err: any) {
+      // Back to the app with a code, not a 500 page on the API host.
       this.logger.error(`OAuth callback failed: ${err.message}`);
-      throw new InternalServerErrorException('OAuth authentication failed');
+      return { ok: false, error: 'oauth_failed', redirectTo, appState, ...extras };
     }
+
+    let tokens = {
+      accessToken: data.access_token as string,
+      refreshToken: data.refresh_token as string,
+      expiresIn: data.expires_in as number,
+      tokenType: data.token_type as string,
+      idToken: typeof data.id_token === 'string' ? (data.id_token as string) : undefined,
+    };
+    const claims = this.decodeJwtPayload(tokens.accessToken) ?? {};
+
+    // Google and GitHub always hand over an address. Without one the account cannot be used
+    // by the app, and the alternative is a Keycloak form: end the session, say so instead.
+    if ((VERIFIED_EMAIL_PROVIDERS as readonly string[]).includes(provider)) {
+      const email = typeof claims.email === 'string' ? claims.email.trim() : '';
+      if (!email) {
+        await this.revokeRefreshToken(project.keycloakRealm, kcClientId, tokens.refreshToken);
+        return { ok: false, error: 'missing_profile', redirectTo, appState, ...extras };
+      }
+      if (await this.trustProviderEmail(project.keycloakRealm, provider, claims)) {
+        // Once, so the token the app receives already says email_verified: true.
+        const refreshed = await this.refreshInRealm(project.keycloakRealm, kcClientId, tokens.refreshToken).catch(() => null);
+        if (refreshed) tokens = { ...tokens, ...refreshed, idToken: refreshed.idToken ?? tokens.idToken };
+      }
+    }
+
+    this.mau?.recordFromAccessToken(project.keycloakRealm, tokens.accessToken);
+    return { ok: true, ...tokens, redirectTo, appState, ...extras };
+  }
+
+  /**
+   * An address Google or GitHub handed over is verified by them (Google sends only verified
+   * addresses, Keycloak takes GitHub's primary one). Keycloak marks it verified when it creates
+   * the user from a provider that trusts email, but not when it links the provider to an
+   * account that already existed with that address (auto-link), so such users kept
+   * `email_verified: false`. Marked here, after a sign-in through that very provider, when:
+   * the provider is set to trust email, the user is linked to it, and — for Google, whose
+   * linked username is the address — the address is still the one Google gave. A GitHub link
+   * was made by Keycloak from the same address (created from it, or matched to it), and the
+   * address can only change afterwards through a confirmed change-email or an administrator.
+   */
+  private async trustProviderEmail(realm: string, provider: string, claims: Record<string, unknown>): Promise<boolean> {
+    if (claims.email_verified === true) return false;
+    const sub = typeof claims.sub === 'string' ? claims.sub : '';
+    const email = typeof claims.email === 'string' ? claims.email.trim().toLowerCase() : '';
+    if (!sub || !email) return false;
+    try {
+      if (!(await this.keycloak.identityProviderTrustsEmail(realm, provider))) return false;
+      const links = await this.keycloak.listUserFederatedIdentityLinks(realm, sub);
+      const link = links.find((l) => l.identityProvider === provider);
+      if (!link) return false;
+      if (provider === 'google' && link.userName && link.userName.trim().toLowerCase() !== email) return false;
+      await this.keycloak.setEmailVerified(realm, sub);
+      return true;
+    } catch (err: any) {
+      this.logger.warn(`Could not mark the ${provider} address verified for ${sub}: ${err?.message ?? err}`);
+      return false;
+    }
+  }
+
+  /* ───────── Browser sign-out ───────── */
+
+  /** Where Keycloak sends the browser after a sign-out; registered on the anon client. */
+  private logoutCallbackUrl(projectId: string): string {
+    return `${this.getPublicApiBase()}/rest/v1/auth/logout-callback/${projectId}`;
+  }
+
+  /**
+   * A URL that ends the browser's Keycloak session and lands on the app.
+   *
+   * `redirectTo` must be one of the project's registered redirect URLs (the same allowlist as
+   * the OAuth return), and is checked again when the browser comes back, so the URL cannot be
+   * turned into an open redirect. Keycloak only skips its "Do you want to log out?" page when
+   * it gets `id_token_hint`, so pass the `id_token` the OAuth callback delivered.
+   */
+  async getLogoutUrl(
+    projectId: string,
+    input: { redirectTo?: unknown; idToken?: unknown; appState?: string },
+  ): Promise<{ url: string; confirmationSkipped: boolean }> {
+    const project = await this.getProject(projectId);
+    const requested = typeof input.redirectTo === 'string' ? input.redirectTo.trim() : '';
+    if (!requested) throw new BadRequestException('redirectTo is required');
+    const allowed = await this.allowedRedirectUrls(projectId);
+    const redirectTo = resolveOAuthRedirect(requested, allowed);
+    if (!redirectTo) {
+      throw new BadRequestException(
+        `redirectTo is not a registered redirect URL for this project (allowed: ${describeAllowedRedirects(allowed)})`,
+      );
+    }
+
+    const kcClientId = this.getRealmAnonClientId(project.keycloakRealm);
+    let idToken: string | undefined;
+    if (input.idToken !== undefined && input.idToken !== null && input.idToken !== '') {
+      const raw = typeof input.idToken === 'string' ? input.idToken.trim() : '';
+      const payload = raw.length <= 16384 && raw.split('.').length === 3 ? this.decodeJwtPayload(raw) : null;
+      const iss = typeof payload?.iss === 'string' ? payload.iss : '';
+      const aud = payload?.aud;
+      const forClient =
+        payload?.azp === kcClientId || aud === kcClientId || (Array.isArray(aud) && aud.includes(kcClientId));
+      if (!payload || !iss.endsWith(`/realms/${project.keycloakRealm}`) || !forClient) {
+        throw new BadRequestException('idToken was not issued by this project');
+      }
+      idToken = raw;
+    }
+
+    const callback = this.logoutCallbackUrl(projectId);
+    await this.keycloak.ensureAnonClientPostLogoutRedirectUri(project.keycloakRealm, callback);
+
+    const state = Buffer.from(
+      JSON.stringify({ redirectTo, ...(input.appState ? { appState: input.appState } : {}) }),
+    ).toString('base64url');
+    const keycloakUrl =
+      this.config.get<string>('keycloak.publicUrl') || this.config.get<string>('keycloak.url');
+    const params = new URLSearchParams({
+      client_id: kcClientId,
+      post_logout_redirect_uri: callback,
+      state,
+    });
+    if (idToken) params.set('id_token_hint', idToken);
+    return {
+      url: `${keycloakUrl}/realms/${project.keycloakRealm}/protocol/openid-connect/logout?${params.toString()}`,
+      confirmationSkipped: !!idToken,
+    };
+  }
+
+  /** After Keycloak ended the session: back to the app, allowlist checked again. */
+  async handleLogoutCallback(projectId: string, state: string | undefined): Promise<string> {
+    await this.getProject(projectId);
+    let redirectTo = '/';
+    let appState: string | undefined;
+    try {
+      const read = await this.readOAuthState(projectId, state);
+      redirectTo = read.redirectTo;
+      appState = read.appState;
+    } catch {
+      redirectTo = '/';
+    }
+    return withFragmentParams(redirectTo, { signed_out: 'true', ...(appState ? { state: appState } : {}) });
   }
 
   /* ───────── Refresh & Me ───────── */
@@ -750,9 +997,22 @@ export class ProjectSdkAuthService {
     return this.refreshInRealm(project.keycloakRealm, kcClientId, refreshToken);
   }
 
+  /**
+   * The profile behind the token, plus how the account signs in: `providers` are the social
+   * providers linked to it, `provider` the first of them, else `password` (`anonymous` for an
+   * anonymous user). Best-effort: when the link lookup fails the profile still answers.
+   */
   async me(projectId: string, accessToken: string) {
     const project = await this.getProject(projectId);
-    return this.getUserFromToken(project, accessToken);
+    const user = await this.getUserFromToken(project, accessToken);
+    let providers: string[] = [];
+    if (user.id) {
+      providers = await this.keycloak
+        .listUserFederatedIdentities(project.keycloakRealm, user.id)
+        .catch(() => []);
+    }
+    const provider = providers[0] ?? (user.isAnonymous ? 'anonymous' : 'password');
+    return { ...user, provider, providers };
   }
 
   /* ═══════════════════ Private Helpers ═══════════════════ */
@@ -978,7 +1238,11 @@ export class ProjectSdkAuthService {
     }
   }
 
-  private async refreshInRealm(realmName: string, clientId: string, refreshToken: string) {
+  private async refreshInRealm(
+    realmName: string,
+    clientId: string,
+    refreshToken: string,
+  ): Promise<{ accessToken: string; refreshToken: string; expiresIn: number; idToken?: string }> {
     const keycloakUrl = this.config.get<string>('keycloak.url');
     const tokenUrl = `${keycloakUrl}/realms/${realmName}/protocol/openid-connect/token`;
 
@@ -993,7 +1257,12 @@ export class ProjectSdkAuthService {
         }),
       );
       this.mau?.recordFromAccessToken(realmName, data?.access_token);
-      return { accessToken: data.access_token, refreshToken: data.refresh_token, expiresIn: data.expires_in };
+      return {
+        accessToken: data.access_token,
+        refreshToken: data.refresh_token,
+        expiresIn: data.expires_in,
+        ...(typeof data.id_token === 'string' ? { idToken: data.id_token as string } : {}),
+      };
     } catch {
       throw new UnauthorizedException('Invalid or expired refresh token');
     }

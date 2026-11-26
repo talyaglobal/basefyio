@@ -2,6 +2,7 @@ import { Controller, Get, Param, Query, Res } from '@nestjs/common';
 import { Response } from 'express';
 import { ProjectSdkAuthService } from './project-sdk-auth.service';
 import { SupabaseAuthCompatService } from './supabase-auth-compat.service';
+import { OAUTH_RETURN_ERRORS, withFragmentParams, withQueryParams } from './oauth-return.util';
 
 /**
  * Where the identity provider sends the browser back.
@@ -52,8 +53,13 @@ export class ProjectOAuthCallbackController {
     @Param('provider') provider: string,
     @Query('code') code: string,
     @Query('state') state: string,
+    @Query('error') error?: string,
   ) {
-    const result = await this.sdkAuth.handleOAuthCallback(projectId, provider, code, state);
+    // Keycloak answers `?error=…` (cancelled, prompt=none without a session, provider refused)
+    // instead of a code: back to the app with our error code, not a page on the API host.
+    const result = error
+      ? await this.sdkAuth.handleOAuthError(projectId, state, error)
+      : await this.sdkAuth.handleOAuthCallback(projectId, provider, code, state);
 
     // The service has already measured this against the project's registered
     // redirect URLs (oauth-redirect.util.ts), which is the only place that can:
@@ -64,6 +70,21 @@ export class ProjectOAuthCallbackController {
     // that service can ever put a javascript: or data: URL in Location.
     const safeRedirect = isFollowableRedirect(result.redirectTo) ? result.redirectTo : '/';
 
+    if (!result.ok) {
+      const description = OAUTH_RETURN_ERRORS[result.error];
+      // supabase-js reads errors from the query (PKCE) and the fragment; send both shapes there.
+      const location = result.gotrue
+        ? withQueryParams(safeRedirect, { error: result.error, error_code: result.error, error_description: description })
+        : withFragmentParams(safeRedirect, {
+            error: result.error,
+            error_description: description,
+            provider,
+            state: result.appState,
+          });
+      res.redirect(isFollowableRedirect(location) ? location : '/');
+      return;
+    }
+
     // Started by `GET /auth/v1/authorize`: the app's supabase-js is waiting, and
     // it reads a PKCE `?code=` or GoTrue's fragment, not this controller's.
     if (result.gotrue) {
@@ -72,13 +93,30 @@ export class ProjectOAuthCallbackController {
       return;
     }
 
-    const params = new URLSearchParams({
-      access_token: result.accessToken,
-      refresh_token: result.refreshToken,
-      expires_in: String(result.expiresIn),
-      token_type: result.tokenType || 'Bearer',
-      provider,
-    });
-    res.redirect(`${safeRedirect}#${params.toString()}`);
+    res.redirect(
+      withFragmentParams(safeRedirect, {
+        access_token: result.accessToken,
+        refresh_token: result.refreshToken,
+        expires_in: String(result.expiresIn),
+        token_type: result.tokenType || 'Bearer',
+        provider,
+        id_token: result.idToken,
+        state: result.appState,
+      }),
+    );
+  }
+
+  /**
+   * Where Keycloak sends the browser after the sign-out URL from POST logout-url. The app URL
+   * rides in the state and is checked against the project's allowlist again here.
+   */
+  @Get('logout-callback/:projectId')
+  async logoutCallback(
+    @Res() res: Response,
+    @Param('projectId') projectId: string,
+    @Query('state') state?: string,
+  ) {
+    const location = await this.sdkAuth.handleLogoutCallback(projectId, state);
+    res.redirect(isFollowableRedirect(location) ? location : '/');
   }
 }
