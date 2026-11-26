@@ -76,6 +76,16 @@ jobs:
       - name: Attach the SBOM as a signed attestation
         run: cosign attest --yes --type spdxjson --predicate sbom.spdx.json "${{ steps.digest.outputs.ref }}"
 
+      - name: Verify what was just published
+        # The same two commands a user runs (docs/guides/verify-images.md): a red step here means the
+        # signature or the SBOM attestation cannot be verified with the published identity.
+        run: |
+          id='^https://github.com/${{ github.repository }}/\.github/workflows/sign-images\.yml@'
+          iss=https://token.actions.githubusercontent.com
+          cosign verify "${{ steps.digest.outputs.ref }}" --certificate-identity-regexp "$id" --certificate-oidc-issuer "$iss" >/dev/null
+          cosign verify-attestation --type spdxjson "${{ steps.digest.outputs.ref }}" --certificate-identity-regexp "$id" --certificate-oidc-issuer "$iss" >/dev/null
+          echo "signature and SBOM attestation verified for ${{ matrix.image }}"
+
       - name: Keep the SBOM with the run
         uses: actions/upload-artifact@v4
         with:
