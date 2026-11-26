@@ -21,6 +21,9 @@ import type {
   OAuthRedirectResult,
   OAuthProvider,
   BasefyioError,
+  SignUpResult,
+  SignInWithProviderOptions,
+  ProviderCallbackError,
 } from '../lib/types.js';
 
 // ── Multi-factor authentication (TOTP) ─────────────────────
@@ -111,16 +114,21 @@ export class AuthClient {
     this.autoRefresh = autoRefresh;
   }
 
-  async signUp(credentials: SignUpCredentials): Promise<BasefyioResponse<AuthTokens>> {
+  /**
+   * Create an account. When the project requires e-mail verification, `verificationRequired`
+   * is true; if the project also holds sign-in until the address is confirmed, no tokens come
+   * back and no session starts — call verifyEmail, then signIn (resendVerification mails a new code).
+   */
+  async signUp(credentials: SignUpCredentials): Promise<BasefyioResponse<SignUpResult>> {
     if (!credentials?.email || !credentials?.password) {
       return { data: null, error: { message: 'Email and password are required', status: 400 } };
     }
     try {
-      const data = await this.http.json<AuthTokens>('/rest/v1/auth/signup', {
+      const data = await this.http.json<SignUpResult>('/rest/v1/auth/signup', {
         method: 'POST',
         body: JSON.stringify(credentials),
       });
-      this.setSession(data);
+      if (data?.accessToken && data?.refreshToken) this.setSession(data as AuthTokens);
       return { data, error: null };
     } catch (err: any) {
       return { data: null, error: { message: err.message, status: err.status } };
@@ -308,9 +316,35 @@ export class AuthClient {
    * sent and no SIGNED_OUT event fires. The local session is cleared even when
    * the server cannot be reached; `error` then says so.
    */
-  async signOut(options?: { scope?: 'local' | 'others' | 'global' }): Promise<BasefyioResponse<null>> {
+  async signOut(options?: {
+    scope?: 'local' | 'others' | 'global';
+    /**
+     * Also end the browser's sign-in session left by a social sign-in, then land here (a
+     * registered redirect URL). In a browser the page navigates; the URL is also returned as
+     * `data.url`. Without the session's id token Keycloak asks the user to confirm.
+     */
+    redirectTo?: string;
+    /** Your own value, returned in the fragment of `redirectTo` as `state`. */
+    state?: string;
+  }): Promise<BasefyioResponse<null | { url: string }>> {
     const session = this.session;
     if (!session) return { data: null, error: null };
+    if (options?.redirectTo && options.scope !== 'others') {
+      const idToken = session.idToken;
+      const result = await this.signOut({ scope: options.scope });
+      let url: string | null = null;
+      try {
+        const data = await this.http.json<{ url: string }>('/rest/v1/auth/logout-url', {
+          method: 'POST',
+          body: JSON.stringify({ redirectTo: options.redirectTo, idToken, state: options.state }),
+        });
+        url = data.url;
+      } catch (err: any) {
+        return { data: null, error: result.error ?? this.toError(err) };
+      }
+      if (typeof window !== 'undefined' && url) window.location.href = url;
+      return { data: url ? { url } : null, error: result.error };
+    }
     const scope = options?.scope ?? 'local';
     const refreshToken = session.refreshToken || undefined;
     let error: BasefyioResponse<null>['error'] = null;
@@ -349,6 +383,22 @@ export class AuthClient {
       return { data, error: null };
     } catch (err: any) {
       return { data: null, error: { message: err.message, status: err.status } };
+    }
+  }
+
+  /**
+   * Mail a new verification code. The answer is the same whether or not the address has an
+   * unconfirmed account; a 429 after three requests for one address in an hour.
+   */
+  async resendVerification(email: string): Promise<BasefyioResponse<VerifyEmailResult>> {
+    try {
+      const data = await this.http.json<VerifyEmailResult>('/rest/v1/auth/verify-email/resend', {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+      });
+      return { data, error: null };
+    } catch (err: any) {
+      return { data: null, error: this.toError(err) };
     }
   }
 
@@ -468,11 +518,13 @@ export class AuthClient {
 
   async signInWithProvider(
     provider: OAuthProvider | string,
-    options?: { redirectTo?: string },
+    options?: SignInWithProviderOptions,
   ): Promise<BasefyioResponse<OAuthRedirectResult>> {
     try {
       const params = new URLSearchParams();
       if (options?.redirectTo) params.set('redirect_to', options.redirectTo);
+      if (options?.prompt) params.set('prompt', options.prompt);
+      if (options?.state) params.set('state', options.state);
       const qs = params.toString();
       const url = `/rest/v1/auth/signin/${provider}${qs ? `?${qs}` : ''}`;
       const data = await this.http.json<OAuthRedirectResult>(url);
@@ -485,6 +537,10 @@ export class AuthClient {
     }
   }
 
+  /**
+   * Read the session the provider callback put in the URL fragment, start it and clear the
+   * fragment. Returns null when there is none — check providerCallbackError() then.
+   */
   handleProviderCallback(): AuthTokens | null {
     if (typeof window === 'undefined') return null;
     const hash = window.location.hash.substring(1);
@@ -502,11 +558,32 @@ export class AuthClient {
       refreshToken,
       expiresIn: parseInt(expiresIn || '300', 10),
       tokenType: params.get('token_type') || 'Bearer',
+      ...(params.get('id_token') ? { idToken: params.get('id_token')! } : {}),
+      ...(params.get('state') ? { state: params.get('state')! } : {}),
     };
 
     this.setSession(tokens);
     window.history.replaceState(null, '', window.location.pathname + window.location.search);
     return tokens;
+  }
+
+  /**
+   * A social sign-in that came back with an error (cancelled, prompt=none without a session,
+   * missing_profile…) instead of a session. Clears the fragment when it finds one.
+   */
+  providerCallbackError(): ProviderCallbackError | null {
+    if (typeof window === 'undefined') return null;
+    const hash = window.location.hash.substring(1);
+    if (!hash) return null;
+    const params = new URLSearchParams(hash);
+    const error = params.get('error');
+    if (!error) return null;
+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    return {
+      error,
+      ...(params.get('error_description') ? { description: params.get('error_description')! } : {}),
+      ...(params.get('state') ? { state: params.get('state')! } : {}),
+    };
   }
 
   async getUser(): Promise<BasefyioResponse<User>> {
@@ -559,7 +636,8 @@ export class AuthClient {
         method: 'POST',
         body: JSON.stringify({ refreshToken }),
       });
-      this.setSession(data);
+      // A refresh may omit the id token; keep the one the sign-in delivered.
+      this.setSession({ ...data, idToken: data.idToken ?? this.session?.idToken });
       this.emit('TOKEN_REFRESHED');
       return { data, error: null };
     } catch (err: any) {
@@ -623,6 +701,7 @@ export class AuthClient {
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
       expiresAt,
+      ...(tokens.idToken ? { idToken: tokens.idToken } : {}),
     };
 
     this.emit('SIGNED_IN');

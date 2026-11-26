@@ -278,3 +278,56 @@ describe('codes carry the address (2.6.0)', () => {
   });
 });
 
+describe('social sign-in options and sign-out URL', () => {
+  it('sends prompt and state with signInWithProvider', async () => {
+    const { http, sent } = fakeHttp({
+      '/rest/v1/auth/signin/github?redirect_to=https%3A%2F%2Fapp.example.com%2Fcb&prompt=select_account&state=s1': {
+        url: 'https://kc/auth',
+        provider: 'github',
+      },
+    });
+    const auth = new AuthClient(http, false);
+    const res = await auth.signInWithProvider('github', {
+      redirectTo: 'https://app.example.com/cb',
+      prompt: 'select_account',
+      state: 's1',
+    });
+    expect(res.error).toBeNull();
+    expect(sent).toHaveLength(1);
+  });
+
+  it('signUp starts no session when the answer carries no tokens', async () => {
+    const pending = { userId: 'u1', emailVerified: false, verificationRequired: true };
+    const { http } = fakeHttp({ '/rest/v1/auth/signup': pending });
+    const auth = new AuthClient(http, false);
+    const res = await auth.signUp({ email: 'a@b.c', password: 'pw123456' });
+    expect(res.data).toEqual(pending);
+    expect(auth.getSession()).toBeNull();
+  });
+
+  it('resendVerification posts the address', async () => {
+    const { http, sent } = fakeHttp({ '/rest/v1/auth/verify-email/resend': { message: 'ok' } });
+    const auth = new AuthClient(http, false);
+    await auth.resendVerification('a@b.c');
+    expect(sent[0]).toEqual({ path: '/rest/v1/auth/verify-email/resend', method: 'POST', body: { email: 'a@b.c' } });
+  });
+
+  it('signOut({ redirectTo }) revokes the session, then asks for the logout URL with the id token', async () => {
+    const { http, sent } = fakeHttp({
+      '/rest/v1/auth/mfa/challenge': { ...TOKENS, idToken: 'idt-1' },
+      '/rest/v1/auth/me': { id: 'u1' },
+      '/rest/v1/auth/signout': null,
+      '/rest/v1/auth/logout-url': { url: 'https://kc/logout?x=1' },
+    });
+    const auth = new AuthClient(http, false);
+    await auth.verifyMfa('ch', '123456');
+    expect(auth.getSession()?.idToken).toBe('idt-1');
+    sent.length = 0;
+    const res = await auth.signOut({ redirectTo: 'https://app.example.com/', state: 's1' });
+    expect(res).toEqual({ data: { url: 'https://kc/logout?x=1' }, error: null });
+    expect(sent.map((s) => s.path)).toEqual(['/rest/v1/auth/signout', '/rest/v1/auth/logout-url']);
+    expect(sent[1].body).toEqual({ redirectTo: 'https://app.example.com/', idToken: 'idt-1', state: 's1' });
+    expect(auth.getSession()).toBeNull();
+  });
+});
+

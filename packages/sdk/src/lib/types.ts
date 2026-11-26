@@ -35,6 +35,40 @@ export interface AuthTokens {
   tokenType: string;
   userId?: string;
   emailVerified?: boolean;
+  /** Keycloak's id_token (social sign-in): lets signOut({ redirectTo }) skip the confirmation page. */
+  idToken?: string;
+  /** The app's own `state` from signInWithProvider, returned unchanged by handleProviderCallback. */
+  state?: string;
+}
+
+/**
+ * What signUp answers. With e-mail verification required the address is unconfirmed
+ * (`verificationRequired: true`); when the project also holds sign-in until it is confirmed,
+ * there are no tokens: call verifyEmail, then signIn.
+ */
+export interface SignUpResult extends Partial<AuthTokens> {
+  userId?: string;
+  emailVerified?: boolean;
+  verificationRequired?: boolean;
+}
+
+export type OAuthPrompt = 'login' | 'select_account' | 'consent' | 'none';
+
+export interface SignInWithProviderOptions {
+  /** A registered redirect URL of the project; its query string is kept. */
+  redirectTo?: string;
+  /** Passed to the provider: login (sign in again), select_account, consent, none (no page; error if no session). */
+  prompt?: OAuthPrompt;
+  /** Your own value (1-512 of A-Z a-z 0-9 - . _ ~), returned in the callback. */
+  state?: string;
+}
+
+/** A social sign-in that came back without a session. */
+export interface ProviderCallbackError {
+  /** access_denied | login_required | interaction_required | consent_required | missing_profile | temporarily_unavailable | oauth_failed */
+  error: string;
+  description?: string;
+  state?: string;
 }
 
 export interface SignUpCredentials {
@@ -62,6 +96,8 @@ export interface Session {
   accessToken: string;
   refreshToken: string;
   expiresAt: number;
+  /** Present after a social sign-in; used by signOut({ redirectTo }). */
+  idToken?: string;
 }
 
 export interface VerifyEmailResult {
