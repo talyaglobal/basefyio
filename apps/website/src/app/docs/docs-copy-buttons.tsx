@@ -20,7 +20,7 @@ export function DocsCopyButtons() {
       button.textContent = "Copy";
       button.setAttribute("aria-label", "Copy code to clipboard");
       button.className =
-        "absolute right-2 top-2 rounded-md border border-border bg-background px-2 py-1 text-xs text-muted-foreground opacity-70 transition hover:opacity-100 focus-visible:opacity-100";
+        "absolute right-2 top-2 rounded-md border border-border bg-background px-2 py-1 text-xs text-muted-foreground transition hover:bg-muted focus-visible:opacity-100";
       button.addEventListener("click", async () => {
         try {
           await navigator.clipboard.writeText(pre.querySelector("code")?.innerText ?? pre.innerText);

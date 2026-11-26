@@ -453,7 +453,7 @@ export function HomeMarketing() {
               </p>
             </div>
           </ScrollReveal>
-          <div className="grid gap-5 md:grid-cols-2">
+          <div className="grid gap-5 md:grid-cols-2 [&>*]:min-w-0">
             {[
               {
                 method: "GET",

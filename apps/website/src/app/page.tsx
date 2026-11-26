@@ -254,7 +254,7 @@ export default async function Home() {
               >
                 <Zap className="h-4 w-4" />
                 Start building
-                <span className="ml-1 rounded-full bg-primary-foreground/20 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-primary-foreground">
+                <span className="ml-1 rounded-full bg-black/25 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-primary-foreground">
                   FREE
                 </span>
               </Link>
