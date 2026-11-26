@@ -25,4 +25,5 @@ description = "Product descriptions in marketing copy"
 paths = [
   '''apps/website/src/content/blog/.*\.mdx$''',
   '''apps/website/src/lib/(seo|geo)/[a-z-]+\.ts$''',
+  '''apps/website/src/app/guides/[a-z-]+/page\.tsx$''',
 ]
