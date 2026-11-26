@@ -84,9 +84,29 @@ export class PgBouncerService implements OnModuleInit {
     } catch (err) {
       this.logger.warn(`PgBouncer config generation skipped: ${err}`);
     }
+    this.startReconcile();
   }
 
-  async regenerateConfig(): Promise<void> {
+  private reconcileTimer?: NodeJS.Timeout;
+  private lastWritten = '';
+
+  /**
+   * Every replica with its own pooler converges on the database: the config is
+   * rebuilt each pass and written + RELOADed only when it differs from what this
+   * replica wrote last. Off unless PGBOUNCER_RECONCILE_SECONDS > 0.
+   */
+  private startReconcile(): void {
+    const seconds = Number(this.config.get<number>('pgbouncer.reconcileSeconds') || 0);
+    if (!(seconds > 0) || this.reconcileTimer) return;
+    this.reconcileTimer = setInterval(() => {
+      this.regenerateConfig({ onlyIfChanged: true }).catch((err) =>
+        this.logger.warn(`PgBouncer reconcile skipped: ${err}`),
+      );
+    }, Math.max(15, seconds) * 1000);
+    this.reconcileTimer.unref?.();
+  }
+
+  async regenerateConfig(opts: { onlyIfChanged?: boolean } = {}): Promise<void> {
     const projects: PoolerProject[] = await this.prisma.project.findMany({
       where: { status: 'ACTIVE' },
       select: {
@@ -114,6 +134,9 @@ export class PgBouncerService implements OnModuleInit {
     const dbClientLimits = await this.supportsDbClientLimits();
     const iniContent = this.buildIni(projects, tlsReady, dbClientLimits);
     const userlistContent = this.buildUserlist(projects);
+
+    if (opts.onlyIfChanged && this.lastWritten === iniContent + '\0' + userlistContent) return;
+    this.lastWritten = iniContent + '\0' + userlistContent;
 
     await this.writeAtomically(join(this.configDir, 'pgbouncer.ini'), iniContent);
     await this.writeAtomically(join(this.configDir, 'userlist.txt'), userlistContent);
@@ -147,10 +170,14 @@ export class PgBouncerService implements OnModuleInit {
       .map((p) => this.databaseLine(p, dbClientLimits))
       .join('\n');
 
-    // "allow" = opportunistic: clients may negotiate TLS, but plaintext
-    // connections (existing customers, internal services) keep working.
+    // "allow" (default) = opportunistic: plaintext keeps working for existing
+    // customers and internal services. "require" (PGBOUNCER_CLIENT_TLS_MODE)
+    // refuses plaintext; set on the public Kubernetes endpoint. The API's own
+    // admin-console connections then use TLS too (adminSsl), without checking
+    // the certificate: it is the pod's own self-signed one on 127.0.0.1.
+    const tlsMode = this.config.get<string>('pgbouncer.clientTlsMode') === 'require' ? 'require' : 'allow';
     const tlsLines = tlsReady
-      ? `client_tls_sslmode = allow
+      ? `client_tls_sslmode = ${tlsMode}
 client_tls_cert_file = ${join(this.configDir, 'server.crt')}
 client_tls_key_file = ${join(this.configDir, 'server.key')}
 `
@@ -335,6 +362,9 @@ ${this.serverResetLines()}${tlsLines}`;
       user: 'pgbouncer_admin',
       password: this.adminPassword,
       connectionTimeoutMillis: 5000,
+      ...(this.config.get<string>('pgbouncer.clientTlsMode') === 'require'
+        ? { ssl: { rejectUnauthorized: false } }
+        : {}),
     });
   }
 

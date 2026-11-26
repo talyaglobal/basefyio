@@ -270,3 +270,37 @@ describe('PgBouncer min_pool_size default', () => {
     expect(cfg).toMatch(/minPoolSize: parseInt\(process\.env\.PGBOUNCER_MIN_POOL_SIZE \?\? '0', 10\)/);
   });
 });
+
+describe('client TLS mode and reconcile', () => {
+  const tls = (s: any, mode: string) => s.buildIni([owner], true, false);
+  it('defaults to allow', () => {
+    expect(service({})['buildIni']([owner], true)).toContain('client_tls_sslmode = allow');
+  });
+  it('require refuses plaintext', () => {
+    const out = service({ 'pgbouncer.clientTlsMode': 'require' })['buildIni']([owner], true);
+    expect(out).toContain('client_tls_sslmode = require');
+    expect(out).not.toContain('client_tls_sslmode = allow');
+  });
+  it('no TLS lines when the cert is missing, whatever the mode', () => {
+    expect(service({ 'pgbouncer.clientTlsMode': 'require' })['buildIni']([owner], false)).not.toContain('client_tls');
+  });
+  it('reconcile is off by default', () => {
+    const s: any = service({});
+    s.startReconcile();
+    expect(s.reconcileTimer).toBeUndefined();
+  });
+  it('reconcile writes only when the config changed', async () => {
+    const prisma = { project: { findMany: jest.fn().mockResolvedValue([owner]) } };
+    const s: any = new PgBouncerService(prisma as any, { get: () => undefined } as any);
+    s.ensureTlsCert = jest.fn().mockResolvedValue(false);
+    s.supportsDbClientLimits = jest.fn().mockResolvedValue(false);
+    s.writeAtomically = jest.fn().mockResolvedValue(undefined);
+    s.sendReload = jest.fn().mockResolvedValue(undefined);
+    await s.regenerateConfig({ onlyIfChanged: true });
+    await s.regenerateConfig({ onlyIfChanged: true });
+    expect(s.sendReload).toHaveBeenCalledTimes(1);
+    prisma.project.findMany.mockResolvedValue([owner, other]);
+    await s.regenerateConfig({ onlyIfChanged: true });
+    expect(s.sendReload).toHaveBeenCalledTimes(2);
+  });
+});

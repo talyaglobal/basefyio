@@ -213,6 +213,10 @@ export class CapacitySamplerService {
       password,
       max: 1,
       connectionTimeoutMillis: 5000,
+      // PGBOUNCER_CLIENT_TLS_MODE=require refuses plaintext, the admin console included.
+      ...(this.config.get<string>('pgbouncer.clientTlsMode') === 'require'
+        ? { ssl: { rejectUnauthorized: false } }
+        : {}),
     });
     try {
       const client = await pool.connect();

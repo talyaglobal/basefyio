@@ -151,6 +151,17 @@ export default () => {
      * from reaching the next client of the same pool. Unset = no reset, as before.
      */
     serverResetQuery: process.env.PGBOUNCER_SERVER_RESET_QUERY || '',
+    /**
+     * client_tls_sslmode: 'allow' (default, plaintext still works) or 'require'
+     * (the public db.basefyio.com:6432 endpoint on Kubernetes refuses plaintext).
+     */
+    clientTlsMode: process.env.PGBOUNCER_CLIENT_TLS_MODE === 'require' ? 'require' : 'allow',
+    /**
+     * Seconds between config reconciliations. 0 (default) = only at boot, as
+     * before. With several API replicas, each with its own pooler (Kubernetes),
+     * a project created on one replica reaches the others on the next pass.
+     */
+    reconcileSeconds: parseInt(process.env.PGBOUNCER_RECONCILE_SECONDS || '0', 10) || 0,
   },
 
   /** What a freshly provisioned project database receives besides its owner role. */
