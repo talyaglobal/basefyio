@@ -82,7 +82,7 @@ const BASE_COMPARISONS: Comparison[] = [
       },
       {
         feature: "Realtime",
-        basefyio: "Roadmap",
+        basefyio: "Change events, presence and broadcast over one SSE stream",
         competitor: "Built-in",
       },
     ],
@@ -147,7 +147,7 @@ const BASE_COMPARISONS: Comparison[] = [
       },
       {
         feature: "Realtime",
-        basefyio: "Roadmap",
+        basefyio: "Change events, presence and broadcast over one SSE stream",
         competitor: "Core strength",
       },
     ],
@@ -219,7 +219,7 @@ const BASE_COMPARISONS: Comparison[] = [
     ],
     faqs: [
       {
-        question: "Is basefyio a Neon alternative?",
+        question: "How does basefyio compare to Neon?",
         answer:
           "They overlap more than they used to: Neon's documentation now lists managed auth, a data API and storage beside its database. The main differences are that basefyio is self-hostable and gives every project a dedicated database and authentication realm, while Neon is a managed service built around branching and scale-to-zero.",
       },
@@ -292,24 +292,28 @@ const BASE_COMPARISONS: Comparison[] = [
     description:
       "Compare basefyio and PocketBase: PocketBase is a single Go binary on SQLite; basefyio is a full backend with a dedicated database per project. Pick the right scale.",
     intro:
-      "PocketBase is a delightfully simple single-file backend on SQLite — auth, realtime, file storage, and an admin UI in one Go binary. basefyio is a database-backed platform with a dedicated database per project, aimed at multi-tenant, production-scale workloads.",
+      "PocketBase is a small open source backend on an embedded SQLite database, with auth, realtime and an admin dashboard in one executable. basefyio runs a dedicated database per project and is built for teams that want separate, isolated projects and a hosted or self-hosted platform.",
     positioning:
-      "PocketBase is hard to beat for a quick prototype or a small app you want to run from one binary. basefyio trades that single-file simplicity for production-grade scale and concurrency, per-project database isolation, and enterprise-grade auth — better suited as apps and teams grow.",
+      "PocketBase is a good fit for a quick prototype or a small app you want to run from one file; its own documentation notes that it is not yet recommended for production-critical applications. basefyio gives each project its own database and authentication realm, which suits several projects or teams that need isolation.",
     rows: [
       {
         feature: "Database",
         basefyio: "Dedicated database (per-project)",
-        competitor: "SQLite (single file)",
+        // CHECKED 2026-11-26: docs: embedded database (SQLite) with realtime subscriptions.
+        competitor: "SQLite (embedded)",
+        competitorSource: "https://pocketbase.io/docs/",
       },
       {
         feature: "Deployment",
         basefyio: "Docker Compose stack",
-        competitor: "Single Go binary",
+        competitor: "A single executable (Go)",
+        competitorSource: "https://pocketbase.io/docs/",
       },
       {
         feature: "Concurrency / scale",
-        basefyio: "High (production-grade)",
-        competitor: "Best for smaller workloads",
+        basefyio: "Dedicated database per project, with connection pooling",
+        competitor: "Its docs say it is not yet recommended for production-critical applications",
+        competitorSource: "https://pocketbase.io/docs/",
       },
       {
         feature: "Auth",
@@ -318,7 +322,7 @@ const BASE_COMPARISONS: Comparison[] = [
       },
       {
         feature: "Realtime",
-        basefyio: "Roadmap",
+        basefyio: "Change events, presence and broadcast over one SSE stream",
         competitor: "Built-in",
       },
       {
@@ -329,14 +333,14 @@ const BASE_COMPARISONS: Comparison[] = [
     ],
     faqs: [
       {
-        question: "Is basefyio a PocketBase alternative?",
+        question: "How does basefyio compare to PocketBase?",
         answer:
-          "Yes, for teams that outgrow SQLite. PocketBase is ideal for small apps and prototypes in a single binary; basefyio gives you a dedicated database, per-project isolation, and platform features for production multi-tenant apps.",
+          "PocketBase is a small open source backend on an embedded SQLite database, run from one executable. basefyio gives each project a dedicated database and authentication realm and can be self-hosted or used as a hosted service. PocketBase's own documentation says it is not yet recommended for production-critical applications.",
       },
       {
-        question: "When should I pick PocketBase over basefyio?",
+        question: "When is PocketBase the better choice?",
         answer:
-          "If you want the absolute simplest deployment (one file), a small dataset, and built-in realtime today, PocketBase is a great fit. Choose basefyio when you need production-grade scale, concurrency, and database-per-project isolation.",
+          "For a prototype or a small app you want to run from one file, with auth, realtime and an admin dashboard included. Choose basefyio when you need several isolated projects, a dedicated SQL database per project, or a platform with a dashboard and SQL editor.",
       },
     ],
   },
@@ -347,51 +351,58 @@ const BASE_COMPARISONS: Comparison[] = [
     description:
       "Compare basefyio and Nhost: both are open backends with auth and storage. Nhost is GraphQL-first via Hasura; basefyio offers an auto-generated REST API.",
     intro:
-      "basefyio and Nhost are both open backends with authentication and storage built on a relational database. The headline difference is the API style: Nhost is GraphQL-first (powered by Hasura), while basefyio exposes an auto-generated REST API.",
+      "basefyio and Nhost are both open backends with authentication and storage built on a relational database. The headline difference is the API style: Nhost is GraphQL-first, while basefyio exposes an auto-generated REST API.",
     positioning:
-      "If your team prefers GraphQL and Hasura's permission model, Nhost is a strong choice. If you prefer REST — simple HTTP, easy caching, no GraphQL client required — basefyio's auto-generated REST API maps cleanly onto your schema and row-level security.",
+      "If your team prefers GraphQL, Nhost is a strong choice. If you prefer REST, with simple HTTP and no GraphQL client, basefyio's auto-generated REST API maps onto your schema and row-level security.",
     rows: [
       {
         feature: "API style",
         basefyio: "REST (auto-generated)",
-        competitor: "GraphQL (Hasura)",
+        // CHECKED 2026-11-26: README names Hasura; its docs describe its own GraphQL engine too, so the engine is not claimed.
+        competitor: "GraphQL-first API",
+        competitorSource: "https://docs.nhost.io/products/graphql",
       },
       {
         feature: "Database",
         basefyio: "Dedicated database, per-project",
-        competitor: "Managed database",
+        competitor: "Dedicated database instance per project",
+        competitorSource: "https://docs.nhost.io/products/database",
       },
       {
         feature: "Authentication",
         basefyio: "Dedicated auth realm per project",
-        competitor: "Built-in auth",
+        competitor: "Built-in authentication service",
+        competitorSource: "https://docs.nhost.io/products/auth",
       },
       {
         feature: "Storage",
         basefyio: "S3-compatible",
-        competitor: "S3-compatible",
+        competitor: "S3-compatible file storage",
+        competitorSource: "https://docs.nhost.io/products/storage",
       },
       {
         feature: "Permissions",
         basefyio: "Row-level security",
-        competitor: "Hasura permission rules",
+        competitor: "Role-based permissions at row and column level",
+        competitorSource: "https://docs.nhost.io/products/graphql",
       },
       {
         feature: "Self-hosting",
         basefyio: "Docker Compose",
-        competitor: "Open source / cloud",
+        competitor: "Open source (MIT) and a hosted platform",
+        competitorSource: "https://github.com/nhost/nhost",
       },
     ],
     faqs: [
       {
-        question: "Is basefyio an Nhost alternative?",
+        question: "How does basefyio compare to Nhost?",
         answer:
-          "Yes. Both are open backends with auth and storage. The main choice is REST (basefyio) versus GraphQL via Hasura (Nhost).",
+          "Both are open backends with authentication and storage on a relational database. The main choice is the API style: Nhost is GraphQL-first, basefyio exposes an auto-generated REST API.",
       },
       {
         question: "Does basefyio support GraphQL?",
         answer:
-          "basefyio focuses on a REST API today. If GraphQL is a hard requirement, Nhost's Hasura-based approach may suit you better; if you prefer REST, basefyio is a natural fit.",
+          "basefyio focuses on a REST API. If GraphQL is a hard requirement, Nhost's GraphQL-first approach may suit you better; if you prefer REST, basefyio is a natural fit.",
       },
     ],
   },
@@ -414,17 +425,21 @@ const BASE_COMPARISONS: Comparison[] = [
       {
         feature: "Auto REST API",
         basefyio: "Yes, from your schema",
-        competitor: "No — you build the API",
+        // CHECKED 2026-11-26: docs list no data API or end-user auth product (its REST API manages Render infrastructure); stated by absence.
+        competitor: "No data API in its docs; you build it",
+        competitorSource: "https://render.com/docs",
       },
       {
         feature: "Authentication",
         basefyio: "Built in",
-        competitor: "You implement it",
+        competitor: "No end-user auth product in its docs; you implement it",
+        competitorSource: "https://render.com/docs",
       },
       {
         feature: "Storage",
         basefyio: "Built in (S3-compatible)",
-        competitor: "Disks / external object storage",
+        competitor: "Persistent disks; no object storage product listed in its docs",
+        competitorSource: "https://render.com/docs",
       },
       {
         feature: "Custom services",
@@ -439,14 +454,14 @@ const BASE_COMPARISONS: Comparison[] = [
     ],
     faqs: [
       {
-        question: "Is basefyio an alternative to Render?",
+        question: "How does basefyio relate to Render?",
         answer:
-          "They sit at different layers. Render hosts the code you write; basefyio is the backend so you write less of it. Many teams could run custom workers on a platform like Render and use basefyio for the data/auth/storage backend.",
+          "They sit at different layers. Render hosts the code you write, alongside managed databases; basefyio is the backend itself, so you write less of it. Many teams could run custom services on a platform like Render and use basefyio for the data, auth and storage backend.",
       },
       {
-        question: "Can I still run custom backend logic with basefyio?",
+        question: "Can I run custom services next to basefyio?",
         answer:
-          "Yes. basefyio handles the database, auth, storage, and REST API; you can run any custom services you need alongside it and call the basefyio API from them.",
+          "Yes. basefyio handles the database, auth, storage and REST API; you can run any custom services you need alongside it and call the basefyio API from them.",
       },
     ],
   },
@@ -459,17 +474,20 @@ const BASE_COMPARISONS: Comparison[] = [
     intro:
       "AWS Amplify bundles AWS building blocks — Cognito for auth, AppSync/DynamoDB or relational data, S3 for storage — behind a unified developer experience. basefyio delivers similar capabilities on a standard SQL database, self-hostable, without committing to one cloud.",
     positioning:
-      "If you're all-in on AWS, Amplify's integration is convenient. If you want to avoid lock-in — a standard SQL database you can export and move, the option to self-host, and no proprietary services to learn — basefyio is the portable alternative.",
+      "If you are all-in on AWS, Amplify's integration is convenient. If you want a standard SQL database you can export and move, and the option to self-host with no proprietary services to learn, basefyio is built for that.",
     rows: [
       {
         feature: "Database",
         basefyio: "Standard SQL database",
-        competitor: "DynamoDB or Aurora/RDS",
+        // CHECKED 2026-11-26: data is DynamoDB via AppSync; existing MySQL/Postgres databases can be connected.
+        competitor: "DynamoDB through AppSync; existing MySQL or Postgres databases can be connected",
+        competitorSource: "https://docs.amplify.aws/react/build-a-backend/data/set-up-data/",
       },
       {
         feature: "Authentication",
         basefyio: "Dedicated auth realm per project",
         competitor: "Amazon Cognito",
+        competitorSource: "https://docs.amplify.aws/react/build-a-backend/auth/set-up-auth/",
       },
       {
         feature: "API",
@@ -480,28 +498,30 @@ const BASE_COMPARISONS: Comparison[] = [
         feature: "Storage",
         basefyio: "S3-compatible object storage",
         competitor: "Amazon S3",
+        competitorSource: "https://docs.amplify.aws/react/build-a-backend/storage/set-up-storage/",
       },
       {
         feature: "Lock-in",
         basefyio: "Portable, no cloud lock-in",
-        competitor: "Tied to AWS services",
+        competitor: "Built on AWS services",
       },
       {
         feature: "Self-hosting",
         basefyio: "Docker Compose, any host",
-        competitor: "AWS only",
+        competitor: "Deploys to your own AWS account",
+        competitorSource: "https://docs.amplify.aws/",
       },
     ],
     faqs: [
       {
-        question: "Is basefyio an AWS Amplify alternative?",
+        question: "How does basefyio compare to AWS Amplify?",
         answer:
-          "Yes, especially if you want to avoid AWS lock-in. basefyio offers auth, storage, and an API on a standard SQL database that you can run anywhere, while Amplify is built around AWS-specific services.",
+          "Amplify bundles AWS services, such as Cognito for auth, AppSync and DynamoDB for data and S3 for storage, and deploys them to your AWS account. basefyio offers auth, storage and an API on a standard SQL database that you can run on your own infrastructure.",
       },
       {
-        question: "Can I move off basefyio more easily than off Amplify?",
+        question: "Can I move my data later?",
         answer:
-          "Because basefyio uses a standard SQL database, you can export everything and run it elsewhere. Amplify's reliance on services like Cognito and DynamoDB makes migration more involved.",
+          "basefyio uses a standard SQL database, so you can dump and restore your data elsewhere. Moving off AWS-specific services such as Cognito and DynamoDB depends on how your app uses them.",
       },
     ],
   },
@@ -512,14 +532,15 @@ const BASE_COMPARISONS: Comparison[] = [
     description:
       "Compare basefyio and Convex: Convex is a reactive, TypeScript-first backend with its own database; basefyio is a standard SQL backend with a REST API, auth, and storage.",
     intro:
-      "Convex is a reactive backend where you write TypeScript functions against its own database and get realtime updates for free. basefyio is built on a standard SQL database with an auto-generated REST API, authentication, and storage.",
+      "Convex is a reactive backend where you write TypeScript functions against its own database and get realtime updates built in. basefyio is built on a standard SQL database with an auto-generated REST API, authentication, storage and realtime change events.",
     positioning:
-      "Convex is compelling if you want a tightly integrated, realtime, TypeScript-native model and are comfortable with its proprietary database. basefyio is for teams who want standard SQL, full data portability, and the option to self-host — with REST rather than a function-based model.",
+      "Convex is compelling if you want a tightly integrated, realtime, TypeScript-native model. basefyio is for teams who want standard SQL, data they can dump and restore, and a self-hostable platform with REST rather than a function-based model.",
     rows: [
       {
         feature: "Database",
         basefyio: "Standard SQL database",
-        competitor: "Proprietary reactive database",
+        competitor: "Reactive database with TypeScript queries",
+        competitorSource: "https://docs.convex.dev/",
       },
       {
         feature: "Programming model",
@@ -528,35 +549,41 @@ const BASE_COMPARISONS: Comparison[] = [
       },
       {
         feature: "Realtime",
-        basefyio: "Roadmap",
-        competitor: "Built-in, reactive by default",
+        basefyio: "Change events, presence and broadcast over one SSE stream",
+        competitor: "Built in, reactive by default",
+        competitorSource: "https://docs.convex.dev/realtime",
       },
       {
         feature: "Authentication",
         basefyio: "Dedicated auth realm per project",
-        competitor: "Via integrations",
+        // CHECKED 2026-11-26: Convex Auth is built in; Clerk, WorkOS, Auth0 and custom OIDC are supported too.
+        competitor: "Convex Auth built in, plus third-party providers",
+        competitorSource: "https://docs.convex.dev/auth/overview",
       },
       {
         feature: "Portability",
         basefyio: "Standard SQL, fully portable",
-        competitor: "Convex-specific data model",
+        competitor: "Its own data model; data can be exported to a zip file",
+        competitorSource: "https://docs.convex.dev/database/import-export/export",
       },
       {
         feature: "Self-hosting",
         basefyio: "Docker Compose",
-        competitor: "Primarily managed",
+        // CHECKED 2026-11-26: docs: the open-source backend can be self-hosted; license is FSL Apache 2.0 (fair source).
+        competitor: "Cloud, or self-hosted under a fair-source license",
+        competitorSource: "https://docs.convex.dev/self-hosting",
       },
     ],
     faqs: [
       {
-        question: "Is basefyio a Convex alternative?",
+        question: "How does basefyio compare to Convex?",
         answer:
-          "Yes, for teams that prefer standard SQL and REST over a proprietary reactive database and a TypeScript-function model. Convex's strength is built-in realtime; basefyio's is SQL, portability, and self-hosting.",
+          "Convex is a reactive backend with its own database and TypeScript functions, and realtime built in. basefyio is built on a standard SQL database with a REST API, authentication, storage and realtime change events. Convex's backend can be self-hosted under a fair-source license; basefyio's server is AGPL-3.0-or-later.",
       },
       {
         question: "Does basefyio have realtime like Convex?",
         answer:
-          "Realtime reactivity is a core Convex feature. basefyio focuses today on database, REST API, auth, and storage, with realtime on the roadmap.",
+          "basefyio publishes change events for the tables and collections you enable, plus presence and broadcast, over one server-sent-events stream. Convex's reactive queries are a core part of its model and work differently, so compare them against your needs.",
       },
     ],
   },
@@ -574,7 +601,8 @@ const BASE_COMPARISONS: Comparison[] = [
       {
         feature: "API style",
         basefyio: "REST (auto-generated)",
-        competitor: "GraphQL",
+        competitor: "GraphQL (a REST-style JSON:API is in alpha in v3)",
+        competitorSource: "https://hasura.io/docs/3.0/json-api/overview/",
       },
       {
         feature: "Scope",
@@ -584,34 +612,39 @@ const BASE_COMPARISONS: Comparison[] = [
       {
         feature: "Authentication",
         basefyio: "Built in (dedicated auth realm)",
-        competitor: "Via external auth + JWT",
+        // CHECKED 2026-11-26: docs: Hasura is agnostic about authentication (JWT, webhook or no auth); it bundles no auth service.
+        competitor: "Bring your own auth (JWT or webhook)",
+        competitorSource: "https://hasura.io/docs/3.0/auth/overview/",
       },
       {
         feature: "Storage",
         basefyio: "Built in (S3-compatible)",
-        competitor: "Not included",
+        competitor: "No file storage product in its docs",
+        competitorSource: "https://hasura.io/docs/",
       },
       {
         feature: "Permissions",
         basefyio: "Row-level security",
-        competitor: "Hasura permission rules",
+        competitor: "Access-control rules (permissions)",
+        competitorSource: "https://hasura.io/docs/3.0/auth/overview/",
       },
       {
         feature: "Self-hosting",
         basefyio: "Docker Compose",
-        competitor: "Open source / cloud",
+        competitor: "Open-source engine (Apache-2.0) and a managed cloud",
+        competitorSource: "https://github.com/hasura/graphql-engine",
       },
     ],
     faqs: [
       {
-        question: "Is basefyio a Hasura alternative?",
+        question: "How does basefyio compare to Hasura?",
         answer:
-          "They overlap on exposing a database as an API but differ in style and scope. Hasura is GraphQL-focused and pairs with external auth; basefyio offers REST with auth and storage built in.",
+          "They overlap on exposing a database as an API but differ in style and scope. Hasura is GraphQL-focused and expects you to bring your own authentication; basefyio offers a REST API with authentication and storage built in.",
       },
       {
-        question: "Should I pick Hasura or basefyio?",
+        question: "When should I choose Hasura?",
         answer:
-          "Choose Hasura if GraphQL and its permission model are central to your stack. Choose basefyio if you want a REST API and a backend that already includes authentication and storage.",
+          "When GraphQL and its permission model are central to your stack, or you already have a database and an auth provider. Choose basefyio if you want a REST API and a backend that already includes authentication and storage.",
       },
     ],
   },
@@ -622,9 +655,9 @@ const BASE_COMPARISONS: Comparison[] = [
     description:
       "Compare basefyio and Directus: Directus wraps a SQL database with an admin app and APIs as a headless CMS/data platform; basefyio is an app backend with per-project database, auth, and REST.",
     intro:
-      "Directus is an open-source data platform and headless CMS that layers an admin app and REST/GraphQL APIs over an existing SQL database. basefyio is an application backend that provisions a dedicated database per project with authentication and a REST API.",
+      "Directus is a data platform and headless CMS that layers an admin app and REST/GraphQL APIs over an existing SQL database. basefyio is an application backend that provisions a dedicated database per project with authentication and a REST API.",
     positioning:
-      "Directus shines when you want a polished admin/content studio over a database, often for content and internal data management. basefyio is aimed at app backends: per-project database isolation, enterprise-grade auth, and a REST API for your application to build on.",
+      "Directus shines when you want a polished admin and content studio over a database, often for content and internal data management. basefyio is aimed at application backends: a dedicated database and authentication realm per project, and a REST API for your application to build on.",
     rows: [
       {
         feature: "Primary focus",
@@ -654,19 +687,21 @@ const BASE_COMPARISONS: Comparison[] = [
       {
         feature: "Self-hosting",
         basefyio: "Docker Compose",
-        competitor: "Open source (self-host)",
+        // CHECKED 2026-11-26: README: Monospace Sustainable Core License 1.0, source-available; self-host or cloud.
+        competitor: "Self-hosted or cloud; source-available license (MSCL)",
+        competitorSource: "https://github.com/directus/directus",
       },
     ],
     faqs: [
       {
-        question: "Is basefyio a Directus alternative?",
+        question: "How does basefyio compare to Directus?",
         answer:
-          "They overlap because both put an API over SQL, but their focus differs. Directus is a strong headless CMS / data studio; basefyio is an app backend with per-project database isolation, auth, and REST.",
+          "They overlap because both put an API over a SQL database, but their focus differs. Directus is a headless CMS and data studio that you can self-host or use in its cloud; basefyio is an application backend with a dedicated database and authentication realm per project and a REST API.",
       },
       {
-        question: "Which should I use for a content-heavy admin?",
+        question: "Which license does Directus use?",
         answer:
-          "Directus's admin/content studio is purpose-built for managing content. For an application backend with isolated databases and built-in auth, basefyio is the better fit.",
+          "Its repository describes the Monospace Sustainable Core License, a source-available license. Check the repository for the current terms. basefyio's server is AGPL-3.0-or-later and its SDK and CLI are MIT.",
       },
     ],
   },
@@ -714,14 +749,14 @@ const BASE_COMPARISONS: Comparison[] = [
     ],
     faqs: [
       {
-        question: "Is basefyio a Strapi alternative?",
+        question: "How does basefyio compare to Strapi?",
         answer:
-          "If you actually need a database backend rather than a CMS, yes. Strapi excels at content modeling and editorial workflows; basefyio gives you direct SQL access, auth, and a REST API.",
+          "Strapi is a headless CMS for modeling content and editorial workflows, with REST and GraphQL APIs. basefyio gives you a real database with direct SQL access, authentication and a REST API, rather than a CMS abstraction.",
       },
       {
-        question: "When is Strapi the better choice?",
+        question: "When should I choose Strapi?",
         answer:
-          "When your core need is content management — editors, drafts, and a media library — Strapi is purpose-built for that. For an application database with SQL and row-level security, choose basefyio.",
+          "When your core need is content management, such as editors, drafts and a media library. For an application database with SQL and row-level security, choose basefyio.",
       },
     ],
   },
@@ -732,51 +767,59 @@ const BASE_COMPARISONS: Comparison[] = [
     description:
       "Compare basefyio and Xata: Xata is a serverless data platform with branching and search; basefyio is a full backend with auth, storage, and a REST API.",
     intro:
-      "Xata is a serverless data platform known for developer-friendly tooling, branching, and built-in search. basefyio is a complete backend that adds authentication, storage, and a REST API around the database.",
+      "Xata is a branch-native Postgres platform with copy-on-write branches and anonymized clones. basefyio is a complete backend that adds authentication, storage and a REST API around the database, with preview branches of its own.",
     positioning:
-      "Xata is a strong choice if you want a serverless data layer with branching and search to plug into your own app code. basefyio is for teams who want the backend itself — auth, storage, and an API included — and the option to self-host the whole stack.",
+      "Xata is a strong choice if you want a branching database layer to plug into your own app code. basefyio is for teams who want the backend itself, with auth, storage and an API included, and the option to self-host the whole stack.",
     rows: [
       {
         feature: "What it is",
         basefyio: "Full backend (DB + auth + storage + API)",
-        competitor: "Serverless data platform",
+        // CHECKED 2026-11-26: docs describe a branch-native Postgres platform.
+        competitor: "Branch-native Postgres platform",
+        competitorSource: "https://xata.io/docs",
       },
       {
         feature: "Built-in auth",
         basefyio: "Yes (dedicated auth realm)",
-        competitor: "Not a core focus",
+        competitor: "No end-user auth product in its docs",
+        competitorSource: "https://xata.io/docs/llms.txt",
       },
       {
         feature: "Built-in storage",
         basefyio: "Yes (S3-compatible)",
-        competitor: "Not a core focus",
+        competitor: "No file storage product in its docs",
+        competitorSource: "https://xata.io/docs/llms.txt",
       },
       {
         feature: "Search",
-        basefyio: "Built-in full-text search",
-        competitor: "Built-in search engine",
+        basefyio: "Full-text search filters in the REST API",
+        // CHECKED 2026-11-26: no search-engine product in its docs; Postgres extensions for trigram and vector similarity search are listed.
+        competitor: "Postgres extensions for text and vector similarity search",
+        competitorSource: "https://xata.io/docs/platform/extensions.md",
       },
       {
         feature: "Branching",
-        basefyio: "Not built in",
+        basefyio: "Preview branches: disposable projects created from a project's schema, optionally its data",
         competitor: "Yes",
       },
       {
         feature: "Self-hosting",
         basefyio: "Docker Compose",
-        competitor: "Managed cloud service",
+        // CHECKED 2026-11-26: docs: cloud, your own cloud account or on-prem (BYOC); the control plane stays with Xata.
+        competitor: "Xata cloud, or in your own cloud or on-prem (BYOC)",
+        competitorSource: "https://xata.io/docs/core-concepts/deployment.md",
       },
     ],
     faqs: [
       {
-        question: "Is basefyio a Xata alternative?",
+        question: "How does basefyio compare to Xata?",
         answer:
-          "They overlap on the database layer but differ in scope. Xata is a serverless data platform with search and branching; basefyio is a full backend with auth, storage, and a REST API you can self-host.",
+          "Xata is a branch-native Postgres platform with copy-on-write branches. basefyio is a full backend with authentication, storage and a REST API around a dedicated database, and it can be self-hosted. Both offer branching: basefyio's preview branches are disposable projects created from a project's schema.",
       },
       {
-        question: "Does basefyio offer search like Xata?",
+        question: "Does basefyio have search?",
         answer:
-          "basefyio includes built-in full-text search. Xata ships a dedicated search engine as a core feature, which may suit search-heavy products better.",
+          "basefyio's REST API supports full-text search filters. Xata's documentation lists Postgres extensions for text and vector similarity search rather than a separate search engine.",
       },
     ],
   },
