@@ -490,7 +490,7 @@ export default async function Home() {
                 { href: "/docs/sdk", label: "SDK" },
                 { href: "/blog", label: "Blog" },
                 { href: "/compare", label: "Compare" },
-                { href: "/guides/best-backend-database-for-startups", label: "Startup backend guide" },
+                { href: "/guides", label: "Guides" },
                 { href: "/about", label: "About" },
                 { href: "/use-cases", label: "Use cases" },
                 { href: "/integrations", label: "Integrations" },

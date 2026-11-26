@@ -4,6 +4,7 @@ import { getAllPosts } from "@/lib/content/blog";
 import { COMPARISONS } from "@/lib/content/comparisons";
 import { USE_CASES } from "@/lib/content/use-cases";
 import { GLOSSARY } from "@/lib/content/glossary";
+import { GUIDES } from "@/lib/content/guides";
 import { INTEGRATIONS } from "@/lib/content/integrations";
 import { DOCS_NAV_ITEMS } from "@/app/docs/docs-nav-items";
 import {
@@ -33,6 +34,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${base}/blog`, changeFrequency: "daily", priority: 0.9 },
     { url: `${base}/compare`, lastModified: latestComparisonDate(), changeFrequency: "weekly", priority: 0.8 },
     { url: `${base}/guides/best-backend-database-for-startups`, lastModified: new Date(GUIDE_STARTUP_BACKEND_UPDATED), changeFrequency: "monthly", priority: 0.8 },
+    { url: `${base}/guides`, lastModified: new Date(GUIDES.map((g) => g.updated).sort().at(-1) as string), changeFrequency: "weekly", priority: 0.8 },
     { url: `${base}/about`, lastModified: new Date(ABOUT_UPDATED), changeFrequency: "monthly", priority: 0.6 },
     { url: `${base}/use-cases`, changeFrequency: "weekly", priority: 0.8 },
     { url: `${base}/learn`, changeFrequency: "weekly", priority: 0.8 },
@@ -67,6 +69,13 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.7,
   }));
 
+  const guides: MetadataRoute.Sitemap = GUIDES.map((g) => ({
+    url: `${base}/guides/${g.slug}`,
+    lastModified: new Date(g.updated),
+    changeFrequency: "monthly",
+    priority: 0.8,
+  }));
+
   const useCases: MetadataRoute.Sitemap = USE_CASES.map((u) => ({
     url: `${base}/use-cases/${u.slug}`,
     changeFrequency: "monthly",
@@ -90,6 +99,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     ...docs,
     ...posts,
     ...comparisons,
+    ...guides,
     ...useCases,
     ...glossary,
     ...integrations,

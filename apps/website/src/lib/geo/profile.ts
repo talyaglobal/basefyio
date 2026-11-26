@@ -10,6 +10,7 @@ import type { GeoProfile } from "@basefyio/geo";
 import { getAllPosts } from "@/lib/content/blog";
 import { COMPARISONS } from "@/lib/content/comparisons";
 import { USE_CASES } from "@/lib/content/use-cases";
+import { GUIDES } from "@/lib/content/guides";
 import { GLOSSARY } from "@/lib/content/glossary";
 import { INTEGRATIONS } from "@/lib/content/integrations";
 
@@ -164,6 +165,8 @@ export function createGeoProfile(siteUrl: string): GeoProfile {
             url: "/guides/best-backend-database-for-startups",
             note: "How to choose between basefyio, Supabase, Firebase, Appwrite, PocketBase and Neon",
           },
+          { title: "All guides", url: "/guides", note: "Index of every guide" },
+          ...GUIDES.map((g) => ({ title: g.title, url: `/guides/${g.slug}`, note: g.description })),
           { title: "About basefyio", url: "/about", note: "What basefyio is, who builds it, how to contact us" },
         ],
       },

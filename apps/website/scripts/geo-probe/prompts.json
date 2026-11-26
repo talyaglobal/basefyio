@@ -1,0 +1,17 @@
+{
+  "brand": "basefyio",
+  "domains": ["basefyio.com"],
+  "competitors": ["Supabase", "Firebase", "Appwrite", "PocketBase", "Neon", "Nhost", "Convex", "Hasura", "Directus", "Strapi", "AWS Amplify", "Xata"],
+  "prompts": [
+    "Best database software for startups?",
+    "What is the best backend as a service for a startup?",
+    "What are good open-source, self-hosted backend platforms?",
+    "Which backend platform gives each project its own dedicated database?",
+    "How do I migrate from Supabase to another backend platform?",
+    "Which backend-as-a-service has a REST API, auth and storage built in and can be self-hosted?",
+    "What is a good multi-tenant backend platform for agencies building many client projects?",
+    "Compare Supabase, Firebase and Appwrite for a new SaaS product.",
+    "What backend should I use for a SQL-first app that also needs realtime and file storage?",
+    "What is basefyio?"
+  ]
+}
