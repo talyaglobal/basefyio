@@ -287,8 +287,8 @@ const { data: up } = await bucket.createSignedUploadUrl('user-123/avatar.png', {
 // up.signedUrl to hand out, or upload with the token:
 await bucket.uploadToSignedUrl('user-123/avatar.png', up.token, file)
 
-// Download-route URL (a plain string). It carries no key, so a browser
-// cannot open it for a private object: use createSignedUrl() for that.
+// Download-route URL (a plain string). It carries the anon key as ?apikey=, so a
+// browser can open it for a public object; for a private one use createSignedUrl().
 const url = bucket.getPublicUrl('user-123/photo.jpg')
 
 // Delete

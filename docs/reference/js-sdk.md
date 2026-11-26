@@ -163,10 +163,10 @@ await avatars.abortUpload(sessionId);
 await avatars.createUploadSession('talks/keynote.mp4', bigFile.size, { contentType: 'video/mp4' }); // drive the chunks yourself
 ```
 
-`getPublicUrl(path)` without a transform returns the download route's URL **without a key**,
-so it only works where you can add the `apikey` header yourself; a browser `<img src>` cannot.
-With a `transform`, the URL carries the anon key as `?apikey=` and loads directly. For a
-private object you hand to a browser, use `createSignedUrl()`.
+`getPublicUrl(path)` returns a plain string. Both forms carry the anon key as `?apikey=`, so the URL
+loads directly in a browser `<img src>` or link: without a transform it is the download route, with a
+`transform` the render route. It works for objects the bucket's access rule lets the public key read;
+for a private object you hand to a browser, use `createSignedUrl()`.
 
 Bucket administration (service key): `bf.storage.listBuckets()`, `createBucket(name,
 { public? })`, `updateBucket(name, { public })`, `deleteBucket(name)`; access rules:

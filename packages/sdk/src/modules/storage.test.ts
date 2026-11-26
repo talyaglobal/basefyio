@@ -64,9 +64,9 @@ function bucket(http: never) {
 describe('getPublicUrl', () => {
   const { http } = fakeHttp(() => undefined);
 
-  it('without a transform is the plain download URL, unchanged', () => {
+  it('without a transform is the download URL carrying the public key', () => {
     expect(bucket(http).getPublicUrl('folder/a b.png')).toBe(
-      'https://api.example.com/api/projects/project-1/storage/buckets/avatars/objects/download?path=folder%2Fa%20b.png',
+      'https://api.example.com/api/projects/project-1/storage/buckets/avatars/objects/download?path=folder%2Fa%20b.png&apikey=anon%20key',
     );
   });
 

@@ -396,7 +396,9 @@ export class StorageBucketApi {
     const objects = `${this.http.getBaseUrl()}/projects/${this.projectId}/storage/buckets/${encodeURIComponent(this.bucket)}/objects`;
     const transform = options?.transform;
     if (!transform) {
-      return `${objects}/download?path=${encodeURIComponent(path)}`;
+      // Same as the render URL below: a browser follows this through <img src> or a link and
+      // cannot send headers, so the public key travels in the query string.
+      return `${objects}/download?path=${encodeURIComponent(path)}&apikey=${encodeURIComponent(this.http.getApiKey())}`;
     }
     // A browser loads this through <img src>, which cannot send headers, so the
     // public key travels in the query string (the API accepts only the anon key there).

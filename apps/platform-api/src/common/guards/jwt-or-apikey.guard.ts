@@ -29,7 +29,9 @@ export class JwtOrApiKeyGuard implements CanActivate {
       }
     }
 
-    if (request.headers['apikey']) {
+    // The anon key may also arrive in the query string (an <img src> or a download link cannot set
+    // headers); ApiKeyGuard accepts only the anon key there and refuses the service key.
+    if (request.headers['apikey'] || typeof request.query?.apikey === 'string') {
       try {
         return await this.apiKeyGuard.canActivate(context);
       } catch (err) {
