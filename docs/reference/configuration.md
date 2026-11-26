@@ -210,6 +210,8 @@ Customer connections go through PgBouncer; the API writes its `pgbouncer.ini` an
 | `PGBOUNCER_EXTERNAL_HOST` | `localhost` | yes / derived `db.${DOMAIN}` | Host printed in a project's pooled connection string. |
 | `PGBOUNCER_EXTERNAL_PORT` | `6432` | derived from `PGBOUNCER_PORT` / fixed `6432` | Port printed in it. |
 | `PGBOUNCER_CONFIG_DIR` | `/etc/pgbouncer` | fixed / fixed | Directory (a volume shared with the pooler) the API writes the configuration into. |
+| `PGBOUNCER_CLIENT_TLS_MODE` | `allow` | optional / optional | `require` makes the pooler refuse unencrypted client connections (the API's own admin-console connections then use TLS too). Anything else keeps `allow`. |
+| `PGBOUNCER_RECONCILE_SECONDS` | `0` (off) | optional / optional | With more than one API replica, each with its own pooler: every N seconds (minimum 15) a replica rebuilds the pooler configuration from the database and reloads it only when it changed. |
 | `PGBOUNCER_ADMIN_PASSWORD` | random per process, with a warning | no / yes | Pooler admin credential. Set it so the value survives a restart; required before running more than one API replica. |
 | `PGBOUNCER_MAX_CLIENT_CONN` | `1000` | no / no | `max_client_conn` in the generated ini. |
 | `PGBOUNCER_DEFAULT_POOL_SIZE` | `20` | no / no | `default_pool_size`. |
