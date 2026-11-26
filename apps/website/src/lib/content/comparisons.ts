@@ -176,34 +176,40 @@ const BASE_COMPARISONS: Comparison[] = [
     description:
       "Compare basefyio and Neon: Neon is a serverless database with branching; basefyio is a full backend with auth, storage, and an auto REST API.",
     intro:
-      "Both provide a database, but they solve different layers. Neon is a serverless database with branching and scale-to-zero. basefyio is a complete backend — database plus authentication, storage, and an auto-generated REST API.",
+      "Both provide a SQL database. Neon began as a serverless database with branching and scale-to-zero, and its documentation now lists more backend services beside it. basefyio is a complete backend from the start: a database, authentication, storage and an auto-generated REST API for every project.",
     positioning:
-      "If you only need a managed, serverless database to plug into your own backend, Neon is excellent. If you want the database and the backend around it — auth, storage, and an instant API — without wiring those yourself, that's what basefyio provides. They can even be complementary: Neon for the DB, your own services on top, vs. basefyio giving you the whole stack.",
+      "If you mainly want a managed, serverless database with branching, Neon is a strong choice. If you want a self-hostable backend where each project gets its own database, authentication realm and API, that is what basefyio provides.",
     rows: [
       {
         feature: "What it is",
         basefyio: "Full backend (DB + auth + storage + API)",
         competitor: "Serverless database",
       },
+      // CHECKED 2026-11-26: Neon's docs index now lists managed auth, a Data API, realtime, functions and object storage next to the database.
       {
         feature: "Auto REST API",
         basefyio: "Yes, auto-generated",
-        competitor: "No — bring your own API layer",
+        competitor: "A Data API is listed in its documentation",
+        competitorSource: "https://neon.com/docs",
       },
       {
         feature: "Authentication",
         basefyio: "Built in (dedicated realm per project)",
-        competitor: "Not included",
+        competitor: "Managed authentication, listed in its documentation",
+        competitorSource: "https://neon.com/docs",
       },
       {
         feature: "Storage",
         basefyio: "Built in (S3-compatible)",
-        competitor: "Not included",
+        competitor: "Object storage, listed in its documentation",
+        competitorSource: "https://neon.com/docs",
       },
       {
         feature: "Database branching",
-        basefyio: "Not built in",
-        competitor: "Yes, a core strength",
+        basefyio: "Preview branches: disposable projects created from a project's schema, optionally its data",
+        // VERIFY: Neon's branching wording; its docs say its auth "branches with your database".
+        competitor: "Yes, a core feature",
+        competitorSource: "https://neon.com/docs",
       },
       {
         feature: "Self-hosting",
@@ -215,12 +221,12 @@ const BASE_COMPARISONS: Comparison[] = [
       {
         question: "Is basefyio a Neon alternative?",
         answer:
-          "They overlap on the database layer but differ in scope. Neon is a serverless database; basefyio is a full backend. Choose basefyio if you want auth, storage, and an API included; choose Neon if you only need the database and branching.",
+          "They overlap more than they used to: Neon's documentation now lists managed auth, a data API and storage beside its database. The main differences are that basefyio is self-hostable and gives every project a dedicated database and authentication realm, while Neon is a managed service built around branching and scale-to-zero.",
       },
       {
         question: "Does basefyio support database branching like Neon?",
         answer:
-          "Branching is a Neon specialty and not a built-in basefyio feature today. basefyio focuses on giving you a complete, self-hostable backend around a standard SQL database.",
+          "basefyio has preview branches: disposable projects created from a project's schema, optionally with its data, so you can try a migration without touching the original. Neon's branching is a core part of its platform, so compare the details on both documentation pages.",
       },
     ],
   },

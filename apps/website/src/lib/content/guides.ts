@@ -75,12 +75,12 @@ export const GUIDES: Guide[] = [
       {
         heading: "Other options",
         bullets: [
-          // VERIFY: Supabase documents Docker-based self-hosting.
+          // CHECKED 2026-11-26: Supabase's self-hosting guide calls Docker the recommended way.
           "Supabase documents a Docker-based self-hosting setup and is the most established of the group.",
-          // VERIFY: Appwrite documents Docker-based self-hosting and has broad client SDK coverage.
+          // CHECKED 2026-11-26: Appwrite runs on any OS that can run Docker and lists many client and server SDKs.
           "Appwrite is open source with Docker-based self-hosting and official SDKs for many client platforms.",
-          // VERIFY: PocketBase is a single-binary backend that suits small projects on one server.
-          "PocketBase is a single-binary backend that suits small projects on one server.",
+          // CHECKED 2026-11-26: PocketBase docs: open source backend with an embedded SQLite database, realtime, auth and a dashboard; the page says it is not yet recommended for production-critical applications.
+          "PocketBase is an open source backend with an embedded SQLite database that suits small projects; its own documentation says it is not yet recommended for production-critical applications.",
         ],
       },
     ],

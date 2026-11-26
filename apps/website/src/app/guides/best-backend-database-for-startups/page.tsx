@@ -57,9 +57,9 @@ const OPTIONS: {
     name: "Supabase",
     url: "https://supabase.com/docs",
     bestFor: "Teams that want the most established SQL-based platform",
-    // VERIFY: Postgres-based, with auth, storage, realtime and edge functions.
+    // CHECKED 2026-11-26: Supabase docs: full Postgres database per project, auth, storage, realtime, edge functions.
     data: "Postgres database per project",
-    // VERIFY: Docker-based self-hosting is documented.
+    // CHECKED 2026-11-26: Docker is the recommended self-hosting way.
     selfHost: "Yes, via Docker",
     batteries: "Auth, storage, realtime, edge functions",
   },
@@ -67,18 +67,17 @@ const OPTIONS: {
     name: "Firebase",
     url: "https://firebase.google.com/docs",
     bestFor: "Mobile-first apps with document-shaped data",
-    // VERIFY: Firestore / Realtime Database are document stores.
-    data: "Document databases (Firestore, Realtime Database)",
-    // VERIFY: no production self-hosting.
-    selfHost: "No, Google-managed",
+    // CHECKED 2026-11-26: Firestore is a NoSQL database; the emulators must not be used as self-hosted versions.
+    data: "NoSQL databases (Firestore, Realtime Database)",
+    selfHost: "No, Google-managed; emulators are for local development",
     batteries: "Auth, storage, functions, hosting, mobile SDKs",
   },
   {
     name: "Appwrite",
     url: "https://appwrite.io/docs",
     bestFor: "Multi-platform apps that want many client SDKs",
-    data: "Collections accessed through its API and SDKs",
-    // VERIFY: Docker-based self-hosting is documented.
+    // CHECKED 2026-11-26: managed databases behind the Appwrite API; native SQL engines on dedicated infrastructure.
+    data: "Managed databases behind its API and SDKs; native SQL engines on dedicated infrastructure",
     selfHost: "Yes, via Docker",
     batteries: "Auth, storage, functions, realtime, messaging",
   },
@@ -86,19 +85,19 @@ const OPTIONS: {
     name: "PocketBase",
     url: "https://pocketbase.io/docs/",
     bestFor: "Small projects and prototypes on one server",
-    // VERIFY: SQLite-based single Go binary.
-    data: "SQLite, single binary",
+    // CHECKED 2026-11-26: embedded SQLite; its docs say it is not yet recommended for production-critical applications.
+    data: "Embedded SQLite",
     selfHost: "Yes, that is the model",
     batteries: "Auth, files, realtime, admin UI",
   },
   {
     name: "Neon",
     url: "https://neon.com/docs",
-    bestFor: "Teams that only need a serverless Postgres database",
-    // VERIFY: Neon is serverless Postgres; confirm whether it now bundles auth.
-    data: "Serverless Postgres",
+    bestFor: "Teams that want a managed, serverless database with branching",
+    // CHECKED 2026-11-26: Neon docs index lists Postgres, managed auth, a Data API, realtime, functions and object storage.
+    data: "Managed Postgres with branching",
     selfHost: "Managed service",
-    batteries: "Database focused; bring your own auth and API",
+    batteries: "Database plus managed auth, Data API, realtime, functions and object storage (per its docs)",
   },
 ];
 

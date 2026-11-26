@@ -6,8 +6,8 @@ import type { Comparison } from "./comparisons";
  * Rules for this file:
  *  - basefyio claims must be backed by the repo (README, docs, product code).
  *  - Competitor claims link to the competitor's own documentation or pricing page.
- *    Anything not re-checked against that page carries a `VERIFY:` comment and is
- *    listed in the hand-over report; do not remove the comment until it is checked.
+ *    Claims were checked against those official pages on 2026-11-26 (`CHECKED:` comments);
+ *    anything still unconfirmed carries a `VERIFY:` comment.
  *  - No prices or limits for competitors: the cell points at their pricing page.
  *  - Public copy does not name basefyio's database engine (owner decision, v3.5.7):
  *    it says "SQL database".
@@ -33,71 +33,71 @@ export const FEATURED_COMPARISONS: Record<string, Comparison> = {
       {
         feature: "Database",
         basefyio: "Dedicated SQL database per project, with a SQL editor and direct connection details",
-        // VERIFY: Supabase gives each project its own dedicated Postgres database (not a shared schema).
+        // CHECKED 2026-11-26: database overview: "Every Supabase project gets a full Postgres database".
         competitor: "Dedicated Postgres database per project",
         competitorSource: "https://supabase.com/docs/guides/database/overview",
       },
       {
         feature: "Auto-generated REST API",
         basefyio: "Yes, an auto-generated data API over your tables",
-        // VERIFY: Supabase serves its data API through PostgREST.
+        // CHECKED 2026-11-26: API guide: RESTful API using PostgREST.
         competitor: "Yes, PostgREST-based data API",
         competitorSource: "https://supabase.com/docs/guides/api",
       },
       {
         feature: "Authentication",
         basefyio: "Isolated auth realm per project: email/password and OAuth providers, JWT-secured API",
-        // VERIFY: Supabase Auth providers list (email, OAuth, magic link, phone, SSO) and that it issues JWTs.
+        // CHECKED 2026-11-26: auth guide: password, magic link, OTP, social sign-in, SSO; JWT-based.
         competitor: "Supabase Auth: email, OAuth and more, JWT-based",
         competitorSource: "https://supabase.com/docs/guides/auth",
       },
       {
         feature: "File storage",
         basefyio: "S3-compatible per-project object storage",
-        // VERIFY: Supabase Storage exposes an S3-compatible API.
+        // CHECKED 2026-11-26: storage guide: "S3 compatible Storage".
         competitor: "Supabase Storage, with an S3-compatible API",
         competitorSource: "https://supabase.com/docs/guides/storage",
       },
       {
         feature: "Realtime",
         basefyio: "Change events for enabled tables and collections, presence and broadcast over one SSE stream",
-        // VERIFY: Supabase Realtime features (database changes, broadcast, presence).
+        // CHECKED 2026-11-26: realtime guide: Postgres Changes, Broadcast, Presence.
         competitor: "Realtime: database changes, broadcast and presence",
         competitorSource: "https://supabase.com/docs/guides/realtime",
       },
       {
         feature: "Serverless functions",
         basefyio: "No general-purpose function runtime documented; automation flows run trigger-and-action workflows on a job queue",
-        // VERIFY: Supabase Edge Functions (Deno-based) still the current serverless offering.
+        // CHECKED 2026-11-26: functions guide: serverless TypeScript functions on a Deno-compatible runtime.
         competitor: "Edge Functions",
         competitorSource: "https://supabase.com/docs/guides/functions",
       },
       {
         feature: "AI and vector search",
         basefyio: "Embeddings, semantic search and RAG queries",
-        // VERIFY: Supabase vector/AI toolkit based on pgvector.
+        // CHECKED 2026-11-26: AI guide: toolkit using Postgres and pgvector.
         competitor: "Vector search with pgvector and an AI toolkit",
         competitorSource: "https://supabase.com/docs/guides/ai",
       },
       {
         feature: "Self-hosting",
         basefyio: "Designed for it: Docker Compose files for the whole stack",
-        // VERIFY: Supabase documents Docker-based self-hosting.
+        // CHECKED 2026-11-26: self-hosting guide: Docker is the recommended way.
         competitor: "Supported via Docker",
         competitorSource: "https://supabase.com/docs/guides/self-hosting",
       },
       {
         feature: "License",
         basefyio: "Server and dashboard AGPL-3.0-or-later; SDK and CLI MIT",
-        // VERIFY: Supabase's main repositories are Apache-2.0 (check each component).
-        competitor: "Mostly permissive open source (check each component)",
+        // CHECKED 2026-11-26: the main repository shows the Apache-2.0 license (components can differ).
+        competitor: "Main repository under Apache-2.0",
         competitorSource: "https://github.com/supabase/supabase",
       },
       {
         feature: "Maturity",
         basefyio: "Beta",
-        // VERIFY: wording on Supabase's maturity/community size; keep it neutral or drop it.
-        competitor: "Established hosted platform with a large community",
+        // Not a documented fact, kept neutral; replace with a sourced statement if you have one.
+        competitor: "Established hosted platform",
         competitorSource: "https://supabase.com/docs",
       },
       {
@@ -171,21 +171,21 @@ export const FEATURED_COMPARISONS: Record<string, Comparison> = {
       {
         feature: "Data model",
         basefyio: "Relational SQL tables, plus optional schema-flexible document collections",
-        // VERIFY: Firestore and Realtime Database are document/JSON stores; Firebase Data Connect adds a SQL option backed by Cloud SQL.
-        competitor: "Document databases (Cloud Firestore, Realtime Database); Data Connect adds a SQL option",
+        // CHECKED 2026-11-26: Firestore is "a cloud-hosted, NoSQL database"; the SQL option is documented as Firebase SQL Connect (backed by Cloud SQL).
+        competitor: "NoSQL databases (Cloud Firestore, Realtime Database); Firebase SQL Connect adds a relational option",
         competitorSource: "https://firebase.google.com/docs/firestore",
       },
       {
         feature: "Querying",
         basefyio: "Full SQL through the SQL editor and a direct connection, plus a REST query syntax",
-        // VERIFY: Firestore query limitations (joins, aggregation) as they stand today.
-        competitor: "Firestore query API with indexes; no SQL joins",
+        // CHECKED 2026-11-26: the queries page documents query limits (for example, not-in cannot be combined with in); "no joins" was not found, so it is not claimed.
+        competitor: "Firestore query API with documented query limits",
         competitorSource: "https://firebase.google.com/docs/firestore/query-data/queries",
       },
       {
         feature: "Authentication",
         basefyio: "Isolated auth realm per project: email/password and OAuth providers",
-        // VERIFY: Firebase Authentication providers (email, phone, federated identity).
+        // CHECKED 2026-11-26: auth page: passwords, phone numbers, federated identity providers.
         competitor: "Firebase Authentication: email, phone and federated providers",
         competitorSource: "https://firebase.google.com/docs/auth",
       },
@@ -198,9 +198,9 @@ export const FEATURED_COMPARISONS: Record<string, Comparison> = {
       {
         feature: "Realtime",
         basefyio: "Change events, presence and broadcast over one SSE stream",
-        // VERIFY: realtime listeners and offline persistence are core Firestore SDK features.
-        competitor: "Realtime listeners with offline persistence in the client SDKs",
-        competitorSource: "https://firebase.google.com/docs/firestore/query-data/listen",
+        // CHECKED 2026-11-26: the listen page documents onSnapshot listeners; the Firestore overview says the client caches data so the app works offline.
+        competitor: "Realtime listeners, and offline use through client-side caching",
+        competitorSource: "https://firebase.google.com/docs/firestore",
       },
       {
         feature: "Serverless functions",
@@ -211,27 +211,28 @@ export const FEATURED_COMPARISONS: Record<string, Comparison> = {
       {
         feature: "Client SDKs",
         basefyio: "basefyio-js (JavaScript/TypeScript), a Python SDK and the basefyio CLI",
-        // VERIFY: Firebase client SDK platform list (iOS, Android, web, Flutter, Unity, C++).
-        competitor: "SDKs for iOS, Android, web, Flutter and more",
+        // CHECKED 2026-11-26: build index lists Apple platforms, Android, Web, Flutter, C++ and Unity.
+        competitor: "SDKs for Apple platforms, Android, web, Flutter, Unity and C++",
         competitorSource: "https://firebase.google.com/docs/build",
       },
       {
         feature: "Self-hosting",
         basefyio: "Yes: Docker Compose files for the whole stack",
-        // VERIFY: Firebase has no self-hosted production option; the Emulator Suite is for local development.
-        competitor: "Google-managed service; the Emulator Suite is for local development",
+        // CHECKED 2026-11-26: emulator page: "Do not attempt to use these emulators as self-hosted versions of Firebase services".
+        competitor: "Google-managed service; the emulators are for local development, not self-hosting",
         competitorSource: "https://firebase.google.com/docs/emulator-suite",
       },
       {
         feature: "Portability",
         basefyio: "Standard SQL data you can dump and restore",
-        // VERIFY: Firebase data is exportable but uses Google-specific data models and APIs.
-        competitor: "Data is exportable, but built on Google-specific APIs",
+        // CHECKED 2026-11-26: managed export and import exists; the page says it requires the Blaze plan.
+        competitor: "Managed export and import is available (pay-as-you-go plan)",
         competitorSource: "https://firebase.google.com/docs/firestore/manage-data/export-import",
       },
       {
         feature: "Pricing",
         basefyio: "Free plan plus paid plans; see pricing and limits",
+        // CHECKED 2026-11-26: plans are named No-cost (Spark) and Pay as you go (Blaze).
         competitor: "No-cost and pay-as-you-go plans; see their pricing page",
         competitorSource: "https://firebase.google.com/pricing",
       },
@@ -285,31 +286,31 @@ export const FEATURED_COMPARISONS: Record<string, Comparison> = {
       "basefyio vs. Appwrite compared on database access, auth, storage, functions, SDKs, self-hosting and licensing, with sources and when to pick each one.",
     lastUpdated: UPDATED,
     quickAnswer:
-      "Appwrite and basefyio are both open-source backends you can self-host with Docker. Appwrite offers broader client SDKs and built-in functions and messaging; basefyio gives each project a dedicated SQL database you can query directly, with a per-project auth realm and built-in AI search. Choose Appwrite for multi-platform app development and basefyio when SQL access matters most.",
+      "Appwrite and basefyio are both open-source backends you can self-host with Docker. Appwrite offers broader client SDKs and built-in functions and messaging; basefyio gives each project a dedicated SQL database you can query directly, with a per-project auth realm and built-in AI search. Appwrite's databases sit behind its own API, with native SQL engines available on dedicated infrastructure. Choose Appwrite for multi-platform app development and basefyio when direct SQL access to every project's database matters most.",
     intro:
       "Appwrite and basefyio are both self-hostable backend platforms with a database, authentication, storage and an API. They differ most in how you reach your data and in the surrounding tooling.",
     positioning:
-      "basefyio exposes a real SQL database per project: a SQL editor, direct connection details and a read-only role for BI tools. Appwrite exposes its database through its own collections API and SDKs, and adds functions, messaging and many client SDKs.",
+      "basefyio exposes a real SQL database per project: a SQL editor, direct connection details and a read-only role for BI tools. Appwrite's managed databases sit behind its own API and SDKs (native SQL engines with direct connections are offered on dedicated infrastructure), and it adds functions, messaging and many client SDKs.",
     rows: [
       {
         feature: "Database access",
         basefyio: "Dedicated SQL database per project, queryable with SQL and standard connection details",
-        // VERIFY: Appwrite Databases are accessed through its API/SDKs (tables/collections), not a raw SQL connection.
-        competitor: "Databases accessed through the Appwrite API and SDKs",
+        // CHECKED 2026-11-26: the databases page lists managed databases with an Appwrite API on top, and native engines with direct connections on dedicated infrastructure.
+        competitor: "Managed databases through the Appwrite API and SDKs; native SQL engines with direct connections on dedicated infrastructure",
         competitorSource: "https://appwrite.io/docs/products/databases",
       },
       {
         feature: "Auto-generated REST API",
         basefyio: "Yes, an auto-generated data API over your tables",
-        // VERIFY: Appwrite exposes REST (and GraphQL) endpoints for its services.
+        // CHECKED 2026-11-26: REST, GraphQL and Realtime protocols are documented.
         competitor: "REST endpoints for each service, plus SDKs",
         competitorSource: "https://appwrite.io/docs/apis/rest",
       },
       {
         feature: "Authentication",
         basefyio: "Isolated auth realm per project: email/password and OAuth providers",
-        // VERIFY: Appwrite Auth methods (email, OAuth, phone, magic URL, anonymous...).
-        competitor: "Appwrite Auth: many sign-in methods, teams and roles",
+        // CHECKED 2026-11-26: email and password, phone, magic URL, email OTP, OAuth 2 (30+ providers), anonymous, passkeys, LDAP, MFA.
+        competitor: "Appwrite Auth: many sign-in methods, including OAuth, phone, passkeys and MFA",
         competitorSource: "https://appwrite.io/docs/products/auth",
       },
       {
@@ -321,8 +322,8 @@ export const FEATURED_COMPARISONS: Record<string, Comparison> = {
       {
         feature: "Serverless functions",
         basefyio: "Automation flows (trigger-and-action workflows); no general-purpose function runtime documented",
-        // VERIFY: Appwrite Functions supports many runtimes.
-        competitor: "Appwrite Functions",
+        // CHECKED 2026-11-26: "an extensive list of runtimes"; not all are available on Appwrite Cloud yet.
+        competitor: "Appwrite Functions, with many runtimes",
         competitorSource: "https://appwrite.io/docs/products/functions",
       },
       {
@@ -334,27 +335,28 @@ export const FEATURED_COMPARISONS: Record<string, Comparison> = {
       {
         feature: "Client SDKs",
         basefyio: "basefyio-js (JavaScript/TypeScript), a Python SDK and the basefyio CLI",
-        // VERIFY: Appwrite's client and server SDK platform list.
+        // CHECKED 2026-11-26: client SDKs for Web, Flutter, React Native, Apple, Android, Unity; server SDKs for Node.js, Python, Go and more.
         competitor: "SDKs for web, mobile and many server languages",
         competitorSource: "https://appwrite.io/docs/sdks",
       },
       {
         feature: "Self-hosting",
         basefyio: "Docker Compose files for the whole stack",
-        // VERIFY: Appwrite documents Docker-based self-hosting.
+        // CHECKED 2026-11-26: self-hosting page: run on any OS that can run Docker.
         competitor: "Docker-based self-hosting",
         competitorSource: "https://appwrite.io/docs/advanced/self-hosting",
       },
       {
         feature: "License",
         basefyio: "Server and dashboard AGPL-3.0-or-later; SDK and CLI MIT",
-        // VERIFY: Appwrite's server license (BSD-3-Clause at the time of writing).
-        competitor: "Open source; see the repository for the license",
+        // CHECKED 2026-11-26: the LICENSE file is a permissive BSD-style license (it does not name itself).
+        competitor: "Open source under a permissive BSD-style license",
         competitorSource: "https://github.com/appwrite/appwrite",
       },
       {
         feature: "Pricing",
         basefyio: "Free plan plus paid plans; see pricing and limits",
+        // CHECKED 2026-11-26: the pricing page names Free and Pro plans.
         competitor: "Free and paid cloud plans; see their pricing page",
         competitorSource: "https://appwrite.io/pricing",
       },
@@ -362,7 +364,7 @@ export const FEATURED_COMPARISONS: Record<string, Comparison> = {
     whenCompetitor: [
       "You build apps for several client platforms and want broad official SDK coverage.",
       "You want functions, messaging and hosting from the same platform.",
-      "You are happy accessing data through the platform API rather than raw SQL.",
+      "You are happy accessing data through the platform API and SDKs rather than a SQL connection.",
     ],
     whenBasefyio: [
       "You want a real SQL database per project that your existing SQL tools can connect to.",
@@ -384,7 +386,7 @@ export const FEATURED_COMPARISONS: Record<string, Comparison> = {
       {
         question: "How is database access different?",
         answer:
-          "basefyio gives each project a dedicated SQL database with a SQL editor, direct connection details and an optional read-only role. Appwrite exposes its database through its own API and SDKs.",
+          "basefyio gives each project a dedicated SQL database with a SQL editor, direct connection details and an optional read-only role. Appwrite's managed databases are reached through its own API and SDKs; its documentation also lists native SQL engines with direct connections on dedicated infrastructure.",
       },
       {
         question: "Does basefyio have as many SDKs as Appwrite?",
