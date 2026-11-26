@@ -2013,7 +2013,11 @@ export const api = {
         `/projects/${projectId}/auth/providers`,
       );
     },
-    saveProvider(projectId: string, provider: string, data: { clientId: string; clientSecret?: string; enabled: boolean }) {
+    saveProvider(
+      projectId: string,
+      provider: string,
+      data: { clientId: string; clientSecret?: string; enabled: boolean; trustEmail?: boolean },
+    ) {
       return request<ProjectAuthConfig>(`/projects/${projectId}/auth/providers/${provider}`, {
         method: 'PUT',
         body: JSON.stringify(data),

@@ -2799,6 +2799,8 @@ export class KeycloakAdminService implements OnModuleInit {
       providerId: p.providerId,
       enabled: p.enabled,
       trustEmail: p.trustEmail === true,
+      // What the project chose in the panel; 'default' = trust (the heal turns it on).
+      trustEmailChoice: p.config?.[TRUST_EMAIL_CHOICE_KEY] === 'false' ? 'off' : 'default',
     }));
   }
 

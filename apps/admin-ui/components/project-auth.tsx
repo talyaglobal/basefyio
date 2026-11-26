@@ -1163,11 +1163,18 @@ function ProvidersTab({
   onSaved: (c: ProjectAuthConfig) => void;
 }) {
   const [callbackUrls, setCallbackUrls] = useState<Record<string, string>>({});
+  // alias → whether the identity provider trusts the address it hands over.
+  const [trustEmail, setTrustEmail] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     api.projects.getProviders(projectId).then((data) => {
       setCallbackUrls(data.callbackUrls);
+      const trust: Record<string, boolean> = {};
+      for (const p of data.providers || []) {
+        if (p && typeof p.alias === 'string') trust[p.alias] = p.trustEmailChoice !== 'off';
+      }
+      setTrustEmail(trust);
       setLoading(false);
     }).catch(() => setLoading(false));
   }, [projectId]);
@@ -1200,6 +1207,7 @@ function ProvidersTab({
           clientId={String((config as any)[`${p.id}ClientId`] || '')}
           hasSecret={Boolean((config as any)[`${p.id}ClientSecret`])}
           callbackUrl={callbackUrls[p.id] || ''}
+          trustEmail={trustEmail[p.id] ?? true}
           onSaved={onSaved}
         />
       ))}
@@ -1327,6 +1335,7 @@ function ProviderCard({
   clientId: initialClientId,
   hasSecret,
   callbackUrl,
+  trustEmail: initialTrustEmail,
   onSaved,
 }: {
   projectId: string;
@@ -1337,9 +1346,11 @@ function ProviderCard({
   clientId: string;
   hasSecret: boolean;
   callbackUrl: string;
+  trustEmail: boolean;
   onSaved: (c: ProjectAuthConfig) => void;
 }) {
   const [isEnabled, setIsEnabled] = useState(enabled);
+  const [trustEmail, setTrustEmail] = useState(initialTrustEmail);
   const [clientId, setClientId] = useState(initialClientId);
   const [clientSecret, setClientSecret] = useState('');
   const [saving, setSaving] = useState(false);
@@ -1348,9 +1359,10 @@ function ProviderCard({
   async function handleSave() {
     setSaving(true);
     try {
-      const payload: { clientId: string; clientSecret?: string; enabled: boolean } = {
+      const payload: { clientId: string; clientSecret?: string; enabled: boolean; trustEmail?: boolean } = {
         clientId,
         enabled: isEnabled,
+        ...(isEnabled ? { trustEmail } : {}),
       };
       if (clientSecret) payload.clientSecret = clientSecret;
       const updated = await api.projects.saveProvider(projectId, provider, payload);
@@ -1427,6 +1439,22 @@ function ProviderCard({
               />
             </div>
           </div>
+
+          <label className="flex items-start gap-3 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5 h-4 w-4"
+              checked={trustEmail}
+              onChange={(e) => setTrustEmail(e.target.checked)}
+            />
+            <span>
+              <span className="font-medium">Trust the e-mail address from {label}</span>
+              <span className="block text-xs text-muted-foreground">
+                Users who sign in with {label} get <code>email_verified: true</code> without a verification
+                mail. {label} only shares addresses it has verified. Turn off to require your own verification.
+              </span>
+            </span>
+          </label>
 
           <Button onClick={handleSave} disabled={saving || !clientId}>
             {saving ? 'Saving...' : `Save ${label} Settings`}
