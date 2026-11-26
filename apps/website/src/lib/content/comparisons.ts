@@ -720,31 +720,37 @@ const BASE_COMPARISONS: Comparison[] = [
         feature: "Primary focus",
         basefyio: "Database/app backend",
         competitor: "Headless CMS",
+        competitorSource: "https://docs.strapi.io/",
       },
       {
         feature: "Database access",
         basefyio: "Direct SQL access",
         competitor: "Through CMS content types",
+        competitorSource: "https://docs.strapi.io/",
       },
       {
         feature: "API",
         basefyio: "REST (auto-generated)",
         competitor: "REST + GraphQL",
+        competitorSource: "https://github.com/strapi/strapi",
       },
       {
         feature: "Authentication",
         basefyio: "Dedicated auth realm per project",
         competitor: "Users & permissions plugin",
+        competitorSource: "https://docs.strapi.io/cms/features/users-permissions",
       },
       {
         feature: "Storage",
         basefyio: "S3-compatible",
         competitor: "Media library (providers)",
+        competitorSource: "https://docs.strapi.io/cms/features/media-library",
       },
       {
         feature: "Self-hosting",
         basefyio: "Docker Compose",
         competitor: "Node.js (self-host)",
+        competitorSource: "https://docs.strapi.io/cms/deployment",
       },
     ],
     faqs: [
