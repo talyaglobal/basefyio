@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { setTokens, startProactiveRefresh, isAuthenticated } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
+import { TurnstileWidget } from '@/components/turnstile-widget';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
@@ -183,13 +184,19 @@ function SignupForm() {
     setForm((prev) => ({ ...prev, [field]: value }));
   }
 
+  const [turnstileSiteKey, setTurnstileSiteKey] = useState<string | null>(null);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  useEffect(() => {
+    api.auth.publicConfig().then((c) => setTurnstileSiteKey(c.turnstileSiteKey)).catch(() => {});
+  }, []);
+
   // Step 1: send OTP to email
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!accepted) return;
     setLoading(true);
     try {
-      await api.auth.signup({ ...form, planName: selectedPlan, acceptedTerms: true });
+      await api.auth.signup({ ...form, planName: selectedPlan, acceptedTerms: true, turnstileToken: turnstileToken ?? undefined });
       setStep('otp');
       setResendCooldown(60);
       toast.success('Verification code sent to your email');
@@ -477,7 +484,9 @@ function SignupForm() {
                 </p>
               </div>
 
-              <Button type="submit" className="w-full" disabled={loading || plansLoading || !accepted}>
+              {turnstileSiteKey && <TurnstileWidget siteKey={turnstileSiteKey} onToken={setTurnstileToken} />}
+
+              <Button type="submit" className="w-full" disabled={loading || plansLoading || !accepted || (!!turnstileSiteKey && !turnstileToken)}>
                 {loading ? 'Sending code...' : 'Sign up'}
               </Button>
             </form>

@@ -250,6 +250,7 @@ pool global takes effect on the next API restart.
 | `MFA_MAX_ATTEMPTS` | `5` | no / no | Wrong codes allowed per challenge before it is destroyed and the session behind it revoked. |
 | `ANON_SIGNIN_PER_IP_HOURLY` | `30` | no / no | Anonymous accounts one client IP may create per project per hour; `0` disables the limit. |
 | `ANON_SIGNIN_PER_PROJECT_DAILY` | `5000` | no / no | Anonymous accounts a project may create per day; `0` disables the limit. |
+| `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY` | unset (check off) | no / pass-through | Cloudflare Turnstile human check on the platform sign-up form. Both must be set to switch it on; the site key is public and served to the page by `GET /auth/config`. If Cloudflare cannot be reached from the API, sign-up is let through (the per-IP rate limit still applies). |
 
 Anonymous sign-in itself is switched on per project in the dashboard, not here. See
 [auth-api.md](./auth-api.md).

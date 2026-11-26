@@ -12,6 +12,7 @@ import { RootRoleGuard } from '../../common/guards/root-role.guard';
 import { ObservabilityModule } from '../observability/observability.module';
 import { ManagementPermissionGuard } from '../../common/guards/management-permission.guard';
 import { OrganizationsCoreModule } from '../organizations/organizations-core.module';
+import { TurnstileService } from './turnstile.service';
 
 @Module({
   imports: [PassportModule, HttpModule, BillingModule, ObservabilityModule, OrganizationsCoreModule],
@@ -20,6 +21,7 @@ import { OrganizationsCoreModule } from '../organizations/organizations-core.mod
     AuthService,
     KeycloakAdminService,
     PlatformMfaService,
+    TurnstileService,
     TourPreferencesService,
     JwtStrategy,
     RootRoleGuard,

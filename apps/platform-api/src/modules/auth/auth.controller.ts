@@ -2,6 +2,7 @@ import { Controller, Post, Body, Get, Param, Query, Res, UseGuards, Req, Put, Pa
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Request, Response } from 'express';
 import { AuthService } from './auth.service';
+import { TurnstileService } from './turnstile.service';
 import { KeycloakAdminService } from './keycloak-admin.service';
 import { LoginDto } from './dto/login.dto';
 import { SignupDto } from './dto/signup.dto';
@@ -33,13 +34,21 @@ export class AuthController {
     private readonly keycloak: KeycloakAdminService,
     private readonly observability: ObservabilityService,
     private readonly tourPreferences: TourPreferencesService,
+    private readonly turnstile: TurnstileService,
   ) {}
 
   @Post('signup')
   @UseGuards(RateLimitGuard)
   @RateLimit(5, 60) // 5 requests per minute per IP
-  async signup(@Body() dto: SignupDto) {
+  async signup(@Body() dto: SignupDto, @Req() req: Request) {
+    await this.turnstile.assertHuman(dto.turnstileToken, req.ip);
     return this.authService.initiateSignup(dto);
+  }
+
+  /** Public sign-up settings the pages need before they render (the Turnstile site key is public by design). */
+  @Get('config')
+  getPublicConfig() {
+    return { turnstileSiteKey: this.turnstile.siteKey };
   }
 
   @Post('signup/verify-otp')

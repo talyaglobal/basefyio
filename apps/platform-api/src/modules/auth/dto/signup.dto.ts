@@ -38,6 +38,10 @@ export class SignupDto {
   @IsOptional()
   planName?: string;
 
+  @IsString()
+  @IsOptional()
+  turnstileToken?: string;
+
   @Equals(true, { message: 'You must accept the Terms of Use, the Privacy Policy and the Data Notice' })
   acceptedTerms!: true;
 }

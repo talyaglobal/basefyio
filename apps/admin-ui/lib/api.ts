@@ -436,7 +436,10 @@ export type ApiNotification = {
 
 export const api = {
   auth: {
-    signup(data: { email: string; password: string; firstName?: string; lastName?: string; planName?: string; acceptedTerms: true }) {
+    publicConfig() {
+      return request<{ turnstileSiteKey: string | null }>('/auth/config');
+    },
+    signup(data: { email: string; password: string; firstName?: string; lastName?: string; planName?: string; acceptedTerms: true; turnstileToken?: string }) {
       return request<{ message: string }>('/auth/signup', {
         method: 'POST',
         body: JSON.stringify(data),
