@@ -38,7 +38,7 @@ when the API answers with a machine-readable code (for example `mfa_required`,
 
 | Method | Calls | Notes |
 |---|---|---|
-| `signUp({ email, password, firstName?, lastName? })` | `POST /rest/v1/auth/signup` | tokens; `emailVerified` false when the project requires verification |
+| `signUp({ email, password, firstName?, lastName? })` | `POST /rest/v1/auth/signup` | `{ userId, emailVerified, verificationRequired }` plus tokens; when the project holds sign-in until the address is confirmed there are no tokens and no session starts — `verifyEmail`, then `signIn` |
 | `signIn({ email, password, totp? })` | `POST /rest/v1/auth/signin` | returns `{ data, error, mfa }`; when `mfa` is set, finish with `verifyMfa` |
 | `verifyMfa(challengeId, code, { recovery? })` | `POST /rest/v1/auth/mfa/challenge` | completes a sign-in challenge |
 | `getMfaStatus()` | `GET /rest/v1/auth/mfa` | `{ enrolled, enrollmentRequired, recoveryCodesLeft, verifiedAt }` |
@@ -48,15 +48,17 @@ when the API answers with a machine-readable code (for example `mfa_required`,
 | `regenerateRecoveryCodes(code)` | `POST /rest/v1/auth/mfa/recovery-codes` | |
 | `signInAnonymously()` | `POST /rest/v1/auth/signin/anonymous` | tokens with `isAnonymous: true`; the project must allow it |
 | `upgradeAnonymous({ email, password, firstName?, lastName? })` | `POST /rest/v1/auth/anonymous/upgrade` | same user id, now an account |
-| `signOut({ scope? })` | `POST /rest/v1/auth/signout` | revokes the refresh token on the server and clears the local session (2.5.0; earlier versions only cleared it locally). `scope: 'others'` keeps this session and ends the rest, `'global'` ends all. Without a session nothing is sent and no `SIGNED_OUT` fires |
+| `signOut({ scope?, redirectTo?, state? })` | `POST /rest/v1/auth/signout` (+ `POST /rest/v1/auth/logout-url`) | revokes the refresh token on the server and clears the local session (2.5.0; earlier versions only cleared it locally). `scope: 'others'` keeps this session and ends the rest, `'global'` ends all. With `redirectTo` (a registered redirect URL) it also ends the browser's sign-in session left by a social sign-in and navigates there, without a confirmation page when the session came from `handleProviderCallback` (its `idToken`); `data.url` is the URL. Without a session nothing is sent and no `SIGNED_OUT` fires |
+| `resendVerification(email)` | `POST /rest/v1/auth/verify-email/resend` | a new verification code; same answer whether or not the address has an account; 429 after three per address and hour |
 | `verifyEmail(otp, { email? })`, `forgotPassword(email)`, `resetPassword(otp, newPassword, { email? })` | the matching routes | pass `email` (2.6.0): the code then works only for that address and wrong guesses are limited; `verifyMagicLink(otp, { email? })` the same |
 | `sendMagicLink(email)`, `verifyMagicLink(otp)` | | |
 | `changeEmail(newEmail)`, `confirmChangeEmail(otp)` | | needs a session |
 | `requestReauth()`, `verifyReauth(otp)` | | re-authentication for sensitive actions |
 | `inviteUser(email)` | `POST /rest/v1/auth/invite` | service key only |
-| `signInWithProvider(provider, { redirectTo? })` | `GET /rest/v1/auth/signin/:provider` | `provider` is a configured provider id such as `google` or `github`; in a browser, navigates to the provider |
-| `handleProviderCallback()` | — | reads the tokens the callback put in `location.hash`, stores them, clears the hash |
-| `getUser()` | `GET /rest/v1/auth/me` | |
+| `signInWithProvider(provider, { redirectTo?, prompt?, state? })` | `GET /rest/v1/auth/signin/:provider` | `provider` is a configured provider id such as `google` or `github`; `prompt` is `login`, `select_account`, `consent` or `none`; `state` is your own value (1–512 of `A-Z a-z 0-9 - . _ ~`), returned in the callback; in a browser, navigates to the provider |
+| `handleProviderCallback()` | — | reads the tokens the callback put in `location.hash` (with `idToken` and your `state`), stores them, clears the hash; null when there are none |
+| `providerCallbackError()` | — | `{ error, description?, state? }` when the sign-in came back without a session (`access_denied`, `login_required`, `missing_profile`, `oauth_failed`, …), else null |
+| `getUser()` | `GET /rest/v1/auth/me` | includes `provider` (`github`, `google`, `password`, `anonymous`) and `providers` |
 | `getSession()`, `getAccessToken()`, `setAccessToken(token)`, `isAnonymous()` | — | local session; `isAnonymous()` reads the `is_anonymous` claim of the current token |
 | `refreshSession()` | `POST /rest/v1/auth/refresh` | also runs automatically before expiry when `autoRefreshToken` is on |
 | `onAuthStateChange((event, session) => …)` | — | events `SIGNED_IN`, `SIGNED_OUT`, `TOKEN_REFRESHED`, `EMAIL_VERIFIED`, `EMAIL_CHANGED`; returns `{ unsubscribe }` |
@@ -238,7 +240,8 @@ yourself. Reconnection uses exponential backoff (1 s doubling to 15 s). Protocol
 ## Types
 
 All public types are exported from the package root: `BasefyioClientOptions`,
-`BasefyioResponse`, `BasefyioError`, `AuthTokens`, `Session`, `User`, `MfaChallenge`,
+`BasefyioResponse`, `BasefyioError`, `AuthTokens`, `SignUpResult`, `SignInWithProviderOptions`,
+`OAuthPrompt`, `ProviderCallbackError`, `Session`, `User`, `MfaChallenge`,
 `MfaEnrollment`, `MfaStatus`, `SignInResponse`, `StorageBucket`, `StorageObject`,
 `ImageTransform`, `StoragePolicy`, `UploadSession`, `UploadProgress`, `RealtimeChangePayload`,
 `RealtimePresenceMember`, `RealtimeBroadcastMessage`, `FilterOperator`, `SqlResult`,

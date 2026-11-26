@@ -28,6 +28,7 @@ link and therefore accept the anon key as `?apikey=`.
 | POST | `/api/rest/v1/auth/signin/anonymous` | anon | a session without an account (off unless the project allows it) |
 | POST | `/api/rest/v1/auth/anonymous/upgrade` | anon + user | turn the anonymous user into an e-mail/password account |
 | POST | `/api/rest/v1/auth/verify-email` | anon | confirm the code from the verification mail |
+| POST | `/api/rest/v1/auth/verify-email/resend` | anon | mail a new verification code; same answer whether or not the address has an account |
 | GET | `/api/rest/v1/auth/verify-email-callback` | anon (`?apikey=`) | the "Verify e-mail" button target; answers with an HTML page |
 | POST | `/api/rest/v1/auth/forgot-password` | anon | mail a reset code |
 | POST | `/api/rest/v1/auth/reset-password` | anon | set a new password with the code |
@@ -42,8 +43,10 @@ link and therefore accept the anon key as `?apikey=`.
 | POST | `/api/rest/v1/auth/invite` | service | create an invited user and mail them |
 | POST | `/api/rest/v1/auth/refresh` | anon | exchange a refresh token for new tokens |
 | GET | `/api/rest/v1/auth/me` | anon + user | the profile behind the access token |
-| GET | `/api/rest/v1/auth/signin/:provider` | anon | the URL to send the browser to for OAuth sign-in |
-| GET | `/api/rest/v1/auth/callback/:projectId/:provider` | public | where the provider returns; redirects to your app with tokens in the URL fragment |
+| GET | `/api/rest/v1/auth/signin/:provider` | anon | the URL to send the browser to for OAuth sign-in (`redirect_to`, `prompt`, `state`) |
+| GET | `/api/rest/v1/auth/callback/:projectId/:provider` | public | where the provider returns; redirects to your app with tokens (or an error code) in the URL fragment |
+| POST | `/api/rest/v1/auth/logout-url` | anon | a URL that ends the browser's sign-in session and returns to your app, without a confirmation page when `idToken` is sent |
+| GET | `/api/rest/v1/auth/logout-callback/:projectId` | public | where the sign-out returns; redirects to your `redirectTo` |
 
 ## Tokens
 
@@ -75,8 +78,17 @@ is run once. The token also carries `role`, `aal`, `app_metadata` and `user_meta
 Project settings that apply (defaults in brackets, changed under Authentication → Settings or
 `PUT /api/projects/:projectId/auth/config`): `allowSignup` [true] — otherwise 403
 `Self-signup is disabled for this project`; `minPasswordLength` [6] — otherwise 400;
-`requireEmailVerify` [true] — the response still carries tokens, with `emailVerified: false`,
-and a code valid for 24 hours is mailed. 409 `Email already registered`.
+`requireEmailVerify` [true] — a code valid for 24 hours is mailed and the response says
+`verificationRequired: true`. Usually it still carries tokens, with `emailVerified: false`.
+When the project's realm holds sign-in until the address is confirmed, it carries **no
+tokens**: `{ userId, emailVerified: false, verificationRequired: true }` — call `verify-email`,
+then `signin`. 409 `Email already registered`.
+
+`POST verify-email/resend` `{ email }` mails a new code to an address that signed up and is not
+confirmed yet. It always answers `{ message: "If the address is waiting for verification, a new
+code has been sent" }`, so it does not reveal whether the address has an account; 429
+(`code: "too_many_attempts"`) after three requests for one address, or twenty from one client
+IP, in an hour. Earlier codes stay valid until they expire.
 
 `POST signin` body: `{ email, password, totp? }`. Wrong credentials: 401
 `Invalid email or password`. A user imported from Supabase signs in with their existing
@@ -102,7 +114,9 @@ checked — and the verification response carries the tokens.
 `{ message: "If an account exists, …" }`; `POST reset-password` `{ otp, newPassword, email? }`;
 `POST magic-link/verify` `{ otp, email? }` → `{ message, userId, email, emailVerified: true }` (the
 link flow confirms the address and then the app signs the user in).
-`GET me` → `{ id, email, emailVerified, username, firstName, lastName, isAnonymous }`.
+`GET me` → `{ id, email, emailVerified, username, firstName, lastName, isAnonymous, provider, providers }`.
+`providers` lists the social providers linked to the account (`["github"]`); `provider` is the
+first of them, else `password` (`anonymous` for an anonymous user).
 
 ## Second factor (authenticator apps)
 
@@ -151,11 +165,47 @@ Configure a provider under Authentication → Providers (or
 Then:
 
 1. `GET signin/:provider?redirect_to=<url in your app>` → `{ url, provider }`. Send the
-   browser to `url`. `redirect_to` must be one of the project's registered redirect URLs.
+   browser to `url`. `redirect_to` must be one of the project's registered redirect URLs; its
+   query string is kept. Optional:
+   - `prompt` — `login` (sign in again), `select_account` (account chooser), `consent`, or
+     `none` (no page at all; `error=login_required` when there is no session). Anything else
+     is 400. Without it, Google shows the account chooser and asks to sign in again, and
+     GitHub asks to sign in again.
+   - `state` — your own value (1–512 characters of `A-Z a-z 0-9 - . _ ~`, otherwise 400),
+     returned unchanged.
 2. The provider returns to `GET /api/rest/v1/auth/callback/:projectId/:provider`, which
    redirects to your `redirect_to` with the tokens in the **fragment**:
-   `#access_token=…&refresh_token=…&expires_in=…&token_type=Bearer&provider=google`.
+   `#access_token=…&refresh_token=…&expires_in=…&token_type=Bearer&provider=google&id_token=…&state=…`.
    The SDK's `bf.auth.handleProviderCallback()` reads and clears that fragment.
+3. When the sign-in does not produce a session, the browser still goes back to `redirect_to`,
+   with `#error=<code>&error_description=…&provider=…&state=…`. Codes: `access_denied` (the user
+   cancelled), `login_required`, `interaction_required`, `consent_required` (with
+   `prompt=none`), `missing_profile` (the provider shared no e-mail address),
+   `temporarily_unavailable`, `oauth_failed`. Your users never see an identity-server page:
+   first and last name are optional, there is no "update your profile" step, Google's
+   `given_name`/`family_name` and GitHub's `name` fill them in when present.
+
+Google and GitHub providers **trust the e-mail address** by default (Google only shares
+verified addresses; GitHub's is the account's primary address), so these users get
+`email_verified: true` — also when the provider is linked to an account that signed up with a
+password first. Turn it off per provider under Authentication → Providers ("Trust the e-mail
+address", or `trustEmail: false` in `PUT /api/projects/:projectId/auth/providers/:provider`).
+
+### Signing out of the browser session
+
+`POST signout` ends the session's tokens on the server. A social sign-in also leaves a
+sign-in session in the browser; to end that too, ask for a sign-out URL and send the browser
+there:
+
+`POST logout-url` `{ redirectTo, idToken?, state? }` → `{ url, confirmationSkipped }`.
+`redirectTo` must be a registered redirect URL (400 otherwise); it is checked again when the
+browser comes back, which lands on `redirectTo#signed_out=true&state=…`. Send the `id_token`
+from the callback fragment as `idToken`: with it no confirmation page is shown
+(`confirmationSkipped: true`); a token from another project is 400. The SDK does both steps in
+`bf.auth.signOut({ redirectTo })`.
+
+Projects created before this behaviour (November 2026) get it when a provider is saved, or
+at once with `POST /api/projects/:projectId/auth/repair`.
 
 ## Invitations
 
@@ -189,11 +239,11 @@ const { data: user } = await bf.auth.getUser();
 
 | Status | When |
 |---|---|
-| 400 | `Invalid or expired verification code` / `reset code` / `magic link` / `confirmation code`; `Password must be at least N characters`; `No enrollment is in progress. Call /mfa/enroll first.`; `That code does not match the authenticator…`; `This session is not anonymous…`; `Unsupported provider` |
+| 400 | `Invalid or expired verification code` / `reset code` / `magic link` / `confirmation code`; `Password must be at least N characters`; `No enrollment is in progress. Call /mfa/enroll first.`; `That code does not match the authenticator…`; `This session is not anonymous…`; `Unsupported provider`; `prompt must be one of…`; `state must be…`; `redirectTo is not a registered redirect URL…`; `idToken was not issued by this project` |
 | 401 | `Invalid email or password`; `Invalid or expired access token`; `Invalid or expired refresh token`; `Invalid code` (`code: invalid_code`); an expired MFA challenge |
 | 403 | `Self-signup is disabled for this project`; `Invite requires service_role key`; `This route acts on the signed-in user…`; anonymous sign-in disabled for the project |
 | 409 | `Email already registered`; `Email already in use`; `User already exists in this project`; `An authenticator is already enrolled for this account.` |
-| 429 | anonymous sign-in rate limit |
+| 429 | anonymous sign-in rate limit; `verify-email/resend` limit (`code: too_many_attempts`) |
 
 Source: `apps/platform-api/src/modules/projects/project-sdk-auth.controller.ts`,
 `project-sdk-auth.service.ts`, `project-mfa.service.ts`, `project-anonymous-auth.service.ts`,

@@ -113,7 +113,19 @@ const { unsubscribe } = bf.auth.onAuthStateChange((event, session) => {
         <strong>Auth → Settings</strong>), new users receive a code by email.
         Confirm it with the OTP they enter:
       </p>
-      <pre><code>{`const { error } = await bf.auth.verifyEmail('482917', { email: 'ada@example.com' })`}</code></pre>
+      <pre><code>{`const { data } = await bf.auth.signUp({ email: 'ada@example.com', password: 'a-strong-password' })
+// data.verificationRequired === true; data.accessToken is absent when the project
+// holds sign-in until the address is confirmed - no session starts then.
+
+const { error } = await bf.auth.verifyEmail('482917', { email: 'ada@example.com' })
+
+// The code expired or never arrived: mail a new one (same answer for any address)
+await bf.auth.resendVerification('ada@example.com')`}</code></pre>
+      <p>
+        <code>resendVerification</code> answers the same whether or not the address has an
+        account, so it cannot be used to find out who signed up. After three requests for one
+        address in an hour it answers 429.
+      </p>
 
       {/* ── Password reset ─────────────────────────────── */}
       <h2 id="password-reset">Password reset</h2>
@@ -147,7 +159,36 @@ await bf.auth.signInWithProvider('google', {
 })
 
 // On the page the user lands back on, finish the flow:
-const tokens = bf.auth.handleProviderCallback()  // reads the URL, stores the session`}</code></pre>
+const tokens = bf.auth.handleProviderCallback()  // reads the URL, stores the session
+if (!tokens) {
+  const failed = bf.auth.providerCallbackError()  // { error: 'access_denied' | 'missing_profile' | ... }
+}`}</code></pre>
+      <p>
+        Options: <code>prompt</code> (<code>login</code> to sign in again,{" "}
+        <code>select_account</code> for the account chooser, <code>consent</code>, or{" "}
+        <code>none</code>: no page, <code>login_required</code> when there is no session) and{" "}
+        <code>state</code>, your own value (up to 512 of <code>A-Z a-z 0-9 - . _ ~</code>),
+        returned in the callback. The query string of <code>redirectTo</code> is kept.
+      </p>
+      <pre><code>{`await bf.auth.signInWithProvider('github', {
+  redirectTo: 'https://app.example.com/auth/callback?next=/billing',
+  prompt: 'select_account',
+  state: csrfToken,
+})`}</code></pre>
+      <p>
+        Your users never see an identity-server page: first and last name are optional and
+        filled from the provider when it has them. When a sign-in cannot finish, the browser
+        still comes back to <code>redirectTo</code>, with an error code instead of tokens.
+        Google and GitHub addresses count as verified (<code>email_verified: true</code>);
+        turn that off per provider in the Providers panel (&quot;Trust the e-mail address&quot;).
+      </p>
+      <h3>Signing out of the browser session</h3>
+      <p>
+        After a social sign-in the browser also holds a sign-in session. Pass{" "}
+        <code>redirectTo</code> (a registered redirect URL) to end it as well; no confirmation
+        page is shown:
+      </p>
+      <pre><code>{`await bf.auth.signOut({ redirectTo: 'https://app.example.com/' })`}</code></pre>
 
       <h3>Enabling a provider</h3>
       <p>
@@ -240,16 +281,18 @@ const tokens = bf.auth.handleProviderCallback()  // reads the URL, stores the se
           <tr><th>Method &amp; path</th><th>Body</th><th>Purpose</th></tr>
         </thead>
         <tbody>
-          <tr><td><code>POST /api/rest/v1/auth/signup</code></td><td><code>{`{ email, password, firstName?, lastName? }`}</code></td><td>Create a user, return tokens</td></tr>
+          <tr><td><code>POST /api/rest/v1/auth/signup</code></td><td><code>{`{ email, password, firstName?, lastName? }`}</code></td><td>Create a user; tokens unless the project holds sign-in until the address is verified</td></tr>
           <tr><td><code>POST /api/rest/v1/auth/signin</code></td><td><code>{`{ email, password }`}</code></td><td>Sign in, return tokens</td></tr>
           <tr><td><code>POST /api/rest/v1/auth/verify-email</code></td><td><code>{`{ otp }`}</code></td><td>Confirm an email code</td></tr>
+          <tr><td><code>POST /api/rest/v1/auth/verify-email/resend</code></td><td><code>{`{ email }`}</code></td><td>Mail a new verification code</td></tr>
           <tr><td><code>POST /api/rest/v1/auth/forgot-password</code></td><td><code>{`{ email }`}</code></td><td>Email a reset code</td></tr>
           <tr><td><code>POST /api/rest/v1/auth/reset-password</code></td><td><code>{`{ otp, newPassword }`}</code></td><td>Set a new password</td></tr>
           <tr><td><code>POST /api/rest/v1/auth/magic-link</code></td><td><code>{`{ email }`}</code></td><td>Email a magic-link code</td></tr>
           <tr><td><code>POST /api/rest/v1/auth/magic-link/verify</code></td><td><code>{`{ otp }`}</code></td><td>Exchange code for tokens</td></tr>
           <tr><td><code>POST /api/rest/v1/auth/refresh</code></td><td><code>{`{ refreshToken }`}</code></td><td>Refresh the access token</td></tr>
-          <tr><td><code>GET /api/rest/v1/auth/me</code></td><td>—</td><td>Current user (Bearer token)</td></tr>
-          <tr><td><code>GET /api/rest/v1/auth/signin/:provider</code></td><td>—</td><td>Start a social-login redirect</td></tr>
+          <tr><td><code>GET /api/rest/v1/auth/me</code></td><td>—</td><td>Current user (Bearer token), with <code>provider</code> and <code>providers</code></td></tr>
+          <tr><td><code>GET /api/rest/v1/auth/signin/:provider</code></td><td><code>?redirect_to=&amp;prompt=&amp;state=</code></td><td>Start a social-login redirect</td></tr>
+          <tr><td><code>POST /api/rest/v1/auth/logout-url</code></td><td><code>{`{ redirectTo, idToken?, state? }`}</code></td><td>URL that ends the browser session</td></tr>
         </tbody>
       </table>
       <pre><code>{`curl -X POST "https://api.basefyio.com/api/rest/v1/auth/signin" \\
