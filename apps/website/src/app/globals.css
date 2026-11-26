@@ -707,6 +707,6 @@
 }
 
 /* Light theme: the link-blue on the code chip is 4.4:1; this darker blue clears 4.5:1 (feedback #156). */
-:root:not(.dark) .prose :not(pre) > code {
+:root:not(.dark) .prose code {
   color: #0a4fb5;
 }
