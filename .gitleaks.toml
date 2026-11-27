@@ -14,6 +14,8 @@ regexes = [
   '''^<[A-Za-z0-9_-]+>$''',
   '''^\$\{?[A-Za-z_][A-Za-z0-9_.]*\}?$''',
   '''^(0123456789abcdef)+[0-9a-f]*$''',
+  # Fake tsmartsend key used by the project-auth-config spec.
+  '''^ts_abcdefgh1234$''',
 ]
 
 # Marketing copy lists "authentication, S3-compatible storage, …"; the generic
