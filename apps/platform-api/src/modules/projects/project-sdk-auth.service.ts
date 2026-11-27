@@ -1,3 +1,5 @@
+import { sendViaTsmartsend } from '../email/tsmartsend.client';
+import { decryptField } from '../../common/crypto/field-crypto';
 import {
   Optional,
   Injectable,
@@ -1345,6 +1347,11 @@ export class ProjectSdkAuthService {
         ? this.applyVars(extraVars.default_html, vars)
         : null;
 
+    if ((rawCfg as any).emailProvider === 'tsmartsend' && (rawCfg as any).tsmartsendApiKey) {
+      await this.sendViaTsmartsendApi(rawCfg, to, projectName, resolvedSubject, resolvedBody, extraVars);
+      return;
+    }
+
     const smtpOpts = this.resolveSmtpConfig(rawCfg);
 
     if (smtpOpts) {
@@ -1358,6 +1365,21 @@ export class ProjectSdkAuthService {
     }
 
     await this.sendDefaultEmail(to, projectName, type, extraVars);
+  }
+
+  /** The project's own tsmartsend account: HTTP API, the key is stored encrypted. */
+  private async sendViaTsmartsendApi(
+    rawCfg: any, to: string, projectName: string,
+    subject: string, htmlBody: string | null, vars: Record<string, string>,
+  ) {
+    const from = rawCfg.senderEmail
+      ? `${rawCfg.senderName || projectName} <${rawCfg.senderEmail}>`
+      : `${projectName} <noreply@basefyio.com>`;
+    await sendViaTsmartsend({
+      apiKey: decryptField(rawCfg.tsmartsendApiKey) as string,
+      from, to, subject,
+      ...(htmlBody ? { html: htmlBody } : { text: `Code: ${vars.otp || 'N/A'}` }),
+    });
   }
 
   private resolveSmtpConfig(rawCfg: any): { host: string; port: number; user: string; pass: string } | null {

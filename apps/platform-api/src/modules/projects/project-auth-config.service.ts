@@ -1,3 +1,4 @@
+import { encryptField } from '../../common/crypto/field-crypto';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { assertPasswordMinLength } from './project-auth-limits';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -82,12 +83,32 @@ export class ProjectAuthConfigService {
       if (!String(has('smtpHost') ?? '').trim() || !String(has('smtpUser') ?? '').trim() || !has('smtpPass')) {
         throw new BadRequestException('Custom SMTP needs a host, username and password');
       }
+    } else if (data.emailProvider === 'tsmartsend') {
+      const cur: Record<string, any> = await this.getRaw(projectId);
+      const sender = 'senderEmail' in data ? data.senderEmail : cur.senderEmail;
+      if (!String(sender ?? '').trim()) {
+        // tsmartsend refuses mail from a domain that is not verified in the project, so the platform's
+        // fallback sender (noreply@basefyio.com) can never work: the project must name its own address.
+        throw new BadRequestException('tsmartsend needs a sender address on a domain verified in your tsmartsend project');
+      }
+      const incoming = typeof data.tsmartsendApiKey === 'string' ? data.tsmartsendApiKey.trim() : '';
+      if (incoming) {
+        if (!/^ts_[A-Za-z0-9_-]{8,}$/.test(incoming)) {
+          throw new BadRequestException('A tsmartsend API key starts with "ts_"');
+        }
+        data = { ...data, tsmartsendApiKey: encryptField(incoming) };
+      } else if (!cur.tsmartsendApiKey) {
+        throw new BadRequestException('tsmartsend needs an API key (it starts with "ts_")');
+      } else {
+        const { tsmartsendApiKey: _unchanged, ...rest } = data;
+        data = rest;
+      }
     } else if (data.emailProvider === 'none') {
       // The project's app sends every auth mail; stored credentials are dropped so nothing falls back to them.
-      data = { ...data, smtpHost: null, smtpUser: null, smtpPass: null };
+      data = { ...data, smtpHost: null, smtpUser: null, smtpPass: null, tsmartsendApiKey: null };
     } else if (data.emailProvider === null || data.emailProvider === '') {
       // Back to the platform default: drop the SMTP settings so they are not used as a fallback.
-      data = { ...data, emailProvider: null, smtpHost: null, smtpUser: null, smtpPass: null };
+      data = { ...data, emailProvider: null, smtpHost: null, smtpUser: null, smtpPass: null, tsmartsendApiKey: null };
     }
 
     const updated = await this.prisma.projectAuthConfig.update({
@@ -132,6 +153,7 @@ export class ProjectAuthConfigService {
       senderEmail: config.senderEmail,
       senderName: config.senderName,
       resendApiKey: config.resendApiKey ? '••••••••' : null,
+      tsmartsendApiKey: config.tsmartsendApiKey ? '••••••••' : null,
       sendgridApiKey: config.sendgridApiKey ? '••••••••' : null,
       sesAccessKey: config.sesAccessKey ? '••••••••' : null,
       sesSecretKey: config.sesSecretKey ? '••••••••' : null,

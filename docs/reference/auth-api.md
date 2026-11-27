@@ -245,6 +245,15 @@ const { data: user } = await bf.auth.getUser();
 | 409 | `Email already registered`; `Email already in use`; `User already exists in this project`; `An authenticator is already enrolled for this account.` |
 | 429 | anonymous sign-in rate limit; `verify-email/resend` limit (`code: too_many_attempts`) |
 
+## E-mail providers
+
+A project's verification, reset, magic-link and invite mails go out through the provider chosen in
+project settings > Auth > Email: the platform default, custom SMTP, Resend, SendGrid, Amazon SES,
+**tsmartsend**, or none (your app sends them). With tsmartsend the platform calls tsmartsend's HTTP
+API (`POST /emails`) with the project's own `ts_…` key, which is stored encrypted and never returned
+(the settings API shows it masked). The sender address must be on a domain verified in your tsmartsend
+project; the settings refuse a tsmartsend provider without a sender address.
+
 Source: `apps/platform-api/src/modules/projects/project-sdk-auth.controller.ts`,
 `project-sdk-auth.service.ts`, `project-mfa.service.ts`, `project-anonymous-auth.service.ts`,
 `project-oauth-callback.controller.ts`, `project-auth-config.service.ts`;

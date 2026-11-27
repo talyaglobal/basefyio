@@ -955,6 +955,7 @@ export interface ProjectAuthConfig {
   senderEmail: string | null;
   senderName: string | null;
   resendApiKey: string | null;
+  tsmartsendApiKey: string | null;
   sendgridApiKey: string | null;
   sesAccessKey: string | null;
   sesSecretKey: string | null;

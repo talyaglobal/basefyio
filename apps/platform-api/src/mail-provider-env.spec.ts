@@ -18,6 +18,10 @@ describe('resolveMailBaseUrl', () => {
     expect(resolveMailBaseUrl({ RESEND_API_KEY: 'ts_abcdefgh_' + 'x'.repeat(32) } as any)).toBe(TSMART);
   });
 
+  it('selects tsmartsend by name with MAIL_TRANSPORT', () => {
+    expect(resolveMailBaseUrl({ MAIL_TRANSPORT: 'TsmartSend', RESEND_API_KEY: 'x' } as any)).toBe(TSMART);
+  });
+
   it('leaves a Resend key on its own default', () => {
     expect(resolveMailBaseUrl({ RESEND_API_KEY: 're_something' } as any)).toBeUndefined();
   });

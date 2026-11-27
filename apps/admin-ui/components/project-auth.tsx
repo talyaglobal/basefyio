@@ -1624,6 +1624,7 @@ function EmailTab({
   const [senderEmail, setSenderEmail] = useState(config.senderEmail || '');
   const [senderName, setSenderName] = useState(config.senderName || '');
   const [resendApiKey, setResendApiKey] = useState('');
+  const [tsmartsendApiKey, setTsmartsendApiKey] = useState('');
   const [sendgridApiKey, setSendgridApiKey] = useState('');
   const [sesAccessKey, setSesAccessKey] = useState('');
   const [sesSecretKey, setSesSecretKey] = useState('');
@@ -1771,6 +1772,7 @@ function EmailTab({
             <option value="">Platform Default (basefyio)</option>
             <option value="smtp">Custom SMTP</option>
             <option value="resend">Resend</option>
+            <option value="tsmartsend">tsmartsend</option>
             <option value="sendgrid">SendGrid</option>
             <option value="ses">Amazon SES</option>
             <option value="none">None — my app sends the e-mails</option>
@@ -1804,6 +1806,18 @@ function EmailTab({
               <Label>Password</Label>
               <Input type="password" placeholder={config.smtpPass ? '••••••••  (saved)' : 'Enter password'} value={smtpPass} onChange={(e) => setSmtpPass(e.target.value)} />
             </div>
+          </div>
+        )}
+
+        {provider === 'tsmartsend' && (
+          <div className="space-y-1.5">
+            <Label>tsmartsend API Key</Label>
+            <Input type="password" placeholder={config.tsmartsendApiKey ? '••••••••  (saved)' : 'ts_xxxx...'} value={tsmartsendApiKey} onChange={(e) => setTsmartsendApiKey(e.target.value)} />
+            <p className="text-xs text-muted-foreground">
+              No tsmartsend project yet?{' '}
+              <a href="https://send.tsmart.ai" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Create one on tsmartsend</a>
+              , copy its API key here, and verify the domain of your sender address there: tsmartsend refuses mail from an unverified domain.
+            </p>
           </div>
         )}
 
@@ -1888,6 +1902,7 @@ function EmailTab({
                     if (smtpPass) payload.smtpPass = smtpPass;
                   }
                   if (provider === 'resend' && resendApiKey) payload.resendApiKey = resendApiKey;
+                  if (provider === 'tsmartsend' && tsmartsendApiKey) payload.tsmartsendApiKey = tsmartsendApiKey;
                   if (provider === 'sendgrid' && sendgridApiKey) payload.sendgridApiKey = sendgridApiKey;
                   if (provider === 'ses') {
                     if (sesAccessKey) payload.sesAccessKey = sesAccessKey;

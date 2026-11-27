@@ -278,9 +278,10 @@ Details: [REALTIME_API.md](realtime-api.md).
 | `TSMART_SEND_API_KEY` | unset | no / yes | Mail provider key, read before `RESEND_API_KEY`. A key set here (or any key starting `ts_`) also selects `https://send.tsmart.ai` as the API base. |
 | `RESEND_API_KEY` | unset | yes / yes | Mail provider key. Without any key no mail is sent (verification, password reset and magic-link mails are skipped with a warning) and `/api/health` reports mail as `not-configured`. |
 | `RESEND_BASE_URL` | the provider's own (`https://api.resend.com`) | no / yes | API base of a provider that speaks the same HTTP contract; wins over the key-prefix rule. |
+| `TSMART_SEND_BASE_URL` | `https://send.tsmart.ai` | no / no | API base the per-project tsmartsend provider sends to (project settings > Auth > Email). Platform mail uses `RESEND_BASE_URL`. |
 | `RESEND_FROM_EMAIL` | `basefyio <noreply@basefyio.com>` | yes / yes | Sender. The value contains `<` and `>`: quote it in any file a shell will `source`. |
 | `RESEND_REPLY_TO` | `support@basefyio.com` | yes / yes | Reply-To header. |
-| `MAIL_TRANSPORT` | `resend` | yes / yes | How platform mail leaves: `resend` (the HTTP API above) or `smtp`. The startup probe and `/api/health` (`checks.email`) report either. |
+| `MAIL_TRANSPORT` | `resend` | yes / yes | How platform mail leaves: `resend` (the HTTP API above), `tsmartsend` (the same API pointed at `https://send.tsmart.ai`; set `TSMART_SEND_API_KEY`) or `smtp`. The startup probe and `/api/health` (`checks.email`) report either. |
 | `MAIL_FROM` | unset (`RESEND_FROM_EMAIL`) | yes / yes | Sender for SMTP, as `Name <address>` (quote it in env files). |
 | `SMTP_HOST`, `SMTP_PORT` | unset, `587` | yes / yes | SMTP server for `MAIL_TRANSPORT=smtp`; no host means mail is not configured. |
 | `SMTP_USER`, `SMTP_PASSWORD` | unset | yes / yes | Login; no user means no authentication. |

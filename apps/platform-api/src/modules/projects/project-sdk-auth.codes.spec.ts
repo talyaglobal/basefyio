@@ -116,3 +116,28 @@ describe('a project that sends its own mail', () => {
     expect(svc.sendViaSmtp).not.toHaveBeenCalled();
   });
 });
+
+describe('a project on tsmartsend', () => {
+  const realFetch = global.fetch;
+  afterEach(() => { global.fetch = realFetch; });
+
+  it('sends its auth mail through the tsmartsend API, not SMTP or the platform mailer', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ id: 'm1' }) });
+    global.fetch = fetchMock as never;
+    const svc: any = Object.create(ProjectSdkAuthService.prototype);
+    svc.logger = { debug: jest.fn(), warn: jest.fn() };
+    svc.authConfig = {
+      getRaw: jest.fn(async () => ({ emailProvider: 'tsmartsend', tsmartsendApiKey: 'ts_projectkey123', senderEmail: 'hi@app.test', senderName: 'App' })),
+    };
+    svc.email = { sendRawHtml: jest.fn() };
+    svc.sendDefaultEmail = jest.fn();
+    svc.sendViaSmtp = jest.fn();
+    await svc.sendProjectEmail('p1', 'ada@example.com', 'P', 'verify', { otp: '123456', default_html: '<b>{{otp}}</b>' });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://send.tsmart.ai/emails');
+    expect(init.headers.authorization).toBe('Bearer ts_projectkey123');
+    expect(JSON.parse(init.body)).toMatchObject({ from: 'App <hi@app.test>', to: ['ada@example.com'], html: '<b>123456</b>' });
+    expect(svc.sendViaSmtp).not.toHaveBeenCalled();
+    expect(svc.email.sendRawHtml).not.toHaveBeenCalled();
+  });
+});

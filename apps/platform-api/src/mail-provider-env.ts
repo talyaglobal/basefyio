@@ -20,7 +20,9 @@ const TSMART_SEND_BASE_URL = 'https://send.tsmart.ai';
 export function resolveMailBaseUrl(env: NodeJS.ProcessEnv = process.env): string | undefined {
   if (env.RESEND_BASE_URL) return env.RESEND_BASE_URL;
   const key = env.TSMART_SEND_API_KEY || env.RESEND_API_KEY || '';
-  if (env.TSMART_SEND_API_KEY || key.startsWith('ts_')) return TSMART_SEND_BASE_URL;
+  if (env.TSMART_SEND_API_KEY || key.startsWith('ts_') || env.MAIL_TRANSPORT?.trim().toLowerCase() === 'tsmartsend') {
+    return TSMART_SEND_BASE_URL;
+  }
   return undefined;
 }
 
