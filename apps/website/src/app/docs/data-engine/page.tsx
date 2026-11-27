@@ -112,8 +112,9 @@ export default function DataEngineDocs() {
         <tbody>
           <tr><td><code>filter</code></td><td>JSON string</td><td><code>{`{"status":"active","address.city":"Istanbul"}`}</code></td></tr>
           <tr><td><code>sort</code></td><td>JSON string</td><td><code>{`[{"path":"_createdAt","direction":"desc"}]`}</code></td></tr>
-          <tr><td><code>limit</code></td><td>number</td><td><code>50</code> (max 1000)</td></tr>
+          <tr><td><code>limit</code></td><td>number</td><td><code>50</code> (1 to 1000; anything else is a <code>400</code>)</td></tr>
           <tr><td><code>offset</code></td><td>number</td><td><code>0</code></td></tr>
+          <tr><td><code>cursor</code></td><td>string</td><td>the <code>nextCursor</code> of the previous page (use it instead of <code>offset</code>)</td></tr>
         </tbody>
       </table>
 

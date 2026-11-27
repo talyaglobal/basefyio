@@ -20,7 +20,7 @@ import {
   NotImplementedException,
 } from '@nestjs/common';
 import type { Response } from 'express';
-import { parseFilterParam, parseSortParam } from './data-query-params';
+import { parseFilterParam, parsePagingParams, parseSortParam } from './data-query-params';
 import { validateDocument } from './document-validation';
 import { DataEngineService } from './data-engine.service';
 import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
@@ -163,6 +163,7 @@ export class DataEngineController {
     @Query('limit') limitRaw?: string,
     @Query('offset') offsetRaw?: string,
     @Query('includeSoftDeleted') includeSoftDeletedRaw?: string,
+    @Query('cursor') cursorRaw?: string,
   ) {
     this.assertEngineAvailable();
 
@@ -170,8 +171,7 @@ export class DataEngineController {
 
     const filter = parseFilterParam(filterRaw);
     const sort = parseSortParam(sortRaw);
-    const limit = limitRaw ? parseInt(limitRaw, 10) : undefined;
-    const offset = offsetRaw ? parseInt(offsetRaw, 10) : undefined;
+    const { limit, offset } = parsePagingParams(limitRaw, offsetRaw, cursorRaw);
 
     try {
       return await col.query({

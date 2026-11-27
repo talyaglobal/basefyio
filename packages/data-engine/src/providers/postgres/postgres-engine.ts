@@ -356,13 +356,15 @@ class PgEntityCollection implements EntityCollection {
     }
 
     // Sort
-    let orderBy = 'ORDER BY created_at DESC';
+    // The id is the last sort key so that two records with the same sort value always come back in
+    // the same order; without it a paged listing can repeat or skip a record between pages.
+    let orderBy = 'ORDER BY created_at DESC, id ASC';
     if (q.sort && q.sort.length > 0) {
       const sortClauses = q.sort.map((s) => {
         const col = this.sortPathToSql(s);
         return `${col} ${s.direction === 'desc' ? 'DESC' : 'ASC'} NULLS LAST`;
       });
-      orderBy = `ORDER BY ${sortClauses.join(', ')}`;
+      orderBy = `ORDER BY ${sortClauses.join(', ')}, id ASC`;
     }
 
     // Pagination

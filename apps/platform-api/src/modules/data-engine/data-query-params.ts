@@ -60,3 +60,40 @@ export function parseSortParam(raw?: string): any {
     throw new BadRequestException(err.message || 'Invalid sort');
   }
 }
+
+const MAX_LIMIT = 1000;
+
+function wholeNumber(raw: string, name: string): number {
+  if (!/^\d+$/.test(raw.trim())) {
+    throw new BadRequestException(`"${name}" must be a whole number of 0 or more`);
+  }
+  return parseInt(raw, 10);
+}
+
+/**
+ * limit, offset and cursor of a list request. A value that is not a plain number is a 400 (it used to
+ * be read as "everything" or as one record). `cursor` is the `nextCursor` the previous page returned;
+ * it carries the position of the next page, so it cannot be combined with an explicit offset.
+ */
+export function parsePagingParams(
+  limitRaw?: string,
+  offsetRaw?: string,
+  cursorRaw?: string,
+): { limit?: number; offset?: number } {
+  let limit: number | undefined;
+  if (limitRaw !== undefined && limitRaw !== '') {
+    limit = wholeNumber(limitRaw, 'limit');
+    if (limit < 1 || limit > MAX_LIMIT) {
+      throw new BadRequestException(`"limit" must be between 1 and ${MAX_LIMIT}`);
+    }
+  }
+  const hasOffset = offsetRaw !== undefined && offsetRaw !== '';
+  const hasCursor = cursorRaw !== undefined && cursorRaw !== '';
+  if (hasOffset && hasCursor) {
+    throw new BadRequestException('Use either "offset" or "cursor", not both');
+  }
+  let offset: number | undefined;
+  if (hasOffset) offset = wholeNumber(offsetRaw as string, 'offset');
+  if (hasCursor) offset = wholeNumber(cursorRaw as string, 'cursor');
+  return { limit, offset };
+}

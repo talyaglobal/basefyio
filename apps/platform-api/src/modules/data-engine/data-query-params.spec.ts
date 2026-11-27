@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { parseFilterParam, parseSortParam } from './data-query-params';
+import { parseFilterParam, parsePagingParams, parseSortParam } from './data-query-params';
 
 describe('data query params', () => {
   it('compiles the plain-object filter', () => {
@@ -21,5 +21,21 @@ describe('data query params', () => {
   });
   it('rejects invalid sort direction', () => {
     expect(() => parseSortParam('[{"path":"a","direction":"up"}]')).toThrow(BadRequestException);
+  });
+});
+
+describe('paging params', () => {
+  it('passes through nothing, plain numbers and a cursor', () => {
+    expect(parsePagingParams()).toEqual({ limit: undefined, offset: undefined });
+    expect(parsePagingParams('25', '50')).toEqual({ limit: 25, offset: 50 });
+    expect(parsePagingParams('25', undefined, '75')).toEqual({ limit: 25, offset: 75 });
+  });
+  it.each([['0'], ['-1'], ['abc'], ['1.5'], ['1001']])('rejects limit=%s with 400', (v) => {
+    expect(() => parsePagingParams(v)).toThrow(BadRequestException);
+  });
+  it('rejects a bad offset or cursor and both together', () => {
+    expect(() => parsePagingParams(undefined, '-3')).toThrow(BadRequestException);
+    expect(() => parsePagingParams(undefined, undefined, 'x')).toThrow(BadRequestException);
+    expect(() => parsePagingParams(undefined, '1', '2')).toThrow(BadRequestException);
   });
 });

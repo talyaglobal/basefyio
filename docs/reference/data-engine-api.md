@@ -35,8 +35,8 @@ Entity definition body:
 `{ id, logicalName, displayName, storageStrategy, schemaVersion, fields, generatedByAI, description? }`.
 
 Querying `GET data/:entity` takes JSON-encoded parameters `filter` (an object matched against
-the document), `sort` (`{ "path": "createdAt", "direction": "desc" }`), `limit`, `offset`, and
-returns a page `{ data, total, hasMore, nextCursor? }`. Document size, nesting depth and array length
+the document), `sort` (`{ "path": "createdAt", "direction": "desc" }`), `limit` (1 to 1000), `offset` or `cursor` (the `nextCursor` of the previous page; not both), and
+returns a page `{ data, total, hasMore, nextCursor? }`. A `limit`, `offset` or `cursor` that is not a whole number in range is a `400`. Records with equal sort values come back in a stable order (the id breaks ties), so paging never repeats or skips one. Document size, nesting depth and array length
 are bounded by `DATA_ENGINE_MAX_DOC_KB` (1024), `DATA_ENGINE_MAX_NESTING_DEPTH` (8) and
 `DATA_ENGINE_MAX_ARRAY_ITEMS` (1000).
 
