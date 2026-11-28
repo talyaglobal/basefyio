@@ -417,7 +417,7 @@ Point-in-time recovery uses volumes only the production file defines; see
 | `PITR_RECOVERY_MEMORY_MB` / `PITR_RECOVERY_CPU_MILLIS` | `1024` / `1000` | no / no | Memory cap and CPU share (1000 = one core) of the throwaway recovery container. |
 | `PITR_ATOMIC_MAX_OBJECTS` | `4000` | no / no | Dumps up to this many objects are loaded in one transaction (all or nothing); larger ones object by object. |
 | `POSTGRES_WAL_ARCHIVE_DIR` | `/var/lib/postgresql/wal_archive` | no / no | Where Postgres archives finished WAL segments (the prod file mounts a volume there). |
-| `DISK_PROBE_DATA_PATH` | `/` | no / no | Path whose filesystem carries Docker's data (root console → server disk). |
+| `DISK_PROBE_DATA_PATH` | `/` | no / no | Path whose filesystem carries Docker's data (Admin console → server disk). |
 | `DISK_PROBE_SYSTEM_PATH` | `/host/system` | no / no | Bind-mounted empty host directory used to measure the system disk. |
 | `DISK_WARN_PERCENT` / `DISK_CRITICAL_PERCENT` | `80` / `90` | no / no | Disk usage thresholds for the warning and critical states. |
 

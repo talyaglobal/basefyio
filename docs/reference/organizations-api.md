@@ -56,10 +56,10 @@ wizard and the header switcher) are switched on per installation with the runtim
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/api/features` | public — every flag and whether it is on, e.g. `{ "organizations_ui": false }` |
-| PATCH | `/api/features/management` | root console — `{ name, enabled }` flips one flag; it is visible everywhere within 30 seconds, no deploy |
+| PATCH | `/api/features/management` | Admin console — `{ name, enabled }` flips one flag; it is visible everywhere within 30 seconds, no deploy |
 
 A flag is a `system_settings` row `features.<name>` holding a boolean; a missing row means off.
-The root console flips it under Users & billing → Organizations.
+The Admin console flips it under Users & billing → Organizations.
 
 With `organizations_ui` on, the dashboard gains `/dashboard/org/<id>` (overview), `/projects`,
 `/members`, `/billing`, `/settings` and the creation wizard at `/dashboard/org/new`; the header

@@ -1,6 +1,6 @@
 # Capacity API (`/api/admin/capacity`)
 
-What the root console's **Capacity** page reads: how loaded every resource is, how many more
+What the Admin console's **Capacity** page reads: how loaded every resource is, how many more
 projects fit at today's usage profile, and what a hypothetical platform would do. Every route
 needs a ROOT session, except the benchmark upload, which takes a token.
 

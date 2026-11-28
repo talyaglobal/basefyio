@@ -94,7 +94,7 @@ const ALL_NAV_ITEMS: NavItem[] = [
 const ROOT_NAV_ITEMS: NavItem[] = [
   {
     href: '/console',
-    label: 'Root console',
+    label: 'Admin',
     icon: ShieldCheck,
     isActive: () => false,
   },

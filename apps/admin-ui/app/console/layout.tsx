@@ -168,7 +168,7 @@ export default function ConsoleLayout({ children }: { children: ReactNode }) {
                 basefyio
                 <BetaBadge tone="dark" />
               </div>
-              <div className="text-[11px] uppercase tracking-wider text-zinc-400">Root console</div>
+              <div className="text-[11px] uppercase tracking-wider text-zinc-400">Admin</div>
             </div>
           </div>
 
