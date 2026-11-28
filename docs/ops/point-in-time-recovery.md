@@ -1,3 +1,8 @@
+> **Status of the hosted platform (28 November 2026):** basefyio moved to new infrastructure and the per-project
+> exact-second restore described below is paused there (the dashboard refuses new restores with a 503,
+> `PITR_RESTORE_ENABLED=false`). Nightly backups of active projects continue, and the whole database cluster keeps its own
+> continuous archive. This page describes the design that self-hosted (Docker Compose) installations run.
+
 # Point-in-Time Recovery (PITR)
 
 Restoring a nightly backup answers "what did the database look like last night?".

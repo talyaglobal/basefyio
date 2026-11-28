@@ -25,6 +25,17 @@ export default function BackupsDocs() {
         choice, so an accidental <code>DELETE</code> at 14:32 can be undone by recovering to 14:31.
       </p>
 
+      <blockquote>
+        <p>
+          <strong>Update 28 November 2026.</strong> basefyio moved to new infrastructure. While we
+          rebuild it on the new platform, restoring a project to an exact second from the dashboard
+          is paused, and the Point-in-time recovery panel refuses new restores. Nightly backups of
+          active projects keep running. If you need to recover data, write to{" "}
+          <a href="mailto:support@basefyio.com">support@basefyio.com</a> and we will help you right
+          away. Self-hosted installations are not affected.
+        </p>
+      </blockquote>
+
       <h2>How it works</h2>
       <ul>
         <li><strong>Nightly backups</strong> — taken automatically for every project; nothing to configure. The backup page of a project lists them with their health, including whether the newest one has been proven restorable.</li>

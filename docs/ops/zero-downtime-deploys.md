@@ -1,3 +1,8 @@
+> **Hosted platform (28 November 2026):** production no longer runs on Docker Compose. It runs on a Kubernetes cluster where the
+> same goal is met by Deployments with `maxUnavailable: 0`, `maxSurge: 1`, readiness probes, two replicas behind a PodDisruptionBudget
+> and a 10 s `preStop` wait, so an old pod keeps answering until the ingress has dropped it. This page describes the Docker Compose
+> flow that self-hosted installations use.
+
 # Deploys without a gap
 
 The target is 99.99% uptime: about 4.4 minutes a month. A deploy must not take the site, the
