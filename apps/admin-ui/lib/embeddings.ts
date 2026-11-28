@@ -36,6 +36,10 @@ export interface EmbeddingStatus {
   padded: boolean;
   dataRegion: DataRegion;
   reembed: ReembedState | null;
+  /** The project may compute embeddings with the platform's key (Pro plan and above), or uses its own key. */
+  platformKeyAllowed?: boolean;
+  /** Daily platform-key token limit, today's use and its reset; null on the project's own key. */
+  dailyTokens?: { limit: number | null; used: number | null; resetsAt: string | null } | null;
 }
 
 export interface EmbeddingProviderOption {

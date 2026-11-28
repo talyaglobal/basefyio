@@ -1787,6 +1787,45 @@ export const api = {
         { method: 'DELETE' },
       );
     },
+    // ── Data Engine vectors ──
+    entityVectorStatus(projectId: string, entityName: string) {
+      return request<import('./types').EntityVectorStatus>(
+        `/v1/projects/${projectId}/entities/${encodeURIComponent(entityName)}/vector-status`,
+      );
+    },
+    setEntityVectorConfig(
+      projectId: string,
+      entityName: string,
+      config: { mode: 'platform'; sourcePaths: string[] } | { mode: 'client'; dimensions: number },
+      opts?: { purge?: boolean },
+    ) {
+      return request<import('./types').EntityVectorConfig>(
+        `/v1/projects/${projectId}/entities/${encodeURIComponent(entityName)}/vector-config${opts?.purge ? '?purge=true' : ''}`,
+        { method: 'PUT', body: JSON.stringify(config) },
+      );
+    },
+    deleteEntityVectorConfig(projectId: string, entityName: string, opts?: { purge?: boolean }) {
+      return request<{ deleted: true; cleared: number }>(
+        `/v1/projects/${projectId}/entities/${encodeURIComponent(entityName)}/vector-config${opts?.purge ? '?purge=true' : ''}`,
+        { method: 'DELETE' },
+      );
+    },
+    reembedEntity(projectId: string, entityName: string) {
+      return request<{ queued: boolean; total: number; reembed: import('./types').EntityVectorReembed }>(
+        `/v1/projects/${projectId}/entities/${encodeURIComponent(entityName)}/reembed`,
+        { method: 'POST' },
+      );
+    },
+    searchEntityVectors(
+      projectId: string,
+      entityName: string,
+      body: { query?: string; vector?: number[]; filter?: Record<string, unknown>; limit?: number; threshold?: number },
+    ) {
+      return request<import('./types').EntityVectorSearchResult>(
+        `/v1/projects/${projectId}/data/${encodeURIComponent(entityName)}/search`,
+        { method: 'POST', body: JSON.stringify(body) },
+      );
+    },
 
     /** Connection details with every password and the service key masked (#14). */
     connect(projectId: string) {

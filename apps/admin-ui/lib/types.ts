@@ -778,6 +778,47 @@ export interface EntityDefinitionInfo {
   updatedAt: string;
 }
 
+export type EntityVectorConfig =
+  | { mode: 'client'; dimensions: number; updatedAt: string }
+  | { mode: 'platform'; dimensions: number; sourcePaths: string[]; modelTag: string; updatedAt: string };
+
+export interface EntityVectorReembed {
+  status: 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED';
+  done: number;
+  total: number;
+  failed: number;
+  model: string;
+  dimensions: number | null;
+  lastError: string | null;
+  startedAt?: string;
+  updatedAt: string;
+  finishedAt?: string;
+}
+
+export interface EntityVectorStatus {
+  mode: 'client' | 'platform' | null;
+  dimensions: number | null;
+  embedded: number;
+  total: number;
+  maxScan: number | null;
+  strategy: string | null;
+  modelTag: string | null;
+  sourcePaths: string[] | null;
+  currentModelTag: string | null;
+  mismatch: boolean;
+  pending: number | null;
+  failed: number | null;
+  reembed: EntityVectorReembed | null;
+  platformKeyAllowed: boolean | null;
+  dailyTokens: { limit: number | null; used: number | null; resetsAt: string | null } | null;
+}
+
+export interface EntityVectorSearchResult {
+  data: Array<DataEngineDoc & { _distance: number; _score: number }>;
+  scanned: number;
+  strategy: string;
+}
+
 export interface DataEngineDoc {
   _id: string;
   _entity: string;

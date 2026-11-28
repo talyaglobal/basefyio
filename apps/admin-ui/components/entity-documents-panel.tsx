@@ -25,9 +25,11 @@ import {
   RefreshCw,
   Search,
   ScrollText,
+  Sparkles,
   Trash2,
 } from 'lucide-react';
 import { formatDateTime } from '@/lib/format';
+import { EntityVectorsDialog } from '@/components/entity-vectors-dialog';
 
 // ── Insert Document Dialog ──────────────────────────────────
 
@@ -204,6 +206,7 @@ export function EntityDocumentsPanel({ projectId, entityName }: { projectId: str
   const [expandedDoc, setExpandedDoc] = useState<string | null>(null);
   const [filterText, setFilterText] = useState('');
   const [appliedFilter, setAppliedFilter] = useState('');
+  const [vectorsOpen, setVectorsOpen] = useState(false);
 
   const LIMIT = 50;
 
@@ -222,6 +225,7 @@ export function EntityDocumentsPanel({ projectId, entityName }: { projectId: str
     setEditDoc(null);
     setEditOpen(false);
     setInsertOpen(false);
+    setVectorsOpen(false);
   }
 
   // Debounce filter
@@ -317,6 +321,9 @@ export function EntityDocumentsPanel({ projectId, entityName }: { projectId: str
         <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setInsertOpen(true)}>
           <Plus className="mr-1 h-3.5 w-3.5" /> Insert
         </Button>
+        <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setVectorsOpen(true)} title="Vector embeddings and similarity search">
+          <Sparkles className="mr-1 h-3.5 w-3.5" /> Vectors
+        </Button>
         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={loadDocuments} title="Refresh">
           <RefreshCw className={cn('h-3.5 w-3.5', dataLoading && 'animate-spin')} />
         </Button>
@@ -411,6 +418,13 @@ export function EntityDocumentsPanel({ projectId, entityName }: { projectId: str
 
       {/* Dialogs */}
       <InsertDocDialog open={insertOpen} onOpenChange={setInsertOpen} projectId={projectId} entityName={entityName} onInserted={loadDocuments} />
+      <EntityVectorsDialog
+        open={vectorsOpen}
+        onOpenChange={setVectorsOpen}
+        projectId={projectId}
+        entityName={entityName}
+        fields={entity?.fields ?? []}
+      />
       <EditDocDialog open={editOpen} onOpenChange={setEditOpen} projectId={projectId} entityName={entityName} doc={editDoc} onSaved={loadDocuments} />
     </div>
   );

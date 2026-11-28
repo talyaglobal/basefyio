@@ -332,6 +332,22 @@ export default function EmbeddingsPage() {
         )}
       </div>
 
+      {/* Platform key: plan and daily limit */}
+      {status?.platformKeyAllowed === false && (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-4 text-sm">
+          Computing embeddings with the platform&apos;s key is available on the Pro plan and above. Upgrade your team
+          plan under Billing, or add your own embedding provider key below; your own key works on every plan without
+          a limit.
+        </div>
+      )}
+      {status?.platformKeyAllowed !== false && status?.dailyTokens?.limit != null && (
+        <p className="text-xs text-muted-foreground">
+          Platform key: {(status.dailyTokens.used ?? 0).toLocaleString('en-US')} of{' '}
+          {status.dailyTokens.limit.toLocaleString('en-US')} embedding tokens used today; the limit resets at 00:00 UTC.
+          Your own provider key is not limited.
+        </p>
+      )}
+
       {/* Re-embed progress */}
       {reembed && reembed.status !== 'COMPLETED' && (
         <div
