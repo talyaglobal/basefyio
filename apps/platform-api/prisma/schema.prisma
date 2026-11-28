@@ -386,6 +386,10 @@ model Project {
   /// Pooler cap (pool_size / max_db_connections) for this database. Null =
   /// inherit the plan's value, then the platform default.
   maxDbConnections    Int?                    @map("max_db_connections")
+  /// Set by operations for a project whose app still connects to the pooler without TLS;
+  /// the dashboard shows a notice while it is set. Cleared by DbTlsNoticeService once a
+  /// TLS client of the project's dbUser is seen on the pooler.
+  dbTlsNoticeAt       DateTime?               @map("db_tls_notice_at") @db.Timestamptz(6)
 
   realtimeBindings RealtimeBinding[]
   usage            ProjectUsage?

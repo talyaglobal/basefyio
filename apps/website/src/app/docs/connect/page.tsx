@@ -122,9 +122,14 @@ export default function ConnectDocs() {
       <p>
         Copy the connection URI from the dashboard and run:
       </p>
-      <pre><code>{`psql "postgresql://USER:PASSWORD@db.basefyio.com:6432/YOUR_DATABASE"`}</code></pre>
+      <pre><code>{`psql "postgresql://USER:PASSWORD@db.basefyio.com:6432/YOUR_DATABASE?sslmode=require"`}</code></pre>
       <p>
         Replace the URI with the actual <strong>Pooler Connection URI</strong> from your Connection page.
+      </p>
+      <p>
+        <strong>TLS is required.</strong> Connections to <code>db.basefyio.com</code> without encryption are
+        refused. Add <code>sslmode=require</code> to every connection string (as in the examples on this page);
+        host, port, user and password stay the same.
       </p>
 
       {/* ── Prisma / Drizzle / ORMs ──────────────────── */}
@@ -139,8 +144,8 @@ export default function ConnectDocs() {
         <li><code>DIRECT_URL</code> — Direct connection (for migrations and schema pushes)</li>
       </ul>
       <pre><code>{`# .env
-DATABASE_URL=postgresql://USER:PASSWORD@db.basefyio.com:6432/YOUR_DATABASE
-DIRECT_URL=postgresql://USER:PASSWORD@db.basefyio.com:6432/YOUR_DATABASE`}</code></pre>
+DATABASE_URL=postgresql://USER:PASSWORD@db.basefyio.com:6432/YOUR_DATABASE?sslmode=require
+DIRECT_URL=postgresql://USER:PASSWORD@db.basefyio.com:6432/YOUR_DATABASE?sslmode=require`}</code></pre>
       <p>
         In your Prisma schema:
       </p>
@@ -188,7 +193,7 @@ DIRECT_URL=postgresql://USER:PASSWORD@db.basefyio.com:6432/YOUR_DATABASE`}</code
         <li>Never commit database passwords to version control</li>
         <li>Use <code>.env</code> files (added to <code>.gitignore</code>) for local development</li>
         <li>Use your hosting platform&apos;s secret management for production deployments</li>
-        <li>The connection is encrypted in transit via TLS</li>
+        <li>Connections must use TLS (<code>sslmode=require</code>); plaintext connections are refused</li>
       </ul>
 
       <hr />

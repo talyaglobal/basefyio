@@ -353,6 +353,25 @@ ${this.serverResetLines()}${tlsLines}`;
     }
   }
 
+  /**
+   * The pooler's `SHOW CLIENTS` rows, read through the admin console. Throws when the
+   * console is unreachable; the caller decides what that means.
+   */
+  async showClients(): Promise<Array<Record<string, unknown>>> {
+    const pool = this.adminPool();
+    try {
+      const client = await pool.connect();
+      try {
+        const { rows } = await client.query('SHOW CLIENTS');
+        return rows as Array<Record<string, unknown>>;
+      } finally {
+        client.release();
+      }
+    } finally {
+      await pool.end().catch(() => {});
+    }
+  }
+
   /** A short-lived connection to the pooler's admin console. */
   private adminPool(): Pool {
     return new Pool({

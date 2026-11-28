@@ -200,8 +200,13 @@ The shape is the one this route always had, with every credential masked: each `
 `serviceKey` is `null` and each URI carries `[YOUR-PASSWORD]`. `readonly` is `null` until the
 companion role exists. `pooler.source` is `project`, `plan`, `platform` or `none` and says where
 `effective` comes from. `canResetDbPassword` and `canRevealSecrets` are only `true` for a dashboard
-session that holds the permission. The pooler endpoint is PgBouncer; connect with
-`sslmode=require`.
+session that holds the permission. The pooler endpoint is PgBouncer and requires TLS: add
+`sslmode=require` to the URI, because a plaintext connection is refused.
+
+The project read (`GET /api/projects/:id`) carries `dbTlsNoticeAt`: a timestamp while the
+project is marked as still connecting without TLS (the dashboard then shows a notice on every
+project page), otherwise `null`. The platform clears it within about five minutes of seeing a
+TLS connection from the project's database user on the pooler.
 
 ### Credentials
 

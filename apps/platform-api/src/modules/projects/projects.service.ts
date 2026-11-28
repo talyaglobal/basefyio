@@ -1481,6 +1481,8 @@ export class ProjectsService implements OnApplicationBootstrap {
     return {
       ...safe,
       lastImportAt: lastImport?.createdAt ?? null,
+      // Set while the project's app still connects to the pooler without TLS (dashboard notice).
+      dbTlsNoticeAt: project.dbTlsNoticeAt ?? null,
       folder,
       tags,
       previewBranch: previewBranchOf({ ...safe, parent }),

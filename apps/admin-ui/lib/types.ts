@@ -158,6 +158,8 @@ export interface Project {
   importSource?: 'MANUAL' | 'SUPABASE' | 'ZIP' | 'BRANCH';
   /** Newest finished import of any kind (Supabase, ZIP, Data > Import Data). */
   lastImportAt?: string | null;
+  /** Set while the project's app still connects to the database without TLS. */
+  dbTlsNoticeAt?: string | null;
   /** Persisted summary from the last completed Supabase import (if any). */
   supabaseImportLog?: unknown;
   github?: GitHubIntegration;

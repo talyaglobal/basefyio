@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { ProjectProvider } from '@/contexts/project-context';
 import { useDashboard } from '@/app/dashboard/layout';
 import { NotFoundView } from '@/components/not-found-view';
+import { DbTlsNotice } from '@/components/db-tls-notice';
 import { ContextHelpPanel } from '@/components/context-help-panel';
 import { useTourActive } from '@/components/tour/tour-provider';
 import { subscribebasefyioRealtime, isRealtimePhase1Enabled } from '@/lib/basefyio-realtime';
@@ -638,6 +639,7 @@ export default function ProjectLayout({
         </Button>
         <span className="min-w-0 truncate text-sm font-medium">{project.name}</span>
       </div>
+      <DbTlsNotice project={project} />
       <div className="relative flex min-h-0 min-w-0 flex-1">
         <div
           className={cn(
