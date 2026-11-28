@@ -16,6 +16,8 @@ regexes = [
   '''^(0123456789abcdef)+[0-9a-f]*$''',
   # Fake tsmartsend key used by the project-auth-config spec.
   '''^ts_abcdefgh1234$''',
+  # Fake provider key in the data-vector-embedder spec: it checks that an error message is scrubbed of the key.
+  '''^sk-proj-abcdef123456$''',
 ]
 
 # Marketing copy lists "authentication, S3-compatible storage, …"; the generic
