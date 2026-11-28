@@ -41,21 +41,29 @@ const project = {
   keycloakRealm: 'shop',
 };
 
-/** The pg_dump argument list exactly as it was before dump-time counting existed. */
+/** The pg_dump argument list of a shared-cluster project: platform admin login, no counting. */
 function baseDumpArgs(outputPath: string) {
   return [
     '--host', 'postgres',
     '--port', '5432',
-    '--username', 'p_shop',
+    '--username', 'platform_admin',
     '--dbname', 'p_shop_db',
     '--format=plain',
     '--no-owner',
     '--no-acl',
+    '--no-subscriptions',
     '--clean',
     '--if-exists',
     '-f', outputPath,
   ];
 }
+
+const ADMIN_CONFIG: Record<string, any> = {
+  'database.host': 'postgres',
+  'database.port': 5432,
+  'database.user': 'platform_admin',
+  'database.password': 'admin-pass-123',
+};
 
 function okExec() {
   execFileMock.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: any) =>
@@ -89,6 +97,7 @@ function makeProcessor(over: Partial<Record<string, any>> = {}) {
   };
   processor.activity = { append: jest.fn(async () => undefined) };
   processor.offsite = { copyFile: jest.fn(async () => 'uploaded') };
+  processor.config = { get: (k: string) => ADMIN_CONFIG[k] };
   Object.assign(processor, over);
   return processor;
 }
@@ -267,5 +276,78 @@ describe('ExportProcessor.process — off-site copy of the nightly archive', () 
     const processor = makeProcessor();
     processor.offsite.copyFile.mockResolvedValue('failed');
     await expect(processor.process(job(true))).resolves.toMatchObject({ bucket: 'bf-platform-auto-backups' });
+  });
+});
+
+describe('ExportProcessor.exportDatabase — row security', () => {
+  it('dumps with the platform admin login via PGPASSWORD, never the project role or its password', async () => {
+    okExec();
+    process.env.BACKUP_TABLE_COUNTS = 'false';
+    const processor = makeProcessor();
+    await processor.exportDatabase(project, join(dir, 'dump.sql'), join(dir, 'tables.json'));
+
+    const [cmd, args, opts] = execFileMock.mock.calls[0];
+    expect(cmd).toBe('pg_dump');
+    expect(args[args.indexOf('--username') + 1]).toBe('platform_admin');
+    expect(args).not.toContain('p_shop');
+    expect(opts.env.PGPASSWORD).toBe('admin-pass-123');
+    expect(args.join(' ')).not.toContain('admin-pass-123');
+    expect(args.join(' ')).not.toContain('secret');
+    expect(args).not.toContain('--enable-row-security');
+    expect(args).toEqual(expect.arrayContaining(['--no-owner', '--no-acl', '--clean', '--if-exists']));
+  });
+
+  it('opens the count session with the same admin login, so counts see every row', async () => {
+    okExec();
+    pgClientFactory.mockImplementation(() => countingClient());
+    const processor = makeProcessor();
+    await processor.exportDatabase(project, join(dir, 'dump.sql'), join(dir, 'tables.json'));
+
+    const { Client } = jest.requireMock('pg');
+    expect(Client).toHaveBeenLastCalledWith(
+      expect.objectContaining({ user: 'platform_admin', password: 'admin-pass-123', database: 'p_shop_db' }),
+    );
+    for (const call of execFileMock.mock.calls) expect(call[1]).not.toContain('--enable-row-security');
+  });
+
+  it('keeps the project login for a project on a dedicated host', async () => {
+    okExec();
+    process.env.BACKUP_TABLE_COUNTS = 'false';
+    const processor = makeProcessor();
+    await processor.exportDatabase({ ...project, dbHost: 'dedicated-1' }, join(dir, 'dump.sql'));
+
+    const [, args, opts] = execFileMock.mock.calls[0];
+    expect(args[args.indexOf('--username') + 1]).toBe('p_shop');
+    expect(opts.env.PGPASSWORD).toBe('secret');
+    expect(args).not.toContain('--enable-row-security');
+  });
+
+  it('records the stderr tail, without secrets, in the "Daily auto-backup failed" detail', async () => {
+    process.env.BACKUP_TABLE_COUNTS = 'false';
+    const stderr =
+      'pg_dump: error: query failed: ERROR:  query would be affected by row-level security policy for table "activity_timeline"\n' +
+      'pg_dump: detail: Query was: COPY public.activity_timeline (id, at) TO stdout; password admin-pass-123';
+    execFileMock.mockImplementation((_cmd: string, args: string[], _opts: unknown, cb: any) =>
+      cb(Object.assign(new Error(`Command failed: pg_dump ${args.join(' ')}\n${stderr}`), { stderr })),
+    );
+    const processor = makeProcessor();
+    const job = {
+      id: 'j1',
+      data: { projectId: 'p1', includeDatabase: true, includeAuth: false, includeStorage: false, includeConfig: false, autoBackup: true },
+      updateProgress: jest.fn(async () => undefined),
+    };
+
+    await expect(processor.process(job)).rejects.toThrow(/row-level security/);
+
+    const failed = processor.activity.append.mock.calls
+      .map((c: any[]) => c[1])
+      .find((e: any) => e.title === 'Daily auto-backup failed');
+    expect(failed).toBeDefined();
+    expect(failed.detail).toMatch(/^pg_dump failed: /);
+    expect(failed.detail).toContain('row-level security policy for table "activity_timeline"');
+    expect(failed.detail).toContain('COPY public.activity_timeline');
+    expect(failed.detail).not.toContain('--host');
+    expect(failed.detail).not.toContain('admin-pass-123');
+    expect(failed.detail.length).toBeLessThanOrEqual('pg_dump failed: '.length + 301);
   });
 });

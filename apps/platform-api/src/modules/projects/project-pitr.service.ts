@@ -25,6 +25,7 @@ import {
   ProjectActivityService,
 } from './project-activity.service';
 import { BackupOffsiteService } from './backups/backup-offsite.service';
+import { adminLoginFromEnv, dumpFailureReason, resolveDumpLogin } from './backups/dump-login';
 import { PlatformAlertsService } from '../platform-alerts/platform-alerts.service';
 
 const execFileAsync = promisify(execFile);
@@ -406,27 +407,36 @@ export class ProjectPitrService {
       const dumpPath = join(workDir, 'base.dump');
       // A custom-format dump is the portable base; combined with archived WAL it
       // gives a consistent starting point that recovery replays forward from.
-      await execFileAsync(
-        'pg_dump',
-        [
-          '--host', project.dbHost || 'postgres',
-          '--port', String(project.dbPort || 5432),
-          '--username', project.dbUser,
-          '--dbname', project.dbName,
-          '--format=custom',
-          '--no-owner',
-          '--no-acl',
-          '-f', dumpPath,
-        ],
-        {
-          env: {
-            ...process.env,
-            PGPASSWORD: project.dbPassword || '',
-            PGCONNECT_TIMEOUT: '10',
+      // As the platform admin login: a FORCE ROW LEVEL SECURITY table refuses
+      // pg_dump as its owner (see backups/dump-login.ts). Never
+      // `--enable-row-security`, which would drop rows instead of failing.
+      const login = resolveDumpLogin(project, adminLoginFromEnv());
+      try {
+        await execFileAsync(
+          'pg_dump',
+          [
+            '--host', login.host,
+            '--port', String(login.port),
+            '--username', login.user,
+            '--dbname', project.dbName,
+            '--format=custom',
+            '--no-owner',
+            '--no-acl',
+            '--no-subscriptions',
+            '-f', dumpPath,
+          ],
+          {
+            env: {
+              ...process.env,
+              PGPASSWORD: login.password,
+              PGCONNECT_TIMEOUT: '10',
+            },
+            maxBuffer: 1024 * 1024 * 64,
           },
-          maxBuffer: 1024 * 1024 * 64,
-        },
-      );
+        );
+      } catch (err: any) {
+        throw new Error(`pg_dump failed: ${dumpFailureReason(err, [login.password, project.dbPassword])}`);
+      }
 
       const key = `${project.id}/base/${stamp}.dump`;
       await this.storage.uploadPlatformFileFromPath(PITR_BUCKET, key, dumpPath);

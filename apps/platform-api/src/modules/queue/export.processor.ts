@@ -24,6 +24,12 @@ import { BackupOffsiteService } from '../projects/backups/backup-offsite.service
 import { TABLE_COUNTS_ENTRY, collectTableCounts } from '../projects/backups/table-counts';
 import { ENCRYPTED_SUFFIX, createEncryptStream, getBackupKey } from '../projects/backups/backup-crypto';
 import { envFlag, envInt } from '../projects/backups/backup-env';
+import {
+  AdminLogin,
+  adminLoginFromEnv,
+  dumpFailureReason,
+  resolveDumpLogin,
+} from '../projects/backups/dump-login';
 
 const execFileAsync = promisify(execFile);
 
@@ -342,31 +348,47 @@ export class ExportProcessor extends WorkerHost {
     outputPath: string,
     countsPath: string | null = null,
   ) {
+    // The platform admin login, not the project role: a table with FORCE ROW
+    // LEVEL SECURITY refuses pg_dump as its owner (see dump-login.ts). Never
+    // `--enable-row-security` — that drops rows instead of failing.
+    const login = resolveDumpLogin(project, this.adminLogin());
     const args = [
       '--host',
-      project.dbHost,
+      login.host,
       '--port',
-      String(project.dbPort),
+      String(login.port),
       '--username',
-      project.dbUser,
+      login.user,
       '--dbname',
       project.dbName,
       '--format=plain',
       '--no-owner',
       '--no-acl',
+      // A superuser would also dump subscriptions, which the project role can
+      // neither read nor recreate on restore; the project-role dump never had them.
+      '--no-subscriptions',
       '--clean',
       '--if-exists',
       '-f',
       outputPath,
     ];
+    // Credentials only through the environment, never on the command line.
     const env = {
       ...process.env,
-      PGPASSWORD: project.dbPassword,
+      PGPASSWORD: login.password,
       PGCONNECT_TIMEOUT: '10',
+    };
+    const secrets = [login.password, project.dbPassword];
+    const runDump = async (dumpArgs: string[]) => {
+      try {
+        await execFileAsync('pg_dump', dumpArgs, { env, maxBuffer: 1024 * 1024 * 16 });
+      } catch (err: any) {
+        throw new Error(`pg_dump failed: ${dumpFailureReason(err, secrets)}`);
+      }
     };
 
     if (!countsPath || !envFlag('BACKUP_TABLE_COUNTS', true)) {
-      await execFileAsync('pg_dump', args, { env });
+      await runDump(args);
       return;
     }
 
@@ -374,10 +396,12 @@ export class ExportProcessor extends WorkerHost {
     let snapshot: string | null = null;
     try {
       client = new Client({
-        host: project.dbHost,
-        port: project.dbPort,
-        user: project.dbUser,
-        password: project.dbPassword,
+        // Same login as the dump, so the counts see every row the dump holds
+        // (as the project role, a forced policy would silently shrink them).
+        host: login.host,
+        port: login.port,
+        user: login.user,
+        password: login.password,
         database: project.dbName,
         connectionTimeoutMillis: 10_000,
       });
@@ -392,20 +416,20 @@ export class ExportProcessor extends WorkerHost {
     }
 
     if (!client || !snapshot) {
-      await execFileAsync('pg_dump', args, { env });
+      await runDump(args);
       return;
     }
 
     try {
       try {
-        await execFileAsync('pg_dump', [...args, `--snapshot=${snapshot}`], { env });
+        await runDump([...args, `--snapshot=${snapshot}`]);
       } catch (err: any) {
         // The dump is what matters. Give up the snapshot and take a plain one.
         this.logger.warn(`pg_dump under snapshot failed for ${project.dbName} (${err?.message}); retrying without`);
         await client.query('COMMIT').catch(() => undefined);
         await client.end().catch(() => undefined);
         client = null;
-        await execFileAsync('pg_dump', args, { env });
+        await runDump(args);
         return;
       }
 
@@ -425,6 +449,17 @@ export class ExportProcessor extends WorkerHost {
         await client.end().catch(() => undefined);
       }
     }
+  }
+
+  /** The platform admin login (`database.*`), the same one backup verification uses. */
+  private adminLogin(): AdminLogin {
+    if (!this.config) return adminLoginFromEnv();
+    return {
+      host: this.config.get<string>('database.host') || 'localhost',
+      port: Number(this.config.get<number>('database.port') || 5432),
+      user: this.config.get<string>('database.user') || '',
+      password: this.config.get<string>('database.password') || '',
+    };
   }
 
   private async exportAuth(
