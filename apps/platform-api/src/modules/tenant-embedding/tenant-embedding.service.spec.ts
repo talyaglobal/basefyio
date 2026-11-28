@@ -37,6 +37,8 @@ import {
 } from '@nestjs/common';
 import { TenantEmbeddingService } from './tenant-embedding.service';
 import { EmbeddingProviderService } from '../embedding/providers/embedding-provider.service';
+import { ProjectEmbeddingService } from '../embedding/project-embedding.service';
+import { embeddingPlanRequiredError } from '../entitlement/entitlement.service';
 
 const fetchMock = jest.fn();
 
@@ -76,7 +78,7 @@ const project: ProjectFixture = {
 
 function service(
   overrides: Partial<ProjectFixture> = {},
-  opts: { config?: Record<string, unknown> } = {},
+  opts: { config?: Record<string, unknown>; planAllowed?: boolean } = {},
 ) {
   const prisma = {
     project: {
@@ -88,11 +90,25 @@ function service(
   const config = { get: (k: string) => values[k] };
   const providers = new EmbeddingProviderService(config as any);
   const queue = { add: jest.fn().mockResolvedValue({}) };
-  const svc = new TenantEmbeddingService(prisma as any, config as any, providers, queue as any);
+  const budget = {
+    assertWithinBudget: jest.fn(async () => undefined),
+    record: jest.fn(async () => undefined),
+    limit: jest.fn(() => 1_000_000),
+    used: jest.fn(async () => 0),
+  };
+  const entitlements = {
+    assertTeamCanUsePlatformEmbeddings: jest.fn(async () => {
+      if (opts.planAllowed === false) throw embeddingPlanRequiredError();
+    }),
+    teamCanUsePlatformEmbeddings: jest.fn(async () => opts.planAllowed !== false),
+  };
+  const projectEmbedding = new ProjectEmbeddingService(providers, budget as any, prisma as any, entitlements as any);
+  jest.spyOn((projectEmbedding as any).logger, 'error').mockImplementation(() => undefined);
+  const svc = new TenantEmbeddingService(prisma as any, config as any, providers, queue as any, projectEmbedding);
   const logger = (svc as any).logger;
   jest.spyOn(logger, 'error').mockImplementation(() => undefined);
   jest.spyOn(logger, 'log').mockImplementation(() => undefined);
-  return Object.assign(svc, { prismaMock: prisma, queueMock: queue, providersMock: providers });
+  return Object.assign(svc, { prismaMock: prisma, queueMock: queue, providersMock: providers, budgetMock: budget, entitlementsMock: entitlements });
 }
 
 function embedResponse(n: number, dims = 2) {
@@ -687,5 +703,64 @@ describe('TenantEmbeddingService AI switch and document projects', () => {
     poolQuery.mockImplementation(storeWith({ vectors: 0, dims: 2 }));
     embeddingsCreate.mockResolvedValue(embedResponse(1, 2));
     await expect(service({ databaseType: 'NOSQL' } as any).search('p1', { query: 'q' })).resolves.toEqual([]);
+  });
+});
+
+describe('TenantEmbeddingService platform-key plan gate (shared with Data Engine vectors)', () => {
+  const code = (err: any) => (err instanceof HttpException ? (err.getResponse() as any).code : undefined);
+
+  it('a Free team on the platform key gets 403 EMBEDDING_PLAN_REQUIRED on store, batch and search, without a provider call', async () => {
+    poolQuery.mockResolvedValue({ rows: [] });
+    embeddingsCreate.mockResolvedValue(embedResponse(1));
+    const svc = service({}, { planAllowed: false });
+    for (const call of [
+      () => svc.store('p1', { content: 'a' }),
+      () => svc.storeBatch('p1', [{ content: 'a' }, { content: 'b' }]),
+      () => svc.search('p1', { query: 'a' }),
+    ]) {
+      const err = await call().catch((e) => e);
+      expect(err).toBeInstanceOf(HttpException);
+      expect((err as HttpException).getStatus()).toBe(403);
+      expect(code(err)).toBe('EMBEDDING_PLAN_REQUIRED');
+    }
+    expect(embeddingsCreate).not.toHaveBeenCalled();
+    expect(svc.budgetMock.assertWithinBudget).not.toHaveBeenCalled();
+  });
+
+  it('a Free team with its own key is not gated and not limited', async () => {
+    poolQuery.mockResolvedValue({ rows: [] });
+    embeddingsCreate.mockResolvedValue(embedResponse(1));
+    const svc = service({ embeddingApiKey: 'sk-own' }, { planAllowed: false });
+    await expect(svc.search('p1', { query: 'a' })).resolves.toEqual([]);
+    expect(svc.entitlementsMock.assertTeamCanUsePlatformEmbeddings).not.toHaveBeenCalled();
+    expect(svc.budgetMock.assertWithinBudget).not.toHaveBeenCalled();
+  });
+
+  it('an allowed plan on the platform key is checked against the team and the daily budget', async () => {
+    poolQuery.mockResolvedValue({ rows: [] });
+    embeddingsCreate.mockResolvedValue(embedResponse(1));
+    const svc = service();
+    await svc.search('p1', { query: 'a' });
+    expect(svc.entitlementsMock.assertTeamCanUsePlatformEmbeddings).toHaveBeenCalledWith('t1');
+    expect(svc.budgetMock.assertWithinBudget).toHaveBeenCalledWith('p1', 'platform', expect.any(Number));
+    expect(svc.budgetMock.record).toHaveBeenCalledWith('p1', 10, 'platform');
+  });
+
+  it('status tells the dashboard whether the platform key may be used, and the daily limit', async () => {
+    poolQuery.mockImplementation(storeWith({ vectors: 0 }));
+    const free = await service({}, { planAllowed: false }).getStatus('p1');
+    expect(free).toMatchObject({ platformKeyAllowed: false, dailyTokens: { limit: 1_000_000, used: 0 } });
+    expect(free.dailyTokens!.resetsAt).toMatch(/T00:00:00.000Z$/);
+    const own = await service({ embeddingApiKey: 'sk-own' }, { planAllowed: false }).getStatus('p1');
+    expect(own).toMatchObject({ platformKeyAllowed: true, dailyTokens: null });
+  });
+
+  it('a Free team re-embed ends FAILED naming the plan, without provider calls', async () => {
+    poolQuery.mockImplementation(storeWith({ vectors: 5 }));
+    const svc = service({}, { planAllowed: false });
+    const state = await svc.reembedProject('p1');
+    expect(state.status).toBe('FAILED');
+    expect(state.error).toMatch(/Pro plan and above/);
+    expect(embeddingsCreate).not.toHaveBeenCalled();
   });
 });

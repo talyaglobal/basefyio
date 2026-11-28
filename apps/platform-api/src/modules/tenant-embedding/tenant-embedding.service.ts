@@ -3,11 +3,7 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
-  BadGatewayException,
   ConflictException,
-  ForbiddenException,
-  HttpException,
-  HttpStatus,
   InternalServerErrorException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -22,7 +18,6 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { TENANT_EMBEDDING_QUEUE } from '../queue/queue.module';
 import {
   EmbeddingProviderService,
-  type EmbedOutcome,
   type ProviderDescription,
   type ResolvedProvider,
 } from '../embedding/providers/embedding-provider.service';
@@ -32,10 +27,9 @@ import {
   isEmbeddingProviderId,
   type EmbedIntent,
 } from '../embedding/providers/embedding-provider';
-import {
-  PROVIDER_CATALOGUE,
-  isPrivateHost,
-} from '../embedding/providers/provider-registry';
+import { PROVIDER_CATALOGUE } from '../embedding/providers/provider-registry';
+import { validateProjectBaseUrl } from '../embedding/providers/provider-http';
+import { ProjectEmbeddingService, aiDisabledError } from '../embedding/project-embedding.service';
 import {
   buildDisclosure,
   regionFromCode,
@@ -43,7 +37,6 @@ import {
   type ProviderDisclosure,
 } from '../embedding/providers/disclosure';
 import type { SetEmbeddingProviderDto } from './dto/set-embedding-provider.dto';
-import { aiEnabled, AI_DISABLED_MESSAGE } from '../../common/utils/ai-switch';
 
 /** Inputs per provider request (the APIs allow more; keep bodies small). */
 const EMBED_BATCH = 100;
@@ -54,10 +47,7 @@ const MAX_FILTER_KEYS = 10;
 const MAX_DELETE_IDS = 1000;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** 403 AI_DISABLED: the installation switched every model call off. */
-export function aiDisabledError(): ForbiddenException {
-  return new ForbiddenException({ statusCode: 403, code: 'AI_DISABLED', message: AI_DISABLED_MESSAGE });
-}
+export { aiDisabledError };
 
 /**
  * The search `filter` as one jsonb containment value: a plain object of at
@@ -182,6 +172,10 @@ export interface TenantEmbeddingStatus {
   padded: boolean;
   dataRegion: DataRegion;
   reembed: ReembedState | null;
+  /** The project may compute embeddings with the platform's key (Pro plan and above), or uses its own key. */
+  platformKeyAllowed: boolean;
+  /** Daily platform-key token limit, today's use and its reset; null on the project's own key. */
+  dailyTokens: { limit: number | null; used: number | null; resetsAt: string | null } | null;
 }
 
 export interface SetProviderResult {
@@ -222,6 +216,7 @@ export class TenantEmbeddingService {
     private readonly config: ConfigService,
     private readonly providers: EmbeddingProviderService,
     @InjectQueue(TENANT_EMBEDDING_QUEUE) private readonly queue: Queue,
+    private readonly projectEmbedding: ProjectEmbeddingService,
   ) {}
 
   /* ──────────────── pgvector enable / disable ──────────────── */
@@ -373,6 +368,7 @@ export class TenantEmbeddingService {
       for (let i = 0; i < missing.length; i += EMBED_BATCH) {
         const slice = missing.slice(i, i + EMBED_BATCH);
         const embeddings = await this.generateEmbeddings(
+          project,
           resolved,
           slice.map((p) => p.content),
           'document',
@@ -446,7 +442,7 @@ export class TenantEmbeddingService {
     const pool = this.projectPool(project);
     try {
       const targetDimensions = await this.storeDimensions(project, pool);
-      const [embedding] = await this.generateEmbeddings(resolved, [query], 'query', targetDimensions);
+      const [embedding] = await this.generateEmbeddings(project, resolved, [query], 'query', targetDimensions);
 
       const conditions: string[] = [
         `(es.embedding <=> $1::vector) < $2`,
@@ -561,6 +557,7 @@ export class TenantEmbeddingService {
 
     const measured = await this.describeAndMeasure(project, storedDimensions);
     const disclosure = this.disclosureFor(project, measured);
+    const usage = await this.projectEmbedding.platformKeyUsage(project);
 
     return {
       pgvectorEnabled: project.pgvectorEnabled,
@@ -580,6 +577,8 @@ export class TenantEmbeddingService {
       padded: disclosure.provider.padded,
       dataRegion: disclosure.dataRegion,
       reembed: this.reembedState(project),
+      platformKeyAllowed: usage.platformKeyAllowed,
+      dailyTokens: usage.platformKey ? { limit: usage.limit, used: usage.used, resetsAt: usage.resetsAt } : null,
     };
   }
 
@@ -651,7 +650,7 @@ export class TenantEmbeddingService {
       throw new BadRequestException('model may only contain letters, digits, ".", ":", "@", "/", "-" and "_"');
     }
     const baseUrl = dto.baseUrl?.trim() || null;
-    if (baseUrl) this.validateProjectBaseUrl(baseUrl, settings.allowPrivateBaseUrl);
+    if (baseUrl) validateProjectBaseUrl(baseUrl, settings.allowPrivateBaseUrl);
     if (providerId === null && (model || baseUrl)) {
       throw new BadRequestException('model and baseUrl need a provider; omit them to use the platform default');
     }
@@ -897,10 +896,11 @@ export class TenantEmbeddingService {
             );
         if (page.rows.length === 0) break;
 
-        const out: EmbedOutcome = await this.providers.embed(
-          resolved,
+        // Shared path: per-project daily budget, provider-error mapping, token count.
+        const out = await this.projectEmbedding.embedForProject(
+          project,
           page.rows.map((r) => r.content),
-          { intent: 'document', targetDimensions },
+          { intent: 'document', targetDimensions, resolved, mapErrors: false },
         );
         const perItem =
           out.tokenCount != null ? Math.round(out.tokenCount / page.rows.length) : null;
@@ -1021,13 +1021,7 @@ export class TenantEmbeddingService {
 
   /** forProject, with the AI switch answered as 403 AI_DISABLED instead of a 500. */
   private resolveProvider(fields: Parameters<EmbeddingProviderService['forProject']>[0]): ResolvedProvider {
-    if (!aiEnabled()) throw aiDisabledError();
-    try {
-      return this.providers.forProject(fields);
-    } catch (err) {
-      if (err instanceof Error && err.message === AI_DISABLED_MESSAGE) throw aiDisabledError();
-      throw err;
-    }
+    return this.projectEmbedding.resolve(fields);
   }
 
   private async describeAndMeasure(project: ProjectRow, storedDimensions: number | null) {
@@ -1067,31 +1061,6 @@ export class TenantEmbeddingService {
         ? `No ${m.entry.name} API key configured. Set a per-project key or the platform ${m.entry.keyEnvVar}.`
         : null,
     });
-  }
-
-  /**
-   * Per-project `baseUrl`: public https only, unless the operator allows
-   * private hosts (self-hosters with a LAN Ollama). Credentials in the URL are
-   * refused outright — the key field is where a key belongs.
-   */
-  private validateProjectBaseUrl(baseUrl: string, allowPrivate: boolean): void {
-    let url: URL;
-    try {
-      url = new URL(baseUrl);
-    } catch {
-      throw new BadRequestException('baseUrl must be an absolute http(s) URL');
-    }
-    if (url.protocol !== 'https:' && url.protocol !== 'http:') {
-      throw new BadRequestException('baseUrl must be an absolute http(s) URL');
-    }
-    if (url.username || url.password) {
-      throw new BadRequestException('baseUrl must not carry credentials; use the API key field');
-    }
-    if (!allowPrivate && (url.protocol !== 'https:' || isPrivateHost(baseUrl))) {
-      throw new BadRequestException(
-        'Private and plain-http endpoints are not allowed. Use a public https URL.',
-      );
-    }
   }
 
   /** Width of this project's vector column (from the catalog), cached for a few minutes. */
@@ -1176,55 +1145,24 @@ export class TenantEmbeddingService {
   }
 
   /**
-   * Embed several texts in one request through the project's provider.
-   * Provider failures are mapped to HTTP errors that say what went wrong —
-   * unmapped, a 401 or quota error would surface as a bare 500.
+   * Embed several texts in one request through the project's provider, via
+   * the shared ProjectEmbeddingService (daily budget on the platform key,
+   * provider errors mapped to HTTP errors, token count recorded).
    */
   private async generateEmbeddings(
+    project: ProjectRow,
     resolved: ResolvedProvider,
     texts: string[],
     intent: EmbedIntent,
     targetDimensions: number | null,
   ): Promise<Array<{ vector: number[]; tokenCount: number }>> {
-    let out: EmbedOutcome;
-    try {
-      out = await this.providers.embed(resolved, texts, { intent, targetDimensions });
-    } catch (err) {
-      throw this.providerError(err);
-    }
-
+    const out = await this.projectEmbedding.embedForProject(project, texts, {
+      intent,
+      targetDimensions,
+      resolved,
+    });
     // Token usage is reported per request; attribute it evenly.
-    const perItem = Math.round((out.tokenCount ?? 0) / texts.length);
-    return out.vectors.map((vector) => ({ vector, tokenCount: perItem }));
-  }
-
-  private providerError(err: unknown): HttpException {
-    if (err instanceof HttpException) return err;
-    if (err instanceof Error && err.message === AI_DISABLED_MESSAGE) return aiDisabledError();
-    const pe = err instanceof EmbeddingProviderError ? err : null;
-    const status = pe?.status;
-    const detail = err instanceof Error ? err.message : String(err);
-    const name = pe ? PROVIDER_CATALOGUE[pe.provider].name : 'the embedding provider';
-    this.logger.error(`Embedding provider error (status ${status ?? 'n/a'}): ${detail}`);
-
-    if (pe?.kind === 'auth') {
-      return new BadGatewayException(
-        `Embedding provider rejected the API key. Check the project or platform ${name} key.`,
-      );
-    }
-    if (pe?.kind === 'quota') {
-      return new HttpException(
-        'Embedding provider rate limit or quota exceeded. Retry later.',
-        HttpStatus.TOO_MANY_REQUESTS,
-      );
-    }
-    if (pe?.kind === 'input') {
-      return new BadRequestException(`Embedding provider rejected the input: ${detail}`);
-    }
-    if (pe?.kind === 'unavailable' || !status) {
-      return new BadGatewayException(`Could not reach the embedding provider (${name}).`);
-    }
-    return new BadGatewayException(`Embedding provider error (HTTP ${status}).`);
+    return out.vectors.map((vector) => ({ vector, tokenCount: out.perItemTokens }));
   }
 
   private sha256(text: string): string {

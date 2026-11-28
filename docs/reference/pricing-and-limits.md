@@ -28,6 +28,13 @@ installation starts from different defaults and its operator can change them.
 | API requests per month | 50,000 | 1,000,000 | 10,000,000 | Unlimited |
 | Monthly active users | 50,000 | 100,000 | Unlimited | Unlimited |
 | Compute | Shared | Shared today (see below) | Shared today (see below) | Shared |
+| Embeddings on the platform's key | — | 1,000,000 tokens per project per day | 1,000,000 tokens per project per day | 1,000,000 tokens per project per day |
+
+**Embeddings.** Computing embeddings with the platform's key (pgvector embeddings, and Data
+Engine vectors the platform computes from your records' text) is included from the Pro plan,
+Legacy teams included, up to 1,000,000 tokens per project per UTC day; Enterprise gets the same.
+With the project's own embedding provider key it is available on every plan, without a limit.
+See [embeddings-api.md](./embeddings-api.md#plans-and-the-daily-limit).
 
 **Enterprise** is not bought in the dashboard: it is arranged with our team
 (support@talyasmart.com) and set up for the organization. Its limits are the ones agreed for the

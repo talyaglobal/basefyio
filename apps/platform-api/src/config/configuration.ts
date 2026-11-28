@@ -291,6 +291,12 @@ export default () => {
     dimensions: process.env.EMBEDDING_DIMENSIONS || '',
     /** Hard cap on daily embedding token usage to prevent runaway costs (default 1M). */
     maxDailyTokens: parseInt(process.env.EMBEDDING_MAX_DAILY_TOKENS || '1000000', 10),
+    /**
+     * Daily embedding tokens one project may use on the platform's provider key
+     * (pgvector store/search/re-embed and Data Engine platform vectors). A
+     * project on its own key is never limited. 0 or negative = unlimited.
+     */
+    projectMaxDailyTokens: parseInt(process.env.EMBEDDING_PROJECT_MAX_DAILY_TOKENS || '1000000', 10),
     /** Provider used when the primary fails with auth / quota / unreachable errors. Empty = no failover. */
     fallback: {
       provider: process.env.EMBEDDING_FALLBACK_PROVIDER || '',

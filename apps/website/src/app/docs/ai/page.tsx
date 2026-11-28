@@ -32,8 +32,9 @@ export default function AiDocs() {
         cite them.
       </p>
       <p>
-        Keeping document data in the Data Engine (MongoDB) instead of tables? Store the vectors you compute
-        alongside each record there and search an entity by similarity: see{" "}
+        Keeping document data in the Data Engine (MongoDB) instead of tables? Store vector embeddings
+        alongside each record there — vectors you compute, or vectors the platform computes from the
+        record&apos;s text — and search an entity by similarity or by a text query: see{" "}
         <Link href="/docs/data-engine#vectors">Data Engine vectors</Link>. The routes on this page are for
         relational projects, where the platform embeds your text and stores it with pgvector.
       </p>
@@ -57,6 +58,29 @@ export default function AiDocs() {
         On the Free plan, requests answer <code>403</code> with an upgrade message. The plan that counts is the team of the project you
         have open, otherwise your active team. Embeddings and retrieval over your own documents are not part of this limit.
       </p>
+
+      <h3 id="plans-and-the-daily-limit">Plans and the daily limit</h3>
+      <ul>
+        <li>
+          <strong>Your own provider key: unlimited on every plan.</strong> A project with its own key (or
+          its own endpoint) is never gated or limited; its provider bills it directly.
+        </li>
+        <li>
+          <strong>The platform&apos;s key: Pro plan and above</strong> (Business, Enterprise and Legacy
+          teams included). Below it, requests answer <code>403</code> with{" "}
+          <code>EMBEDDING_PLAN_REQUIRED</code> and nothing is sent to the provider.
+        </li>
+        <li>
+          <strong>1,000,000 tokens per project per day</strong> on the platform&apos;s key (UTC day). Above
+          it, requests answer <code>429</code> with <code>EMBEDDING_DAILY_LIMIT</code> and the body says how
+          much is left (<code>remaining</code>) and when it resets (<code>resetsAt</code>).
+        </li>
+        <li>
+          This covers store, batch, search and re-embed here and the vectors the Data Engine computes for
+          you. <code>GET /embeddings/status</code> reports <code>platformKeyAllowed</code> and{" "}
+          <code>dailyTokens</code> (<code>limit</code>, <code>used</code>, <code>resetsAt</code>).
+        </li>
+      </ul>
 
       <h2>Store and search text</h2>
       <p>
@@ -143,6 +167,7 @@ curl -s "$API/projects/$PROJECT_ID/rag/search?q=how+many+days+of+leave&limit=5" 
         <li>Switching a project to a different model re-embeds its existing vectors, up to a platform-set row limit.</li>
         <li>A <code>400</code> with <code>No OpenAI API key available</code> means neither the platform nor the project has a key for the selected provider.</li>
         <li>An anon key on a write returns <code>403</code>; deleting a namespace requires the service key.</li>
+        <li>On the platform&apos;s key: <code>403 EMBEDDING_PLAN_REQUIRED</code> below the Pro plan, <code>429 EMBEDDING_DAILY_LIMIT</code> above 1,000,000 tokens per project per day. Your own key is never limited.</li>
       </ul>
     </div>
   );

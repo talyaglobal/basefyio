@@ -86,3 +86,61 @@ describe('EntitlementService — AI assistant (Pro and above)', () => {
     await expect(svc(plan('pro')).assertTeamCanUseAi('t1')).resolves.toBeUndefined();
   });
 });
+
+describe('EntitlementService — platform-key embeddings (Pro and above, legacy included)', () => {
+  const plan = (name: string, features: any = null) => ({ plan: { name, features } });
+  const svc = (sub: any) => new EntitlementService(makePrisma(null, sub));
+
+  it.each([
+    ['free', null, false],
+    ['legacy', { grandfathered: true }, true],
+    ['pro', null, true],
+    ['Business', null, true],
+    ['enterprise', { enterprise: true }, true],
+    ['acme-contract', { enterprise: true }, true],
+  ])('plan %s → %s', async (name, features, allowed) => {
+    await expect(svc(plan(name as string, features)).teamCanUsePlatformEmbeddings('t1')).resolves.toBe(allowed);
+  });
+
+  it('features.embeddings overrides the plan name both ways', async () => {
+    await expect(svc(plan('free', { embeddings: true })).teamCanUsePlatformEmbeddings('t1')).resolves.toBe(true);
+    await expect(svc(plan('pro', { embeddings: false })).teamCanUsePlatformEmbeddings('t1')).resolves.toBe(false);
+    await expect(svc(plan('acme', { enterprise: true, embeddings: false })).teamCanUsePlatformEmbeddings('t1')).resolves.toBe(false);
+  });
+
+  it('no subscription row or no team counts as Free', async () => {
+    await expect(svc(null).teamCanUsePlatformEmbeddings('t1')).resolves.toBe(false);
+    await expect(svc(plan('pro')).teamCanUsePlatformEmbeddings(null)).resolves.toBe(false);
+  });
+
+  it('assert throws 403 EMBEDDING_PLAN_REQUIRED with the upgrade / own-key message', async () => {
+    const err: any = await svc(plan('free')).assertTeamCanUsePlatformEmbeddings('t1').catch((e) => e);
+    expect(err).toBeInstanceOf(ForbiddenException);
+    expect(err.getResponse()).toMatchObject({ statusCode: 403, code: 'EMBEDDING_PLAN_REQUIRED' });
+    expect(err.getResponse().message).toMatch(/Pro plan and above.*own embedding provider key/);
+    await expect(svc(plan('legacy')).assertTeamCanUsePlatformEmbeddings('t1')).resolves.toBeUndefined();
+  });
+
+  it('caches the lookup per team for 60 s, then reads the plan again', async () => {
+    const prisma = makePrisma(null, plan('free'));
+    const s = new EntitlementService(prisma);
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    try {
+      expect(await s.teamCanUsePlatformEmbeddings('t1')).toBe(false);
+      prisma.subscription.findUnique.mockResolvedValue(plan('pro'));
+      expect(await s.teamCanUsePlatformEmbeddings('t1')).toBe(false);
+      expect(prisma.subscription.findUnique).toHaveBeenCalledTimes(1);
+      now.mockReturnValue(1_000_000 + 60_001);
+      expect(await s.teamCanUsePlatformEmbeddings('t1')).toBe(true);
+      expect(prisma.subscription.findUnique).toHaveBeenCalledTimes(2);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it('leaves the assistant rule alone: legacy still has no AI assistant', async () => {
+    const s = svc(plan('legacy', { grandfathered: true }));
+    await expect(s.teamCanUseAi('t1')).resolves.toBe(false);
+    await expect(s.teamCanUsePlatformEmbeddings('t1')).resolves.toBe(true);
+  });
+});

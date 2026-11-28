@@ -12,8 +12,26 @@ import { EntitlementKey } from './entitlement-key';
 export const AI_PLAN_NAMES = ['pro', 'business', 'enterprise'];
 export const AI_PLAN_MESSAGE = 'The basefyio AI assistant is available on the Pro plan and above. Upgrade your team plan under Billing to use it.';
 
+/**
+ * Plans whose projects may compute embeddings with the platform's provider
+ * key. Unlike the assistant, the grandfathered `legacy` plan counts as Pro
+ * here (owner decision). A project on its own provider key is never gated.
+ */
+export const EMBEDDING_PLAN_NAMES = ['pro', 'business', 'enterprise', 'legacy'];
+export const EMBEDDING_PLAN_MESSAGE =
+  "Computing embeddings with the platform's key is available on the Pro plan and above. Upgrade your team plan under Billing, or add your own embedding provider key in the project's AI settings.";
+/** How long a team's embedding entitlement is cached; a plan change applies within this window. */
+export const EMBEDDING_PLAN_CACHE_MS = 60_000;
+
+/** 403 EMBEDDING_PLAN_REQUIRED. */
+export function embeddingPlanRequiredError(): ForbiddenException {
+  return new ForbiddenException({ statusCode: 403, code: 'EMBEDDING_PLAN_REQUIRED', message: EMBEDDING_PLAN_MESSAGE });
+}
+
 @Injectable()
 export class EntitlementService {
+  private readonly embeddingPlanCache = new Map<string, { allowed: boolean; at: number }>();
+
   constructor(private readonly prisma: PrismaService) {}
 
   private async planFeatures(projectId: string): Promise<Record<string, boolean> | null> {
@@ -73,6 +91,39 @@ export class EntitlementService {
     if (!(await this.teamCanUseAi(teamId))) {
       throw new ForbiddenException(AI_PLAN_MESSAGE);
     }
+  }
+
+  /**
+   * Whether the team's projects may compute embeddings with the platform's
+   * key: Pro, Business, Enterprise (or `features.enterprise`), and Legacy.
+   * `features.embeddings` overrides the name both ways. No subscription
+   * row counts as Free. Cached per team for EMBEDDING_PLAN_CACHE_MS.
+   */
+  async teamCanUsePlatformEmbeddings(teamId: string | null | undefined): Promise<boolean> {
+    if (!teamId) return false;
+    const cached = this.embeddingPlanCache.get(teamId);
+    if (cached && Date.now() - cached.at < EMBEDDING_PLAN_CACHE_MS) return cached.allowed;
+    const sub = await this.prisma.subscription.findUnique({
+      where: { teamId },
+      select: { plan: { select: { name: true, features: true } } },
+    });
+    const plan = sub?.plan;
+    let allowed = false;
+    if (plan) {
+      const features = plan.features && typeof plan.features === 'object' ? (plan.features as Record<string, unknown>) : {};
+      if (features.embeddings === true) allowed = true;
+      else if (features.embeddings === false) allowed = false;
+      else if (features.enterprise === true) allowed = true;
+      else allowed = EMBEDDING_PLAN_NAMES.includes(String(plan.name).toLowerCase());
+    }
+    if (this.embeddingPlanCache.size > 10_000) this.embeddingPlanCache.clear();
+    this.embeddingPlanCache.set(teamId, { allowed, at: Date.now() });
+    return allowed;
+  }
+
+  /** Throws 403 EMBEDDING_PLAN_REQUIRED when the team may not embed on the platform's key. */
+  async assertTeamCanUsePlatformEmbeddings(teamId: string | null | undefined): Promise<void> {
+    if (!(await this.teamCanUsePlatformEmbeddings(teamId))) throw embeddingPlanRequiredError();
   }
 
   /** All entitlement keys with their effective allowed state (for UI). */

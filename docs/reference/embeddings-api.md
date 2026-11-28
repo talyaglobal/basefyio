@@ -10,8 +10,38 @@ customer needs to know about where their text goes is exposed by the disclosure 
 - **Relational projects** (tables in the project's PostgreSQL database): this API. The platform
   embeds your text with the project's embedding provider and stores the vectors with pgvector.
 - **Document data in the Data Engine** (MongoDB): the Data Engine vector routes, which store a
-  vector you computed alongside each record and search an entity by similarity. See
+  vector alongside each record — one you computed, or one the platform computes from the record's
+  text — and search an entity by similarity. See
   [Data Engine API — Vectors](./data-engine-api.md#vectors).
+
+## Plans and the daily limit
+
+These rules apply to every request that computes an embedding for a project: store, batch,
+search (the query is embedded too) and re-embed here, and the platform-computed vectors of the
+Data Engine (record jobs, text search, re-embed).
+
+- **Own key: unlimited on every plan.** A project that set its own provider key
+  (`POST .../embeddings/api-key`), or its own endpoint, is never gated and never limited here; its
+  provider bills it directly.
+- **Platform key: Pro plan and above.** Computing embeddings with the platform's key is included
+  from the Pro plan (Business, Enterprise and Legacy teams included). Below it the request answers
+  `403 { "code": "EMBEDDING_PLAN_REQUIRED" }` before the provider is called.
+- **Platform key: 1 000 000 tokens per project per day.** The day is the UTC day. Above it the
+  request answers `429`:
+
+```json
+{ "statusCode": 429, "code": "EMBEDDING_DAILY_LIMIT",
+  "message": "This project has used 1,000,000 of its 1,000,000 daily embedding tokens on the platform key. No tokens are left for today. The limit resets at 2026-11-29T00:00:00.000Z (00:00 UTC). Set the project's own provider key to embed without this limit.",
+  "limit": 1000000, "used": 1000000, "remaining": 0, "resetsAt": "2026-11-29T00:00:00.000Z" }
+```
+
+  A request that would go past what is left (estimated at about four characters per token) is
+  refused the same way, with `remaining` telling how much is left. Tokens are counted as the
+  provider reports them. The operator sets the limit with `EMBEDDING_PROJECT_MAX_DAILY_TOKENS`
+  (0 = unlimited); the platform-wide `EMBEDDING_MAX_DAILY_TOKENS` cap is separate.
+- `GET status` reports `platformKeyAllowed` (this project may compute embeddings now) and
+  `dailyTokens: { limit, used, resetsAt }` while the platform's key is in use (`null` on the
+  project's own key).
 
 ## Public routes (`/api/rest/v1/embeddings`)
 
@@ -61,7 +91,8 @@ matches everything. Results:
 `DELETE /api/rest/v1/embeddings` `{ "ids": ["…"] }` (1 to 1000 embedding ids, each a UUID; else 400) and
 `DELETE /api/rest/v1/embeddings/namespace` `{ "namespace": "docs" }` answer `{ "deleted": n }`.
 
-`GET status` → `{ pgvectorEnabled, pgvectorEnabledAt, hasApiKey, embeddingCount }`.
+`GET status` → `{ pgvectorEnabled, pgvectorEnabledAt, hasApiKey, embeddingCount, …,
+platformKeyAllowed, dailyTokens }` (see [Plans and the daily limit](#plans-and-the-daily-limit)).
 
 `GET disclosure` → the provider and model in use for this project, the vector width, the
 country the text is sent to (the provider's region for hosted providers; for Ollama the host's
@@ -89,7 +120,8 @@ the `reembed` route) up to `EMBEDDING_REEMBED_MAX_ROWS`.
 Platform-wide settings: `EMBEDDING_PROVIDER`, `EMBEDDING_MODEL`, `EMBEDDING_BASE_URL`,
 `EMBEDDING_DIMENSIONS`, `EMBEDDING_FALLBACK_*` (a second provider used when the first fails
 with an auth, quota or connectivity error), `OPENAI_API_KEY`, `OLLAMA_BASE_URL`,
-`COHERE_API_KEY`, `PLATFORM_REGION`, `EMBEDDING_MAX_DAILY_TOKENS` — see
+`COHERE_API_KEY`, `PLATFORM_REGION`, `EMBEDDING_MAX_DAILY_TOKENS`,
+`EMBEDDING_PROJECT_MAX_DAILY_TOKENS` — see
 [configuration.md](./configuration.md).
 
 ## Errors
@@ -97,9 +129,13 @@ with an auth, quota or connectivity error), `OPENAI_API_KEY`, `OLLAMA_BASE_URL`,
 | Status | When |
 |---|---|
 | 400 | `Body must be { items: [{ content, namespace?, metadata? }] }`; `items[i].content must be a non-empty string`; `query must be a non-empty string`; `threshold` not a number from 0 to 2; a `filter` that is not an object or names more than 10 keys; `ids` empty, longer than 1000 or not UUIDs; `No OpenAI API key available` (no platform or project key for the provider); a model wider than the store; `pgvector is not enabled for this project` (on a document project the message also points to the Data Engine vector routes) |
-| 403 | anon key on a write; `Namespace deletion requires service_role key`; `AI_DISABLED` when the installation runs with `AI_ENABLED=false` |
+| 403 | anon key on a write; `Namespace deletion requires service_role key`; `AI_DISABLED` when the installation runs with `AI_ENABLED=false`; `EMBEDDING_PLAN_REQUIRED` on the platform's key below the Pro plan |
 | 404 | `Project not found` |
+| 429 | `EMBEDDING_DAILY_LIMIT` — the project's daily platform-key tokens are used up (`limit`, `used`, `remaining`, `resetsAt` in the body); a provider's own rate limit or quota |
+| 502 | the provider rejected the key, or could not be reached |
 
 Source: `apps/platform-api/src/modules/tenant-embedding/tenant-embedding-public.controller.ts`,
 `tenant-embedding.controller.ts`, `ai-disclosure.controller.ts`, `tenant-embedding.service.ts`,
-`dto/set-embedding-provider.dto.ts`, `apps/platform-api/src/modules/embedding/embedding.service.ts`.
+`dto/set-embedding-provider.dto.ts`, `apps/platform-api/src/modules/embedding/embedding.service.ts`,
+`project-embedding.service.ts`, `embedding-budget.service.ts`,
+`apps/platform-api/src/modules/entitlement/entitlement.service.ts`.

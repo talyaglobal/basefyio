@@ -4,12 +4,14 @@ jest.mock('pg', () => ({ Pool: jest.fn() }));
 import { BadRequestException } from '@nestjs/common';
 import { TenantEmbeddingService } from './tenant-embedding.service';
 import { EmbeddingProviderError } from '../embedding/providers/embedding-provider';
+import { ProjectEmbeddingService } from '../embedding/project-embedding.service';
 
 /** #24: a project API key is tried with one tiny request before it is stored. */
 function build(probe: jest.Mock) {
   const prisma = { project: { update: jest.fn(async () => ({})) } };
   const providers = { forProject: jest.fn((p: any) => ({ config: { provider: 'openai' }, project: p })), probe };
-  const svc = new TenantEmbeddingService(prisma as any, { get: () => undefined } as any, providers as any, {} as any);
+  const projectEmbedding = new ProjectEmbeddingService(providers as any, {} as any, prisma as any, {} as any);
+  const svc = new TenantEmbeddingService(prisma as any, { get: () => undefined } as any, providers as any, {} as any, projectEmbedding);
   (svc as any).getProject = jest.fn(async () => ({ id: 'p1', embeddingProvider: 'openai' }));
   return { svc, prisma, providers };
 }

@@ -6,6 +6,8 @@ import { VectorStoreService } from './vector-store.service';
 import { EmbeddingProcessor } from './embedding.processor';
 import { SchemaIndexerService } from './schema-indexer.service';
 import { EmbeddingProviderService } from './providers/embedding-provider.service';
+import { EmbeddingBudgetService } from './embedding-budget.service';
+import { ProjectEmbeddingService } from './project-embedding.service';
 
 @Global()
 @Module({
@@ -16,7 +18,16 @@ import { EmbeddingProviderService } from './providers/embedding-provider.service
     VectorStoreService,
     EmbeddingProcessor,
     SchemaIndexerService,
+    EmbeddingBudgetService,
+    ProjectEmbeddingService,
   ],
-  exports: [EmbeddingProviderService, EmbeddingService, VectorStoreService, SchemaIndexerService],
+  exports: [
+    EmbeddingProviderService,
+    EmbeddingService,
+    VectorStoreService,
+    SchemaIndexerService,
+    EmbeddingBudgetService,
+    ProjectEmbeddingService,
+  ],
 })
 export class EmbeddingModule {}

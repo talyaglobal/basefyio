@@ -25,6 +25,7 @@ const PLAN_ROWS: Array<[string, string, string, string, string]> = [
   ["API requests per month", "50,000", "1,000,000", "10,000,000", "Unlimited"],
   ["Monthly active users", "50,000", "100,000", "Unlimited", "Unlimited"],
   ["Compute", "Shared", "Shared today", "Shared today", "Shared"],
+  ["Embeddings on the platform's key", "—", "1,000,000 tokens / project / day", "1,000,000 tokens / project / day", "1,000,000 tokens / project / day"],
 ];
 
 export default function PricingAndLimitsDocs() {
@@ -86,6 +87,14 @@ export default function PricingAndLimitsDocs() {
         <strong>Limits are per organization</strong>, not per project: the database limit is compared with
         the sum of the sizes of all the organization&apos;s projects, and the file storage limit with all of
         their files. The project Overview shows both numbers.
+      </p>
+
+      <p>
+        <strong>Embeddings.</strong> Computing embeddings with the platform&apos;s key (pgvector embeddings,
+        and Data Engine vectors the platform computes from your records&apos; text) is included from the Pro
+        plan, Legacy teams included, up to 1,000,000 tokens per project per UTC day; Enterprise gets the
+        same. With the project&apos;s own embedding provider key it is available on every plan, without a
+        limit.
       </p>
 
       <h2>What a project gets</h2>

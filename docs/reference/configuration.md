@@ -339,6 +339,7 @@ the provider defaults to `disabled`; start the stack with explicit service names
 | `EMBEDDING_BASE_URL` | provider default | yes / yes | Custom endpoint (an OpenAI-compatible gateway, a remote Ollama). |
 | `EMBEDDING_DIMENSIONS` | model default | yes / yes | Request-side output width for models that support it. Stores are `vector(1536)`: narrower vectors are zero-padded, wider models refused. |
 | `EMBEDDING_MAX_DAILY_TOKENS` | `1000000` | no / no | Daily cap on platform embedding tokens. |
+| `EMBEDDING_PROJECT_MAX_DAILY_TOKENS` | `1000000` | yes / yes | Daily embedding tokens one project may use on the platform's key (UTC day): pgvector store, search and re-embed, and Data Engine platform vectors. Above it requests answer `429 EMBEDDING_DAILY_LIMIT`. A project on its own key is never limited. `0` or negative = unlimited. The counter lives in Redis; when Redis cannot be reached the limit is not enforced (one warning in the log). |
 | `EMBEDDING_FALLBACK_PROVIDER` / `_MODEL` / `_BASE_URL` | unset (no failover) | yes / yes | Provider used when the primary rejects the key, hits its quota or is unreachable. |
 | `EMBEDDING_FALLBACK_DIMENSIONS` | unset | no / no | Output width for the fallback provider. |
 | `EMBEDDING_FAILOVER_COOLDOWN_SEC` | `60` | yes / yes | How long a failed primary is skipped. |

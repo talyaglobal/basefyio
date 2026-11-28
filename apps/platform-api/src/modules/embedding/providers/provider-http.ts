@@ -1,9 +1,11 @@
+import { BadRequestException } from '@nestjs/common';
 import {
   EmbeddingProviderError,
   EmbeddingProviderId,
   REQUEST_TIMEOUT_MS,
   kindForStatus,
 } from './embedding-provider';
+import { isPrivateHost } from './provider-registry';
 
 export interface JsonResponse<T> {
   status: number;
@@ -101,5 +103,30 @@ export function hostOf(url: string): string {
     return new URL(url).host;
   } catch {
     return url;
+  }
+}
+
+/**
+ * Per-project `baseUrl`: public https only, unless the operator allows
+ * private hosts (self-hosters with a LAN Ollama). Credentials in the URL are
+ * refused outright — the key field is where a key belongs. Throws 400.
+ */
+export function validateProjectBaseUrl(baseUrl: string, allowPrivate: boolean): void {
+  let url: URL;
+  try {
+    url = new URL(baseUrl);
+  } catch {
+    throw new BadRequestException('baseUrl must be an absolute http(s) URL');
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    throw new BadRequestException('baseUrl must be an absolute http(s) URL');
+  }
+  if (url.username || url.password) {
+    throw new BadRequestException('baseUrl must not carry credentials; use the API key field');
+  }
+  if (!allowPrivate && (url.protocol !== 'https:' || isPrivateHost(baseUrl))) {
+    throw new BadRequestException(
+      'Private and plain-http endpoints are not allowed. Use a public https URL.',
+    );
   }
 }
