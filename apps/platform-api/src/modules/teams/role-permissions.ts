@@ -19,7 +19,7 @@ export type PermissionKey = (typeof PERM_KEYS)[number];
 export const ADMIN_DEFAULTS: Record<PermissionKey, boolean> = {
   canRenameTeam: true, canInviteMembers: true, canRemoveMembers: true, canManageIntegrations: true,
   canCreateProjects: true, canDeleteProjects: true, canRestoreProjects: true, canMoveProjects: true,
-  canResetDbPassword: false, canViewBilling: true, canManageBilling: false,
+  canResetDbPassword: false, canViewBilling: true, canManageBilling: true,
 };
 
 export const MEMBER_DEFAULTS: Record<PermissionKey, boolean> = {
