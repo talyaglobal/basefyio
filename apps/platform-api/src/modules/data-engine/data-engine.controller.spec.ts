@@ -12,7 +12,7 @@ function build(col: Record<string, jest.Mock | undefined>, opts: { collectionErr
     }),
     getEntityDefinition: jest.fn(async () => ({ fields: [] })),
   };
-  const ctrl = new DataEngineController(svc as any);
+  const ctrl = new DataEngineController(svc as any, { afterWrite: jest.fn() } as any);
   const res = { setHeader: jest.fn() } as any;
   return { ctrl, res, svc };
 }
@@ -79,7 +79,7 @@ describe('DataEngineController.listEntities counts (#176)', () => {
         count: e === 'a' ? jest.fn(async () => 7) : jest.fn(async () => { throw new Error('down'); }),
       })),
     };
-    const ctrl = new DataEngineController(svc as any);
+    const ctrl = new DataEngineController(svc as any, { afterWrite: jest.fn() } as any);
     expect(await ctrl.listEntities('p')).toEqual([{ logicalName: 'a' }, { logicalName: 'b' }]);
     expect(svc.getEntityCollection).not.toHaveBeenCalled();
     expect(await ctrl.listEntities('p', 'true')).toEqual([
@@ -101,5 +101,53 @@ describe('parseIfMatch / toHttpError', () => {
   it('leaves Nest exceptions alone', () => {
     const e = new ConflictException('x');
     expect(toHttpError(e)).toBe(e);
+  });
+});
+
+describe('DataEngineController queues platform vectors after a write', () => {
+  const PLATFORM = { mode: 'platform', dimensions: 3, sourcePaths: ['title'], modelTag: 'openai/m', updatedAt: 't' };
+  const CLIENT = { mode: 'client', dimensions: 3, updatedAt: 't' };
+
+  function withVectors(vectorConfig: unknown) {
+    const doc = { _id: 'r1', _version: 2, title: 'x' };
+    const col = {
+      insert: jest.fn(async () => doc),
+      update: jest.fn(async () => doc),
+      replace: jest.fn(async () => doc),
+      restore: jest.fn(async () => doc),
+      delete: jest.fn(async () => undefined),
+    };
+    const svc = {
+      isAvailable: () => true,
+      getEntityCollection: jest.fn(async () => col),
+      getEntityDefinition: jest.fn(async () => ({ fields: [], vectorConfig })),
+    };
+    const jobs = { afterWrite: jest.fn() };
+    const ctrl = new DataEngineController(svc as any, jobs as any);
+    const res = { setHeader: jest.fn() } as any;
+    return { ctrl, res, jobs, col };
+  }
+
+  it('after create, update, replace and restore, with the loaded entity setup', async () => {
+    const { ctrl, res, jobs } = withVectors(PLATFORM);
+    await ctrl.createRecord('p', 'docs', { title: 'x' });
+    await ctrl.updateRecord('p', 'docs', 'r1', { title: 'y' }, res);
+    await ctrl.replaceRecord('p', 'docs', 'r1', { title: 'z' }, res);
+    await ctrl.restoreRecord('p', 'docs', 'r1', res);
+    expect(jobs.afterWrite.mock.calls).toEqual([
+      ['p', 'docs', 'r1', PLATFORM],
+      ['p', 'docs', 'r1', PLATFORM],
+      ['p', 'docs', 'r1', PLATFORM],
+      // Restore has no definition at hand; the queue reads the setup itself.
+      ['p', 'docs', 'r1'],
+    ]);
+  });
+
+  it('never after a delete, and never when the write failed', async () => {
+    const { ctrl, res, jobs, col } = withVectors(PLATFORM);
+    await ctrl.deleteRecord('p', 'docs', 'r1');
+    col.update.mockRejectedValueOnce(new DocumentNotFoundError('docs', 'r1'));
+    await ctrl.updateRecord('p', 'docs', 'r1', { title: 'y' }, res).catch(() => undefined);
+    expect(jobs.afterWrite).not.toHaveBeenCalled();
   });
 });

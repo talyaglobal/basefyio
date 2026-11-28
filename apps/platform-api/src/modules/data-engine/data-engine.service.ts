@@ -3,19 +3,96 @@ import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 
-/** Vector setup of an entity, kept on EntityDefinition.vectorConfig. */
-export interface EntityVectorConfig {
-  /** Stage 1: the client sends its own vectors. */
+/** Vector setup of an entity in client mode: the caller sends its own vectors. */
+export interface ClientVectorConfig {
   mode: 'client';
   dimensions: number;
   updatedAt: string;
 }
 
+/** Platform mode: the platform computes each record's vector from its text. */
+export interface PlatformVectorConfig {
+  mode: 'platform';
+  /** Width of the vectors, from the model at the time the mode was set. */
+  dimensions: number;
+  /** Dot paths under the record's data the text is built from, in this order. */
+  sourcePaths: string[];
+  /** Model tag ("provider/model") the stored vectors are made with. */
+  modelTag: string;
+  updatedAt: string;
+}
+
+/** Vector setup of an entity, kept on EntityDefinition.vectorConfig. */
+export type EntityVectorConfig = ClientVectorConfig | PlatformVectorConfig;
+
 export function parseVectorConfig(raw: unknown): EntityVectorConfig | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const c = raw as Record<string, unknown>;
-  if (c.mode !== 'client' || typeof c.dimensions !== 'number') return null;
-  return { mode: 'client', dimensions: c.dimensions, updatedAt: String(c.updatedAt ?? '') };
+  if (typeof c.dimensions !== 'number') return null;
+  if (c.mode === 'client') {
+    return { mode: 'client', dimensions: c.dimensions, updatedAt: String(c.updatedAt ?? '') };
+  }
+  if (
+    c.mode === 'platform' &&
+    Array.isArray(c.sourcePaths) &&
+    c.sourcePaths.every((p) => typeof p === 'string') &&
+    typeof c.modelTag === 'string'
+  ) {
+    return {
+      mode: 'platform',
+      dimensions: c.dimensions,
+      sourcePaths: c.sourcePaths as string[],
+      modelTag: c.modelTag,
+      updatedAt: String(c.updatedAt ?? ''),
+    };
+  }
+  return null;
+}
+
+/** Progress of an entity's platform re-embed, kept on EntityDefinition.vectorReembedState. */
+export interface VectorReembedState {
+  status: 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED';
+  done: number;
+  total: number;
+  failed: number;
+  /** Model tag the run embeds with. */
+  model: string;
+  /** Width of that model's vectors. */
+  dimensions: number | null;
+  lastError: string | null;
+  startedAt?: string;
+  updatedAt: string;
+  finishedAt?: string;
+}
+
+/** A QUEUED/RUNNING state older than this belongs to a worker that died. */
+export const VECTOR_REEMBED_STALE_MS = 10 * 60 * 1000;
+
+export function parseReembedState(raw: unknown): VectorReembedState | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const s = raw as Partial<VectorReembedState>;
+  if (typeof s.status !== 'string' || typeof s.updatedAt !== 'string') return null;
+  return {
+    status: s.status,
+    done: Number(s.done ?? 0),
+    total: Number(s.total ?? 0),
+    failed: Number(s.failed ?? 0),
+    model: String(s.model ?? ''),
+    dimensions: typeof s.dimensions === 'number' ? s.dimensions : null,
+    lastError: typeof s.lastError === 'string' ? s.lastError : null,
+    ...(s.startedAt ? { startedAt: s.startedAt } : {}),
+    updatedAt: s.updatedAt,
+    ...(s.finishedAt ? { finishedAt: s.finishedAt } : {}),
+  };
+}
+
+/** A run that is queued or running and not stale. */
+export function reembedActive(state: VectorReembedState | null, now = Date.now()): boolean {
+  return (
+    !!state &&
+    (state.status === 'QUEUED' || state.status === 'RUNNING') &&
+    now - Date.parse(state.updatedAt) < VECTOR_REEMBED_STALE_MS
+  );
 }
 
 /**
@@ -271,6 +348,32 @@ export class DataEngineService implements OnModuleInit {
     await this.prisma.entityDefinition.update({
       where: { projectId_logicalName: { projectId, logicalName: entityName } },
       data: { vectorConfig: config === null ? Prisma.DbNull : (config as unknown as Prisma.InputJsonValue) },
+    });
+  }
+
+  /** The entity's vector setup and re-embed progress in one read. */
+  async getVectorSetup(
+    projectId: string,
+    entityName: string,
+  ): Promise<{ config: EntityVectorConfig | null; reembed: VectorReembedState | null }> {
+    const def = await this.prisma.entityDefinition.findUnique({
+      where: { projectId_logicalName: { projectId, logicalName: entityName } },
+      select: { vectorConfig: true, vectorReembedState: true },
+    });
+    return { config: parseVectorConfig(def?.vectorConfig), reembed: parseReembedState(def?.vectorReembedState) };
+  }
+
+  /** Store (or clear, with null) the entity's platform re-embed progress. */
+  async setVectorReembedState(
+    projectId: string,
+    entityName: string,
+    state: VectorReembedState | null,
+  ): Promise<void> {
+    await this.prisma.entityDefinition.update({
+      where: { projectId_logicalName: { projectId, logicalName: entityName } },
+      data: {
+        vectorReembedState: state === null ? Prisma.DbNull : (state as unknown as Prisma.InputJsonValue),
+      },
     });
   }
 

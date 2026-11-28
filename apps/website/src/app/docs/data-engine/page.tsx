@@ -125,10 +125,23 @@ export default function DataEngineDocs() {
       <p>
         Store vector embeddings alongside operational document data in MongoDB: each record of an entity can
         carry one vector next to its fields, and the entity can be searched for the records closest to a query
-        vector. You compute the vectors with the model of your choice and send them; these routes do not call
-        an embedding model. Vectors need the MongoDB provider; other providers answer{" "}
-        <code>501 VECTOR_NOT_SUPPORTED</code>. Service key only, like the record routes.
+        vector or a text query. Vectors need the MongoDB provider; other providers answer{" "}
+        <code>501 VECTOR_NOT_SUPPORTED</code>. Service key only, like the record routes. An entity&apos;s
+        vectors come from one of two modes:
       </p>
+      <ul>
+        <li>
+          <strong><code>platform</code></strong> — the platform computes each record&apos;s vector from the text of
+          the fields you name (<code>sourcePaths</code>, 1 to 8 dot paths such as <code>title</code> or{" "}
+          <code>body.text</code>), with your project&apos;s embedding model. After every create, update, replace or
+          restore the vector is computed in the background, never inside your request; a write that does not
+          change the text of those fields costs nothing. Search with <code>query</code> (text).
+        </li>
+        <li>
+          <strong><code>client</code></strong> — you compute the vectors with the model of your choice and send
+          them; the platform never calls an embedding model for these entities.
+        </li>
+      </ul>
       <ul>
         <li><strong>Stored with the record</strong> — the vector lives in the same document as the record, beside its fields, as packed float32 values scaled to unit length.</li>
         <li><strong>Never in record reads</strong> — <code>GET</code>, list, <code>PATCH</code>, <code>PUT</code> and aggregation results do not contain it, and writing a vector does not change the record&apos;s <code>_version</code> (ETag).</li>
@@ -138,18 +151,29 @@ export default function DataEngineDocs() {
       <table>
         <thead><tr><th>Method</th><th>Path</th><th>Description</th></tr></thead>
         <tbody>
-          <tr><td><code>PUT</code></td><td><code>/entities/:entity/vector-config</code></td><td>Turn vectors on: <code>{`{ "mode": "client", "dimensions": 1536 }`}</code> (1 to 2048)</td></tr>
-          <tr><td><code>GET</code></td><td><code>/entities/:entity/vector-config</code></td><td>The entity&apos;s vector config</td></tr>
+          <tr><td><code>PUT</code></td><td><code>/entities/:entity/vector-config</code></td><td>Turn vectors on: <code>{`{ "mode": "platform", "sourcePaths": ["title", "body"] }`}</code> or <code>{`{ "mode": "client", "dimensions": 1536 }`}</code> (1 to 2048); <code>?purge=true</code> deletes existing vectors first (needed to switch mode while vectors exist)</td></tr>
+          <tr><td><code>GET</code></td><td><code>/entities/:entity/vector-config</code></td><td>The entity&apos;s vector config (platform mode adds <code>sourcePaths</code> and <code>modelTag</code>)</td></tr>
           <tr><td><code>DELETE</code></td><td><code>/entities/:entity/vector-config</code></td><td>Turn vectors off; <code>?purge=true</code> is required when vectors exist and deletes them</td></tr>
-          <tr><td><code>GET</code></td><td><code>/entities/:entity/vector-status</code></td><td><code>{`{ mode, dimensions, embedded, total, maxScan, strategy }`}</code></td></tr>
+          <tr><td><code>GET</code></td><td><code>/entities/:entity/vector-status</code></td><td><code>{`{ mode, dimensions, embedded, total, pending, failed, modelTag, mismatch, reembed, platformKeyAllowed, dailyTokens, ... }`}</code></td></tr>
+          <tr><td><code>POST</code></td><td><code>/entities/:entity/reembed</code></td><td>Platform mode: re-embed every record with the project&apos;s current model (<code>202</code>; <code>409</code> while one runs)</td></tr>
           <tr><td><code>PUT</code></td><td><code>/data/:entity/:id/vector</code></td><td>Set the record&apos;s vector: <code>{`{ "vector": [ ... ] }`}</code></td></tr>
           <tr><td><code>GET</code></td><td><code>/data/:entity/:id/vector</code></td><td>The stored (unit-length) vector</td></tr>
           <tr><td><code>DELETE</code></td><td><code>/data/:entity/:id/vector</code></td><td>Remove the record&apos;s vector</td></tr>
           <tr><td><code>POST</code></td><td><code>/data/:entity/vectors</code></td><td>Up to 100 at once: <code>{`{ "items": [{ "id", "vector" }] }`}</code> → <code>{`{ written, missing }`}</code></td></tr>
-          <tr><td><code>POST</code></td><td><code>/data/:entity/search</code></td><td>Nearest records: <code>{`{ vector, filter?, limit?, threshold? }`}</code></td></tr>
+          <tr><td><code>POST</code></td><td><code>/data/:entity/search</code></td><td>Nearest records: <code>{`{ vector | query, filter?, limit?, threshold? }`}</code> — exactly one of <code>vector</code> and <code>query</code></td></tr>
         </tbody>
       </table>
-      <pre><code>{`curl -s -X POST ${apiUrl}/api/v1/projects/$PROJECT_ID/data/articles/search \\
+      <pre><code>{`# Platform mode: vectors computed from title + body
+curl -s -X PUT ${apiUrl}/api/v1/projects/$PROJECT_ID/entities/articles/vector-config \\
+  -H "apikey: $SERVICE_KEY" -H "Content-Type: application/json" \\
+  -d '{ "mode": "platform", "sourcePaths": ["title", "body"] }'
+
+curl -s -X POST ${apiUrl}/api/v1/projects/$PROJECT_ID/data/articles/search \\
+  -H "apikey: $SERVICE_KEY" -H "Content-Type: application/json" \\
+  -d '{ "query": "waterproof hiking boots", "filter": { "lang": "en" }, "limit": 5 }'
+
+# Client mode: your own vectors
+curl -s -X POST ${apiUrl}/api/v1/projects/$PROJECT_ID/data/articles/search \\
   -H "apikey: $SERVICE_KEY" -H "Content-Type: application/json" \\
   -d '{ "vector": [0.12, -0.03, ...], "filter": { "lang": "en" }, "limit": 5, "threshold": 0.5 }'
 
@@ -169,8 +193,22 @@ export default function DataEngineDocs() {
         <code>400</code>.
       </p>
       <p>
+        <strong>Platform mode rules.</strong> A text <code>query</code> only works on platform-mode entities (on a
+        client-mode entity it is a <code>400</code>: your vectors and the platform&apos;s query would come from
+        different models). When your project&apos;s embedding model changes, nothing is re-embedded on its own:{" "}
+        <code>vector-status</code> shows <code>mismatch: true</code> and text search answers{" "}
+        <code>409 VECTOR_MODEL_MISMATCH</code> until you call <code>reembed</code> and it finishes.{" "}
+        <code>pending</code> counts records still waiting for a vector, <code>failed</code> those whose last
+        embedding failed. With the platform&apos;s key, computing embeddings needs the{" "}
+        <strong>Pro plan or above</strong> (Legacy included; <code>403 EMBEDDING_PLAN_REQUIRED</code> otherwise,
+        already when you set platform mode) and is limited to <strong>1,000,000 tokens per project per day</strong>{" "}
+        (<code>429 EMBEDDING_DAILY_LIMIT</code>). With your own provider key it works on every plan, without a
+        limit. See <Link href="/docs/ai#plans-and-the-daily-limit">plans and the daily limit</Link>.
+      </p>
+      <p>
         The document store is not yet covered by the platform&apos;s backups, so keep the vectors you send
-        reproducible on your side (the source text and the model you used).
+        reproducible on your side (the source text and the model you used). Platform-mode vectors can be
+        recomputed with <code>reembed</code>.
       </p>
 
       <h2>SDK Usage</h2>

@@ -27,6 +27,7 @@ import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
 import { AnonKeyAllowed, ServiceKeyOnly } from '../../common/decorators/api-key-scope.decorator';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
 import { PlanGate } from '../../common/decorators/plan-gate.decorator';
+import { DataVectorEmbedderService } from './data-vector-embedder.service';
 
 /**
  * The data engine.
@@ -70,7 +71,10 @@ function setEtag(res: Response, doc: unknown): void {
 @UseGuards(JwtOrApiKeyGuard)
 @ServiceKeyOnly()
 export class DataEngineController {
-  constructor(private readonly dataEngine: DataEngineService) {}
+  constructor(
+    private readonly dataEngine: DataEngineService,
+    private readonly vectorJobs: DataVectorEmbedderService,
+  ) {}
 
   // ── Entity Management ────────────────────────────────
 
@@ -146,12 +150,17 @@ export class DataEngineController {
   ) {
     this.assertEngineAvailable();
     const col = await this.collection(projectId, entity);
-    validateDocument(body, (await this.dataEngine.getEntityDefinition(projectId, entity))?.fields);
+    const def = await this.dataEngine.getEntityDefinition(projectId, entity);
+    validateDocument(body, def?.fields);
+    let doc;
     try {
-      return await col.insert(body as any, { userId: user?.sub });
+      doc = await col.insert(body as any, { userId: user?.sub });
     } catch (err) {
       throw toHttpError(err);
     }
+    // Platform-mode entity: queue the record's vector (never computed in this request).
+    this.vectorJobs.afterWrite(projectId, entity, doc?._id, def?.vectorConfig ?? null);
+    return doc;
   }
 
   @Get('data/:entity')
@@ -219,14 +228,17 @@ export class DataEngineController {
     this.assertEngineAvailable();
     const ifMatch = parseIfMatch(ifMatchRaw);
     const col = await this.collection(projectId, entity);
-    validateDocument(body, (await this.dataEngine.getEntityDefinition(projectId, entity))?.fields, { partial: true });
+    const def = await this.dataEngine.getEntityDefinition(projectId, entity);
+    validateDocument(body, def?.fields, { partial: true });
+    let doc;
     try {
-      const doc = await col.update(id, body as any, { userId: user?.sub, ifMatch });
-      setEtag(res, doc);
-      return doc;
+      doc = await col.update(id, body as any, { userId: user?.sub, ifMatch });
     } catch (err) {
       throw toHttpError(err);
     }
+    setEtag(res, doc);
+    this.vectorJobs.afterWrite(projectId, entity, doc?._id, def?.vectorConfig ?? null);
+    return doc;
   }
 
   @PlanGate('db_write')
@@ -243,14 +255,17 @@ export class DataEngineController {
     this.assertEngineAvailable();
     const ifMatch = parseIfMatch(ifMatchRaw);
     const col = await this.collection(projectId, entity);
-    validateDocument(body, (await this.dataEngine.getEntityDefinition(projectId, entity))?.fields);
+    const def = await this.dataEngine.getEntityDefinition(projectId, entity);
+    validateDocument(body, def?.fields);
+    let doc;
     try {
-      const doc = await col.replace(id, body as any, { userId: user?.sub, ifMatch });
-      setEtag(res, doc);
-      return doc;
+      doc = await col.replace(id, body as any, { userId: user?.sub, ifMatch });
     } catch (err) {
       throw toHttpError(err);
     }
+    setEtag(res, doc);
+    this.vectorJobs.afterWrite(projectId, entity, doc?._id, def?.vectorConfig ?? null);
+    return doc;
   }
 
   @Delete('data/:entity/:id')
@@ -285,13 +300,16 @@ export class DataEngineController {
     if (typeof col.restore !== 'function') {
       throw new NotImplementedException('This data engine provider cannot restore deleted documents');
     }
+    let doc;
     try {
-      const doc = await col.restore(id, { userId: user?.sub });
-      setEtag(res, doc);
-      return doc;
+      doc = await col.restore(id, { userId: user?.sub });
     } catch (err) {
       throw toHttpError(err);
     }
+    setEtag(res, doc);
+    // The vector was kept while deleted; the job re-checks it against the current text and model.
+    this.vectorJobs.afterWrite(projectId, entity, doc?._id);
+    return doc;
   }
 
   // ── Health ───────────────────────────────────────────

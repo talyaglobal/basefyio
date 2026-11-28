@@ -1185,8 +1185,11 @@ model EntityDefinition {
   confidenceScore    Float?   @map("confidence_score")
   sourceWorkbook     String?  @map("source_workbook")
   sourceSheet        String?  @map("source_sheet")
-  /// Vector setup of the entity's records: { mode: "client", dimensions, updatedAt }. Null = no vectors.
+  /// Vector setup of the entity's records: { mode: "client", dimensions, updatedAt } or
+  /// { mode: "platform", dimensions, sourcePaths, modelTag, updatedAt }. Null = no vectors.
   vectorConfig       Json?    @map("vector_config")
+  /// Progress of the last platform re-embed: { status, done, total, failed, model, dimensions, lastError, updatedAt }.
+  vectorReembedState Json?    @map("vector_reembed_state")
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")
 

@@ -10,7 +10,9 @@ import {
   IsOptional,
   IsString,
   Max,
+  MaxLength,
   Min,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -21,17 +23,32 @@ export const MAX_VECTOR_DIMENSIONS = 2048;
 export const MAX_VECTOR_BATCH = 100;
 /** Most hits one search returns. */
 export const MAX_VECTOR_SEARCH_LIMIT = 100;
+/** Longest text query a search embeds. */
+export const MAX_VECTOR_QUERY_LENGTH = 8000;
 
-/** Body of PUT entities/:entity/vector-config. */
+/**
+ * Body of PUT entities/:entity/vector-config.
+ *  - client: the caller sends its own vectors of `dimensions` width.
+ *  - platform: the platform embeds the text at `sourcePaths` (1..8 dot paths
+ *    under the record's data, checked in the controller); the width comes
+ *    from the project's embedding model.
+ */
 export class SetVectorConfigDto {
-  /** Stage 1: the client sends its own vectors. */
-  @IsIn(['client'])
-  mode!: 'client';
+  @IsIn(['client', 'platform'])
+  mode!: 'client' | 'platform';
 
+  @ValidateIf((o) => o.mode === 'client' || o.dimensions !== undefined)
   @IsInt()
   @Min(1)
   @Max(MAX_VECTOR_DIMENSIONS)
-  dimensions!: number;
+  dimensions?: number;
+
+  @ValidateIf((o) => o.mode === 'platform' || o.sourcePaths !== undefined)
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(8)
+  @IsString({ each: true })
+  sourcePaths?: string[];
 }
 
 /** Body of PUT data/:entity/:id/vector. */
@@ -65,13 +82,21 @@ export class SetVectorsDto {
   items!: VectorItemDto[];
 }
 
-/** Body of POST data/:entity/search. */
+/** Body of POST data/:entity/search: exactly one of `vector` or `query`. */
 export class VectorSearchDto {
+  @IsOptional()
   @IsArray()
   @ArrayMinSize(1)
   @ArrayMaxSize(MAX_VECTOR_DIMENSIONS)
   @IsNumber({ allowNaN: false, allowInfinity: false }, { each: true })
-  vector!: number[];
+  vector?: number[];
+
+  /** Text to search for (platform-mode entities): embedded with the entity's model. */
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(MAX_VECTOR_QUERY_LENGTH)
+  query?: string;
 
   /** Same grammar as the list route's `filter` parameter. */
   @IsOptional()

@@ -8,6 +8,8 @@
  */
 import * as mongodb from 'mongodb';
 import { createDataEngine, type DataEngine } from '@basefyio/data-engine';
+import { DataVectorEmbedderService } from './data-vector-embedder.service';
+import { buildSourceText, sourceHash } from './vector-source';
 
 const URL = process.env.MONGO_TEST_URL;
 const describeReal = URL ? describe : describe.skip;
@@ -109,6 +111,118 @@ describeReal('Data Engine vectors on a real MongoDB', () => {
     const other = engine.collection('p2', 'small');
     await expect(other.getVector!(doc._id)).rejects.toMatchObject({ code: 'DOCUMENT_NOT_FOUND' });
     expect((await other.vectorSearch!({ vector: [1, 1, 0] })).hits).toEqual([]);
+  });
+
+  describe('platform vectors (Stage 2)', () => {
+    const TAG = 'test/model-a';
+    const CONFIG = { mode: 'platform', dimensions: 3, sourcePaths: ['title', 'body.text'], modelTag: TAG, updatedAt: 't' };
+
+    /** The worker, over the real engine; the provider is a deterministic fake. */
+    function worker() {
+      const embed = jest.fn(async (_p: unknown, texts: string[]) => ({
+        vectors: texts.map((t) => [t.length, 1, 0.5]),
+        tokenCount: texts.length,
+        perItemTokens: 1,
+        tag: TAG,
+        nativeDimensions: 3,
+      }));
+      const dataEngine = {
+        getEntityCollection: async (p: string, e: string) => engine.collection(p, e),
+        getVectorConfig: async () => CONFIG,
+        getVectorSetup: async () => ({ config: CONFIG, reembed: null }),
+        setVectorReembedState: async () => undefined,
+        setVectorConfig: async () => undefined,
+      };
+      const projectEmbedding = {
+        loadProject: async (id: string) => ({ id }),
+        resolve: () => ({ tag: TAG, keySource: 'platform' }),
+        dimensions: async () => 3,
+        assertPlatformKeyAllowed: async () => undefined,
+        embedForProject: embed,
+      };
+      const svc = new DataVectorEmbedderService(dataEngine as any, projectEmbedding as any, { add: jest.fn() } as any);
+      return { svc, embed };
+    }
+
+    it('round-trips source, model and hash; vectorSources returns only the requested paths and no vector', async () => {
+      const col = engine.collection('p1', 'plat');
+      const doc = await col.insert({ title: 'Red shoes', body: { text: 'Leather', secret: 's' }, price: 3 });
+      await col.setVector!(doc._id, [1, 2, 3], { source: 'platform', model: TAG, hash: 'abc', ifVersion: 1 });
+
+      const meta = await col.getVectorMeta!(doc._id);
+      expect(meta).toMatchObject({ id: doc._id, dims: 3, model: TAG, source: 'platform', hash: 'abc' });
+      expect(meta).not.toHaveProperty('vector');
+
+      const [row] = await col.vectorSources!({ paths: ['title', 'body.text', 'body'], ids: [doc._id] });
+      expect(row).toMatchObject({ id: doc._id, version: 1, data: { title: 'Red shoes', body: { text: 'Leather', secret: 's' } } });
+      expect(row.data).not.toHaveProperty('price');
+      expect(row.vector).toMatchObject({ hash: 'abc', model: TAG });
+
+      // A stale version is refused and nothing is written.
+      await col.update(doc._id, { title: 'Blue shoes' });
+      await expect(
+        col.setVector!(doc._id, [3, 2, 1], { source: 'platform', model: TAG, hash: 'def', ifVersion: 1 }),
+      ).rejects.toMatchObject({ code: 'CONCURRENCY_CONFLICT' });
+      expect((await col.getVectorMeta!(doc._id))!.hash).toBe('abc');
+      const stored = (await raw.findOne({ _id: doc._id as any })) as any;
+      expect(stored.envelope.version).toBe(2);
+    });
+
+    it('counts pending and failed against a model', async () => {
+      const col = engine.collection('p1', 'pend');
+      const ids = [];
+      for (let i = 0; i < 5; i++) ids.push((await col.insert({ title: `t${i}` }))._id);
+      await col.setVector!(ids[0], [1, 0, 0], { source: 'platform', model: TAG, hash: 'h' });
+      await col.setVector!(ids[1], [1, 0, 0], { source: 'platform', model: 'test/old', hash: 'h' });
+      await col.setVectorMarker!(ids[2], { kind: 'empty', model: TAG, hash: null });
+      await col.setVectorMarker!(ids[3], { kind: 'failed', model: TAG, hash: 'h', error: 'x' });
+      // ids[4]: no vector at all.
+      expect(await col.vectorStats!({ model: TAG })).toEqual({ embedded: 2, total: 5, pending: 2, failed: 1 });
+      expect(await col.vectorStats!()).toEqual({ embedded: 2, total: 5 });
+      // Searching only sees vectors of the queried width; the empty record left search.
+      expect((await col.vectorSearch!({ vector: [1, 0, 0], limit: 10, maxDistance: 2 })).hits.map((h) => h.doc._id).sort())
+        .toEqual([ids[0], ids[1]].sort());
+    });
+
+    it('the worker skips an unchanged record by its hash and re-embeds a changed one', async () => {
+      const col = engine.collection('p1', 'hashes');
+      const doc = await col.insert({ title: 'Red shoes', body: { text: 'Leather' } });
+      const { svc, embed } = worker();
+      expect(await svc.embedRecord({ projectId: 'p1', entity: 'hashes', id: doc._id })).toBe('embedded');
+      const first = await col.getVectorMeta!(doc._id);
+      expect(first!.hash).toBe(sourceHash(buildSourceText({ title: 'Red shoes', body: { text: 'Leather' } }, CONFIG.sourcePaths)));
+
+      expect(await svc.embedRecord({ projectId: 'p1', entity: 'hashes', id: doc._id })).toBe('unchanged');
+      expect(embed).toHaveBeenCalledTimes(1);
+
+      // A field outside the source paths does not change the hash.
+      await col.update(doc._id, { price: 9 });
+      expect(await svc.embedRecord({ projectId: 'p1', entity: 'hashes', id: doc._id })).toBe('unchanged');
+
+      await col.update(doc._id, { title: 'Blue shoes' });
+      expect(await svc.embedRecord({ projectId: 'p1', entity: 'hashes', id: doc._id })).toBe('embedded');
+      expect(embed).toHaveBeenCalledTimes(2);
+      expect((await col.getVectorMeta!(doc._id))!.hash).not.toBe(first!.hash);
+      expect((await col.get(doc._id))!._version).toBe(3);
+    });
+
+    it('the worker cannot write a vector to a record of another project or entity, even given its id', async () => {
+      const foreign = await engine.collection('p2', 'hashes').insert({ title: 'P2 secret' });
+      const sibling = await engine.collection('p1', 'other').insert({ title: 'Other entity' });
+      const { svc, embed } = worker();
+      expect(await svc.embedRecord({ projectId: 'p1', entity: 'hashes', id: foreign._id })).toBe('missing');
+      expect(await svc.embedRecord({ projectId: 'p1', entity: 'hashes', id: sibling._id })).toBe('missing');
+      expect(embed).not.toHaveBeenCalled();
+      for (const id of [foreign._id, sibling._id]) {
+        const stored = (await raw.findOne({ _id: id as any })) as any;
+        expect(stored.vectors).toBeUndefined();
+      }
+      // And a re-embed of p1/hashes never touches them.
+      await svc.reembedEntity({ projectId: 'p1', entity: 'hashes' });
+      for (const id of [foreign._id, sibling._id]) {
+        expect(((await raw.findOne({ _id: id as any })) as any).vectors).toBeUndefined();
+      }
+    });
   });
 
   describe(`${N} x ${DIMS}`, () => {

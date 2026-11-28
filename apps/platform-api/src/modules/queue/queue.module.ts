@@ -18,6 +18,8 @@ export const RAG_INDEX_QUEUE = 'rag-index';
 export const TENANT_EMBEDDING_QUEUE = 'tenant-embedding';
 /** Project automation flows (trigger → actions), executed asynchronously. */
 export const FLOW_QUEUE = 'flow';
+/** Data Engine platform vectors: embed one record after a write, re-embed an entity. */
+export const DATA_VECTOR_QUEUE = 'data-vector';
 
 @Global()
 @Module({
@@ -51,6 +53,7 @@ export const FLOW_QUEUE = 'flow';
       { name: RAG_INDEX_QUEUE },
       { name: TENANT_EMBEDDING_QUEUE },
       { name: FLOW_QUEUE },
+      { name: DATA_VECTOR_QUEUE },
     ),
   ],
   exports: [BullModule],
