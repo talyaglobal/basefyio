@@ -9,6 +9,15 @@ describe('data query params', () => {
     const ast = { type: 'field', path: { path: 'grp' }, operator: 'eq', value: 'g1' };
     expect(parseFilterParam(JSON.stringify(ast))).toEqual(ast);
   });
+  it('takes an already-parsed object (request body) with the same grammar', () => {
+    expect(parseFilterParam({ grp: 'g1' })).toEqual(parseFilterParam('{"grp":"g1"}'));
+    expect(parseFilterParam({ age: { $gt: 3 } })).toMatchObject({ type: 'field', operator: 'gt', value: 3 });
+    expect(parseFilterParam(undefined)).toBeUndefined();
+    expect(parseFilterParam(null)).toBeUndefined();
+    expect(() => parseFilterParam({ a: { $bad: 1 } })).toThrow(BadRequestException);
+    expect(() => parseFilterParam(['a'])).toThrow(BadRequestException);
+    expect(() => parseFilterParam(42)).toThrow(BadRequestException);
+  });
   it('rejects bad filters with 400', () => {
     expect(() => parseFilterParam('{nope')).toThrow(BadRequestException);
     expect(() => parseFilterParam('{"a":{"$bad":1}}')).toThrow(BadRequestException);

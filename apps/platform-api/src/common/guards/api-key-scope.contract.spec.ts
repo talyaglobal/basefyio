@@ -34,6 +34,7 @@ const SERVICE_BY_DEFAULT: Array<[string, string]> = [
   ['DDL, owner-level rows, and the connect credentials', 'modules/projects/project-data.controller.ts'],
   ['owner-level documents with no RLS', 'modules/projects/collection.controller.ts'],
   ['entity DDL and provisioning side effects', 'modules/data-engine/data-engine.controller.ts'],
+  ['record vectors and search with no row-level policy', 'modules/data-engine/data-vector.controller.ts'],
   ['an arbitrary query DSL on the owner pool', 'modules/data-query/data-query.controller.ts'],
   ['automations that make outbound requests', 'modules/flows/flows.controller.ts'],
   ['billed embedding calls over the whole corpus', 'modules/rag/rag.controller.ts'],

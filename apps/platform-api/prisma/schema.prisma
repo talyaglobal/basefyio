@@ -1185,6 +1185,8 @@ model EntityDefinition {
   confidenceScore    Float?   @map("confidence_score")
   sourceWorkbook     String?  @map("source_workbook")
   sourceSheet        String?  @map("source_sheet")
+  /// Vector setup of the entity's records: { mode: "client", dimensions, updatedAt }. Null = no vectors.
+  vectorConfig       Json?    @map("vector_config")
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")
 

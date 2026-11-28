@@ -56,6 +56,14 @@ export interface DataQueryCapabilities {
     vectorSearch: boolean;
     ttl: boolean;
     aggregationPipeline: boolean;
+    /** Vector storage and search of the live provider; null when it stores no vectors. */
+    vector: {
+      embeddings: boolean;
+      hybridSearch: boolean;
+      strategy?: 'exact' | 'ann';
+      maxDimensions?: number;
+      maxScan?: number;
+    } | null;
   } | null;
 }
 
@@ -226,6 +234,7 @@ export class DataQueryService {
       vectorSearch: caps.vectorSearch,
       ttl: caps.ttl,
       aggregationPipeline: caps.aggregationPipeline,
+      vector: caps.vector ?? null,
     };
     const queryModes: ('js' | 'aggregation')[] = ['js'];
     if (capabilities.aggregationPipeline) {

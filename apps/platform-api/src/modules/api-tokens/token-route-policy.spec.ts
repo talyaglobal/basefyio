@@ -69,6 +69,7 @@ export const CONTROLLER_POLICY: Record<string, [Policy, string]> = {
   'modules/agent/agent-creation.controller.ts': ['project-key', 'data plane: use the project key'],
   'modules/agent/agent.controller.ts': ['project-key', 'data plane: use the project key'],
   'modules/data-engine/data-engine.controller.ts': ['project-key', 'data plane: use the project key'],
+  'modules/data-engine/data-vector.controller.ts': ['project-key', 'data plane (record vectors and search): use the project key'],
   'modules/data-query/data-query.controller.ts': ['project-key', 'data plane: use the project key'],
   'modules/data-structures/data-structures.controller.ts': ['project-key', 'data plane: use the project key'],
   'modules/flows/flows.controller.ts': ['project-key', 'data plane: use the project key'],

@@ -421,6 +421,9 @@ export default () => {
     maxDocumentKb: parseInt(process.env.DATA_ENGINE_MAX_DOC_KB || '1024', 10),
     maxNestingDepth: parseInt(process.env.DATA_ENGINE_MAX_NESTING_DEPTH || '8', 10),
     maxArrayItems: parseInt(process.env.DATA_ENGINE_MAX_ARRAY_ITEMS || '1000', 10),
+    // Exact vector search: most candidates one search may score, and its server-side time limit.
+    vectorMaxScan: parseInt(process.env.DATA_ENGINE_VECTOR_MAX_SCAN || '10000', 10),
+    vectorTimeoutMs: parseInt(process.env.DATA_ENGINE_VECTOR_TIMEOUT_MS || '5000', 10),
   },
 
   /**

@@ -37,7 +37,7 @@ const DOC_MAP: DocMapEntry[] = [
   { doc: 'docs/reference/embeddings-api.md', controllers: [`${M}/tenant-embedding/tenant-embedding-public.controller.ts`, `${M}/tenant-embedding/tenant-embedding.controller.ts`, `${M}/tenant-embedding/ai-disclosure.controller.ts`] },
   { doc: 'docs/reference/rag-api.md', controllers: [`${M}/rag/rag.controller.ts`] },
   { doc: 'docs/reference/flows-api.md', controllers: [`${M}/flows/flows.controller.ts`, `${M}/flows/flow-webhook.controller.ts`] },
-  { doc: 'docs/reference/data-engine-api.md', controllers: [`${M}/data-engine/data-engine.controller.ts`, `${M}/data-query/data-query.controller.ts`, `${M}/data-structures/data-structures.controller.ts`] },
+  { doc: 'docs/reference/data-engine-api.md', controllers: [`${M}/data-engine/data-engine.controller.ts`, `${M}/data-engine/data-vector.controller.ts`, `${M}/data-query/data-query.controller.ts`, `${M}/data-structures/data-structures.controller.ts`] },
   {
     doc: 'docs/reference/project-admin-api.md',
     controllers: [

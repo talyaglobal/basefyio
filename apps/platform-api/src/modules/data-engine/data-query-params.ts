@@ -14,10 +14,15 @@ function parseJson(raw: string, name: string): unknown {
 /**
  * Accepts the documented plain-object format ({ "grp": "g1", "age": { "$gt": 3 } }),
  * and the internal AST ({ "type": "field", ... }) that older clients send.
+ * `raw` is the JSON text of a query parameter, or the already-parsed object of
+ * a request body (vector search).
  */
-export function parseFilterParam(raw?: string): any {
-  if (!raw) return undefined;
-  const value = parseJson(raw, 'filter');
+export function parseFilterParam(raw?: unknown): any {
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  let value: unknown;
+  if (typeof raw === 'string') value = parseJson(raw, 'filter');
+  else if (typeof raw === 'object' && !Array.isArray(raw)) value = raw;
+  else throw new BadRequestException('"filter" must be an object');
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     const t = (value as Record<string, unknown>).type;
     if (typeof t === 'string' && AST_TYPES.has(t) && 'conditions' in value === (t === 'and' || t === 'or')) {

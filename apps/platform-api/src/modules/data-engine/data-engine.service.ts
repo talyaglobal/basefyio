@@ -1,6 +1,22 @@
 import { BadRequestException, ConflictException, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+
+/** Vector setup of an entity, kept on EntityDefinition.vectorConfig. */
+export interface EntityVectorConfig {
+  /** Stage 1: the client sends its own vectors. */
+  mode: 'client';
+  dimensions: number;
+  updatedAt: string;
+}
+
+export function parseVectorConfig(raw: unknown): EntityVectorConfig | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const c = raw as Record<string, unknown>;
+  if (c.mode !== 'client' || typeof c.dimensions !== 'number') return null;
+  return { mode: 'client', dimensions: c.dimensions, updatedAt: String(c.updatedAt ?? '') };
+}
 
 /**
  * Data Engine service — the NestJS-injectable wrapper around the
@@ -54,6 +70,10 @@ export class DataEngineService implements OnModuleInit {
       maxDocumentKb: this.config.get<number>('dataEngine.maxDocumentKb') || 1024,
       maxNestingDepth: this.config.get<number>('dataEngine.maxNestingDepth') || 8,
       maxArrayItems: this.config.get<number>('dataEngine.maxArrayItems') || 1000,
+      vector: {
+        maxScan: this.config.get<number>('dataEngine.vectorMaxScan') || 10_000,
+        timeoutMs: this.config.get<number>('dataEngine.vectorTimeoutMs') || 5_000,
+      },
     });
     this.logger.log(`Data Engine initialized (provider: ${provider})`);
     return true;
@@ -230,6 +250,27 @@ export class DataEngineService implements OnModuleInit {
   async getEntityDefinition(projectId: string, entityName: string) {
     return this.prisma.entityDefinition.findUnique({
       where: { projectId_logicalName: { projectId, logicalName: entityName } },
+    });
+  }
+
+  /** The entity's vector setup, or null when it stores no vectors. */
+  async getVectorConfig(projectId: string, entityName: string): Promise<EntityVectorConfig | null> {
+    const def = await this.prisma.entityDefinition.findUnique({
+      where: { projectId_logicalName: { projectId, logicalName: entityName } },
+      select: { vectorConfig: true },
+    });
+    return parseVectorConfig(def?.vectorConfig);
+  }
+
+  /** Store (or clear, with null) the entity's vector setup. */
+  async setVectorConfig(
+    projectId: string,
+    entityName: string,
+    config: EntityVectorConfig | null,
+  ): Promise<void> {
+    await this.prisma.entityDefinition.update({
+      where: { projectId_logicalName: { projectId, logicalName: entityName } },
+      data: { vectorConfig: config === null ? Prisma.DbNull : (config as unknown as Prisma.InputJsonValue) },
     });
   }
 
