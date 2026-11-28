@@ -51,7 +51,7 @@ export type {
   NoSqlFilter,
 } from './modules/collection.js';
 
-export { DataEngineClient, EntityClient, DataEngineQuery } from './modules/data-engine.js';
+export { DataEngineClient, EntityClient, DataEngineQuery, VectorConfigClient } from './modules/data-engine.js';
 
 export type {
   DataEngineDocument,
@@ -59,6 +59,14 @@ export type {
   EntityInfo,
   DataEngineFilter,
   DataEngineSort,
+  VectorConfig,
+  VectorConfigInput,
+  VectorReembedState,
+  VectorStatus,
+  VectorInfo,
+  VectorSearchOptions,
+  VectorSearchHit,
+  VectorSearchResult,
 } from './modules/data-engine.js';
 
 export { RealtimeClient } from './modules/realtime.js';

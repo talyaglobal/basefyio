@@ -26,7 +26,8 @@ values explicitly there (for example from `import.meta.env.VITE_…` under Vite)
 
 This page describes `basefyio-js` as it is in `packages/sdk`. The npm release 2.4.0 has everything
 on this page except the server-side `signOut()` and `getUser()` answering 401 without a request
-when nobody is signed in, which arrive in 2.5.0. Second-factor and anonymous sign-in, realtime
+when nobody is signed in, which arrive in 2.5.0, and the Data Engine vector methods, which arrive
+in 2.8.0. Second-factor and anonymous sign-in, realtime
 channels, image transforms, resumable uploads and storage access rules are in 2.3.0 and later.
 
 Every method returns `{ data, error }` — `error` is `{ message, status?, code? }` and is never
@@ -192,11 +193,33 @@ Filter grammar in [collections-api.md](./collections-api.md).
 ## Data Engine — `bf.data`
 
 ```ts
-const orders = bf.data.entity<Order>('orders');
+const orders = bf.data.collection<Order>('orders');
 await orders.insert({ total: 12.5 });
 const { data: page } = await orders.find({ status: 'open' }).sort('createdAt', 'desc').limit(20); // { data, total, hasMore, nextCursor? }
 await orders.get(id);  await orders.update(id, patch);  await orders.replace(id, doc);  await orders.delete(id);
+await orders.restore(id);
 await bf.data.listEntities();  await bf.data.health();
+```
+
+Vectors (2.8.0, MongoDB Data Engine): store vector embeddings alongside operational document
+data. Either the platform computes each record's vector from its text (`platform` mode), or you
+send your own (`client` mode).
+
+```ts
+// Platform mode: the vector is computed from these fields after every write.
+await bf.data.vectorConfig('articles').set({ mode: 'platform', sourcePaths: ['title', 'body'] });
+const { data: status } = await bf.data.vectorStatus('articles');     // { embedded, total, pending, failed, mismatch, reembed, … }
+const articles = bf.data.collection('articles');
+const { data: hits } = await articles.search({ query: 'waterproof boots', filter: { lang: 'en' }, limit: 5 });
+// hits.data: records with _distance and _score, closest first
+await bf.data.reembed('articles');                                 // after the project's embedding model changed
+
+// Client mode: your own vectors.
+await bf.data.vectorConfig('notes').set({ mode: 'client', dimensions: 768 }, { purge: true });
+const notes = bf.data.collection('notes');
+await notes.setVector(id, vector);  await notes.getVector(id);  await notes.deleteVector(id);
+await notes.search({ vector: queryVector, limit: 10, threshold: 0.5 });
+await bf.data.vectorConfig('notes').delete({ purge: true });
 ```
 
 Service key only; the module is optional on the server ([data-engine-api.md](./data-engine-api.md)).

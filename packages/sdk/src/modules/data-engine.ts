@@ -57,6 +57,138 @@ export interface DataEngineSort {
   direction: 'asc' | 'desc';
 }
 
+// ── Vectors ────────────────────────────────────────────────
+
+/** Vector setup of an entity: the caller's own vectors, or vectors the platform computes from text. */
+export type VectorConfig =
+  | { mode: 'client'; dimensions: number; updatedAt: string }
+  | { mode: 'platform'; dimensions: number; sourcePaths: string[]; modelTag: string; updatedAt: string };
+
+/** Body of `vectorConfig(entity).set()`. */
+export type VectorConfigInput =
+  | { mode: 'client'; dimensions: number }
+  | { mode: 'platform'; sourcePaths: string[] };
+
+export interface VectorReembedState {
+  status: 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED';
+  done: number;
+  total: number;
+  failed: number;
+  model: string;
+  dimensions: number | null;
+  lastError: string | null;
+  startedAt?: string;
+  updatedAt: string;
+  finishedAt?: string;
+}
+
+export interface VectorStatus {
+  mode: 'client' | 'platform' | null;
+  dimensions: number | null;
+  embedded: number;
+  total: number;
+  maxScan: number | null;
+  strategy: 'exact' | 'ann' | null;
+  /** Platform mode: the model the stored vectors were made with. */
+  modelTag: string | null;
+  sourcePaths: string[] | null;
+  /** Platform mode: the model the project embeds with now. */
+  currentModelTag: string | null;
+  /** The project switched models: search with `query` answers 409 until a re-embed finishes. */
+  mismatch: boolean;
+  /** Platform mode: records still waiting for a vector of the current model. */
+  pending: number | null;
+  /** Platform mode: records whose last embedding failed. */
+  failed: number | null;
+  reembed: VectorReembedState | null;
+  /** Whether the project may compute embeddings with the platform's key (Pro plan and above, or its own key). */
+  platformKeyAllowed: boolean | null;
+  /** Daily platform-key token limit, today's use and its reset; null on the project's own key. */
+  dailyTokens: { limit: number | null; used: number | null; resetsAt: string | null } | null;
+}
+
+export interface VectorInfo {
+  id: string;
+  dims: number;
+  model: string;
+  source: string;
+  hash: string | null;
+  updatedAt: string;
+  vector: number[];
+}
+
+export interface VectorSearchOptions {
+  /** Query vector, as wide as the entity's vectors. Exactly one of `vector` or `query`. */
+  vector?: number[];
+  /** Text to search for (platform-mode entities); embedded with the entity's model. */
+  query?: string;
+  /** Same grammar as `find()` filters. */
+  filter?: DataEngineFilter;
+  /** 1..100, default 10. */
+  limit?: number;
+  /** Maximum cosine distance, 0..2, default 0.5. */
+  threshold?: number;
+}
+
+export type VectorSearchHit<T = Record<string, unknown>> = DataEngineDocument<T> & {
+  _distance: number;
+  _score: number;
+};
+
+export interface VectorSearchResult<T = Record<string, unknown>> {
+  data: VectorSearchHit<T>[];
+  scanned: number;
+  strategy: 'exact' | 'ann';
+}
+
+async function call<R>(fn: () => Promise<R>): Promise<BasefyioResponse<R>> {
+  try {
+    return { data: await fn(), error: null };
+  } catch (err: unknown) {
+    return { data: null, error: err as BasefyioError };
+  }
+}
+
+/** `bf.data.vectorConfig(entity)`: read, set or remove an entity's vector setup. */
+export class VectorConfigClient {
+  constructor(
+    private readonly http: BasefyioFetchClient,
+    private readonly path: string,
+  ) {}
+
+  get(): Promise<BasefyioResponse<VectorConfig>> {
+    return call(() => this.http.json<VectorConfig>(this.path));
+  }
+
+  /**
+   * Turn vectors on, or change the setup. Switching mode while vectors exist
+   * needs `{ purge: true }` (they are deleted first).
+   *
+   * @example
+   * await bf.data.vectorConfig('articles').set({ mode: 'platform', sourcePaths: ['title', 'body'] });
+   */
+  set(
+    config: VectorConfigInput,
+    opts?: { purge?: boolean },
+  ): Promise<BasefyioResponse<VectorConfig & { reembed?: { queued: boolean; total: number } }>> {
+    return call(() =>
+      this.http.json<VectorConfig & { reembed?: { queued: boolean; total: number } }>(
+        opts?.purge ? `${this.path}?purge=true` : this.path,
+        { method: 'PUT', body: JSON.stringify(config) },
+      ),
+    );
+  }
+
+  /** Turn vectors off; `{ purge: true }` is required when vectors exist and deletes them. */
+  delete(opts?: { purge?: boolean }): Promise<BasefyioResponse<{ deleted: true; cleared: number }>> {
+    return call(() =>
+      this.http.json<{ deleted: true; cleared: number }>(opts?.purge ? `${this.path}?purge=true` : this.path, {
+        method: 'DELETE',
+      }),
+    );
+  }
+}
+
 // ── DataEngineQuery (chainable) ────────────────────────────
 
 export class DataEngineQuery<T = Record<string, unknown>>
@@ -240,6 +372,48 @@ export class EntityClient<T = Record<string, unknown>> {
   }
 
   /**
+   * Nearest records by vector similarity: send your own `vector`, or a text
+   * `query` on a platform-mode entity.
+   *
+   * @example
+   * const { data } = await bf.data.collection('articles').search({ query: 'waterproof boots', limit: 5 });
+   */
+  search(opts: VectorSearchOptions): Promise<BasefyioResponse<VectorSearchResult<T>>> {
+    return call(() =>
+      this.http.json<VectorSearchResult<T>>(`${this.basePath}/search`, {
+        method: 'POST',
+        body: JSON.stringify(opts),
+      }),
+    );
+  }
+
+  /** Store your own vector on a record (client-mode entities). */
+  setVector(
+    id: string,
+    vector: number[],
+  ): Promise<BasefyioResponse<Omit<VectorInfo, 'vector' | 'hash'>>> {
+    return call(() =>
+      this.http.json<Omit<VectorInfo, 'vector' | 'hash'>>(`${this.basePath}/${encodeURIComponent(id)}/vector`, {
+        method: 'PUT',
+        body: JSON.stringify({ vector }),
+      }),
+    );
+  }
+
+  /** The record's stored (unit-length) vector. */
+  getVector(id: string): Promise<BasefyioResponse<VectorInfo>> {
+    return call(() => this.http.json<VectorInfo>(`${this.basePath}/${encodeURIComponent(id)}/vector`));
+  }
+
+  /** Remove the record's vector. */
+  deleteVector(id: string): Promise<BasefyioResponse<void>> {
+    return call(async () => {
+      await this.http.json<void>(`${this.basePath}/${encodeURIComponent(id)}/vector`, { method: 'DELETE' });
+      return null as unknown as void;
+    });
+  }
+
+  /**
    * Bring back a soft-deleted document. Find deleted ones with
    * `.find().includeDeleted()` or `?includeSoftDeleted=true`.
    */
@@ -281,6 +455,31 @@ export class DataEngineClient {
    */
   collection<T = Record<string, unknown>>(entity: string): EntityClient<T> {
     return new EntityClient<T>(this.http, `${this.basePath}/data/${entity}`);
+  }
+
+  /**
+   * The entity's vector setup (get / set / delete).
+   *
+   * @example
+   * await bf.data.vectorConfig('articles').set({ mode: 'platform', sourcePaths: ['title', 'body'] });
+   */
+  vectorConfig(entity: string): VectorConfigClient {
+    return new VectorConfigClient(this.http, `${this.basePath}/entities/${entity}/vector-config`);
+  }
+
+  /** How many records carry a vector; in platform mode also pending, failed and the re-embed progress. */
+  vectorStatus(entity: string): Promise<BasefyioResponse<VectorStatus>> {
+    return call(() => this.http.json<VectorStatus>(`${this.basePath}/entities/${entity}/vector-status`));
+  }
+
+  /** Re-embed a platform-mode entity with the project's current model (after a model change). */
+  reembed(entity: string): Promise<BasefyioResponse<{ queued: boolean; total: number; reembed: VectorReembedState }>> {
+    return call(() =>
+      this.http.json<{ queued: boolean; total: number; reembed: VectorReembedState }>(
+        `${this.basePath}/entities/${entity}/reembed`,
+        { method: 'POST' },
+      ),
+    );
   }
 
   /**
