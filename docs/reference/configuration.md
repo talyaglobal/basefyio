@@ -315,6 +315,8 @@ The dashboard's Stripe publishable key is a build argument of the UI image — s
 | `DATA_ENGINE_MAX_DOC_KB` | `1024` | yes / yes | Largest document. |
 | `DATA_ENGINE_MAX_NESTING_DEPTH` | `8` | yes / yes | Deepest nesting. |
 | `DATA_ENGINE_MAX_ARRAY_ITEMS` | `1000` | yes / yes | Longest array. |
+| `DATA_ENGINE_VECTOR_MAX_SCAN` | `10000` | yes / yes | Most vectors one Data Engine vector search compares; above it the search answers `422 VECTOR_SCAN_LIMIT`. |
+| `DATA_ENGINE_VECTOR_TIMEOUT_MS` | `5000` | yes / yes | Server-side time limit of one Data Engine vector search. |
 
 The dev file starts the Couchbase `nosql` and `nosql-init` containers by default even though
 the provider defaults to `disabled`; start the stack with explicit service names to skip them.

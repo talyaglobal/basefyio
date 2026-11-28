@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { withAbsoluteSiteUrls } from "@/lib/absolute-site-metadata";
 import { getPublicApiUrl } from "@/lib/site-url";
 
@@ -29,6 +30,12 @@ export default function AiDocs() {
         — chosen for the platform and overridable per project. On top of that, <strong>retrieval</strong>{" "}
         indexes files that already live in your storage buckets so an application can search and
         cite them.
+      </p>
+      <p>
+        Keeping document data in the Data Engine (MongoDB) instead of tables? Store the vectors you compute
+        alongside each record there and search an entity by similarity: see{" "}
+        <Link href="/docs/data-engine#vectors">Data Engine vectors</Link>. The routes on this page are for
+        relational projects, where the platform embeds your text and stores it with pgvector.
       </p>
 
       <h2>In the dashboard</h2>
@@ -84,9 +91,10 @@ curl -s -X POST $API/embeddings/search \\
         </tbody>
       </table>
       <p className="text-sm">
-        <code>threshold</code> is the maximum cosine distance (default 0.5), <code>limit</code>{" "}
-        defaults to 10 and is capped, and <code>filter</code> matches <code>metadata</code> keys
-        exactly. Storing the same text in the same namespace again returns the existing record.
+        <code>threshold</code> is the maximum cosine distance, 0 to 2 (default 0.5), <code>limit</code>{" "}
+        defaults to 10 and is capped at 100, and <code>filter</code> is an object of up to 10{" "}
+        <code>metadata</code> keys that a result must all have with equal values. Storing the same text in
+        the same namespace again returns the existing record.
       </p>
 
       <h2>Retrieval over your documents</h2>

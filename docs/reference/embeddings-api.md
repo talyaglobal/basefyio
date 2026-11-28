@@ -5,6 +5,14 @@ Vectors are produced by an embedding provider — OpenAI by default, or Ollama (
 Cohere — chosen for the platform by the operator and overridable per project. Everything a
 customer needs to know about where their text goes is exposed by the disclosure routes.
 
+## Which API?
+
+- **Relational projects** (tables in the project's PostgreSQL database): this API. The platform
+  embeds your text with the project's embedding provider and stores the vectors with pgvector.
+- **Document data in the Data Engine** (MongoDB): the Data Engine vector routes, which store a
+  vector you computed alongside each record and search an entity by similarity. See
+  [Data Engine API — Vectors](./data-engine-api.md#vectors).
+
 ## Public routes (`/api/rest/v1/embeddings`)
 
 `apikey` header. Writes need the **service key**; search needs the anon key together with a
@@ -38,8 +46,11 @@ missing or an item has an empty `content`.
 POST /api/rest/v1/embeddings/search   { "query": "how do I reset my password", "namespace": "docs", "threshold": 0.5, "limit": 10, "filter": { "source": "faq" } }
 ```
 
-`threshold` is the maximum cosine distance (default 0.5), `limit` defaults to 10 and is
-capped, `filter` matches `metadata` keys exactly. Results:
+`threshold` is the maximum cosine distance, a number from 0 to 2 (default 0.5; anything else is a
+400). `limit` defaults to 10 and is capped at 100. `filter` is an object of at most 10 metadata
+keys; a result must have every one of them with an equal value (`metadata` contains `filter`:
+nested objects match by containment, arrays must contain the listed items). An empty filter
+matches everything. Results:
 
 ```json
 [ { "id": "…", "namespace": "docs", "content": "…", "metadata": {…}, "distance": 0.18, "score": 0.82 } ]
@@ -47,7 +58,7 @@ capped, `filter` matches `metadata` keys exactly. Results:
 
 ### Delete, status, disclosure
 
-`DELETE /api/rest/v1/embeddings` `{ "ids": ["…"] }` and
+`DELETE /api/rest/v1/embeddings` `{ "ids": ["…"] }` (1 to 1000 embedding ids, each a UUID; else 400) and
 `DELETE /api/rest/v1/embeddings/namespace` `{ "namespace": "docs" }` answer `{ "deleted": n }`.
 
 `GET status` → `{ pgvectorEnabled, pgvectorEnabledAt, hasApiKey, embeddingCount }`.
@@ -85,8 +96,8 @@ with an auth, quota or connectivity error), `OPENAI_API_KEY`, `OLLAMA_BASE_URL`,
 
 | Status | When |
 |---|---|
-| 400 | `Body must be { items: [{ content, namespace?, metadata? }] }`; `items[i].content must be a non-empty string`; `query must be a non-empty string`; `No OpenAI API key available` (no platform or project key for the provider); a model wider than the store |
-| 403 | anon key on a write; `Namespace deletion requires service_role key` |
+| 400 | `Body must be { items: [{ content, namespace?, metadata? }] }`; `items[i].content must be a non-empty string`; `query must be a non-empty string`; `threshold` not a number from 0 to 2; a `filter` that is not an object or names more than 10 keys; `ids` empty, longer than 1000 or not UUIDs; `No OpenAI API key available` (no platform or project key for the provider); a model wider than the store; `pgvector is not enabled for this project` (on a document project the message also points to the Data Engine vector routes) |
+| 403 | anon key on a write; `Namespace deletion requires service_role key`; `AI_DISABLED` when the installation runs with `AI_ENABLED=false` |
 | 404 | `Project not found` |
 
 Source: `apps/platform-api/src/modules/tenant-embedding/tenant-embedding-public.controller.ts`,

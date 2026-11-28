@@ -6,7 +6,7 @@ import { getPublicApiUrl } from "@/lib/site-url";
 export async function generateMetadata(): Promise<Metadata> {
   return withAbsoluteSiteUrls("/docs/data-engine", {
     title: "Data Engine",
-    description: "basefyio Data Engine: schema-driven NoSQL document storage with nested queries, versioning, and multi-tenant isolation.",
+    description: "basefyio Data Engine: schema-driven document storage with nested queries, versioning, multi-tenant isolation, and vectors stored alongside records.",
   });
 }
 
@@ -21,9 +21,11 @@ export default function DataEngineDocs() {
         soft-delete, and automatic multi-tenant isolation.
       </p>
       <p>
-        The Data Engine supports two storage providers — a dedicated <strong>NoSQL store</strong> for production
-        workloads and a <strong>database JSONB</strong> fallback for development. Both implement the same
-        interface; your application code works identically regardless of which provider is active.
+        The operator chooses the document store: <strong>MongoDB</strong>, <strong>Couchbase</strong>,{" "}
+        <strong>CouchDB</strong>, or JSONB tables in <strong>PostgreSQL</strong>. All of them implement the same
+        interface, so your application code works the same whichever one is active. A few capabilities depend
+        on the store (aggregation pipelines and vectors need MongoDB); <code>GET /v1/projects/:projectId/data-query/capabilities</code>{" "}
+        tells your application what the active one supports.
       </p>
 
       <h2>Key Features</h2>
@@ -34,7 +36,8 @@ export default function DataEngineDocs() {
         <li><strong>Soft delete</strong> — Deleted documents are kept. List them with <code>?includeSoftDeleted=true</code> and bring one back with <code>POST /v1/projects/:projectId/data/:entity/:id/restore</code>.</li>
         <li><strong>Multi-tenant isolation</strong> — Every query has <code>_projectId</code> injected server-side. Project A can never read Project B&apos;s data.</li>
         <li><strong>Event system</strong> — Every write produces an outbox event: <code>document.created</code>, <code>document.updated</code>, <code>document.deleted</code>.</li>
-        <li><strong>Provider-agnostic</strong> — Switch between NoSQL store and database with a single environment variable.</li>
+        <li><strong>Vectors alongside records</strong> — On MongoDB, a record can carry a vector embedding next to its fields, and an entity can be searched by similarity. See <a href="#vectors">Vectors</a>.</li>
+        <li><strong>Provider-agnostic</strong> — The operator switches the document store with a single environment variable.</li>
       </ul>
 
       <h2>Document Envelope</h2>
@@ -117,6 +120,58 @@ export default function DataEngineDocs() {
           <tr><td><code>cursor</code></td><td>string</td><td>the <code>nextCursor</code> of the previous page (use it instead of <code>offset</code>)</td></tr>
         </tbody>
       </table>
+
+      <h2 id="vectors">Vectors</h2>
+      <p>
+        Store vector embeddings alongside operational document data in MongoDB: each record of an entity can
+        carry one vector next to its fields, and the entity can be searched for the records closest to a query
+        vector. You compute the vectors with the model of your choice and send them; these routes do not call
+        an embedding model. Vectors need the MongoDB provider; other providers answer{" "}
+        <code>501 VECTOR_NOT_SUPPORTED</code>. Service key only, like the record routes.
+      </p>
+      <ul>
+        <li><strong>Stored with the record</strong> — the vector lives in the same document as the record, beside its fields, as packed float32 values scaled to unit length.</li>
+        <li><strong>Never in record reads</strong> — <code>GET</code>, list, <code>PATCH</code>, <code>PUT</code> and aggregation results do not contain it, and writing a vector does not change the record&apos;s <code>_version</code> (ETag).</li>
+        <li><strong>Soft delete</strong> — a deleted record keeps its vector but is never a search hit; restoring it makes it searchable again.</li>
+        <li><strong>Off until you turn it on</strong> — an entity stores vectors only after its vector config is set; writes and searches before that answer <code>409</code>.</li>
+      </ul>
+      <table>
+        <thead><tr><th>Method</th><th>Path</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>PUT</code></td><td><code>/entities/:entity/vector-config</code></td><td>Turn vectors on: <code>{`{ "mode": "client", "dimensions": 1536 }`}</code> (1 to 2048)</td></tr>
+          <tr><td><code>GET</code></td><td><code>/entities/:entity/vector-config</code></td><td>The entity&apos;s vector config</td></tr>
+          <tr><td><code>DELETE</code></td><td><code>/entities/:entity/vector-config</code></td><td>Turn vectors off; <code>?purge=true</code> is required when vectors exist and deletes them</td></tr>
+          <tr><td><code>GET</code></td><td><code>/entities/:entity/vector-status</code></td><td><code>{`{ mode, dimensions, embedded, total, maxScan, strategy }`}</code></td></tr>
+          <tr><td><code>PUT</code></td><td><code>/data/:entity/:id/vector</code></td><td>Set the record&apos;s vector: <code>{`{ "vector": [ ... ] }`}</code></td></tr>
+          <tr><td><code>GET</code></td><td><code>/data/:entity/:id/vector</code></td><td>The stored (unit-length) vector</td></tr>
+          <tr><td><code>DELETE</code></td><td><code>/data/:entity/:id/vector</code></td><td>Remove the record&apos;s vector</td></tr>
+          <tr><td><code>POST</code></td><td><code>/data/:entity/vectors</code></td><td>Up to 100 at once: <code>{`{ "items": [{ "id", "vector" }] }`}</code> → <code>{`{ written, missing }`}</code></td></tr>
+          <tr><td><code>POST</code></td><td><code>/data/:entity/search</code></td><td>Nearest records: <code>{`{ vector, filter?, limit?, threshold? }`}</code></td></tr>
+        </tbody>
+      </table>
+      <pre><code>{`curl -s -X POST ${apiUrl}/api/v1/projects/$PROJECT_ID/data/articles/search \\
+  -H "apikey: $SERVICE_KEY" -H "Content-Type: application/json" \\
+  -d '{ "vector": [0.12, -0.03, ...], "filter": { "lang": "en" }, "limit": 5, "threshold": 0.5 }'
+
+# => { "data": [ { "_id": "...", "title": "...", "_distance": 0.12, "_score": 0.88 } ],
+#      "scanned": 840, "strategy": "exact" }`}</code></pre>
+      <p>
+        <code>filter</code> uses the same grammar as the list route and is applied before scoring;{" "}
+        <code>limit</code> is 1 to 100 (default 10); <code>threshold</code> is the maximum cosine distance, 0 to 2
+        (default 0.5). <code>_distance</code> is the cosine distance (0 = same direction) and <code>_score</code>{" "}
+        is <code>1 - _distance</code>.
+      </p>
+      <p>
+        Search is <strong>exact</strong>: it compares the query with every candidate (the entity&apos;s live records
+        that match the filter and have a vector). One search compares at most 10&nbsp;000 vectors by default; when
+        more records are candidates it answers <code>422 VECTOR_SCAN_LIMIT</code> instead of returning results
+        from part of the entity. Narrow it with a <code>filter</code>. A vector of the wrong width is a{" "}
+        <code>400</code>.
+      </p>
+      <p>
+        The document store is not yet covered by the platform&apos;s backups, so keep the vectors you send
+        reproducible on your side (the source text and the model you used).
+      </p>
 
       <h2>SDK Usage</h2>
       <pre><code>{`import { createClient } from 'basefyio-js'
@@ -225,9 +280,11 @@ const { data: health } = await bf.data.health()
       <table>
         <thead><tr><th>Provider</th><th>When to Use</th><th>Configuration</th></tr></thead>
         <tbody>
-          <tr><td><strong>NoSQL store</strong></td><td>Production — optimized for document workloads, full-text search, KV access</td><td><code>DATA_ENGINE_PROVIDER=nosql</code></td></tr>
-          <tr><td><strong>database</strong></td><td>Development — no extra infrastructure, uses existing project DB</td><td><code>DATA_ENGINE_PROVIDER=database</code></td></tr>
-          <tr><td><strong>Disabled</strong></td><td>Skip Data Engine entirely (existing features unaffected)</td><td><code>DATA_ENGINE_PROVIDER=disabled</code></td></tr>
+          <tr><td><strong>MongoDB</strong></td><td>Document workloads; the only provider with aggregation pipelines and vectors</td><td><code>DATA_ENGINE_PROVIDER=mongodb</code></td></tr>
+          <tr><td><strong>Couchbase</strong></td><td>Document workloads on an existing Couchbase cluster</td><td><code>DATA_ENGINE_PROVIDER=nosql</code></td></tr>
+          <tr><td><strong>CouchDB</strong></td><td>Document workloads on CouchDB (plain HTTP, no driver)</td><td><code>DATA_ENGINE_PROVIDER=couchdb</code></td></tr>
+          <tr><td><strong>PostgreSQL</strong></td><td>No extra infrastructure: JSONB tables in the platform database</td><td><code>DATA_ENGINE_PROVIDER=postgres</code></td></tr>
+          <tr><td><strong>Disabled</strong></td><td>Skip Data Engine entirely (existing features unaffected); every route answers 503</td><td><code>DATA_ENGINE_PROVIDER=disabled</code></td></tr>
         </tbody>
       </table>
 
@@ -235,8 +292,8 @@ const { data: health } = await bf.data.health()
       <table>
         <thead><tr><th>Variable</th><th>Default</th><th>Description</th></tr></thead>
         <tbody>
-          <tr><td><code>DATA_ENGINE_PROVIDER</code></td><td><code>disabled</code></td><td>Provider: <code>nosql</code>, <code>database</code>, or <code>disabled</code></td></tr>
-          <tr><td><code>NOSQL_CONNSTR</code></td><td>—</td><td>NoSQL store connection string</td></tr>
+          <tr><td><code>DATA_ENGINE_PROVIDER</code></td><td><code>disabled</code></td><td>Provider: <code>mongodb</code>, <code>nosql</code> (Couchbase), <code>couchdb</code>, <code>postgres</code>, or <code>disabled</code></td></tr>
+          <tr><td><code>NOSQL_CONNSTR</code></td><td>—</td><td>Document store connection string</td></tr>
           <tr><td><code>NOSQL_USERNAME</code></td><td>—</td><td>Store admin username</td></tr>
           <tr><td><code>NOSQL_PASSWORD</code></td><td>—</td><td>Store admin password</td></tr>
           <tr><td><code>DATA_ENGINE_CONTAINER</code></td><td><code>basefyio-apps</code></td><td>Top-level container name</td></tr>
@@ -244,6 +301,8 @@ const { data: health } = await bf.data.health()
           <tr><td><code>DATA_ENGINE_MAX_DOC_KB</code></td><td><code>1024</code></td><td>Max document size in KB</td></tr>
           <tr><td><code>DATA_ENGINE_MAX_NESTING_DEPTH</code></td><td><code>8</code></td><td>Max schema nesting depth</td></tr>
           <tr><td><code>DATA_ENGINE_MAX_ARRAY_ITEMS</code></td><td><code>1000</code></td><td>Max array items per field</td></tr>
+          <tr><td><code>DATA_ENGINE_VECTOR_MAX_SCAN</code></td><td><code>10000</code></td><td>Most vectors one search compares (above it: <code>422 VECTOR_SCAN_LIMIT</code>)</td></tr>
+          <tr><td><code>DATA_ENGINE_VECTOR_TIMEOUT_MS</code></td><td><code>5000</code></td><td>Server-side time limit of one vector search</td></tr>
         </tbody>
       </table>
 
