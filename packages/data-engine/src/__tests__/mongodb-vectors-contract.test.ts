@@ -556,4 +556,107 @@ describe('MongoDataEngine vectors', () => {
     const { filter } = (calls.updateMany as Doc[]).at(-1)!;
     expect(filter).toMatchObject({ 'envelope.projectId': 'p1', 'envelope.entity': 'docs' });
   });
+
+  // ── Platform vectors (Stage 2) ──────────────────────────
+
+  it('a platform vector carries source, model and hash, and supersedes a marker', async () => {
+    const doc = await col.insert({ title: 'a' });
+    await col.setVectorMarker!(doc._id, { kind: 'failed', model: 'openai/m', hash: 'h0', error: 'x' });
+    const info = await col.setVector!(doc._id, [1, 0], { source: 'platform', model: 'openai/m', hash: 'h1' });
+    expect(info).toMatchObject({ source: 'platform', model: 'openai/m', hash: 'h1' });
+    expect(store[0].vectors.default).toMatchObject({ source: 'platform', model: 'openai/m', hash: 'h1' });
+    expect(store[0].vectors.marker).toBeUndefined();
+    expect(store[0].envelope.version).toBe(1);
+    // A client write never stores a hash.
+    const c = await col.setVector!(doc._id, [1, 0], { hash: 'ignored' });
+    expect(c).toMatchObject({ source: 'client', model: 'client', hash: null });
+  });
+
+  it('ifVersion writes only at that version: ConcurrencyError after a change, not found when gone', async () => {
+    const doc = await col.insert({ title: 'a' });
+    await col.update(doc._id, { title: 'b' });
+    await expect(
+      col.setVector!(doc._id, [1, 0], { source: 'platform', model: 'm', hash: 'h', ifVersion: 1 }),
+    ).rejects.toMatchObject({ code: 'CONCURRENCY_CONFLICT' });
+    expect(store[0].vectors).toBeUndefined();
+    await col.setVector!(doc._id, [1, 0], { source: 'platform', model: 'm', hash: 'h', ifVersion: 2 });
+    expect(store[0].vectors.default.hash).toBe('h');
+    await col.delete(doc._id);
+    await expect(col.setVector!(doc._id, [1, 0], { ifVersion: 3 })).rejects.toMatchObject({ code: 'DOCUMENT_NOT_FOUND' });
+  });
+
+  it('getVectorMeta reads the metadata without the vector field', async () => {
+    const doc = await col.insert({});
+    expect(await col.getVectorMeta!(doc._id)).toBeNull();
+    await col.setVector!(doc._id, [1, 2, 3], { source: 'platform', model: 'm', hash: 'abc' });
+    const meta = await col.getVectorMeta!(doc._id);
+    expect(meta).toMatchObject({ id: doc._id, dims: 3, model: 'm', source: 'platform', hash: 'abc' });
+    expect((meta as any).vector).toBeUndefined();
+    const { filter, options } = (calls.findOne as Doc[]).at(-1)!;
+    expectScoped(filter, 'p1', 'docs');
+    expect(Object.keys(options.projection).some((k) => k.includes('f32_'))).toBe(false);
+    await expect(engine.collection('p2', 'docs').getVectorMeta!(doc._id)).rejects.toMatchObject({ code: 'DOCUMENT_NOT_FOUND' });
+  });
+
+  it('vectorSources pages live in-scope ids with only the requested data paths', async () => {
+    const a = await col.insert({ title: 'A', body: { text: 'x', secret: 's' }, other: 1 });
+    const b = await col.insert({ title: 'B' });
+    const gone = await col.insert({ title: 'C' });
+    await col.delete(gone._id);
+    const foreign = await engine.collection('p2', 'docs').insert({ title: 'P2' });
+    await engine.collection('p1', 'notes').insert({ title: 'N' });
+    await col.setVector!(a._id, [1, 0], { source: 'platform', model: 'm', hash: 'h' });
+
+    const rows = await col.vectorSources!({ paths: ['title', 'body.text', 'body'], limit: 10 });
+    expect(rows.map((r) => r.id).sort()).toEqual([a._id, b._id].sort());
+    const ra = rows.find((r) => r.id === a._id)!;
+    // body.text is covered by body: no path collision in the projection.
+    expect(ra.data).toEqual({ title: 'A', body: { text: 'x', secret: 's' } });
+    expect(ra.version).toBe(1);
+    expect(ra.vector).toMatchObject({ model: 'm', hash: 'h' });
+    expect((ra.vector as any).vector).toBeUndefined();
+    const projection = (calls['find.project'] as Doc[]).at(-1)!;
+    expect(projection).toMatchObject({ 'data.title': 1, 'data.body': 1 });
+    expect(projection['data.body.text']).toBeUndefined();
+    expect(Object.keys(projection).some((k) => k.includes('f32_'))).toBe(false);
+    expectScoped((calls.find as Doc[]).at(-1)!, 'p1', 'docs');
+
+    // ids are still pinned to the scope: another project's id is never returned.
+    expect(await col.vectorSources!({ paths: ['title'], ids: [foreign._id, gone._id] })).toEqual([]);
+    await expect(col.vectorSources!({ paths: ['tags[]'] })).rejects.toMatchObject({ code: 'QUERY_VALIDATION_FAILED' });
+    await expect(col.vectorSources!({ paths: [] })).rejects.toMatchObject({ code: 'QUERY_VALIDATION_FAILED' });
+    await expect(col.vectorSources!({ paths: ['__proto__'] })).rejects.toBeDefined();
+  });
+
+  it('setVectorMarker: empty removes the vector, failed keeps it; scoped and version-checked', async () => {
+    const doc = await col.insert({});
+    await col.setVector!(doc._id, [1, 0], { source: 'platform', model: 'm', hash: 'h' });
+    expect(await col.setVectorMarker!(doc._id, { kind: 'failed', model: 'm', hash: 'h2', error: 'boom' })).toBe(true);
+    expect(store[0].vectors.default).toBeDefined();
+    expect(store[0].vectors.marker).toMatchObject({ kind: 'failed', model: 'm', hash: 'h2', error: 'boom' });
+    expect(await col.setVectorMarker!(doc._id, { kind: 'empty', model: 'm', hash: null }, { ifVersion: 9 })).toBe(false);
+    expect(await col.setVectorMarker!(doc._id, { kind: 'empty', model: 'm', hash: null }, { ifVersion: 1 })).toBe(true);
+    expect(store[0].vectors.default).toBeUndefined();
+    expect(store[0].vectors.marker).toMatchObject({ kind: 'empty', error: null });
+    expect(await engine.collection('p2', 'docs').setVectorMarker!(doc._id, { kind: 'empty', model: 'm', hash: null })).toBe(false);
+    expect(store[0].envelope.version).toBe(1);
+  });
+
+  it('vectorStats with a model counts pending and failed', async () => {
+    const done = await col.insert({});
+    const old = await col.insert({});
+    const none = await col.insert({});
+    const empty = await col.insert({});
+    const failed = await col.insert({});
+    const deleted = await col.insert({});
+    await col.setVector!(done._id, [1], { source: 'platform', model: 'new', hash: 'h' });
+    await col.setVector!(old._id, [1], { source: 'platform', model: 'old', hash: 'h' });
+    await col.setVectorMarker!(empty._id, { kind: 'empty', model: 'new', hash: null });
+    await col.setVectorMarker!(failed._id, { kind: 'failed', model: 'new', hash: 'h', error: 'x' });
+    await col.delete(deleted._id);
+    void none;
+    expect(await col.vectorStats!({ model: 'new' })).toEqual({ embedded: 2, total: 5, pending: 2, failed: 1 });
+    // Without a model: Stage 1's shape.
+    expect(await col.vectorStats!()).toEqual({ embedded: 2, total: 5 });
+  });
 });

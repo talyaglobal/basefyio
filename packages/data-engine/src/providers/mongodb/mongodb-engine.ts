@@ -36,9 +36,14 @@ import {
 } from '../../interfaces/data-engine';
 import type {
   VectorInfo,
+  VectorMarker,
+  VectorMeta,
   VectorSearchQuery,
   VectorSearchResult,
+  VectorSourceQuery,
+  VectorSourceRow,
   VectorStats,
+  VectorStatsOptions,
   VectorWrite,
   VectorWriteOptions,
   VectorWriteResult,
@@ -76,6 +81,7 @@ import {
   sortToMongo,
   toStoredPath,
 } from './mongo-translate';
+import { assertSafePath } from '../../query/filter-object';
 
 /** Upper bound for find()/count() totals — keeps huge scans bounded. */
 const COUNT_LIMIT = 100_000;
@@ -83,6 +89,15 @@ const DEFAULT_COLLECTION = 'records';
 
 /** Read paths never carry the stored vector. */
 const NO_VECTORS = { vectors: 0 } as const;
+/** Everything about a record's vector except the vector itself. */
+const VECTOR_META_PROJECTION = {
+  'vectors.default.dims': 1,
+  'vectors.default.model': 1,
+  'vectors.default.source': 1,
+  'vectors.default.hash': 1,
+  'vectors.default.updatedAt': 1,
+  'vectors.marker': 1,
+} as const;
 const DEFAULT_VECTOR_MAX_SCAN = 10_000;
 const DEFAULT_VECTOR_TIMEOUT_MS = 5_000;
 const DEFAULT_VECTOR_CONCURRENCY = 4;
@@ -197,7 +212,35 @@ interface StoredDoc {
   _id: string;
   envelope: StoredEnvelope;
   data: JsonObject;
-  vectors?: { default?: StoredVector };
+  vectors?: { default?: StoredVector; marker?: StoredMarker };
+}
+
+interface StoredMarker {
+  kind: 'empty' | 'failed';
+  model: string;
+  hash: string | null;
+  error?: string | null;
+  updatedAt: string;
+}
+
+/** Most ids one vectorSources call may name, and its page bound. */
+const MAX_VECTOR_SOURCE_PAGE = 500;
+/** Longest marker error kept on a record. */
+const MAX_MARKER_ERROR = 300;
+
+/**
+ * Projection of `data.<path>` for each path, without path collisions: a path
+ * whose parent is also requested is covered by the parent.
+ */
+export function dataProjection(paths: string[]): Record<string, 1> {
+  const unique = [...new Set(paths)].sort();
+  const kept: string[] = [];
+  for (const p of unique) {
+    if (!kept.some((k) => p === k || p.startsWith(`${k}.`))) kept.push(p);
+  }
+  const out: Record<string, 1> = {};
+  for (const p of kept) out[`data.${p}`] = 1;
+  return out;
 }
 
 interface DriverLike {
@@ -661,39 +704,74 @@ class MongoEntityCollection implements EntityCollection {
   // Only `vectors.default` is written; the envelope is never touched, so the
   // document's version (its ETag), event sequence and updatedAt stay as they are.
 
-  private storedVector(vec: Float64Array, model?: string): StoredVector {
+  private storedVector(vec: Float64Array, opts?: VectorWriteOptions): StoredVector {
+    const source = opts?.source === 'platform' ? 'platform' : 'client';
     return {
       dims: vec.length,
-      model: model || 'client',
-      source: 'client',
-      hash: null,
+      model: opts?.model || 'client',
+      source,
+      hash: source === 'platform' && typeof opts?.hash === 'string' ? opts.hash : null,
       updatedAt: new Date().toISOString(),
       [vectorField(vec.length)]: this.engine._encodeVector(vec),
     };
   }
 
-  private toInfo(id: string, stored: StoredVector | undefined): VectorInfo | null {
+  private toMeta(id: string, stored: StoredVector | undefined): VectorMeta | null {
     if (!stored || typeof stored.dims !== 'number') return null;
-    const values = this.engine._decodeVector(stored[vectorField(stored.dims)]);
-    if (!values) return null;
     return {
       id,
       dims: stored.dims,
       model: stored.model,
       source: stored.source,
+      hash: typeof stored.hash === 'string' ? stored.hash : null,
       updatedAt: stored.updatedAt,
-      vector: Array.from(values),
     };
+  }
+
+  private toInfo(id: string, stored: StoredVector | undefined): VectorInfo | null {
+    const meta = this.toMeta(id, stored);
+    if (!meta || !stored) return null;
+    const values = this.engine._decodeVector(stored[vectorField(stored.dims)]);
+    if (!values) return null;
+    return { ...meta, vector: Array.from(values) };
+  }
+
+  /**
+   * The update that stores a vector. A platform vector also supersedes any
+   * "empty"/"failed" marker; a client vector write is exactly Stage 1's ($set only).
+   */
+  private vectorUpdate(stored: StoredVector): Record<string, unknown> {
+    return stored.source === 'platform'
+      ? { $set: { 'vectors.default': stored }, $unset: { 'vectors.marker': '' } }
+      : { $set: { 'vectors.default': stored } };
+  }
+
+  /** Scope of one live record, at `ifVersion` when set. */
+  private recordScope(id: string, ifVersion?: number): Record<string, unknown> {
+    return ifVersion === undefined
+      ? this.scope({ _id: id })
+      : this.scope({ _id: id, 'envelope.version': ifVersion });
   }
 
   async setVector(id: string, vector: number[], opts?: VectorWriteOptions): Promise<VectorInfo> {
     const vec = prepareVector(vector, { expected: opts?.dimensions });
     const col = await this.engine._records();
-    const stored = this.storedVector(vec, opts?.model);
-    const res = await col.updateOne(this.scope({ _id: id }), {
-      $set: { 'vectors.default': stored },
-    });
-    if (!res.matchedCount) throw new DocumentNotFoundError(this.entity, id);
+    const stored = this.storedVector(vec, opts);
+    const res = await col.updateOne(this.recordScope(id, opts?.ifVersion), this.vectorUpdate(stored));
+    if (!res.matchedCount) {
+      if (opts?.ifVersion !== undefined) {
+        const current = await col.findOne(this.scope({ _id: id }), { projection: { envelope: 1 } });
+        if (current) {
+          throw new ConcurrencyError(
+            this.entity,
+            id,
+            opts.ifVersion,
+            (current as unknown as StoredDoc).envelope.version,
+          );
+        }
+      }
+      throw new DocumentNotFoundError(this.entity, id);
+    }
     return this.toInfo(id, stored) as VectorInfo;
   }
 
@@ -715,9 +793,10 @@ class MongoEntityCollection implements EntityCollection {
     const written: string[] = [];
     const missing: string[] = [];
     for (const { id, vec } of prepared) {
-      const res = await col.updateOne(this.scope({ _id: id }), {
-        $set: { 'vectors.default': this.storedVector(vec, opts?.model) },
-      });
+      const res = await col.updateOne(
+        this.recordScope(id, opts?.ifVersion),
+        this.vectorUpdate(this.storedVector(vec, opts)),
+      );
       (res.matchedCount ? written : missing).push(id);
     }
     return { written, missing };
@@ -755,13 +834,101 @@ class MongoEntityCollection implements EntityCollection {
     return res.modifiedCount;
   }
 
-  async vectorStats(): Promise<VectorStats> {
+  async vectorStats(opts?: VectorStatsOptions): Promise<VectorStats> {
     const col = await this.engine._records();
     const [embedded, total] = await Promise.all([
       col.countDocuments(this.scope({ 'vectors.default.dims': { $exists: true } }), { limit: COUNT_LIMIT }),
       col.countDocuments(this.scope(), { limit: COUNT_LIMIT }),
     ]);
-    return { embedded, total };
+    if (typeof opts?.model !== 'string' || opts.model === '') return { embedded, total };
+    const model = opts.model;
+    const [pending, failed] = await Promise.all([
+      // No vector of this model, and not already settled for it (empty text or a recorded failure).
+      col.countDocuments(
+        this.scope({ 'vectors.default.model': { $ne: model }, 'vectors.marker.model': { $ne: model } }),
+        { limit: COUNT_LIMIT },
+      ),
+      col.countDocuments(
+        this.scope({ 'vectors.marker.kind': 'failed', 'vectors.marker.model': model }),
+        { limit: COUNT_LIMIT },
+      ),
+    ]);
+    return { embedded, total, pending, failed };
+  }
+
+  async getVectorMeta(id: string): Promise<VectorMeta | null> {
+    const col = await this.engine._records();
+    const row = await col.findOne(this.scope({ _id: id }), { projection: VECTOR_META_PROJECTION });
+    if (!row) throw new DocumentNotFoundError(this.entity, id);
+    return this.toMeta(id, (row as unknown as StoredDoc).vectors?.default);
+  }
+
+  async vectorSources(q: VectorSourceQuery): Promise<VectorSourceRow[]> {
+    if (!Array.isArray(q?.paths) || q.paths.length === 0) {
+      throw new QueryValidationError('paths must be a non-empty array');
+    }
+    for (const p of q.paths) {
+      if (typeof p !== 'string' || p === '' || p.includes('[]') || p.split('.').some((seg) => seg.startsWith('$'))) {
+        throw new QueryValidationError('paths must be dot paths under the record data');
+      }
+      assertSafePath(p, 'paths');
+    }
+    const limit = q.limit === undefined ? 100 : q.limit;
+    if (!Number.isInteger(limit) || limit < 1 || limit > MAX_VECTOR_SOURCE_PAGE) {
+      throw new QueryValidationError(`limit must be a whole number from 1 to ${MAX_VECTOR_SOURCE_PAGE}`);
+    }
+    const idCond: Record<string, unknown> = {};
+    if (q.ids !== undefined) {
+      if (!Array.isArray(q.ids) || q.ids.length > MAX_VECTOR_SOURCE_PAGE || q.ids.some((i) => typeof i !== 'string')) {
+        throw new QueryValidationError(`ids must be an array of at most ${MAX_VECTOR_SOURCE_PAGE} strings`);
+      }
+      idCond.$in = q.ids;
+    }
+    if (q.after !== undefined) idCond.$gt = String(q.after);
+    const col = await this.engine._records();
+    const rows = await col
+      .find(this.scope(Object.keys(idCond).length ? { _id: idCond } : {}))
+      .project({ _id: 1, 'envelope.version': 1, ...VECTOR_META_PROJECTION, ...dataProjection(q.paths) })
+      .sort({ _id: 1 })
+      .limit(limit)
+      .toArray();
+    return rows.map((r) => {
+      const doc = r as unknown as StoredDoc;
+      const m = doc.vectors?.marker;
+      return {
+        id: String(doc._id),
+        version: doc.envelope?.version ?? 0,
+        data: (doc.data ?? {}) as Record<string, unknown>,
+        vector: this.toMeta(String(doc._id), doc.vectors?.default),
+        marker:
+          m && (m.kind === 'empty' || m.kind === 'failed')
+            ? { kind: m.kind, model: m.model, hash: m.hash ?? null, error: m.error ?? null, updatedAt: m.updatedAt }
+            : null,
+      };
+    });
+  }
+
+  async setVectorMarker(
+    id: string,
+    marker: Omit<VectorMarker, 'updatedAt'>,
+    opts?: { ifVersion?: number },
+  ): Promise<boolean> {
+    if (marker?.kind !== 'empty' && marker?.kind !== 'failed') {
+      throw new QueryValidationError('marker.kind must be "empty" or "failed"');
+    }
+    const stored: StoredMarker = {
+      kind: marker.kind,
+      model: String(marker.model ?? ''),
+      hash: typeof marker.hash === 'string' ? marker.hash : null,
+      error: marker.kind === 'failed' && marker.error ? String(marker.error).slice(0, MAX_MARKER_ERROR) : null,
+      updatedAt: new Date().toISOString(),
+    };
+    const update: Record<string, unknown> = { $set: { 'vectors.marker': stored } };
+    // Nothing to embed: the record leaves vector search.
+    if (marker.kind === 'empty') update.$unset = { 'vectors.default': '' };
+    const col = await this.engine._records();
+    const res = await col.updateOne(this.recordScope(id, opts?.ifVersion), update);
+    return res.matchedCount > 0;
   }
 
   async vectorSearch(q: VectorSearchQuery): Promise<VectorSearchResult> {

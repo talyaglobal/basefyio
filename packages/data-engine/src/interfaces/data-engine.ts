@@ -25,9 +25,14 @@ import type {
 
 import type {
   VectorInfo,
+  VectorMarker,
+  VectorMeta,
   VectorSearchQuery,
   VectorSearchResult,
+  VectorSourceQuery,
+  VectorSourceRow,
   VectorStats,
+  VectorStatsOptions,
   VectorWrite,
   VectorWriteOptions,
   VectorWriteResult,
@@ -100,8 +105,21 @@ export interface EntityCollection {
   /** Nearest records to a query vector among the entity's live records, after the filter. */
   vectorSearch?(q: VectorSearchQuery): Promise<VectorSearchResult>;
 
-  /** How many live records carry a vector, out of how many. */
-  vectorStats?(): Promise<VectorStats>;
+  /** How many live records carry a vector, out of how many (plus pending/failed for a model). */
+  vectorStats?(opts?: VectorStatsOptions): Promise<VectorStats>;
+
+  /** What is stored about the record's vector, without reading the vector. DocumentNotFoundError when there is no live record. */
+  getVectorMeta?(id: string): Promise<VectorMeta | null>;
+
+  /** Ids, versions, the requested data paths and vector metadata of live records, by ascending id. */
+  vectorSources?(q: VectorSourceQuery): Promise<VectorSourceRow[]>;
+
+  /**
+   * Record platform bookkeeping on a live record: `empty` also removes its
+   * vector (nothing to embed); `failed` keeps whatever vector it had. Returns
+   * false when no live record (at `ifVersion`, when set) has this id.
+   */
+  setVectorMarker?(id: string, marker: Omit<VectorMarker, 'updatedAt'>, opts?: { ifVersion?: number }): Promise<boolean>;
 }
 
 // ── Data Engine (top-level interface) ──────────────────────
