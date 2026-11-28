@@ -583,3 +583,109 @@ describe('TenantEmbeddingService re-embed', () => {
     expect(responseCode(tooBig)).toBe('EMBEDDING_REEMBED_TOO_LARGE');
   });
 });
+
+describe('TenantEmbeddingService search filter and input checks', () => {
+  const searchCall = () => poolQuery.mock.calls.find(([sql]) => String(sql).includes('ORDER BY es.embedding'));
+
+  beforeEach(() => {
+    poolQuery.mockImplementation(storeWith({ vectors: 0, dims: 2 }));
+    embeddingsCreate.mockResolvedValue(embedResponse(1, 2));
+  });
+
+  it('binds the whole metadata filter as one jsonb containment parameter', async () => {
+    const svc = service();
+    await svc.search('p1', { query: 'q', namespace: 'docs', filter: { lang: 'en', tags: ['a'], meta: { v: 2 } } });
+    const [sql, params] = searchCall()!;
+    expect(sql).toContain('e.metadata @> $4::jsonb');
+    expect(sql).not.toContain('jsonb_build_object');
+    expect(params).toEqual(['[0,0]', 0.5, 'docs', JSON.stringify({ lang: 'en', tags: ['a'], meta: { v: 2 } }), 10]);
+  });
+
+  it('adds no metadata condition for an absent or empty filter', async () => {
+    const svc = service();
+    await svc.search('p1', { query: 'q', filter: {} });
+    const [sql, params] = searchCall()!;
+    expect(sql).not.toContain('e.metadata @>');
+    expect(params).toEqual(['[0,0]', 0.5, 10]);
+  });
+
+  it.each([
+    ['an array', ['a']],
+    ['a string', 'lang=en'],
+    ['more than 10 keys', Object.fromEntries(Array.from({ length: 11 }, (_, i) => [`k${i}`, i]))],
+  ])('rejects a filter that is %s with 400', async (_label, filter) => {
+    const err = await service().search('p1', { query: 'q', filter: filter as any }).catch((e) => e);
+    expect(err).toBeInstanceOf(BadRequestException);
+    expect(embeddingsCreate).not.toHaveBeenCalled();
+  });
+
+  it.each([[-0.1], [2.5], ['0.3'], [NaN], [Infinity]])('rejects threshold %p with 400', async (threshold) => {
+    const err = await service().search('p1', { query: 'q', threshold: threshold as any }).catch((e) => e);
+    expect(err).toBeInstanceOf(BadRequestException);
+    expect(err.message).toContain('threshold');
+  });
+
+  it('accepts threshold 0 and 2 and binds it', async () => {
+    await service().search('p1', { query: 'q', threshold: 2 });
+    expect(searchCall()![1][1]).toBe(2);
+  });
+
+  it.each([
+    ['missing', undefined],
+    ['empty', []],
+    ['not UUIDs', ['abc']],
+    ['too many', Array.from({ length: 1001 }, () => '00000000-0000-4000-8000-000000000000')],
+  ])('deleteByIds rejects ids that are %s with 400 before touching the store', async (_label, ids) => {
+    const svc = service();
+    const err = await svc.deleteByIds('p1', ids as any).catch((e) => e);
+    expect(err).toBeInstanceOf(BadRequestException);
+    expect(poolQuery).not.toHaveBeenCalled();
+  });
+
+  it('deleteByIds deletes valid UUIDs', async () => {
+    poolQuery.mockResolvedValue({ rows: [], rowCount: 1 });
+    const id = '3f1c2b9e-8a7d-4c1e-9f00-1234567890ab';
+    expect(await service().deleteByIds('p1', [id])).toBe(1);
+    expect(poolQuery.mock.calls[0][1]).toEqual([[id]]);
+  });
+});
+
+describe('TenantEmbeddingService AI switch and document projects', () => {
+  afterEach(() => {
+    delete process.env.AI_ENABLED;
+  });
+
+  it('answers 403 AI_DISABLED instead of a 500 when AI is switched off', async () => {
+    process.env.AI_ENABLED = 'false';
+    const svc = service();
+    for (const call of [
+      () => svc.search('p1', { query: 'q' }),
+      () => svc.storeBatch('p1', [{ content: 'a' }]),
+    ]) {
+      const err = await call().catch((e) => e);
+      expect(err).toBeInstanceOf(HttpException);
+      expect(err.getStatus()).toBe(403);
+      expect(responseCode(err)).toBe('AI_DISABLED');
+    }
+    expect(embeddingsCreate).not.toHaveBeenCalled();
+  });
+
+  it('points a document project without pgvector at the Data Engine vectors, without blocking anyone', async () => {
+    const nosql = await service({ pgvectorEnabled: false, databaseType: 'NOSQL' } as any)
+      .search('p1', { query: 'q' })
+      .catch((e) => e);
+    expect(nosql).toBeInstanceOf(BadRequestException);
+    expect(nosql.message).toContain('pgvector is not enabled');
+    expect(nosql.message).toContain('Data Engine vector routes');
+
+    const relational = await service({ pgvectorEnabled: false, databaseType: 'RELATIONAL' } as any)
+      .search('p1', { query: 'q' })
+      .catch((e) => e);
+    expect(relational.message).not.toContain('Data Engine');
+
+    // A document project with pgvector enabled works as before.
+    poolQuery.mockImplementation(storeWith({ vectors: 0, dims: 2 }));
+    embeddingsCreate.mockResolvedValue(embedResponse(1, 2));
+    await expect(service({ databaseType: 'NOSQL' } as any).search('p1', { query: 'q' })).resolves.toEqual([]);
+  });
+});

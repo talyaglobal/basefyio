@@ -5,6 +5,7 @@ import {
   BadRequestException,
   BadGatewayException,
   ConflictException,
+  ForbiddenException,
   HttpException,
   HttpStatus,
   InternalServerErrorException,
@@ -42,10 +43,65 @@ import {
   type ProviderDisclosure,
 } from '../embedding/providers/disclosure';
 import type { SetEmbeddingProviderDto } from './dto/set-embedding-provider.dto';
+import { aiEnabled, AI_DISABLED_MESSAGE } from '../../common/utils/ai-switch';
 
 /** Inputs per provider request (the APIs allow more; keep bodies small). */
 const EMBED_BATCH = 100;
 const MAX_SEARCH_LIMIT = 100;
+/** Keys a search `filter` may name (each must match the stored metadata). */
+const MAX_FILTER_KEYS = 10;
+/** Ids one delete request may name. */
+const MAX_DELETE_IDS = 1000;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** 403 AI_DISABLED: the installation switched every model call off. */
+export function aiDisabledError(): ForbiddenException {
+  return new ForbiddenException({ statusCode: 403, code: 'AI_DISABLED', message: AI_DISABLED_MESSAGE });
+}
+
+/**
+ * The search `filter` as one jsonb containment value: a plain object of at
+ * most MAX_FILTER_KEYS keys, matched as `metadata @> filter` (every key must
+ * be present with an equal value; nested objects match by containment).
+ * Null when there is nothing to filter on.
+ */
+export function metadataFilterJson(filter: unknown): string | null {
+  if (filter === undefined || filter === null) return null;
+  if (typeof filter !== 'object' || Array.isArray(filter)) {
+    throw new BadRequestException('filter must be an object of metadata keys and values');
+  }
+  const keys = Object.keys(filter);
+  if (keys.length === 0) return null;
+  if (keys.length > MAX_FILTER_KEYS) {
+    throw new BadRequestException(`filter may name at most ${MAX_FILTER_KEYS} metadata keys`);
+  }
+  return JSON.stringify(filter);
+}
+
+/** `threshold`: maximum cosine distance, a finite number from 0 to 2 (default 0.5). */
+export function parseThreshold(raw: unknown): number {
+  if (raw === undefined || raw === null) return 0.5;
+  if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 0 || raw > 2) {
+    throw new BadRequestException('threshold must be a number from 0 to 2 (maximum cosine distance)');
+  }
+  return raw;
+}
+
+/** `ids` of a delete: a non-empty array of at most MAX_DELETE_IDS UUIDs. */
+export function parseEmbeddingIds(raw: unknown): string[] {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    throw new BadRequestException('ids must be a non-empty array of embedding ids');
+  }
+  if (raw.length > MAX_DELETE_IDS) {
+    throw new BadRequestException(`ids may name at most ${MAX_DELETE_IDS} embeddings per request`);
+  }
+  raw.forEach((id, i) => {
+    if (typeof id !== 'string' || !UUID_RE.test(id)) {
+      throw new BadRequestException(`ids[${i}] must be an embedding id (UUID)`);
+    }
+  });
+  return raw as string[];
+}
 /** Width of `kb_embeddings_store.embedding` as the bootstrap SQL creates it. */
 const DEFAULT_STORE_DIMENSIONS = 1536;
 const STORE_DIMENSIONS_TTL_MS = 10 * 60 * 1000;
@@ -152,6 +208,7 @@ type ProjectRow = {
   embeddingBaseUrl: string | null;
   embeddingReembedState: unknown;
   teamId: string;
+  databaseType?: 'RELATIONAL' | 'NOSQL';
 };
 
 @Injectable()
@@ -231,7 +288,7 @@ export class TenantEmbeddingService {
       // One tiny request with the key before it is stored (#24): a wrong key is
       // refused here, not at the first embedding request.
       const project = await this.getProject(projectId);
-      const candidate = this.providers.forProject({ ...project, embeddingApiKey: key });
+      const candidate = this.resolveProvider({ ...project, embeddingApiKey: key });
       try {
         await this.providers.probe(candidate);
       } catch (err) {
@@ -376,10 +433,12 @@ export class TenantEmbeddingService {
     projectId: string,
     dto: SearchEmbeddingDto,
   ): Promise<TenantSimilarityResult[]> {
-    const { query, namespace, threshold = 0.5, filter } = dto;
+    const { query, namespace } = dto;
     if (typeof query !== 'string' || query.trim() === '') {
       throw new BadRequestException('query must be a non-empty string');
     }
+    const threshold = parseThreshold(dto.threshold);
+    const filterJson = metadataFilterJson(dto.filter);
     const limit = Math.min(Math.max(Math.trunc(Number(dto.limit ?? 10)) || 10, 1), MAX_SEARCH_LIMIT);
 
     const { project, resolved } = await this.getProjectWithEmbedding(projectId);
@@ -399,13 +458,10 @@ export class TenantEmbeddingService {
         conditions.push(`e.namespace = $${params.length}`);
       }
 
-      if (filter) {
-        for (const [key, value] of Object.entries(filter)) {
-          params.push(JSON.stringify(value));
-          conditions.push(
-            `e.metadata @> jsonb_build_object($${params.length}::text, $${params.length}::jsonb)`,
-          );
-        }
+      if (filterJson) {
+        // One containment test for the whole filter: every key must match.
+        params.push(filterJson);
+        conditions.push(`e.metadata @> $${params.length}::jsonb`);
       }
 
       params.push(limit);
@@ -449,6 +505,7 @@ export class TenantEmbeddingService {
   /* ──────────────── delete embeddings ──────────────── */
 
   async deleteByIds(projectId: string, ids: string[]): Promise<number> {
+    ids = parseEmbeddingIds(ids);
     const { project } = await this.getProjectWithEmbedding(projectId);
     const pool = this.projectPool(project);
     try {
@@ -605,7 +662,7 @@ export class TenantEmbeddingService {
       embeddingModel: providerId ? model : null,
       embeddingBaseUrl: providerId ? baseUrl : null,
     };
-    const candidate = this.providers.forProject(candidateFields);
+    const candidate = this.resolveProvider(candidateFields);
     let probed: { dimensions: number; model: string };
     try {
       probed = await this.providers.probe(candidate);
@@ -933,6 +990,7 @@ export class TenantEmbeddingService {
         embeddingBaseUrl: true,
         embeddingReembedState: true,
         teamId: true,
+        databaseType: true,
       },
     });
     if (!project) throw new NotFoundException('Project not found');
@@ -948,12 +1006,28 @@ export class TenantEmbeddingService {
   ): Promise<{ project: ProjectRow; resolved: ResolvedProvider }> {
     const project = await this.getProject(projectId);
     if (!project.pgvectorEnabled) {
+      // Not blocked by database type; a document project just gets pointed at the right API.
+      const hint =
+        project.databaseType === 'NOSQL'
+          ? ' For vectors stored with Data Engine records, use the Data Engine vector routes (PUT /api/v1/projects/:projectId/entities/:entity/vector-config).'
+          : '';
       throw new BadRequestException(
-        'pgvector is not enabled for this project. Enable it first via the admin API.',
+        `pgvector is not enabled for this project. Enable it first via the admin API.${hint}`,
       );
     }
-    const resolved = this.providers.forProject(project);
+    const resolved = this.resolveProvider(project);
     return { project, resolved };
+  }
+
+  /** forProject, with the AI switch answered as 403 AI_DISABLED instead of a 500. */
+  private resolveProvider(fields: Parameters<EmbeddingProviderService['forProject']>[0]): ResolvedProvider {
+    if (!aiEnabled()) throw aiDisabledError();
+    try {
+      return this.providers.forProject(fields);
+    } catch (err) {
+      if (err instanceof Error && err.message === AI_DISABLED_MESSAGE) throw aiDisabledError();
+      throw err;
+    }
   }
 
   private async describeAndMeasure(project: ProjectRow, storedDimensions: number | null) {
@@ -1126,6 +1200,7 @@ export class TenantEmbeddingService {
 
   private providerError(err: unknown): HttpException {
     if (err instanceof HttpException) return err;
+    if (err instanceof Error && err.message === AI_DISABLED_MESSAGE) return aiDisabledError();
     const pe = err instanceof EmbeddingProviderError ? err : null;
     const status = pe?.status;
     const detail = err instanceof Error ? err.message : String(err);
