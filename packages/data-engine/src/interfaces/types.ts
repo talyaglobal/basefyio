@@ -81,6 +81,12 @@ export interface TenantDataPlane {
 export interface VectorCapabilities {
   embeddings: boolean;
   hybridSearch: boolean;
+  /** 'exact' scores every candidate; 'ann' uses an approximate index. */
+  strategy?: 'exact' | 'ann';
+  /** Widest vector the provider stores. */
+  maxDimensions?: number;
+  /** Most candidates one exact search may score before it is refused. */
+  maxScan?: number;
 }
 
 export interface ProviderCapabilities {
@@ -148,4 +154,13 @@ export interface DataEngineConfig {
   maxDocumentKb: number;
   maxNestingDepth: number;
   maxArrayItems: number;
+  /** Vector search limits (providers that store vectors). */
+  vector?: {
+    /** Most candidates an exact search may score (default 10 000). */
+    maxScan?: number;
+    /** Server-side time limit of one search, in ms (default 5 000). */
+    timeoutMs?: number;
+    /** Concurrent searches per process (default 4). */
+    maxConcurrency?: number;
+  };
 }

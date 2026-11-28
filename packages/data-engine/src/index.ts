@@ -25,7 +25,38 @@ export {
   TenantNotProvisionedError,
   QueryValidationError,
   DocumentTooLargeError,
+  VectorNotSupportedError,
+  VectorDimensionError,
+  VectorInvalidError,
+  VectorScanLimitError,
+  VectorSearchBusyError,
+  VectorSearchTimeoutError,
 } from './interfaces/data-engine';
+
+// ── Vectors ────────────────────────────────────────────────
+
+export type {
+  VectorWrite,
+  VectorWriteOptions,
+  VectorWriteResult,
+  VectorInfo,
+  VectorSearchQuery,
+  VectorHit,
+  VectorSearchResult,
+  VectorStats,
+} from './interfaces/vector';
+
+export {
+  MAX_VECTOR_DIMENSIONS,
+  validateVector,
+  normalize as normalizeVector,
+  prepareVector,
+  encodeFloat32,
+  decodeFloat32,
+  dot as vectorDot,
+  cosineDistance,
+  TopK,
+} from './vector/vector-math';
 
 // ── Types ──────────────────────────────────────────────────
 

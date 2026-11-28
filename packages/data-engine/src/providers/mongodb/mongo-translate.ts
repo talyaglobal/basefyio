@@ -259,7 +259,8 @@ function stageToMongo(
 
 /**
  * Translate a validated EntityAggregation into a native MongoDB pipeline,
- * prefixed with the tenant/entity scope $match (callers cannot override it).
+ * prefixed with the tenant/entity scope $match (callers cannot override it)
+ * and a $unset of the stored vectors.
  */
 export function aggregationToMongoPipeline(
   aggregation: EntityAggregation,
@@ -274,6 +275,8 @@ export function aggregationToMongoPipeline(
         'envelope.status': { $ne: 'deleted' },
       },
     },
+    // Stored vectors never travel through a pipeline (size, and they are not user data).
+    { $unset: 'vectors' },
   ];
   for (const stage of aggregation.pipeline) {
     pipeline.push(stageToMongo(stage, ctx));

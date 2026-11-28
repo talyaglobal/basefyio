@@ -23,6 +23,16 @@ import type {
   QueryExplainResult,
 } from './query';
 
+import type {
+  VectorInfo,
+  VectorSearchQuery,
+  VectorSearchResult,
+  VectorStats,
+  VectorWrite,
+  VectorWriteOptions,
+  VectorWriteResult,
+} from './vector';
+
 // ── Entity Collection ──────────────────────────────────────
 
 /**
@@ -66,6 +76,32 @@ export interface EntityCollection {
 
   /** Ensure indexes exist for this entity's collection. Idempotent. */
   ensureIndexes(defs: IndexDef[]): Promise<void>;
+
+  // ── Vectors (optional: providers without them answer 501 at the API) ──
+  // Every vector method is pinned to the same project + entity scope as the
+  // document methods. A vector write never changes the document's version,
+  // event sequence or updatedAt: the vector is not part of the record's ETag.
+
+  /** Store the record's vector (validated, unit normalised). DocumentNotFoundError when no live record has this id. */
+  setVector?(id: string, vector: number[], opts?: VectorWriteOptions): Promise<VectorInfo>;
+
+  /** Store up to 100 vectors; ids without a live record are reported as missing. */
+  setVectors?(items: VectorWrite[], opts?: VectorWriteOptions): Promise<VectorWriteResult>;
+
+  /** The stored vector, or null when the live record has none. DocumentNotFoundError when there is no live record. */
+  getVector?(id: string): Promise<VectorInfo | null>;
+
+  /** Remove the record's vector. Returns false when it had none. DocumentNotFoundError when there is no live record. */
+  deleteVector?(id: string): Promise<boolean>;
+
+  /** Remove every vector of this entity (soft-deleted records included). Returns how many records lost one. */
+  clearVectors?(): Promise<number>;
+
+  /** Nearest records to a query vector among the entity's live records, after the filter. */
+  vectorSearch?(q: VectorSearchQuery): Promise<VectorSearchResult>;
+
+  /** How many live records carry a vector, out of how many. */
+  vectorStats?(): Promise<VectorStats>;
 }
 
 // ── Data Engine (top-level interface) ──────────────────────
@@ -198,5 +234,57 @@ export class DocumentTooLargeError extends DataEngineError {
       413,
     );
     this.name = 'DocumentTooLargeError';
+  }
+}
+
+// ── Vector errors ──────────────────────────────────────────
+
+export class VectorNotSupportedError extends DataEngineError {
+  constructor() {
+    super('This data engine provider does not store vectors', 'VECTOR_NOT_SUPPORTED', 501);
+    this.name = 'VectorNotSupportedError';
+  }
+}
+
+export class VectorDimensionError extends DataEngineError {
+  constructor(message: string) {
+    super(message, 'VECTOR_DIMENSION_MISMATCH', 400);
+    this.name = 'VectorDimensionError';
+  }
+}
+
+export class VectorInvalidError extends DataEngineError {
+  constructor(message: string) {
+    super(message, 'VECTOR_INVALID', 400);
+    this.name = 'VectorInvalidError';
+  }
+}
+
+export class VectorScanLimitError extends DataEngineError {
+  constructor(public readonly candidates: number, public readonly maxScan: number) {
+    super(
+      `The search would compare more than ${maxScan} vectors. Narrow it with a filter so that at most ${maxScan} records are candidates.`,
+      'VECTOR_SCAN_LIMIT',
+      422,
+    );
+    this.name = 'VectorScanLimitError';
+  }
+}
+
+export class VectorSearchBusyError extends DataEngineError {
+  constructor() {
+    super('Too many vector searches are running right now. Retry shortly.', 'VECTOR_SEARCH_BUSY', 429);
+    this.name = 'VectorSearchBusyError';
+  }
+}
+
+export class VectorSearchTimeoutError extends DataEngineError {
+  constructor(timeoutMs: number) {
+    super(
+      `The vector search did not finish within ${timeoutMs} ms. Narrow it with a filter.`,
+      'VECTOR_SEARCH_TIMEOUT',
+      503,
+    );
+    this.name = 'VectorSearchTimeoutError';
   }
 }

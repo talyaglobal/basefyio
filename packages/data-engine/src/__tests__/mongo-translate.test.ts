@@ -172,7 +172,9 @@ describe('aggregationToMongoPipeline', () => {
     const agg = validateAggregation('orders', [{ $limit: 5 }]);
     const { pipeline, reshaped } = aggregationToMongoPipeline(agg, scope);
     expect(pipeline[0]).toEqual(scopeMatch);
-    expect(pipeline[1]).toEqual({ $limit: 5 });
+    // Stored vectors are dropped right after the scope, before any user stage.
+    expect(pipeline[1]).toEqual({ $unset: 'vectors' });
+    expect(pipeline[2]).toEqual({ $limit: 5 });
     expect(reshaped).toBe(false);
   });
 
@@ -181,7 +183,7 @@ describe('aggregationToMongoPipeline', () => {
       { $match: { status: 'active', total: { $gt: 100 } } },
     ]);
     const { pipeline } = aggregationToMongoPipeline(agg, scope);
-    expect(pipeline[1]).toEqual({
+    expect(pipeline[2]).toEqual({
       $match: {
         $and: [
           { 'data.status': { $eq: 'active' } },
@@ -205,7 +207,7 @@ describe('aggregationToMongoPipeline', () => {
     ]);
     const { pipeline, reshaped } = aggregationToMongoPipeline(agg, scope);
     expect(reshaped).toBe(true);
-    expect(pipeline[1]).toEqual({
+    expect(pipeline[2]).toEqual({
       $group: {
         _id: '$data.customer.city',
         orders: { $sum: 1 },
@@ -213,8 +215,8 @@ describe('aggregationToMongoPipeline', () => {
       },
     });
     // Post-group sort addresses the grouped key directly (no data. prefix).
-    expect(pipeline[2]).toEqual({ $sort: { revenue: -1 } });
-    expect(pipeline[3]).toEqual({ $limit: 3 });
+    expect(pipeline[3]).toEqual({ $sort: { revenue: -1 } });
+    expect(pipeline[4]).toEqual({ $limit: 3 });
   });
 
   it('translates composite group keys', () => {
@@ -227,7 +229,7 @@ describe('aggregationToMongoPipeline', () => {
       },
     ]);
     const { pipeline } = aggregationToMongoPipeline(agg, scope);
-    expect(pipeline[1]).toEqual({
+    expect(pipeline[2]).toEqual({
       $group: {
         _id: { city: '$data.customer.city', status: '$data.status' },
         n: { $sum: 1 },
@@ -242,14 +244,14 @@ describe('aggregationToMongoPipeline', () => {
     ]);
     const { pipeline, reshaped } = aggregationToMongoPipeline(agg, scope);
     expect(reshaped).toBe(true);
-    expect(pipeline[1]).toEqual({
+    expect(pipeline[2]).toEqual({
       $project: {
         name: '$data.name',
         city: '$data.customer.city',
         flag: { $literal: 7 },
       },
     });
-    expect(pipeline[2]).toEqual({ $sort: { city: 1 } });
+    expect(pipeline[3]).toEqual({ $sort: { city: 1 } });
   });
 
   it('translates $unwind with array path markers stripped', () => {
@@ -257,7 +259,7 @@ describe('aggregationToMongoPipeline', () => {
       { $unwind: { path: 'items[]', preserveNullAndEmpty: true } },
     ]);
     const { pipeline } = aggregationToMongoPipeline(agg, scope);
-    expect(pipeline[1]).toEqual({
+    expect(pipeline[2]).toEqual({
       $unwind: { path: '$data.items', preserveNullAndEmptyArrays: true },
     });
   });
