@@ -99,13 +99,48 @@ function splitStatements(script) {
     .filter(Boolean);
 }
 
+// A container can start a moment before its network path to Postgres exists (a new pod's
+// network rules, a database that is still starting). Failing on the first refused connection
+// made every new pod crash once and restart. Transient connection errors are retried for
+// MIGRATE_CONNECT_TIMEOUT_MS (default 60 s); anything else (bad password, unknown database)
+// still fails at once, and so does a database that stays unreachable.
+const TRANSIENT_CONNECT_CODES = new Set([
+  'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH', 'ENOTFOUND', 'EAI_AGAIN',
+  '57P03', // the database system is starting up
+]);
+
+function isTransientConnectError(err) {
+  if (TRANSIENT_CONNECT_CODES.has(err?.code)) return true;
+  return /timeout expired|Connection terminated unexpectedly/i.test(String(err?.message ?? ''));
+}
+
+async function connectWithRetry(connectionString) {
+  const budgetMs = Number.parseInt(process.env.MIGRATE_CONNECT_TIMEOUT_MS ?? '', 10);
+  const deadline = Date.now() + (Number.isFinite(budgetMs) && budgetMs >= 0 ? budgetMs : 60_000);
+  let delay = 500;
+  for (let attempt = 1; ; attempt++) {
+    // A pg client cannot reconnect: one per attempt.
+    const client = new pg.Client({ connectionString, connectionTimeoutMillis: 5000 });
+    try {
+      await client.connect();
+      if (attempt > 1) log(`connected to the database on attempt ${attempt}`);
+      return client;
+    } catch (err) {
+      await client.end().catch(() => {});
+      if (!isTransientConnectError(err) || Date.now() + delay > deadline) throw err;
+      log(`database not reachable yet (${err.code || err.message}); retrying in ${delay} ms`);
+      await new Promise((r) => setTimeout(r, delay));
+      delay = Math.min(delay * 2, 3000);
+    }
+  }
+}
+
 async function main() {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) fail('DATABASE_URL is not set');
 
   const { connectionString, schema } = pgConfig(databaseUrl);
-  const client = new pg.Client({ connectionString });
-  await client.connect();
+  const client = await connectWithRetry(connectionString);
   try {
     await client.query('SELECT set_config($1, $2, false)', ['search_path', `"${schema}"`]);
     log(`waiting for migration lock (schema "${schema}")`);
